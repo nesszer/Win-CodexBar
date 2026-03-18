@@ -1,7 +1,9 @@
 //! Main egui application - Modern refined menubar popup
 //! Clean, spacious design with rich visual hierarchy
 
-use eframe::egui::{self, Color32, FontData, FontDefinitions, FontFamily, Rect, RichText, Rounding, Stroke, Vec2};
+use eframe::egui::{
+    self, Color32, FontData, FontDefinitions, FontFamily, Rect, RichText, Rounding, Stroke, Vec2,
+};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -13,19 +15,21 @@ use super::charts::{
 use super::preferences::PreferencesWindow;
 use super::provider_icons::ProviderIconCache;
 use super::theme::{provider_color, status_color, FontSize, Radius, Spacing, Theme};
+use crate::browser::cookies::get_cookie_header;
 use crate::core::{
-    FetchContext, OpenAIDashboardCacheStore, PersonalInfoRedactor, Provider, ProviderId,
-    ProviderFetchResult, RateWindow,
+    FetchContext, OpenAIDashboardCacheStore, PersonalInfoRedactor, Provider, ProviderFetchResult,
+    ProviderId, RateWindow,
 };
 use crate::core::{TokenAccountStore, TokenAccountSupport};
 use crate::cost_scanner::get_daily_cost_history;
 use crate::login::LoginPhase;
 use crate::providers::*;
 use crate::settings::{ApiKeys, ManualCookies, Settings};
-use crate::browser::cookies::get_cookie_header;
 use crate::shortcuts::{parse_shortcut, ShortcutManager};
 use crate::status::{fetch_provider_status, get_status_page_url, StatusLevel};
-use crate::tray::{LoadingPattern, ProviderUsage, SurpriseAnimation, TrayMenuAction, UnifiedTrayManager};
+use crate::tray::{
+    LoadingPattern, ProviderUsage, SurpriseAnimation, TrayMenuAction, UnifiedTrayManager,
+};
 use crate::updater::{self, UpdateInfo, UpdateState};
 
 #[cfg(windows)]
@@ -52,9 +56,7 @@ fn restore_main_window() {
 #[cfg(windows)]
 fn show_main_window_no_focus() {
     use windows::core::w;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, ShowWindow, SW_SHOWNOACTIVATE,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, ShowWindow, SW_SHOWNOACTIVATE};
 
     unsafe {
         if let Ok(hwnd) = FindWindowW(None, w!("CodexBar")) {
@@ -75,7 +77,7 @@ fn restore_main_window() {}
 pub struct ProviderData {
     pub name: String,
     pub display_name: String,
-    pub account: Option<String>,  // Account email for display
+    pub account: Option<String>, // Account email for display
     pub session_percent: Option<f64>,
     pub session_reset: Option<String>,
     pub weekly_percent: Option<f64>,
@@ -125,7 +127,12 @@ impl ProviderData {
         }
     }
 
-    fn from_result(id: ProviderId, result: &ProviderFetchResult, metadata: &crate::core::ProviderMetadata, reset_time_relative: bool) -> Self {
+    fn from_result(
+        id: ProviderId,
+        result: &ProviderFetchResult,
+        metadata: &crate::core::ProviderMetadata,
+        reset_time_relative: bool,
+    ) -> Self {
         let snapshot = &result.usage;
         let (pace_percent, pace_lasts) = calculate_pace(&snapshot.primary);
 
@@ -141,11 +148,7 @@ impl ProviderData {
                 };
                 (None, Some(remaining), Some(percent))
             } else {
-                (
-                    Some(cost.format_used()),
-                    None,
-                    None,
-                )
+                (Some(cost.format_used()), None, None)
             }
         } else {
             (None, None, None)
@@ -154,13 +157,22 @@ impl ProviderData {
         Self {
             name: id.cli_name().to_string(),
             display_name: id.display_name().to_string(),
-            account: snapshot.account_email.clone(),  // Account email if available
+            account: snapshot.account_email.clone(), // Account email if available
             session_percent: Some(snapshot.primary.used_percent),
-            session_reset: snapshot.primary.resets_at.map(|t| format_reset_time(t, reset_time_relative)),
+            session_reset: snapshot
+                .primary
+                .resets_at
+                .map(|t| format_reset_time(t, reset_time_relative)),
             weekly_percent: snapshot.secondary.as_ref().map(|s| s.used_percent),
-            weekly_reset: snapshot.secondary.as_ref().and_then(|s| s.resets_at.map(|t| format_reset_time(t, reset_time_relative))),
+            weekly_reset: snapshot.secondary.as_ref().and_then(|s| {
+                s.resets_at
+                    .map(|t| format_reset_time(t, reset_time_relative))
+            }),
             model_percent: snapshot.model_specific.as_ref().map(|m| m.used_percent),
-            model_name: snapshot.model_specific.as_ref().and_then(|m| m.reset_description.clone()),
+            model_name: snapshot
+                .model_specific
+                .as_ref()
+                .and_then(|m| m.reset_description.clone()),
             plan: snapshot.login_method.clone(),
             error: None,
             dashboard_url: metadata.dashboard_url.map(|s| s.to_string()),
@@ -207,27 +219,39 @@ impl ProviderData {
     /// Get the preferred metric percent based on the MetricPreference setting
     pub fn get_preferred_metric(&self, pref: crate::settings::MetricPreference) -> f64 {
         match pref {
-            crate::settings::MetricPreference::Session => {
-                self.session_percent.unwrap_or(0.0)
-            }
-            crate::settings::MetricPreference::Weekly => {
-                self.weekly_percent.unwrap_or_else(|| self.session_percent.unwrap_or(0.0))
-            }
-            crate::settings::MetricPreference::Model => {
-                self.model_percent.unwrap_or_else(|| self.session_percent.unwrap_or(0.0))
-            }
+            crate::settings::MetricPreference::Session => self.session_percent.unwrap_or(0.0),
+            crate::settings::MetricPreference::Weekly => self
+                .weekly_percent
+                .unwrap_or_else(|| self.session_percent.unwrap_or(0.0)),
+            crate::settings::MetricPreference::Model => self
+                .model_percent
+                .unwrap_or_else(|| self.session_percent.unwrap_or(0.0)),
             crate::settings::MetricPreference::Credits => {
                 // For credits, we show the credits_percent (remaining as percentage of full scale)
-                self.credits_percent.unwrap_or_else(|| self.session_percent.unwrap_or(0.0))
+                self.credits_percent
+                    .unwrap_or_else(|| self.session_percent.unwrap_or(0.0))
             }
             crate::settings::MetricPreference::Average => {
                 // Average of all available metrics
                 let mut sum = 0.0;
                 let mut count = 0;
-                if let Some(v) = self.session_percent { sum += v; count += 1; }
-                if let Some(v) = self.weekly_percent { sum += v; count += 1; }
-                if let Some(v) = self.model_percent { sum += v; count += 1; }
-                if count > 0 { sum / count as f64 } else { 0.0 }
+                if let Some(v) = self.session_percent {
+                    sum += v;
+                    count += 1;
+                }
+                if let Some(v) = self.weekly_percent {
+                    sum += v;
+                    count += 1;
+                }
+                if let Some(v) = self.model_percent {
+                    sum += v;
+                    count += 1;
+                }
+                if count > 0 {
+                    sum / count as f64
+                } else {
+                    0.0
+                }
             }
             crate::settings::MetricPreference::Automatic => {
                 // Automatic: prefer the highest available metric (most concerning)
@@ -325,7 +349,10 @@ fn usage_display_label(display_percent: f64, show_as_used: bool) -> String {
     }
 }
 
-fn load_usage_breakdown_points(provider_id: ProviderId, account_email: Option<&str>) -> Vec<UsageBreakdownPoint> {
+fn load_usage_breakdown_points(
+    provider_id: ProviderId,
+    account_email: Option<&str>,
+) -> Vec<UsageBreakdownPoint> {
     if provider_id != ProviderId::Codex {
         return Vec::new();
     }
@@ -372,7 +399,7 @@ fn random_surprise_delay() -> Duration {
 
 struct SharedState {
     providers: Vec<ProviderData>,
-    selected_provider_idx: usize,  // Index of selected provider in grid
+    selected_provider_idx: usize, // Index of selected provider in grid
     last_refresh: Instant,
     is_refreshing: bool,
     loading_pattern: LoadingPattern,
@@ -413,7 +440,8 @@ impl CodexBarApp {
                 "segoe_symbols".to_owned(),
                 FontData::from_owned(font_data).into(),
             );
-            fonts.families
+            fonts
+                .families
                 .entry(FontFamily::Proportional)
                 .or_default()
                 .push("segoe_symbols".to_owned());
@@ -430,7 +458,7 @@ impl CodexBarApp {
 
         let state = Arc::new(Mutex::new(SharedState {
             providers: placeholders,
-            selected_provider_idx: 0,  // Select first provider by default
+            selected_provider_idx: 0, // Select first provider by default
             last_refresh: Instant::now() - Duration::from_secs(999),
             is_refreshing: false,
             loading_pattern: LoadingPattern::random(),
@@ -499,7 +527,9 @@ impl CodexBarApp {
                     }
                 };
                 rt.block_on(async {
-                    if let Some(update) = updater::check_for_updates_with_channel(update_channel).await {
+                    if let Some(update) =
+                        updater::check_for_updates_with_channel(update_channel).await
+                    {
                         let should_download = {
                             if let Ok(mut s) = state.lock() {
                                 s.update_available = Some(update.clone());
@@ -513,7 +543,8 @@ impl CodexBarApp {
 
                         // Start background download if auto-download is enabled
                         if should_download {
-                            let (progress_tx, mut progress_rx) = tokio::sync::watch::channel(UpdateState::Available);
+                            let (progress_tx, mut progress_rx) =
+                                tokio::sync::watch::channel(UpdateState::Available);
                             let state_clone = Arc::clone(&state);
 
                             // Update state to downloading
@@ -559,9 +590,16 @@ impl CodexBarApp {
                 // Apply custom shortcut from settings if configured
                 if let Some((modifiers, key)) = parse_shortcut(&settings.global_shortcut) {
                     if let Err(e) = sm.set_open_menu_shortcut(modifiers, key) {
-                        tracing::warn!("Failed to set custom shortcut '{}': {}", settings.global_shortcut, e);
+                        tracing::warn!(
+                            "Failed to set custom shortcut '{}': {}",
+                            settings.global_shortcut,
+                            e
+                        );
                     } else {
-                        tracing::info!("Keyboard shortcut registered: {}", settings.global_shortcut);
+                        tracing::info!(
+                            "Keyboard shortcut registered: {}",
+                            settings.global_shortcut
+                        );
                     }
                 } else {
                     tracing::info!("Keyboard shortcut registered: Ctrl+Shift+U (default)");
@@ -714,12 +752,14 @@ impl CodexBarApp {
                     .enumerate()
                     .map(|(idx, &id)| {
                         // Check for active token account first
-                        let active_token = token_accounts.get(&id)
+                        let active_token = token_accounts
+                            .get(&id)
                             .and_then(|data| data.active_account())
                             .map(|account| account.token.clone());
 
                         // Check for environment override from token account (e.g., for Zai/Claude OAuth)
-                        let env_override = active_token.as_ref()
+                        let env_override = active_token
+                            .as_ref()
                             .and_then(|token| TokenAccountSupport::env_override(id, token));
 
                         // Set env override if present - providers will read from env vars
@@ -740,7 +780,8 @@ impl CodexBarApp {
                             Some(TokenAccountSupport::normalized_cookie_header(id, token))
                         } else {
                             // Fallback to manual cookie or browser extraction
-                            let manual_cookie = manual_cookies.get(id.cli_name()).map(|s| s.to_string());
+                            let manual_cookie =
+                                manual_cookies.get(id.cli_name()).map(|s| s.to_string());
                             manual_cookie.or_else(|| {
                                 // Try browser cookie extraction if no manual cookie
                                 id.cookie_domain().and_then(|domain| {
@@ -751,7 +792,9 @@ impl CodexBarApp {
 
                         let api_key = if env_override.is_some() {
                             // If we have env override, extract API key from it
-                            env_override.as_ref().and_then(|env| env.values().next().cloned())
+                            env_override
+                                .as_ref()
+                                .and_then(|env| env.values().next().cloned())
                         } else {
                             api_keys.get(id.cli_name()).map(|s| s.to_string())
                         };
@@ -771,19 +814,26 @@ impl CodexBarApp {
                                 async {
                                     tokio::time::timeout(
                                         std::time::Duration::from_secs(5),
-                                        provider.fetch_usage(&ctx)
-                                    ).await
+                                        provider.fetch_usage(&ctx),
+                                    )
+                                    .await
                                 },
                                 async {
                                     tokio::time::timeout(
                                         std::time::Duration::from_secs(5),
-                                        fetch_provider_status(&provider_name)
-                                    ).await
+                                        fetch_provider_status(&provider_name),
+                                    )
+                                    .await
                                 }
                             );
 
                             let mut result = match usage_result {
-                                Ok(Ok(result)) => ProviderData::from_result(id, &result, &metadata, reset_time_relative),
+                                Ok(Ok(result)) => ProviderData::from_result(
+                                    id,
+                                    &result,
+                                    &metadata,
+                                    reset_time_relative,
+                                ),
                                 Ok(Err(e)) => ProviderData::from_error(id, e.to_string()),
                                 Err(_) => ProviderData::from_error(id, "Timeout".to_string()),
                             };
@@ -794,12 +844,14 @@ impl CodexBarApp {
                             }
 
                             if result.error.is_none() {
-                                result.usage_breakdown = load_usage_breakdown_points(id, result.account.as_deref());
+                                result.usage_breakdown =
+                                    load_usage_breakdown_points(id, result.account.as_deref());
                             }
 
                             let provider_name_lower = provider_name.to_lowercase();
                             if provider_name_lower == "codex" || provider_name_lower == "claude" {
-                                result.cost_history = get_daily_cost_history(&provider_name_lower, 30);
+                                result.cost_history =
+                                    get_daily_cost_history(&provider_name_lower, 30);
                             }
 
                             if let Ok(mut s) = state.lock() {
@@ -863,8 +915,14 @@ fn work_area_rect(ctx: &egui::Context) -> Option<Rect> {
         if ok {
             let pixels_per_point = ctx.pixels_per_point().max(0.1);
             return Some(Rect::from_min_max(
-                egui::pos2(rect.left as f32 / pixels_per_point, rect.top as f32 / pixels_per_point),
-                egui::pos2(rect.right as f32 / pixels_per_point, rect.bottom as f32 / pixels_per_point),
+                egui::pos2(
+                    rect.left as f32 / pixels_per_point,
+                    rect.top as f32 / pixels_per_point,
+                ),
+                egui::pos2(
+                    rect.right as f32 / pixels_per_point,
+                    rect.bottom as f32 / pixels_per_point,
+                ),
             ));
         }
     }
@@ -887,6 +945,7 @@ fn create_provider(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Factory => Box::new(FactoryProvider::new()),
         ProviderId::Zai => Box::new(ZaiProvider::new()),
         ProviderId::Kiro => Box::new(KiroProvider::new()),
+        ProviderId::Kilo => Box::new(KiloProvider::new()),
         ProviderId::VertexAI => Box::new(VertexAIProvider::new()),
         ProviderId::Augment => Box::new(AugmentProvider::new()),
         ProviderId::MiniMax => Box::new(MiniMaxProvider::new()),
@@ -1011,7 +1070,9 @@ impl eframe::App for CodexBarApp {
             if self.settings.refresh_interval_secs == 0 {
                 false
             } else if let Ok(state) = self.state.lock() {
-                !state.is_refreshing && state.last_refresh.elapsed() > Duration::from_secs(self.settings.refresh_interval_secs)
+                !state.is_refreshing
+                    && state.last_refresh.elapsed()
+                        > Duration::from_secs(self.settings.refresh_interval_secs)
             } else {
                 false
             }
@@ -1021,7 +1082,17 @@ impl eframe::App for CodexBarApp {
         }
 
         // Get state
-        let (providers, selected_idx, is_refreshing, loading_pattern, loading_phase, surprise_state, update_info, update_download_state, login_state) = {
+        let (
+            providers,
+            selected_idx,
+            is_refreshing,
+            loading_pattern,
+            loading_phase,
+            surprise_state,
+            update_info,
+            update_download_state,
+            login_state,
+        ) = {
             if let Ok(mut state) = self.state.lock() {
                 if state.is_refreshing {
                     state.loading_phase += 0.05;
@@ -1067,20 +1138,42 @@ impl eframe::App for CodexBarApp {
                     state.login_message.clone(),
                 );
 
-                (state.providers.clone(), state.selected_provider_idx, state.is_refreshing, state.loading_pattern, state.loading_phase, surprise, update, update_download_state, login_state)
+                (
+                    state.providers.clone(),
+                    state.selected_provider_idx,
+                    state.is_refreshing,
+                    state.loading_pattern,
+                    state.loading_phase,
+                    surprise,
+                    update,
+                    update_download_state,
+                    login_state,
+                )
             } else {
-                (Vec::new(), 0, false, LoadingPattern::default(), 0.0, None, None, UpdateState::Idle, (None, LoginPhase::Idle, None))
+                (
+                    Vec::new(),
+                    0,
+                    false,
+                    LoadingPattern::default(),
+                    0.0,
+                    None,
+                    None,
+                    UpdateState::Idle,
+                    (None, LoginPhase::Idle, None),
+                )
             }
         };
 
         let (_login_provider, login_phase, _login_message) = login_state;
         let is_logging_in = _login_provider.is_some() && login_phase != LoginPhase::Idle;
 
-        ctx.request_repaint_after(if is_refreshing || surprise_state.is_some() || is_logging_in {
-            Duration::from_millis(50)
-        } else {
-            Duration::from_millis(200)
-        });
+        ctx.request_repaint_after(
+            if is_refreshing || surprise_state.is_some() || is_logging_in {
+                Duration::from_millis(50)
+            } else {
+                Duration::from_millis(200)
+            },
+        );
 
         // Update tray icon
         if let Some(ref tray) = self.tray_manager {
@@ -1107,11 +1200,12 @@ impl eframe::App for CodexBarApp {
                         let preferred_percent = p.get_preferred_metric(metric_pref);
                         // For credits metric, convert from "remaining" to "used" for consistent tray behavior
                         // Credits are stored as remaining %, but tray expects used % for severity coloring
-                        let used_percent = if metric_pref == crate::settings::MetricPreference::Credits {
-                            100.0 - preferred_percent // Convert remaining to used
-                        } else {
-                            preferred_percent // Already used %
-                        };
+                        let used_percent =
+                            if metric_pref == crate::settings::MetricPreference::Credits {
+                                100.0 - preferred_percent // Convert remaining to used
+                            } else {
+                                preferred_percent // Already used %
+                            };
                         // Weekly percent is always usage-based (not credits)
                         let weekly_percent = p.weekly_percent.unwrap_or(used_percent);
                         ProviderUsage {
@@ -1126,7 +1220,9 @@ impl eframe::App for CodexBarApp {
                     "minimal" => {
                         // Minimal: show only the highest-usage provider's session bar
                         if let Some(p) = provider_usages.iter().max_by(|a, b| {
-                            a.session_percent.partial_cmp(&b.session_percent).unwrap_or(std::cmp::Ordering::Equal)
+                            a.session_percent
+                                .partial_cmp(&b.session_percent)
+                                .unwrap_or(std::cmp::Ordering::Equal)
                         }) {
                             tray.update_usage(p.session_percent, p.weekly_percent, &p.name);
                         }
@@ -1168,7 +1264,9 @@ impl eframe::App for CodexBarApp {
                     TrayMenuAction::Settings => {
                         self.preferences_window.open();
                         // Move main window off-screen so only settings viewport is visible.
-                        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                            -10000.0, -10000.0,
+                        )));
                     }
                     TrayMenuAction::CheckForUpdates => {
                         // Trigger update check in background
@@ -1183,7 +1281,9 @@ impl eframe::App for CodexBarApp {
                                 }
                             };
                             rt.block_on(async {
-                                if let Some(update) = updater::check_for_updates_with_channel(update_channel).await {
+                                if let Some(update) =
+                                    updater::check_for_updates_with_channel(update_channel).await
+                                {
                                     if let Ok(mut s) = state.lock() {
                                         s.update_available = Some(update);
                                         s.update_checked = true;
@@ -1739,11 +1839,11 @@ fn draw_provider_detail_card(
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(16.0); // Right padding
-                        // Email - .subheadline, secondary color (redacted if privacy mode enabled)
+                                            // Email - .subheadline, secondary color (redacted if privacy mode enabled)
                         if let Some(account) = &provider.account {
                             let display_account = PersonalInfoRedactor::redact_email(
                                 Some(account.as_str()),
-                                hide_personal_info
+                                hide_personal_info,
                             );
                             if !display_account.is_empty() {
                                 ui.label(
@@ -1777,7 +1877,7 @@ fn draw_provider_detail_card(
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(16.0); // Right padding
-                        // Plan badge - .footnote, secondary
+                                            // Plan badge - .footnote, secondary
                         if let Some(plan) = &provider.plan {
                             ui.label(
                                 RichText::new(plan)
@@ -1789,7 +1889,9 @@ fn draw_provider_detail_card(
                 });
 
                 // Row 3: Status description (if non-Operational)
-                if provider.status_level != StatusLevel::Operational && provider.status_level != StatusLevel::Unknown {
+                if provider.status_level != StatusLevel::Operational
+                    && provider.status_level != StatusLevel::Unknown
+                {
                     if let Some(ref status_desc) = provider.status_description {
                         ui.add_space(2.0);
                         ui.horizontal(|ui| {
@@ -1813,7 +1915,8 @@ fn draw_provider_detail_card(
         let has_cost = provider.cost_used.is_some();
         let has_usage_breakdown = !provider.usage_breakdown.is_empty();
 
-        if has_metrics || provider.error.is_some() || has_credits || has_cost || has_usage_breakdown {
+        if has_metrics || provider.error.is_some() || has_credits || has_cost || has_usage_breakdown
+        {
             ui.add_space(4.0);
             draw_horizontal_separator(ui, 0.0);
         }
@@ -1834,7 +1937,7 @@ fn draw_provider_detail_card(
                     provider.session_reset.as_deref(),
                     brand_color,
                     content_width,
-                    None,  // No pace for session
+                    None, // No pace for session
                     false,
                 );
             }
@@ -1869,7 +1972,7 @@ fn draw_provider_detail_card(
                     None,
                     brand_color,
                     content_width,
-                    None,  // No pace for model
+                    None, // No pace for model
                     false,
                 );
             }
@@ -1905,21 +2008,27 @@ fn draw_provider_detail_card(
                     RichText::new("Credits")
                         .size(FontSize::BASE)
                         .color(Theme::TEXT_PRIMARY)
-                        .strong()
+                        .strong(),
                 );
 
                 // Progress bar
                 if let Some(credits_pct) = provider.credits_percent {
                     ui.add_space(6.0);
                     let bar_height = 8.0;
-                    let (rect, _) = ui.allocate_exact_size(Vec2::new(bar_width, bar_height), egui::Sense::hover());
+                    let (rect, _) = ui.allocate_exact_size(
+                        Vec2::new(bar_width, bar_height),
+                        egui::Sense::hover(),
+                    );
 
-                    ui.painter().rect_filled(rect, Rounding::same(4.0), Theme::progress_track());
+                    ui.painter()
+                        .rect_filled(rect, Rounding::same(4.0), Theme::progress_track());
 
                     let fill_w = rect.width() * (credits_pct as f32 / 100.0).clamp(0.0, 1.0);
                     if fill_w > 0.0 {
-                        let fill_rect = Rect::from_min_size(rect.min, Vec2::new(fill_w, bar_height));
-                        ui.painter().rect_filled(fill_rect, Rounding::same(4.0), brand_color);
+                        let fill_rect =
+                            Rect::from_min_size(rect.min, Vec2::new(fill_w, bar_height));
+                        ui.painter()
+                            .rect_filled(fill_rect, Rounding::same(4.0), brand_color);
                     }
                 }
 
@@ -1929,13 +2038,13 @@ fn draw_provider_detail_card(
                     ui.label(
                         RichText::new(format!("{:.2} left", credits))
                             .size(FontSize::XS)
-                            .color(Theme::TEXT_PRIMARY)
+                            .color(Theme::TEXT_PRIMARY),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             RichText::new("1K tokens")
                                 .size(FontSize::XS)
-                                .color(Theme::TEXT_SECONDARY)
+                                .color(Theme::TEXT_SECONDARY),
                         );
                     });
                 });
@@ -1951,7 +2060,8 @@ fn draw_provider_detail_card(
                 // Credits history chart
                 if !provider.credits_history.is_empty() {
                     ui.add_space(8.0);
-                    let chart_points: Vec<ChartPoint> = provider.credits_history
+                    let chart_points: Vec<ChartPoint> = provider
+                        .credits_history
                         .iter()
                         .map(|(date, value)| ChartPoint::new(date.clone(), *value))
                         .collect();
@@ -1985,7 +2095,8 @@ fn draw_provider_detail_card(
         // ═══════════════════════════════════════════════════════════════════
         // COST SECTION - macOS TokenUsageSection style
         // ═══════════════════════════════════════════════════════════════════
-        if show_credits_extra && (provider.cost_used.is_some() || !provider.cost_history.is_empty()) {
+        if show_credits_extra && (provider.cost_used.is_some() || !provider.cost_history.is_empty())
+        {
             if has_metrics || has_credits || has_usage_breakdown {
                 draw_horizontal_separator(ui, 0.0);
             }
@@ -1996,7 +2107,7 @@ fn draw_provider_detail_card(
                 RichText::new("Cost")
                     .size(FontSize::BASE)
                     .color(Theme::TEXT_PRIMARY)
-                    .strong()
+                    .strong(),
             );
 
             ui.add_space(6.0);
@@ -2009,25 +2120,26 @@ fn draw_provider_detail_card(
                 ui.label(
                     RichText::new(format!("Today: ${:.2}", today_cost))
                         .size(FontSize::XS)
-                        .color(Theme::TEXT_PRIMARY)
+                        .color(Theme::TEXT_PRIMARY),
                 );
                 ui.label(
                     RichText::new(format!("Last 30 days: ${:.2}", total_30d))
                         .size(FontSize::XS)
-                        .color(Theme::TEXT_PRIMARY)
+                        .color(Theme::TEXT_PRIMARY),
                 );
             } else if let Some(cost_used) = &provider.cost_used {
                 ui.label(
                     RichText::new(cost_used)
                         .size(FontSize::XS)
-                        .color(Theme::TEXT_PRIMARY)
+                        .color(Theme::TEXT_PRIMARY),
                 );
             }
 
             // Cost history chart
             if !provider.cost_history.is_empty() {
                 ui.add_space(8.0);
-                let chart_points: Vec<ChartPoint> = provider.cost_history
+                let chart_points: Vec<ChartPoint> = provider
+                    .cost_history
                     .iter()
                     .map(|(date, cost)| ChartPoint::new(date.clone(), *cost))
                     .collect();
@@ -2057,7 +2169,7 @@ fn draw_provider_detail_card(
 
             // Switch Account link - only show for providers that support token accounts
             if TokenAccountSupport::is_supported(
-                ProviderId::from_cli_name(&provider.name).unwrap_or(ProviderId::Claude)
+                ProviderId::from_cli_name(&provider.name).unwrap_or(ProviderId::Claude),
             ) {
                 if draw_menu_item(ui, "->", "Switch Account...") {
                     account_switch_requested = Some(provider.name.clone());
@@ -2093,7 +2205,8 @@ fn draw_provider_detail_card(
         }
 
         (refresh_requested, account_switch_requested)
-    }).inner
+    })
+    .inner
 }
 
 /// Draw a horizontal separator with left padding
@@ -2114,15 +2227,14 @@ fn draw_horizontal_separator(ui: &mut egui::Ui, left_padding: f32) {
 fn draw_text_menu_item(ui: &mut egui::Ui, label: &str) -> bool {
     let available_width = ui.available_width();
 
-    let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(available_width, 24.0),
-        egui::Sense::click(),
-    );
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(available_width, 24.0), egui::Sense::click());
 
     let is_hovered = response.hovered();
 
     if is_hovered {
-        ui.painter().rect_filled(rect, Rounding::same(Radius::SM), Theme::menu_hover());
+        ui.painter()
+            .rect_filled(rect, Rounding::same(Radius::SM), Theme::menu_hover());
     }
 
     let text_color = if is_hovered {
@@ -2180,13 +2292,15 @@ fn draw_metric_row(
     let (rect, _) = ui.allocate_exact_size(Vec2::new(bar_width, bar_height), egui::Sense::hover());
 
     // Track
-    ui.painter().rect_filled(rect, Rounding::same(4.0), Theme::progress_track());
+    ui.painter()
+        .rect_filled(rect, Rounding::same(4.0), Theme::progress_track());
 
     // Fill
     let fill_w = rect.width() * (display_percent as f32 / 100.0).clamp(0.0, 1.0);
     if fill_w > 0.0 {
         let fill_rect = Rect::from_min_size(rect.min, Vec2::new(fill_w, bar_height));
-        ui.painter().rect_filled(fill_rect, Rounding::same(4.0), color);
+        ui.painter()
+            .rect_filled(fill_rect, Rounding::same(4.0), color);
     }
 
     // Pace marker - thin vertical line showing expected usage position
@@ -2202,7 +2316,8 @@ fn draw_metric_row(
             egui::pos2(marker_x - marker_width / 2.0, rect.min.y),
             Vec2::new(marker_width, bar_height),
         );
-        ui.painter().rect_filled(marker_rect, Rounding::same(1.0), marker_color);
+        ui.painter()
+            .rect_filled(marker_rect, Rounding::same(1.0), marker_color);
     }
 
     ui.add_space(6.0);
@@ -2247,14 +2362,15 @@ fn draw_menu_item(ui: &mut egui::Ui, icon: &str, label: &str) -> bool {
     let available_width = ui.available_width();
 
     let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(available_width, 32.0),  // Slightly larger height
+        Vec2::new(available_width, 32.0), // Slightly larger height
         egui::Sense::click(),
     );
 
     let is_hovered = response.hovered();
 
     if is_hovered {
-        ui.painter().rect_filled(rect, Rounding::same(Radius::SM), Theme::menu_hover());
+        ui.painter()
+            .rect_filled(rect, Rounding::same(Radius::SM), Theme::menu_hover());
     }
 
     let text_color = if is_hovered {
@@ -2306,7 +2422,7 @@ pub fn run() -> anyhow::Result<()> {
             .with_transparent(false)
             .with_always_on_top()
             .with_title("CodexBar"),
-        persist_window: false,  // Don't persist window state
+        persist_window: false, // Don't persist window state
         ..Default::default()
     };
 

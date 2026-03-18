@@ -3,11 +3,11 @@
 use clap::Args;
 use serde::Serialize;
 
-use crate::core::{FetchContext, ProviderId, Provider, ProviderFetchResult, SourceMode};
+use crate::core::{FetchContext, Provider, ProviderFetchResult, ProviderId, SourceMode};
 use crate::providers::{
     AmpProvider, AntigravityProvider, AugmentProvider, ClaudeProvider, CodexProvider,
     CopilotProvider, CursorProvider, FactoryProvider, GeminiProvider, JetBrainsProvider,
-    KimiProvider, KimiK2Provider, KiroProvider, MiniMaxProvider, OllamaProvider,
+    KiloProvider, KimiK2Provider, KimiProvider, KiroProvider, MiniMaxProvider, OllamaProvider,
     OpenCodeProvider, OpenRouterProvider, SyntheticProvider, VertexAIProvider, WarpProvider,
     ZaiProvider,
 };
@@ -16,7 +16,7 @@ use crate::status::{fetch_provider_status, ProviderStatus as StatusInfo, StatusL
 /// Arguments for the usage command
 #[derive(Args, Debug, Default)]
 pub struct UsageArgs {
-    /// Provider to query (codex, claude, cursor, gemini, copilot, zai, antigravity, factory, all, both)
+    /// Provider to query (codex, claude, cursor, gemini, copilot, zai, antigravity, factory, kilo, all, both)
     #[arg(short, long)]
     pub provider: Option<String>,
 
@@ -98,7 +98,10 @@ impl ProviderSelection {
                 if let Some(id) = ProviderId::from_cli_name(name) {
                     Ok(ProviderSelection::Single(id))
                 } else {
-                    anyhow::bail!("Unknown provider: '{}'. Use --help to see available providers.", name)
+                    anyhow::bail!(
+                        "Unknown provider: '{}'. Use --help to see available providers.",
+                        name
+                    )
                 }
             }
             None => Ok(ProviderSelection::Single(ProviderId::Claude)), // Default to Claude
@@ -144,6 +147,7 @@ fn create_provider(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Factory => Box::new(FactoryProvider::new()),
         ProviderId::Zai => Box::new(ZaiProvider::new()),
         ProviderId::Kiro => Box::new(KiroProvider::new()),
+        ProviderId::Kilo => Box::new(KiloProvider::new()),
         ProviderId::VertexAI => Box::new(VertexAIProvider::new()),
         ProviderId::Augment => Box::new(AugmentProvider::new()),
         ProviderId::MiniMax => Box::new(MiniMaxProvider::new()),
@@ -211,7 +215,12 @@ pub async fn run(args: UsageArgs) -> anyhow::Result<()> {
                 };
 
                 if format == OutputFormat::Text {
-                    text_sections.push(render_text_with_status(provider_id, &result, status.as_ref(), use_color));
+                    text_sections.push(render_text_with_status(
+                        provider_id,
+                        &result,
+                        status.as_ref(),
+                        use_color,
+                    ));
                 } else {
                     let mut json_result = serde_json::json!({
                         "provider": provider_id.cli_name(),
@@ -300,9 +309,19 @@ pub fn render_text_with_status(
     };
 
     let header = if use_color {
-        format!("\x1b[1m{}\x1b[0m ({}){}", provider.display_name(), result.source_label, status_indicator)
+        format!(
+            "\x1b[1m{}\x1b[0m ({}){}",
+            provider.display_name(),
+            result.source_label,
+            status_indicator
+        )
     } else {
-        format!("{} ({}){}", provider.display_name(), result.source_label, status_indicator)
+        format!(
+            "{} ({}){}",
+            provider.display_name(),
+            result.source_label,
+            status_indicator
+        )
     };
     lines.push(header);
 
@@ -358,7 +377,12 @@ pub fn render_text_with_status(
     // Cost info
     if let Some(ref cost) = result.cost {
         let cost_line = if let Some(limit) = cost.format_limit() {
-            format!("  Cost:    {} / {} ({})", cost.format_used(), limit, cost.period)
+            format!(
+                "  Cost:    {} / {} ({})",
+                cost.format_used(),
+                limit,
+                cost.period
+            )
         } else {
             format!("  Cost:    {} ({})", cost.format_used(), cost.period)
         };
@@ -369,11 +393,7 @@ pub fn render_text_with_status(
 }
 
 /// Render usage as text (backwards compatible version)
-pub fn render_text(
-    provider: ProviderId,
-    result: &ProviderFetchResult,
-    use_color: bool,
-) -> String {
+pub fn render_text(provider: ProviderId, result: &ProviderFetchResult, use_color: bool) -> String {
     render_text_with_status(provider, result, None, use_color)
 }
 

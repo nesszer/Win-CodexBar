@@ -266,6 +266,7 @@ pub fn provider_icon(name: &str) -> &'static str {
         "factory" | "droid" => "◎",
         "zai" | "z.ai" => "Z",
         "kiro" => "K",
+        "kilo" | "kilo-ai" => "K",
         "vertexai" | "vertex ai" => "△",
         "augment" => "A",
         "minimax" => "M",
@@ -282,24 +283,25 @@ pub fn provider_icon(name: &str) -> &'static str {
 /// Provider brand colors - matching original CodexBar
 pub fn provider_color(name: &str) -> Color32 {
     match name.to_lowercase().as_str() {
-        "claude" => Color32::from_rgb(204, 124, 94),        // #CC7C5E - Warm terracotta
-        "codex" => Color32::from_rgb(73, 163, 176),         // #49A3B0 - Teal
-        "gemini" => Color32::from_rgb(171, 135, 234),       // #AB87EA - Purple
-        "cursor" => Color32::from_rgb(0, 191, 165),         // #00BFA5 - Teal green
-        "copilot" => Color32::from_rgb(168, 85, 247),       // #A855F7 - Vibrant purple
+        "claude" => Color32::from_rgb(204, 124, 94), // #CC7C5E - Warm terracotta
+        "codex" => Color32::from_rgb(73, 163, 176),  // #49A3B0 - Teal
+        "gemini" => Color32::from_rgb(171, 135, 234), // #AB87EA - Purple
+        "cursor" => Color32::from_rgb(0, 191, 165),  // #00BFA5 - Teal green
+        "copilot" => Color32::from_rgb(168, 85, 247), // #A855F7 - Vibrant purple
         "jetbrains" | "jetbrains ai" => Color32::from_rgb(255, 51, 153), // #FF3399 - Hot pink
-        "antigravity" => Color32::from_rgb(96, 186, 126),   // #60BA7E - Soft green
-        "augment" => Color32::from_rgb(99, 102, 241),       // #6366F1 - Indigo
-        "amp" => Color32::from_rgb(220, 38, 38),            // #DC2626 - Red
+        "antigravity" => Color32::from_rgb(96, 186, 126), // #60BA7E - Soft green
+        "augment" => Color32::from_rgb(99, 102, 241), // #6366F1 - Indigo
+        "amp" => Color32::from_rgb(220, 38, 38),     // #DC2626 - Red
         "factory" | "droid" => Color32::from_rgb(255, 107, 53), // #FF6B35 - Orange
-        "kimi" => Color32::from_rgb(254, 96, 60),           // #FE603C - Coral
+        "kimi" => Color32::from_rgb(254, 96, 60),    // #FE603C - Coral
         "kimik2" | "kimi k2" => Color32::from_rgb(76, 0, 255), // #4C00FF - Electric blue
-        "kiro" => Color32::from_rgb(255, 153, 0),           // #FF9900 - Amber
-        "opencode" => Color32::from_rgb(59, 130, 246),      // #3B82F6 - Blue
-        "minimax" => Color32::from_rgb(254, 96, 60),        // #FE603C - Coral (same as Kimi)
+        "kiro" => Color32::from_rgb(255, 153, 0),    // #FF9900 - Amber
+        "kilo" | "kilo-ai" => Color32::from_rgb(242, 112, 39), // #F27027 - Kilo orange
+        "opencode" => Color32::from_rgb(59, 130, 246), // #3B82F6 - Blue
+        "minimax" => Color32::from_rgb(254, 96, 60), // #FE603C - Coral (same as Kimi)
         "vertexai" | "vertex ai" => Color32::from_rgb(66, 133, 244), // #4285F4 - Google blue
-        "zai" | "z.ai" => Color32::from_rgb(232, 90, 106),  // #E85A6A - Rose
-        "synthetic" => Color32::from_rgb(20, 20, 20),       // #141414 - Near black
+        "zai" | "z.ai" => Color32::from_rgb(232, 90, 106), // #E85A6A - Rose
+        "synthetic" => Color32::from_rgb(20, 20, 20), // #141414 - Near black
         _ => Theme::ACCENT_PRIMARY,
     }
 }

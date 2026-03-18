@@ -402,7 +402,8 @@ impl Settings {
 
     /// Set the metric preference for a provider
     pub fn set_provider_metric(&mut self, id: ProviderId, metric: MetricPreference) {
-        self.provider_metrics.insert(id.cli_name().to_string(), metric);
+        self.provider_metrics
+            .insert(id.cli_name().to_string(), metric);
     }
 }
 
@@ -424,12 +425,30 @@ pub struct RefreshIntervalOption {
 /// Get available refresh interval options
 pub fn get_refresh_interval_options() -> Vec<RefreshIntervalOption> {
     vec![
-        RefreshIntervalOption { value: 60, label: "1 minute".to_string() },
-        RefreshIntervalOption { value: 120, label: "2 minutes".to_string() },
-        RefreshIntervalOption { value: 300, label: "5 minutes".to_string() },
-        RefreshIntervalOption { value: 600, label: "10 minutes".to_string() },
-        RefreshIntervalOption { value: 900, label: "15 minutes".to_string() },
-        RefreshIntervalOption { value: 1800, label: "30 minutes".to_string() },
+        RefreshIntervalOption {
+            value: 60,
+            label: "1 minute".to_string(),
+        },
+        RefreshIntervalOption {
+            value: 120,
+            label: "2 minutes".to_string(),
+        },
+        RefreshIntervalOption {
+            value: 300,
+            label: "5 minutes".to_string(),
+        },
+        RefreshIntervalOption {
+            value: 600,
+            label: "10 minutes".to_string(),
+        },
+        RefreshIntervalOption {
+            value: 900,
+            label: "15 minutes".to_string(),
+        },
+        RefreshIntervalOption {
+            value: 1800,
+            label: "30 minutes".to_string(),
+        },
     ]
 }
 
@@ -484,7 +503,9 @@ impl ManualCookies {
 
     /// Get cookie for a provider
     pub fn get(&self, provider_id: &str) -> Option<&str> {
-        self.cookies.get(provider_id).map(|e| e.cookie_header.as_str())
+        self.cookies
+            .get(provider_id)
+            .map(|e| e.cookie_header.as_str())
     }
 
     /// Set cookie for a provider
@@ -608,7 +629,10 @@ impl ApiKeys {
 
     /// Check if a provider has an API key configured
     pub fn has_key(&self, provider_id: &str) -> bool {
-        self.keys.get(provider_id).map(|e| !e.api_key.is_empty()).unwrap_or(false)
+        self.keys
+            .get(provider_id)
+            .map(|e| !e.api_key.is_empty())
+            .unwrap_or(false)
     }
 
     /// Get all saved API keys for UI display (with masked values)
@@ -724,6 +748,15 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             config_file_path: None,
             dashboard_url: Some("https://openrouter.ai/settings/credits"),
         },
+        ProviderConfigInfo {
+            id: ProviderId::Kilo,
+            name: "Kilo",
+            requires_api_key: true,
+            api_key_env_var: Some("KILO_API_KEY"),
+            api_key_help: Some("Set KILO_API_KEY or run `kilo login` to populate ~/.local/share/kilo/auth.json"),
+            config_file_path: Some("~/.local/share/kilo/auth.json"),
+            dashboard_url: Some("https://app.kilo.ai/account/usage"),
+        },
     ]
 }
 
@@ -780,7 +813,7 @@ mod tests {
     fn test_settings_get_all_providers_status() {
         let settings = Settings::default();
         let status = settings.get_all_providers_status();
-        assert_eq!(status.len(), 21); // All 21 providers
+        assert_eq!(status.len(), 22); // All providers
 
         let claude_status = status.iter().find(|s| s.id == "claude").unwrap();
         assert_eq!(claude_status.name, "Claude");

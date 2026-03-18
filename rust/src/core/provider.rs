@@ -22,6 +22,7 @@ pub enum ProviderId {
     Zai,
     MiniMax,
     Kiro,
+    Kilo,
     VertexAI,
     Augment,
     OpenCode,
@@ -49,6 +50,7 @@ impl ProviderId {
             ProviderId::Zai,
             ProviderId::MiniMax,
             ProviderId::Kiro,
+            ProviderId::Kilo,
             ProviderId::VertexAI,
             ProviderId::Augment,
             ProviderId::OpenCode,
@@ -76,6 +78,7 @@ impl ProviderId {
             ProviderId::Zai => "zai",
             ProviderId::MiniMax => "minimax",
             ProviderId::Kiro => "kiro",
+            ProviderId::Kilo => "kilo",
             ProviderId::VertexAI => "vertexai",
             ProviderId::Augment => "augment",
             ProviderId::OpenCode => "opencode",
@@ -103,6 +106,7 @@ impl ProviderId {
             ProviderId::Zai => "z.ai",
             ProviderId::MiniMax => "MiniMax",
             ProviderId::Kiro => "Kiro",
+            ProviderId::Kilo => "Kilo",
             ProviderId::VertexAI => "Vertex AI",
             ProviderId::Augment => "Augment",
             ProviderId::OpenCode => "OpenCode",
@@ -128,6 +132,7 @@ impl ProviderId {
             ProviderId::Codex => Some("chatgpt.com"),
             ProviderId::Gemini => Some("aistudio.google.com"),
             ProviderId::Kiro => Some("kiro.dev"),
+            ProviderId::Kilo => None,
             ProviderId::Kimi => Some("kimi.moonshot.cn"),
             ProviderId::KimiK2 => Some("platform.moonshot.cn"),
             ProviderId::MiniMax => Some("platform.minimaxi.com"),
@@ -144,6 +149,7 @@ impl ProviderId {
             ProviderId::Synthetic => None,
             ProviderId::Warp => None,
             ProviderId::OpenRouter => None,
+            ProviderId::Kilo => None,
         }
     }
 
@@ -160,6 +166,7 @@ impl ProviderId {
             "zai" | "z.ai" | "zed" => Some(ProviderId::Zai),
             "minimax" => Some(ProviderId::MiniMax),
             "kiro" | "aws" => Some(ProviderId::Kiro),
+            "kilo" | "kilo-ai" => Some(ProviderId::Kilo),
             "vertexai" | "vertex" => Some(ProviderId::VertexAI),
             "augment" => Some(ProviderId::Augment),
             "opencode" => Some(ProviderId::OpenCode),
@@ -353,7 +360,9 @@ impl ProviderRegistry {
         let providers = self.providers.read().unwrap();
         // We need to clone here, but since Provider is not Clone, we'll return None for now
         // In practice, we'll use Arc<dyn Provider> instead
-        providers.get(&id).map(|_| todo!("Use Arc<dyn Provider> instead"))
+        providers
+            .get(&id)
+            .map(|_| todo!("Use Arc<dyn Provider> instead"))
     }
 
     /// Get all registered provider IDs
@@ -387,6 +396,7 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("github", ProviderId::Copilot);
     map.insert("zed", ProviderId::Zai);
     map.insert("aws", ProviderId::Kiro);
+    map.insert("kilo-ai", ProviderId::Kilo);
     map.insert("vertex", ProviderId::VertexAI);
     map.insert("sourcegraph", ProviderId::Amp);
     map.insert("warp-ai", ProviderId::Warp);
@@ -402,7 +412,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 21); // 18 + 3 new providers (Warp, Ollama, OpenRouter)
+        assert_eq!(all.len(), 22); // 18 + Warp/Ollama/OpenRouter/Kilo
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -429,13 +439,27 @@ mod tests {
 
     #[test]
     fn test_provider_id_from_cli_name() {
-        assert_eq!(ProviderId::from_cli_name("claude"), Some(ProviderId::Claude));
-        assert_eq!(ProviderId::from_cli_name("anthropic"), Some(ProviderId::Claude));
-        assert_eq!(ProviderId::from_cli_name("CLAUDE"), Some(ProviderId::Claude));
+        assert_eq!(
+            ProviderId::from_cli_name("claude"),
+            Some(ProviderId::Claude)
+        );
+        assert_eq!(
+            ProviderId::from_cli_name("anthropic"),
+            Some(ProviderId::Claude)
+        );
+        assert_eq!(
+            ProviderId::from_cli_name("CLAUDE"),
+            Some(ProviderId::Claude)
+        );
         assert_eq!(ProviderId::from_cli_name("codex"), Some(ProviderId::Codex));
         assert_eq!(ProviderId::from_cli_name("openai"), Some(ProviderId::Codex));
-        assert_eq!(ProviderId::from_cli_name("factory"), Some(ProviderId::Factory));
+        assert_eq!(
+            ProviderId::from_cli_name("factory"),
+            Some(ProviderId::Factory)
+        );
         assert_eq!(ProviderId::from_cli_name("zed"), Some(ProviderId::Zai));
+        assert_eq!(ProviderId::from_cli_name("kilo"), Some(ProviderId::Kilo));
+        assert_eq!(ProviderId::from_cli_name("kilo-ai"), Some(ProviderId::Kilo));
         assert_eq!(ProviderId::from_cli_name("unknown"), None);
     }
 
@@ -482,7 +506,10 @@ mod tests {
         assert_eq!(ProviderId::Cursor.cookie_domain(), Some("cursor.com"));
         assert_eq!(ProviderId::Factory.cookie_domain(), Some("app.factory.ai"));
         assert_eq!(ProviderId::Codex.cookie_domain(), Some("chatgpt.com"));
-        assert_eq!(ProviderId::Gemini.cookie_domain(), Some("aistudio.google.com"));
+        assert_eq!(
+            ProviderId::Gemini.cookie_domain(),
+            Some("aistudio.google.com")
+        );
         assert_eq!(ProviderId::Kiro.cookie_domain(), Some("kiro.dev"));
         assert_eq!(ProviderId::Kimi.cookie_domain(), Some("kimi.moonshot.cn"));
         assert_eq!(ProviderId::OpenCode.cookie_domain(), Some("opencode.ai"));
@@ -492,5 +519,6 @@ mod tests {
         assert_eq!(ProviderId::Zai.cookie_domain(), None);
         assert_eq!(ProviderId::VertexAI.cookie_domain(), None);
         assert_eq!(ProviderId::JetBrains.cookie_domain(), None);
+        assert_eq!(ProviderId::Kilo.cookie_domain(), None);
     }
 }

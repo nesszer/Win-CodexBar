@@ -85,27 +85,28 @@ impl WeeklyIndicatorColors {
     /// Get the brand color for a provider
     fn provider_color(provider: ProviderId) -> (u8, u8, u8, u8) {
         match provider {
-            ProviderId::Codex => (0, 200, 83, 255),      // OpenAI green
-            ProviderId::Claude => (217, 119, 87, 255),   // Claude terracotta
-            ProviderId::Cursor => (59, 130, 246, 255),   // Cursor blue
-            ProviderId::Factory => (139, 92, 246, 255),  // Factory purple
-            ProviderId::Gemini => (66, 133, 244, 255),   // Google blue
+            ProviderId::Codex => (0, 200, 83, 255),     // OpenAI green
+            ProviderId::Claude => (217, 119, 87, 255),  // Claude terracotta
+            ProviderId::Cursor => (59, 130, 246, 255),  // Cursor blue
+            ProviderId::Factory => (139, 92, 246, 255), // Factory purple
+            ProviderId::Gemini => (66, 133, 244, 255),  // Google blue
             ProviderId::Antigravity => (156, 39, 176, 255), // Purple
-            ProviderId::Copilot => (36, 41, 47, 255),    // GitHub dark
-            ProviderId::Zai => (255, 107, 0, 255),       // Zai orange
-            ProviderId::MiniMax => (255, 193, 7, 255),   // Yellow
-            ProviderId::Kiro => (255, 153, 0, 255),      // AWS orange
+            ProviderId::Copilot => (36, 41, 47, 255),   // GitHub dark
+            ProviderId::Zai => (255, 107, 0, 255),      // Zai orange
+            ProviderId::MiniMax => (255, 193, 7, 255),  // Yellow
+            ProviderId::Kiro => (255, 153, 0, 255),     // AWS orange
             ProviderId::VertexAI => (66, 133, 244, 255), // Google blue
-            ProviderId::Augment => (46, 125, 50, 255),   // Green
+            ProviderId::Augment => (46, 125, 50, 255),  // Green
             ProviderId::OpenCode => (99, 102, 241, 255), // Indigo
-            ProviderId::Kimi => (255, 87, 34, 255),      // Deep orange
-            ProviderId::KimiK2 => (255, 87, 34, 255),    // Deep orange
-            ProviderId::Amp => (233, 30, 99, 255),       // Pink
+            ProviderId::Kimi => (255, 87, 34, 255),     // Deep orange
+            ProviderId::KimiK2 => (255, 87, 34, 255),   // Deep orange
+            ProviderId::Amp => (233, 30, 99, 255),      // Pink
             ProviderId::Synthetic => (158, 158, 158, 255), // Gray
-            ProviderId::JetBrains => (255, 128, 0, 255),  // JetBrains orange
-            ProviderId::Warp => (1, 217, 166, 255),       // Warp teal
-            ProviderId::Ollama => (255, 255, 255, 255),    // Ollama white
+            ProviderId::JetBrains => (255, 128, 0, 255), // JetBrains orange
+            ProviderId::Warp => (1, 217, 166, 255),     // Warp teal
+            ProviderId::Ollama => (255, 255, 255, 255), // Ollama white
             ProviderId::OpenRouter => (110, 65, 226, 255), // OpenRouter purple
+            ProviderId::Kilo => (242, 112, 39, 255),    // Kilo orange
         }
     }
 
@@ -234,8 +235,7 @@ mod tests {
         let config = config.with_selected(true);
         assert!(!config.should_draw());
 
-        let config = WeeklyIndicatorConfig::new(ProviderId::Claude, 50.0)
-            .with_visibility(false);
+        let config = WeeklyIndicatorConfig::new(ProviderId::Claude, 50.0).with_visibility(false);
         assert!(!config.should_draw());
     }
 
@@ -263,10 +263,7 @@ mod tests {
     #[test]
     fn test_draw_data_creation() {
         let config = WeeklyIndicatorConfig::new(ProviderId::Claude, 50.0);
-        let draw_data = WeeklyIndicatorDrawData::from_config(
-            &config,
-            10, 20, 100, 40
-        );
+        let draw_data = WeeklyIndicatorDrawData::from_config(&config, 10, 20, 100, 40);
 
         assert!(draw_data.is_some());
         let data = draw_data.unwrap();

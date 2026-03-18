@@ -12,23 +12,74 @@ static ICON_DATA: OnceLock<HashMap<&'static str, &'static [u8]>> = OnceLock::new
 fn get_icon_data() -> &'static HashMap<&'static str, &'static [u8]> {
     ICON_DATA.get_or_init(|| {
         let mut map = HashMap::new();
-        map.insert("amp", include_bytes!("../../assets/icons/ProviderIcon-amp.svg").as_slice());
-        map.insert("antigravity", include_bytes!("../../assets/icons/ProviderIcon-antigravity.svg").as_slice());
-        map.insert("augment", include_bytes!("../../assets/icons/ProviderIcon-augment.svg").as_slice());
-        map.insert("claude", include_bytes!("../../assets/icons/ProviderIcon-claude.svg").as_slice());
-        map.insert("codex", include_bytes!("../../assets/icons/ProviderIcon-codex.svg").as_slice());
-        map.insert("copilot", include_bytes!("../../assets/icons/ProviderIcon-copilot.svg").as_slice());
-        map.insert("cursor", include_bytes!("../../assets/icons/ProviderIcon-cursor.svg").as_slice());
-        map.insert("factory", include_bytes!("../../assets/icons/ProviderIcon-factory.svg").as_slice());
-        map.insert("gemini", include_bytes!("../../assets/icons/ProviderIcon-gemini.svg").as_slice());
-        map.insert("jetbrains", include_bytes!("../../assets/icons/ProviderIcon-jetbrains.svg").as_slice());
-        map.insert("kimi", include_bytes!("../../assets/icons/ProviderIcon-kimi.svg").as_slice());
-        map.insert("kiro", include_bytes!("../../assets/icons/ProviderIcon-kiro.svg").as_slice());
-        map.insert("minimax", include_bytes!("../../assets/icons/ProviderIcon-minimax.svg").as_slice());
-        map.insert("opencode", include_bytes!("../../assets/icons/ProviderIcon-opencode.svg").as_slice());
-        map.insert("synthetic", include_bytes!("../../assets/icons/ProviderIcon-synthetic.svg").as_slice());
-        map.insert("vertexai", include_bytes!("../../assets/icons/ProviderIcon-vertexai.svg").as_slice());
-        map.insert("zai", include_bytes!("../../assets/icons/ProviderIcon-zai.svg").as_slice());
+        map.insert(
+            "amp",
+            include_bytes!("../../assets/icons/ProviderIcon-amp.svg").as_slice(),
+        );
+        map.insert(
+            "antigravity",
+            include_bytes!("../../assets/icons/ProviderIcon-antigravity.svg").as_slice(),
+        );
+        map.insert(
+            "augment",
+            include_bytes!("../../assets/icons/ProviderIcon-augment.svg").as_slice(),
+        );
+        map.insert(
+            "claude",
+            include_bytes!("../../assets/icons/ProviderIcon-claude.svg").as_slice(),
+        );
+        map.insert(
+            "codex",
+            include_bytes!("../../assets/icons/ProviderIcon-codex.svg").as_slice(),
+        );
+        map.insert(
+            "copilot",
+            include_bytes!("../../assets/icons/ProviderIcon-copilot.svg").as_slice(),
+        );
+        map.insert(
+            "cursor",
+            include_bytes!("../../assets/icons/ProviderIcon-cursor.svg").as_slice(),
+        );
+        map.insert(
+            "factory",
+            include_bytes!("../../assets/icons/ProviderIcon-factory.svg").as_slice(),
+        );
+        map.insert(
+            "gemini",
+            include_bytes!("../../assets/icons/ProviderIcon-gemini.svg").as_slice(),
+        );
+        map.insert(
+            "jetbrains",
+            include_bytes!("../../assets/icons/ProviderIcon-jetbrains.svg").as_slice(),
+        );
+        map.insert(
+            "kimi",
+            include_bytes!("../../assets/icons/ProviderIcon-kimi.svg").as_slice(),
+        );
+        map.insert(
+            "kiro",
+            include_bytes!("../../assets/icons/ProviderIcon-kiro.svg").as_slice(),
+        );
+        map.insert(
+            "minimax",
+            include_bytes!("../../assets/icons/ProviderIcon-minimax.svg").as_slice(),
+        );
+        map.insert(
+            "opencode",
+            include_bytes!("../../assets/icons/ProviderIcon-opencode.svg").as_slice(),
+        );
+        map.insert(
+            "synthetic",
+            include_bytes!("../../assets/icons/ProviderIcon-synthetic.svg").as_slice(),
+        );
+        map.insert(
+            "vertexai",
+            include_bytes!("../../assets/icons/ProviderIcon-vertexai.svg").as_slice(),
+        );
+        map.insert(
+            "zai",
+            include_bytes!("../../assets/icons/ProviderIcon-zai.svg").as_slice(),
+        );
         map
     })
 }
@@ -46,7 +97,12 @@ impl ProviderIconCache {
     }
 
     /// Get or load a provider icon texture
-    pub fn get_icon(&mut self, ctx: &egui::Context, provider_name: &str, size: u32) -> Option<&TextureHandle> {
+    pub fn get_icon(
+        &mut self,
+        ctx: &egui::Context,
+        provider_name: &str,
+        size: u32,
+    ) -> Option<&TextureHandle> {
         let key = normalize_provider_name(provider_name);
         let cache_key = format!("{}_{}", key, size);
 
@@ -95,16 +151,13 @@ fn load_provider_icon(ctx: &egui::Context, provider_key: &str, size: u32) -> Opt
     let offset_x = (size as f32 - svg_size.width() * scale) / 2.0;
     let offset_y = (size as f32 - svg_size.height() * scale) / 2.0;
 
-    let transform = tiny_skia::Transform::from_scale(scale, scale)
-        .post_translate(offset_x, offset_y);
+    let transform =
+        tiny_skia::Transform::from_scale(scale, scale).post_translate(offset_x, offset_y);
 
     resvg::render(&tree, transform, &mut pixmap.as_mut());
 
     // Convert to egui texture
-    let image = ColorImage::from_rgba_unmultiplied(
-        [size as usize, size as usize],
-        pixmap.data(),
-    );
+    let image = ColorImage::from_rgba_unmultiplied([size as usize, size as usize], pixmap.data());
 
     let texture = ctx.load_texture(
         format!("provider_icon_{}", provider_key),

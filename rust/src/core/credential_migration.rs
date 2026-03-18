@@ -165,7 +165,10 @@ impl CredentialMigrator {
             return None;
         }
 
-        tracing::info!("Starting credential migration to version {}", CURRENT_MIGRATION_VERSION);
+        tracing::info!(
+            "Starting credential migration to version {}",
+            CURRENT_MIGRATION_VERSION
+        );
 
         let result = self.run_migration();
 
@@ -194,7 +197,10 @@ impl CredentialMigrator {
                 }
                 Ok(false) => {
                     // Item didn't exist or already migrated
-                    tracing::debug!("Skipped credential (not found or already migrated): {}", item.label());
+                    tracing::debug!(
+                        "Skipped credential (not found or already migrated): {}",
+                        item.label()
+                    );
                 }
                 Err(e) => {
                     result.error_count += 1;
@@ -227,32 +233,48 @@ impl CredentialMigrator {
     }
 
     /// Read a credential from the keyring
-    fn read_credential(&self, service: &str, account: Option<&str>) -> Result<String, MigrationError> {
+    fn read_credential(
+        &self,
+        service: &str,
+        account: Option<&str>,
+    ) -> Result<String, MigrationError> {
         let account = account.unwrap_or("default");
         let entry = keyring::Entry::new(service, account)
             .map_err(|e| MigrationError::ReadFailed(e.to_string()))?;
 
-        entry.get_password()
+        entry
+            .get_password()
             .map_err(|e| MigrationError::ReadFailed(e.to_string()))
     }
 
     /// Write a credential to the keyring
-    fn write_credential(&self, service: &str, account: Option<&str>, value: &str) -> Result<(), MigrationError> {
+    fn write_credential(
+        &self,
+        service: &str,
+        account: Option<&str>,
+        value: &str,
+    ) -> Result<(), MigrationError> {
         let account = account.unwrap_or("default");
         let entry = keyring::Entry::new(service, account)
             .map_err(|e| MigrationError::WriteFailed(e.to_string()))?;
 
-        entry.set_password(value)
+        entry
+            .set_password(value)
             .map_err(|e| MigrationError::WriteFailed(e.to_string()))
     }
 
     /// Delete a credential from the keyring
-    fn delete_credential(&self, service: &str, account: Option<&str>) -> Result<(), MigrationError> {
+    fn delete_credential(
+        &self,
+        service: &str,
+        account: Option<&str>,
+    ) -> Result<(), MigrationError> {
         let account = account.unwrap_or("default");
         let entry = keyring::Entry::new(service, account)
             .map_err(|e| MigrationError::DeleteFailed(e.to_string()))?;
 
-        entry.delete_credential()
+        entry
+            .delete_credential()
             .map_err(|e| MigrationError::DeleteFailed(e.to_string()))
     }
 
@@ -310,6 +332,7 @@ pub fn account_name_for_provider(provider: ProviderId) -> &'static str {
         ProviderId::Warp => "warp-token",
         ProviderId::Ollama => "ollama-cookie",
         ProviderId::OpenRouter => "openrouter-token",
+        ProviderId::Kilo => "kilo-api-token",
     }
 }
 
@@ -334,8 +357,7 @@ mod tests {
 
     #[test]
     fn test_migration_item_label() {
-        let item = MigrationItem::new("CodexBar")
-            .with_account("claude-cookie");
+        let item = MigrationItem::new("CodexBar").with_account("claude-cookie");
         assert_eq!(item.label(), "CodexBar:claude-cookie");
 
         let item = MigrationItem::new("CodexBar");
@@ -360,8 +382,14 @@ mod tests {
 
     #[test]
     fn test_account_name_for_provider() {
-        assert_eq!(account_name_for_provider(ProviderId::Claude), "claude-cookie");
-        assert_eq!(account_name_for_provider(ProviderId::Copilot), "copilot-api-token");
+        assert_eq!(
+            account_name_for_provider(ProviderId::Claude),
+            "claude-cookie"
+        );
+        assert_eq!(
+            account_name_for_provider(ProviderId::Copilot),
+            "copilot-api-token"
+        );
     }
 
     #[test]
