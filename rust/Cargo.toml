@@ -3,7 +3,7 @@ name = "codexbar"
 version = "1.2.3"
 edition = "2021"
 authors = ["CodexBar Contributors"]
-description = "Windows system tray app for monitoring AI provider usage limits"
+description = "Windows and WSL system tray app for monitoring AI provider usage limits"
 license = "MIT"
 repository = "https://github.com/Finesssee/Win-CodexBar"
 keywords = ["ai", "usage", "monitoring", "claude", "codex"]
@@ -76,6 +76,9 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+# Windows Registry access (autostart, settings)
+winreg = "0.55"
+
 # SQLite for reading browser cookies
 rusqlite = { version = "0.32", features = ["bundled"] }
 
@@ -112,9 +115,6 @@ open = "5"
 
 # Clipboard access
 arboard = "3.2"
-
-# Windows Registry access
-winreg = "0.55"
 
 [build-dependencies]
 chrono = "0.4"

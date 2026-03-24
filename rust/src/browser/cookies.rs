@@ -276,9 +276,27 @@ impl CookieExtractor {
 
     #[cfg(not(windows))]
     fn dpapi_decrypt(_encrypted_data: &[u8]) -> Result<Vec<u8>, CookieError> {
-        Err(CookieError::Dpapi(
-            "DPAPI is only available on Windows".to_string(),
-        ))
+        // In WSL, DPAPI is not available. Chromium cookies encrypted with
+        // AES-256-GCM (v10/v11) can still be decrypted if the key is available
+        // as a raw secret, but the DPAPI-wrapped key from "Local State" cannot
+        // be decrypted without the Windows DPAPI context.
+        //
+        // Users on WSL should:
+        // 1. Use manual cookies (Settings → Cookies → paste from browser DevTools)
+        // 2. Use CLI-based providers (codex, claude, gemini) which authenticate natively
+        // 3. Run CodexBar natively on Windows for automatic cookie extraction
+        if crate::wsl::is_wsl() {
+            Err(CookieError::Dpapi(
+                "DPAPI is not available in WSL. Chromium cookies cannot be automatically \
+                 extracted. Use manual cookies (Settings → Cookies) or CLI-based authentication \
+                 instead. Run CodexBar natively on Windows for automatic cookie extraction."
+                    .to_string(),
+            ))
+        } else {
+            Err(CookieError::Dpapi(
+                "DPAPI is only available on Windows".to_string(),
+            ))
+        }
     }
 
     /// Decrypt a Chromium cookie value

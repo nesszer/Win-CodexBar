@@ -1,8 +1,8 @@
-# Win-CodexBar - Windows Port of CodexBar
+# Win-CodexBar — Windows & WSL Port of CodexBar
 
-A Windows port of [CodexBar](https://github.com/steipete/CodexBar) - the tiny menu bar app that keeps your AI provider usage limits visible.
+A Windows (and WSL) port of [CodexBar](https://github.com/steipete/CodexBar) — the tiny menu bar app that keeps your AI provider usage limits visible.
 
-> **This is an unofficial Windows port.** The original CodexBar is a macOS Swift app by [Peter Steinberger](https://github.com/steipete). This port is built with Rust + egui for native Windows support.
+> **This is an unofficial port.** The original CodexBar is a macOS Swift app by [Peter Steinberger](https://github.com/steipete). This port is built with Rust + egui for native Windows and WSL support.
 
 ## Features
 
@@ -26,7 +26,7 @@ A Windows port of [CodexBar](https://github.com/steipete/CodexBar) - the tiny me
 
 ## Getting Started
 
-### Quick Start (from source)
+### Quick Start — Windows
 
 ```powershell
 # Clone and run — prerequisites are installed automatically
@@ -46,6 +46,50 @@ Other options:
 .\dev.ps1 -Verbose         # debug logging
 .\dev.ps1 -SkipBuild       # run last build without rebuilding
 ```
+
+### Quick Start — WSL (Ubuntu)
+
+CodexBar runs natively inside WSL. The CLI works out of the box; the GUI
+requires [WSLg](https://github.com/microsoft/wslg) (Windows 11, build 22000+).
+
+```bash
+# Clone and build
+git clone https://github.com/Finesssee/Win-CodexBar.git
+cd Win-CodexBar
+./dev.sh
+```
+
+This will:
+1. Detect your WSL environment
+2. Build CodexBar as a native Linux binary
+3. Launch the GUI (WSLg) or CLI (no display server detected)
+
+CLI-only mode (no display server needed):
+```bash
+./dev.sh --cli              # codexbar usage -p all
+./dev.sh --release          # optimised build
+```
+
+#### How WSL Support Works
+
+When running inside WSL, CodexBar:
+
+- **Browser cookies**: Reads Windows browser data from `/mnt/c/Users/<you>/AppData/...`.
+  Chromium cookies encrypted with DPAPI cannot be decrypted from WSL automatically.
+  Use manual cookies (Settings → Cookies) or CLI-based provider authentication instead.
+- **Provider CLIs**: Works with `codex`, `claude`, `gemini` etc. installed inside WSL natively.
+- **GUI**: Requires WSLg (Windows 11) or an X server. Falls back to CLI mode automatically.
+- **Notifications**: Uses `notify-send` in WSL, or Windows toast via `powershell.exe` as fallback.
+
+#### WSL Authentication Tips
+
+| Provider | WSL Auth Strategy |
+|----------|-------------------|
+| Codex | `npm i -g @openai/codex` inside WSL, then `codex login` |
+| Claude | `npm i -g @anthropic-ai/claude-code` inside WSL, then `claude login` |
+| Gemini | `npm i -g @anthropic-ai/claude-code` inside WSL |
+| Cursor / Kimi | Manual cookies — copy from browser DevTools (F12 → Network → Cookie header) |
+| Copilot | GitHub Device Flow works natively in WSL |
 
 ### Download
 
@@ -123,6 +167,10 @@ Win-CodexBar automatically extracts cookies from:
 
 For providers that need web authentication (Claude, Cursor, Kimi), cookies are extracted automatically when you're logged into the web interface.
 
+> **WSL note**: Chromium cookies are encrypted with Windows DPAPI, which is not accessible
+> from WSL. Automatic extraction from Chrome/Edge/Brave only works when running CodexBar
+> natively on Windows. In WSL, use manual cookies or CLI-based provider authentication.
+
 ### Manual Cookies
 
 If automatic extraction fails, you can add cookies manually:
@@ -132,13 +180,14 @@ If automatic extraction fails, you can add cookies manually:
 
 ## Differences from macOS Version
 
-| Feature | macOS | Windows |
-|---------|-------|---------|
-| UI Framework | SwiftUI | egui (Rust) |
-| System Tray | NSStatusItem | tray-icon crate |
-| Cookie Decryption | Keychain | DPAPI |
-| Widget | WidgetKit | Not available |
-| Auto-update | Sparkle | Manual |
+| Feature | macOS | Windows | WSL |
+|---------|-------|---------|-----|
+| UI Framework | SwiftUI | egui (Rust) | egui (via WSLg) |
+| System Tray | NSStatusItem | tray-icon crate | tray-icon (WSLg) |
+| Cookie Decryption | Keychain | DPAPI | Manual cookies |
+| Widget | WidgetKit | Not available | Not available |
+| Auto-update | Sparkle | Manual | Manual |
+| Notifications | macOS native | PowerShell toast | notify-send |
 
 ## Privacy
 

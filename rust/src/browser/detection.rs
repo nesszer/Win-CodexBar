@@ -1,9 +1,14 @@
-//! Browser detection for Windows
+//! Browser detection for Windows and WSL
 //! Finds installed browsers and their profile locations
+//!
+//! On native Windows, uses standard AppData paths.
+//! On WSL, resolves browser paths via /mnt/c/ to access Windows browser data.
 
 #![allow(dead_code)]
 
 use std::path::PathBuf;
+
+use crate::wsl;
 
 /// Supported browser types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -75,17 +80,34 @@ impl BrowserProfile {
     }
 }
 
-/// Browser detector for Windows
+/// Browser detector for Windows and WSL
 pub struct BrowserDetector;
 
 impl BrowserDetector {
     /// Detect all installed browsers
+    ///
+    /// On native Windows, scans standard AppData directories.
+    /// On WSL, also scans Windows browser paths via /mnt/c/.
     pub fn detect_all() -> Vec<DetectedBrowser> {
         let mut browsers = Vec::new();
 
+        // Standard Windows detection
         for browser_type in BrowserType::all() {
             if let Some(browser) = Self::detect(*browser_type) {
                 browsers.push(browser);
+            }
+        }
+
+        // WSL detection — merge any browsers not already found
+        if wsl::is_wsl() {
+            let wsl_browsers = super::wsl_paths::WslBrowserDetector::detect_all();
+            for wsl_browser in wsl_browsers {
+                let already_found = browsers
+                    .iter()
+                    .any(|b| b.browser_type == wsl_browser.browser_type);
+                if !already_found {
+                    browsers.push(wsl_browser);
+                }
             }
         }
 
@@ -115,6 +137,44 @@ impl BrowserDetector {
 
     /// Get the user data directory for a browser
     fn get_user_data_dir(browser_type: BrowserType) -> Option<PathBuf> {
+        // In WSL, prefer Windows AppData paths when available
+        if wsl::is_wsl() {
+            if let Some(appdata_local) = wsl::windows_appdata_local() {
+                let path = match browser_type {
+                    BrowserType::Chrome => Some(
+                        appdata_local
+                            .join("Google")
+                            .join("Chrome")
+                            .join("User Data"),
+                    ),
+                    BrowserType::Edge => Some(
+                        appdata_local
+                            .join("Microsoft")
+                            .join("Edge")
+                            .join("User Data"),
+                    ),
+                    BrowserType::Brave => Some(
+                        appdata_local
+                            .join("BraveSoftware")
+                            .join("Brave-Browser")
+                            .join("User Data"),
+                    ),
+                    BrowserType::Arc => Some(appdata_local.join("Arc").join("User Data")),
+                    BrowserType::Chromium => {
+                        Some(appdata_local.join("Chromium").join("User Data"))
+                    }
+                    BrowserType::Firefox => wsl::windows_appdata_roaming()
+                        .map(|roaming| roaming.join("Mozilla").join("Firefox").join("Profiles")),
+                };
+                if let Some(ref p) = path {
+                    if p.exists() {
+                        return path;
+                    }
+                }
+            }
+        }
+
+        // Standard Windows paths
         let local_app_data = dirs::data_local_dir()?;
         let app_data = dirs::data_dir()?;
 

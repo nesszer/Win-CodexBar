@@ -294,7 +294,34 @@ impl NotificationManager {
 
     #[cfg(not(target_os = "windows"))]
     fn show_toast(&self, title: &str, body: &str) {
+        use std::process::Command;
+
+        // Try notify-send first (works on most Linux distros including WSL with WSLg)
+        if let Ok(output) = Command::new("notify-send")
+            .args(["--app-name=CodexBar", "--icon=dialog-information", title, body])
+            .output()
+        {
+            if output.status.success() {
+                tracing::debug!("Sent notification via notify-send: {}", title);
+                return;
+            }
+        }
+
+        // Fallback: log the notification
         tracing::info!("Notification: {} - {}", title, body);
+
+        // In WSL, also try to use Windows toast notifications via powershell.exe
+        if crate::wsl::is_wsl() {
+            let script = format!(
+                r#"Add-Type -AssemblyName System.Windows.Forms; \
+                   [System.Windows.Forms.MessageBox]::Show('{}','{}','OK','Information')"#,
+                body.replace('\'', "''"),
+                title.replace('\'', "''")
+            );
+            let _ = Command::new("powershell.exe")
+                .args(["-Command", &script])
+                .spawn();
+        }
     }
 }
 

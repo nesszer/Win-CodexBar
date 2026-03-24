@@ -1,12 +1,14 @@
 // Hide console window on Windows
+#[cfg(windows)]
 #![windows_subsystem = "windows"]
 
-//! CodexBar - Windows system tray app for monitoring AI provider usage limits
+//! CodexBar - Windows/WSL system tray app for monitoring AI provider usage limits
 //!
 //! This is a Rust port of the macOS CodexBar application, providing:
 //! - System tray icon with usage status (default when double-clicking)
 //! - CLI for querying usage from terminal (`codexbar usage`)
 //! - Support for multiple AI providers (Claude, Codex, Gemini, etc.)
+//! - Native WSL support for Linux environments on Windows
 
 mod browser;
 mod cli;
@@ -25,6 +27,7 @@ mod sound;
 mod status;
 mod tray;
 mod updater;
+mod wsl;
 
 use clap::Parser;
 use cli::{exit_codes, Cli, Commands};
@@ -85,6 +88,20 @@ fn run() -> i32 {
     let log_path = std::env::temp_dir().join("codexbar_launch.log");
     let mut log = String::new();
     log.push_str(&format!("Starting at {:?}\n", std::time::SystemTime::now()));
+
+    // Log WSL environment info
+    if wsl::is_wsl() {
+        log.push_str("Running inside WSL\n");
+        if let Some(info) = wsl::get_wsl_info() {
+            log.push_str(&format!("  Distro: {}\n", info.distro_name));
+            log.push_str(&format!(
+                "  Windows user: {}\n",
+                info.windows_username.as_deref().unwrap_or("(unknown)")
+            ));
+            log.push_str(&format!("  Drive mount: {:?}\n", info.drive_mount));
+        }
+    }
+
     let args: Vec<String> = std::env::args().collect();
     log.push_str(&format!("Args: {:?}\n", redact_sensitive_args(&args)));
     let _ = std::fs::write(&log_path, &log);
@@ -126,9 +143,18 @@ fn run() -> i32 {
             }
         }),
         Some(Commands::Menubar) => {
-            // Hide the console window for GUI mode
+            // Hide the console window for GUI mode (Windows only)
             #[cfg(windows)]
             hide_console_window();
+
+            // Log WSL GUI availability
+            if wsl::is_wsl() {
+                tracing::info!(
+                    "Running in WSL — GUI requires WSLg or an X server. \
+                     If the window doesn't appear, use CLI commands instead: \
+                     codexbar usage -p <provider>"
+                );
+            }
 
             // Check for existing instance
             let _guard = match single_instance::SingleInstanceGuard::try_acquire() {
