@@ -79,9 +79,9 @@ pub struct ProviderData {
     pub display_name: String,
     pub account: Option<String>, // Account email for display
     pub session_percent: Option<f64>,
-    pub session_reset: Option<String>,
+    pub session_reset_at: Option<chrono::DateTime<chrono::Utc>>,
     pub weekly_percent: Option<f64>,
-    pub weekly_reset: Option<String>,
+    pub weekly_reset_at: Option<chrono::DateTime<chrono::Utc>>,
     pub model_percent: Option<f64>,
     pub model_name: Option<String>,
     pub plan: Option<String>,
@@ -106,9 +106,9 @@ impl ProviderData {
             display_name: id.display_name().to_string(),
             account: None,
             session_percent: None,
-            session_reset: None,
+            session_reset_at: None,
             weekly_percent: None,
-            weekly_reset: None,
+            weekly_reset_at: None,
             model_percent: None,
             model_name: None,
             plan: None,
@@ -131,8 +131,6 @@ impl ProviderData {
         id: ProviderId,
         result: &ProviderFetchResult,
         metadata: &crate::core::ProviderMetadata,
-        reset_time_relative: bool,
-        language: UiLanguage,
     ) -> Self {
         let snapshot = &result.usage;
         let (pace_percent, pace_lasts) = calculate_pace(&snapshot.primary);
@@ -160,15 +158,9 @@ impl ProviderData {
             display_name: id.display_name().to_string(),
             account: snapshot.account_email.clone(), // Account email if available
             session_percent: Some(snapshot.primary.used_percent),
-            session_reset: snapshot
-                .primary
-                .resets_at
-                .map(|t| format_reset_time(t, reset_time_relative, language)),
+            session_reset_at: snapshot.primary.resets_at,
             weekly_percent: snapshot.secondary.as_ref().map(|s| s.used_percent),
-            weekly_reset: snapshot.secondary.as_ref().and_then(|s| {
-                s.resets_at
-                    .map(|t| format_reset_time(t, reset_time_relative, language))
-            }),
+            weekly_reset_at: snapshot.secondary.as_ref().and_then(|s| s.resets_at),
             model_percent: snapshot.model_specific.as_ref().map(|m| m.used_percent),
             model_name: snapshot
                 .model_specific
@@ -196,9 +188,9 @@ impl ProviderData {
             display_name: id.display_name().to_string(),
             account: None,
             session_percent: None,
-            session_reset: None,
+            session_reset_at: None,
             weekly_percent: None,
-            weekly_reset: None,
+            weekly_reset_at: None,
             model_percent: None,
             model_name: None,
             plan: None,
@@ -782,8 +774,6 @@ impl CodexBarApp {
         let enabled_ids = self.settings.get_enabled_provider_ids();
         let manual_cookies = ManualCookies::load();
         let api_keys = ApiKeys::load();
-        let reset_time_relative = self.settings.reset_time_relative;
-        let ui_language = self.settings.ui_language;
         // Load token accounts for account switching support
         let token_accounts = TokenAccountStore::new().load().unwrap_or_default();
 
@@ -906,13 +896,7 @@ impl CodexBarApp {
                             );
 
                             let mut result = match usage_result {
-                                Ok(Ok(result)) => ProviderData::from_result(
-                                    id,
-                                    &result,
-                                    &metadata,
-                                    reset_time_relative,
-                                    ui_language,
-                                ),
+                                Ok(Ok(result)) => ProviderData::from_result(id, &result, &metadata),
                                 Ok(Err(e)) => ProviderData::from_error(id, e.to_string()),
                                 Err(_) => ProviderData::from_error(id, "Timeout".to_string()),
                             };
@@ -1731,6 +1715,7 @@ impl eframe::App for CodexBarApp {
                                     &mut self.icon_cache,
                                     show_credits,
                                     show_as_used,
+                                    self.settings.reset_time_relative,
                                     hide_personal_info,
                                     self.settings.ui_language,
                                 );
@@ -1744,6 +1729,7 @@ impl eframe::App for CodexBarApp {
                                     &mut self.icon_cache,
                                     show_credits,
                                     show_as_used,
+                                    self.settings.reset_time_relative,
                                     hide_personal_info,
                                     self.settings.ui_language,
                                 );
@@ -1896,12 +1882,24 @@ impl eframe::App for CodexBarApp {
         // Atomically consume settings changes so the flag is cleared in both
         // PreferencesWindow and the shared viewport state in one shot.
         if let Some(new_settings) = self.preferences_window.take_settings_if_changed() {
+            let previous_language = self.settings.ui_language;
             self.settings = new_settings;
             if let Err(e) = self.settings.save() {
                 tracing::error!("Failed to save settings: {}", e);
             }
             if previous_enabled_provider_ids != self.settings.get_enabled_provider_ids() {
                 refresh_requested = true;
+            }
+            if previous_language != self.settings.ui_language {
+                match UnifiedTrayManager::new(&self.settings) {
+                    Ok(tm) => self.tray_manager = Some(tm),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to recreate tray manager after language change: {}",
+                            e
+                        );
+                    }
+                }
             }
         }
 
@@ -1931,6 +1929,7 @@ fn draw_provider_detail_card(
     _icon_cache: &mut ProviderIconCache,
     show_credits_extra: bool,
     show_as_used: bool,
+    reset_time_relative: bool,
     hide_personal_info: bool,
     language: UiLanguage,
 ) -> (bool, Option<String>) {
@@ -2062,6 +2061,9 @@ fn draw_provider_detail_card(
 
             // Session metric (primary) - no pace indicator for session
             if let Some(session_pct) = provider.session_percent {
+                let session_reset = provider
+                    .session_reset_at
+                    .map(|t| format_reset_time(t, reset_time_relative, language));
                 draw_metric_row(
                     ui,
                     match language {
@@ -2070,7 +2072,7 @@ fn draw_provider_detail_card(
                     },
                     session_pct,
                     show_as_used,
-                    provider.session_reset.as_deref(),
+                    session_reset.as_deref(),
                     brand_color,
                     content_width,
                     None, // No pace for session
@@ -2083,6 +2085,9 @@ fn draw_provider_detail_card(
             if let Some(weekly_pct) = provider.weekly_percent {
                 ui.add_space(12.0);
 
+                let weekly_reset = provider
+                    .weekly_reset_at
+                    .map(|t| format_reset_time(t, reset_time_relative, language));
                 draw_metric_row(
                     ui,
                     match language {
@@ -2091,7 +2096,7 @@ fn draw_provider_detail_card(
                     },
                     weekly_pct,
                     show_as_used,
-                    provider.weekly_reset.as_deref(),
+                    weekly_reset.as_deref(),
                     brand_color,
                     content_width,
                     provider.pace_percent,
