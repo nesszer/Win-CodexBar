@@ -162,6 +162,54 @@ fn localize_text<'a>(text: &'a str) -> Cow<'a, str> {
         }
         "Env" => Cow::Borrowed("环境变量"),
         "UI language" => Cow::Borrowed("界面语言"),
+        "Language" => Cow::Borrowed("语言"),
+        "Stable" => Cow::Borrowed("稳定版"),
+        "Beta" => Cow::Borrowed("测试版"),
+        "Never" => Cow::Borrowed("从不"),
+        "30 sec" => Cow::Borrowed("30 秒"),
+        "Manual" => Cow::Borrowed("手动"),
+        "1 min" => Cow::Borrowed("1 分钟"),
+        "2 min" => Cow::Borrowed("2 分钟"),
+        "5 min" => Cow::Borrowed("5 分钟"),
+        "10 min" => Cow::Borrowed("10 分钟"),
+        "15 min" => Cow::Borrowed("15 分钟"),
+        "Custom" => Cow::Borrowed("自定义"),
+        "Provider" => Cow::Borrowed("服务商"),
+        "Select..." => Cow::Borrowed("请选择..."),
+        "Cookie header" => Cow::Borrowed("Cookie 头"),
+        "Paste cookie header from browser dev tools" => {
+            Cow::Borrowed("从浏览器开发者工具粘贴 Cookie 头")
+        }
+        "Save Cookie" => Cow::Borrowed("保存 Cookie"),
+        "Cookies are automatically extracted from Chrome, Edge, Brave, and Firefox." => {
+            Cow::Borrowed("会自动从 Chrome、Edge、Brave 和 Firefox 提取 Cookie。")
+        }
+        "✓ Set" => Cow::Borrowed("✓ 已设置"),
+        "Needs key" => Cow::Borrowed("需要密钥"),
+        "+ Add Key" => Cow::Borrowed("+ 添加密钥"),
+        "Get key →" => Cow::Borrowed("获取密钥 →"),
+        "Save" => Cow::Borrowed("保存"),
+        "Cancel" => Cow::Borrowed("取消"),
+        "Enter API Key for" => Cow::Borrowed("输入 API 密钥："),
+        "Paste your API key here..." => Cow::Borrowed("在此粘贴 API 密钥..."),
+        "Account switched" => Cow::Borrowed("账号已切换"),
+        "Account removed" => Cow::Borrowed("账号已移除"),
+        "Account added" => Cow::Borrowed("账号已添加"),
+        "Add Account" => Cow::Borrowed("添加账号"),
+        "+ Add Account" => Cow::Borrowed("+ 添加账号"),
+        "Remove" => Cow::Borrowed("移除"),
+        "Label" => Cow::Borrowed("标签"),
+        "Token" => Cow::Borrowed("令牌"),
+        "e.g., Work Account, Personal..." => Cow::Borrowed("例如：工作账号、个人账号..."),
+        "Monitor your AI provider usage limits" => Cow::Borrowed("监控你的 AI 服务商用量限制"),
+        "Created by CodexBar Contributors" => Cow::Borrowed("由 CodexBar 贡献者创建"),
+        "MIT License" => Cow::Borrowed("MIT 许可证"),
+        "→ View on GitHub" => Cow::Borrowed("→ 在 GitHub 查看"),
+        "→ Report an Issue" => Cow::Borrowed("→ 提交问题"),
+        "Commit:" => Cow::Borrowed("提交："),
+        "Built:" => Cow::Borrowed("构建时间："),
+        "Saved (restart to apply)" => Cow::Borrowed("已保存（重启后生效）"),
+        "Invalid shortcut format" => Cow::Borrowed("快捷键格式无效"),
         _ => Cow::Borrowed(text),
     }
 }
@@ -206,7 +254,7 @@ impl PreferencesTab {
                 PreferencesTab::Providers => "服务商",
                 PreferencesTab::Display => "显示",
                 PreferencesTab::ApiKeys => "API 密钥",
-                PreferencesTab::Cookies => "Cookies",
+                PreferencesTab::Cookies => "Cookie",
                 PreferencesTab::Advanced => "高级",
                 PreferencesTab::About => "关于",
             },
@@ -3306,11 +3354,16 @@ fn render_accounts_section(
                         // Save to disk
                         let store = TokenAccountStore::new();
                         if let Err(e) = store.save(&state.token_accounts) {
-                            state.token_account_status_msg =
-                                Some((format!("Failed to save: {}", e), true));
+                            state.token_account_status_msg = Some((
+                                match current_ui_language() {
+                                    UiLanguage::English => format!("Failed to save: {}", e),
+                                    UiLanguage::Chinese => format!("保存失败：{}", e),
+                                },
+                                true,
+                            ));
                         } else {
                             state.token_account_status_msg =
-                                Some(("Account switched".to_string(), false));
+                                Some((localize_text("Account switched").to_string(), false));
                         }
                     }
                 }
@@ -3352,11 +3405,16 @@ fn render_accounts_section(
                             // Save to disk
                             let store = TokenAccountStore::new();
                             if let Err(e) = store.save(&state.token_accounts) {
-                                state.token_account_status_msg =
-                                    Some((format!("Failed to save: {}", e), true));
+                                state.token_account_status_msg = Some((
+                                    match current_ui_language() {
+                                        UiLanguage::English => format!("Failed to save: {}", e),
+                                        UiLanguage::Chinese => format!("保存失败：{}", e),
+                                    },
+                                    true,
+                                ));
                             } else {
                                 state.token_account_status_msg =
-                                    Some(("Account removed".to_string(), false));
+                                    Some((localize_text("Account removed").to_string(), false));
                             }
                         }
                     }
@@ -3379,7 +3437,7 @@ fn render_accounts_section(
             .inner_margin(Spacing::MD)
             .show(ui, |ui| {
                 ui.label(
-                    RichText::new("Add Account")
+                    RichText::new(localize_text("Add Account").as_ref())
                         .size(FontSize::MD)
                         .color(Theme::TEXT_PRIMARY)
                         .strong(),
@@ -3389,7 +3447,7 @@ fn render_accounts_section(
 
                 // Label input
                 ui.label(
-                    RichText::new("Label")
+                    RichText::new(localize_text("Label").as_ref())
                         .size(FontSize::SM)
                         .color(Theme::TEXT_SECONDARY),
                 );
@@ -3400,7 +3458,7 @@ fn render_accounts_section(
                 };
                 let label_edit = egui::TextEdit::singleline(&mut label)
                     .desired_width(ui.available_width())
-                    .hint_text("e.g., Work Account, Personal...");
+                    .hint_text(localize_text("e.g., Work Account, Personal...").as_ref());
                 if ui.add(label_edit).changed() {
                     if let Ok(mut state) = shared_state.lock() {
                         state.new_account_label = label;
@@ -3411,7 +3469,7 @@ fn render_accounts_section(
 
                 // Token input
                 ui.label(
-                    RichText::new("Token")
+                    RichText::new(localize_text("Token").as_ref())
                         .size(FontSize::SM)
                         .color(Theme::TEXT_SECONDARY),
                 );
@@ -3449,7 +3507,7 @@ fn render_accounts_section(
                         .add_enabled(
                             can_save,
                             egui::Button::new(
-                                RichText::new("Save")
+                                RichText::new(localize_text("Save").as_ref())
                                     .size(FontSize::SM)
                                     .color(Color32::WHITE),
                             )
@@ -3474,11 +3532,16 @@ fn render_accounts_section(
                             // Save to disk
                             let store = TokenAccountStore::new();
                             if let Err(e) = store.save(&state.token_accounts) {
-                                state.token_account_status_msg =
-                                    Some((format!("Failed to save: {}", e), true));
+                                state.token_account_status_msg = Some((
+                                    match current_ui_language() {
+                                        UiLanguage::English => format!("Failed to save: {}", e),
+                                        UiLanguage::Chinese => format!("保存失败：{}", e),
+                                    },
+                                    true,
+                                ));
                             } else {
                                 state.token_account_status_msg =
-                                    Some(("Account added".to_string(), false));
+                                    Some((localize_text("Account added").to_string(), false));
                                 state.new_account_label.clear();
                                 state.new_account_token.clear();
                                 state.show_add_account_input = false;
@@ -3491,7 +3554,7 @@ fn render_accounts_section(
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new("Cancel")
+                                RichText::new(localize_text("Cancel").as_ref())
                                     .size(FontSize::SM)
                                     .color(Theme::TEXT_MUTED),
                             )
@@ -3577,6 +3640,7 @@ fn render_general_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
                     if state.settings.ui_language != selected_language {
                         state.settings.ui_language = selected_language;
                         state.settings_changed = true;
+                        set_current_ui_language(selected_language);
                     }
                 }
             });
@@ -3919,12 +3983,18 @@ fn render_general_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
                                 channels
                                     .iter()
                                     .find(|(ch, _)| *ch == selected)
-                                    .map(|(_, label)| *label)
-                                    .unwrap_or("Stable"),
+                                    .map(|(_, label)| localize_text(label).to_string())
+                                    .unwrap_or_else(|| localize_text("Stable").to_string()),
                             )
                             .show_ui(ui, |ui| {
                                 for (channel, label) in channels {
-                                    if ui.selectable_value(&mut selected, channel, label).changed()
+                                    if ui
+                                        .selectable_value(
+                                            &mut selected,
+                                            channel,
+                                            localize_text(label).as_ref(),
+                                        )
+                                        .changed()
                                     {
                                         if let Ok(mut state) = shared_state.lock() {
                                             state.settings.update_channel = selected;
@@ -4008,13 +4078,17 @@ fn render_general_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
                                         state.settings.global_shortcut = formatted.clone();
                                         state.shortcut_input = formatted;
                                         state.settings_changed = true;
-                                        state.shortcut_status_msg =
-                                            Some(("Saved (restart to apply)".to_string(), false));
+                                        state.shortcut_status_msg = Some((
+                                            localize_text("Saved (restart to apply)").to_string(),
+                                            false,
+                                        ));
                                     }
                                 } else {
                                     if let Ok(mut state) = shared_state.lock() {
-                                        state.shortcut_status_msg =
-                                            Some(("Invalid shortcut format".to_string(), true));
+                                        state.shortcut_status_msg = Some((
+                                            localize_text("Invalid shortcut format").to_string(),
+                                            true,
+                                        ));
                                     }
                                 }
                             }
@@ -4197,7 +4271,7 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                             ui.add_space(Spacing::XS);
 
                             if has_key {
-                                badge(ui, "✓ Set", Theme::GREEN);
+                                badge(ui, localize_text("✓ Set").as_ref(), Theme::GREEN);
                             } else if is_enabled {
                                 egui::Frame::none()
                                     .fill(Theme::ORANGE)
@@ -4205,7 +4279,7 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                                     .inner_margin(egui::Margin::symmetric(Spacing::XS, 2.0))
                                     .show(ui, |ui| {
                                         ui.label(
-                                            RichText::new("Needs key")
+                                            RichText::new(localize_text("Needs key").as_ref())
                                                 .size(FontSize::XS)
                                                 .color(Color32::BLACK),
                                         );
@@ -4268,10 +4342,16 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                                                 state.api_keys.remove(provider_id);
                                                 let _ = state.api_keys.save();
                                                 state.api_key_status_msg = Some((
-                                                    format!(
-                                                        "Removed API key for {}",
-                                                        provider_info.name
-                                                    ),
+                                                    match current_ui_language() {
+                                                        UiLanguage::English => format!(
+                                                            "Removed API key for {}",
+                                                            provider_info.name
+                                                        ),
+                                                        UiLanguage::Chinese => format!(
+                                                            "已移除 {} 的 API 密钥",
+                                                            provider_info.name
+                                                        ),
+                                                    },
                                                     false,
                                                 ));
                                             }
@@ -4284,8 +4364,11 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                                     |ui| {
                                         ui.add_space(Spacing::XS);
                                         if let Some(url) = provider_info.dashboard_url {
-                                            if text_button(ui, "Get key →", Theme::ACCENT_PRIMARY)
-                                            {
+                                            if text_button(
+                                                ui,
+                                                localize_text("Get key →").as_ref(),
+                                                Theme::ACCENT_PRIMARY,
+                                            ) {
                                                 let _ = open::that(url);
                                             }
                                         }
@@ -4317,10 +4400,15 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
             .inner_margin(Spacing::LG)
             .show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("Enter API Key for {}", provider_name))
-                        .size(FontSize::MD)
-                        .color(Theme::TEXT_PRIMARY)
-                        .strong(),
+                    RichText::new(match current_ui_language() {
+                        UiLanguage::English => format!("Enter API Key for {}", provider_name),
+                        UiLanguage::Chinese => {
+                            format!("{} {}", localize_text("Enter API Key for"), provider_name)
+                        }
+                    })
+                    .size(FontSize::MD)
+                    .color(Theme::TEXT_PRIMARY)
+                    .strong(),
                 );
 
                 ui.add_space(Spacing::SM);
@@ -4335,7 +4423,7 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                 let text_edit = egui::TextEdit::singleline(&mut current_value)
                     .password(true)
                     .desired_width(ui.available_width())
-                    .hint_text("Paste your API key here...");
+                    .hint_text(localize_text("Paste your API key here...").as_ref());
                 let response = ui.add(text_edit);
 
                 if response.changed() {
@@ -4353,7 +4441,7 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                         .add_enabled(
                             can_save,
                             egui::Button::new(
-                                RichText::new("Save")
+                                RichText::new(localize_text("Save").as_ref())
                                     .size(FontSize::SM)
                                     .color(Color32::WHITE),
                             )
@@ -4372,11 +4460,25 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                             let value = state.new_api_key_value.trim().to_string();
                             state.api_keys.set(&provider, &value, None);
                             if let Err(e) = state.api_keys.save() {
-                                state.api_key_status_msg =
-                                    Some((format!("Failed to save: {}", e), true));
+                                state.api_key_status_msg = Some((
+                                    match current_ui_language() {
+                                        UiLanguage::English => format!("Failed to save: {}", e),
+                                        UiLanguage::Chinese => format!("保存失败：{}", e),
+                                    },
+                                    true,
+                                ));
                             } else {
-                                state.api_key_status_msg =
-                                    Some((format!("API key saved for {}", provider_name), false));
+                                state.api_key_status_msg = Some((
+                                    match current_ui_language() {
+                                        UiLanguage::English => {
+                                            format!("API key saved for {}", provider_name)
+                                        }
+                                        UiLanguage::Chinese => {
+                                            format!("已保存 {} 的 API 密钥", provider_name)
+                                        }
+                                    },
+                                    false,
+                                ));
                                 state.show_api_key_input = false;
                                 state.new_api_key_value.clear();
                             }
@@ -4388,7 +4490,7 @@ fn render_api_keys_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new("Cancel")
+                                RichText::new(localize_text("Cancel").as_ref())
                                     .size(FontSize::SM)
                                     .color(Theme::TEXT_MUTED),
                             )
@@ -4413,9 +4515,14 @@ fn render_cookies_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
     section_header(ui, "Browser Cookies");
 
     ui.label(
-        RichText::new("Cookies are automatically extracted from Chrome, Edge, Brave, and Firefox.")
-            .size(FontSize::SM)
-            .color(Theme::TEXT_MUTED),
+        RichText::new(
+            localize_text(
+                "Cookies are automatically extracted from Chrome, Edge, Brave, and Firefox.",
+            )
+            .as_ref(),
+        )
+        .size(FontSize::SM)
+        .color(Theme::TEXT_MUTED),
     );
 
     ui.add_space(Spacing::LG);
@@ -4475,8 +4582,13 @@ fn render_cookies_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
                 if let Ok(mut state) = shared_state.lock() {
                     state.cookies.remove(&provider_id);
                     let _ = state.cookies.save();
-                    state.cookie_status_msg =
-                        Some((format!("Removed cookie for {}", provider_id), false));
+                    state.cookie_status_msg = Some((
+                        match current_ui_language() {
+                            UiLanguage::English => format!("Removed cookie for {}", provider_id),
+                            UiLanguage::Chinese => format!("已移除 {} 的 Cookie", provider_id),
+                        },
+                        false,
+                    ));
                 }
             }
         });
@@ -4498,16 +4610,16 @@ fn render_cookies_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
         // Provider selection row
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new("Provider")
+                RichText::new(localize_text("Provider").as_ref())
                     .size(FontSize::MD)
                     .color(Theme::TEXT_PRIMARY),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let combo = egui::ComboBox::from_id_salt("cookie_provider_viewport")
                     .selected_text(if current_provider.is_empty() {
-                        "Select..."
+                        localize_text("Select...").to_string()
                     } else {
-                        &current_provider
+                        current_provider.clone()
                     })
                     .show_ui(ui, |ui| {
                         let web_providers = ["claude", "cursor", "kimi"];
@@ -4537,7 +4649,7 @@ fn render_cookies_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
 
         // Cookie header label
         ui.label(
-            RichText::new("Cookie header")
+            RichText::new(localize_text("Cookie header").as_ref())
                 .size(FontSize::MD)
                 .color(Theme::TEXT_PRIMARY),
         );
@@ -4561,7 +4673,9 @@ fn render_cookies_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
                     .desired_width(ui.available_width())
                     .desired_rows(4)
                     .frame(false)
-                    .hint_text("Paste cookie header from browser dev tools");
+                    .hint_text(
+                        localize_text("Paste cookie header from browser dev tools").as_ref(),
+                    );
                 let response = ui.add(text_edit);
 
                 if response.changed() {
@@ -4588,13 +4702,15 @@ fn render_cookies_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
         if ui
             .add_enabled(
                 can_save,
-                egui::Button::new(RichText::new("Save Cookie").size(FontSize::SM).color(
-                    if can_save {
-                        Color32::WHITE
-                    } else {
-                        Theme::TEXT_MUTED
-                    },
-                ))
+                egui::Button::new(
+                    RichText::new(localize_text("Save Cookie").as_ref())
+                        .size(FontSize::SM)
+                        .color(if can_save {
+                            Color32::WHITE
+                        } else {
+                            Theme::TEXT_MUTED
+                        }),
+                )
                 .fill(if can_save {
                     Theme::ACCENT_PRIMARY
                 } else {
@@ -4615,13 +4731,24 @@ fn render_cookies_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSha
                 let value = state.new_cookie_value.clone();
                 state.cookies.set(&provider, &value);
                 if let Err(e) = state.cookies.save() {
-                    state.cookie_status_msg = Some((format!("Failed to save: {}", e), true));
+                    state.cookie_status_msg = Some((
+                        match current_ui_language() {
+                            UiLanguage::English => format!("Failed to save: {}", e),
+                            UiLanguage::Chinese => format!("保存失败：{}", e),
+                        },
+                        true,
+                    ));
                 } else {
                     let provider_name = ProviderId::from_cli_name(&provider)
                         .map(|id| id.display_name().to_string())
                         .unwrap_or_else(|| provider.clone());
-                    state.cookie_status_msg =
-                        Some((format!("Cookie saved for {}", provider_name), false));
+                    state.cookie_status_msg = Some((
+                        match current_ui_language() {
+                            UiLanguage::English => format!("Cookie saved for {}", provider_name),
+                            UiLanguage::Chinese => format!("已保存 {} 的 Cookie", provider_name),
+                        },
+                        false,
+                    ));
                     state.new_cookie_provider.clear();
                     state.new_cookie_value.clear();
                 }
@@ -4650,18 +4777,19 @@ fn render_advanced_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                 };
 
                 let intervals = [
-                    (0, "Never"),
-                    (30, "30 sec"),
-                    (60, "1 min"),
-                    (300, "5 min"),
-                    (600, "10 min"),
+                    (0, localize_text("Never").to_string()),
+                    (30, localize_text("30 sec").to_string()),
+                    (60, localize_text("1 min").to_string()),
+                    (300, localize_text("5 min").to_string()),
+                    (600, localize_text("10 min").to_string()),
                 ];
+                let custom_label = localize_text("Custom").to_string();
 
                 let current_label = intervals
                     .iter()
                     .find(|(v, _)| *v == current_interval)
-                    .map(|(_, l)| *l)
-                    .unwrap_or("Custom");
+                    .map(|(_, l)| l.as_str())
+                    .unwrap_or(custom_label.as_str());
 
                 // Style combobox to match theme
                 ui.style_mut().visuals.widgets.inactive.bg_fill = Theme::BG_TERTIARY;
@@ -4676,13 +4804,13 @@ fn render_advanced_tab(ui: &mut egui::Ui, shared_state: &Arc<Mutex<PreferencesSh
                     .selected_text(current_label)
                     .width(90.0)
                     .show_ui(ui, |ui| {
-                        for (value, label) in intervals {
+                        for (value, label) in &intervals {
                             if ui
-                                .selectable_label(current_interval == value, label)
+                                .selectable_label(current_interval == *value, label.as_str())
                                 .clicked()
                             {
                                 if let Ok(mut state) = shared_state.lock() {
-                                    state.settings.refresh_interval_secs = value;
+                                    state.settings.refresh_interval_secs = *value;
                                     state.settings_changed = true;
                                 }
                             }
@@ -4715,16 +4843,21 @@ fn render_about_tab(ui: &mut egui::Ui) {
 
         // Version
         ui.label(
-            RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION")))
-                .size(FontSize::MD)
-                .color(Theme::TEXT_SECONDARY),
+            RichText::new(match current_ui_language() {
+                UiLanguage::English => format!("Version {}", env!("CARGO_PKG_VERSION")),
+                UiLanguage::Chinese => {
+                    format!("{} {}", localize_text("Version"), env!("CARGO_PKG_VERSION"))
+                }
+            })
+            .size(FontSize::MD)
+            .color(Theme::TEXT_SECONDARY),
         );
 
         ui.add_space(Spacing::SM);
 
         // Tagline
         ui.label(
-            RichText::new("Monitor your AI provider usage limits")
+            RichText::new(localize_text("Monitor your AI provider usage limits").as_ref())
                 .size(FontSize::SM)
                 .color(Theme::TEXT_MUTED),
         );
@@ -4737,13 +4870,13 @@ fn render_about_tab(ui: &mut egui::Ui) {
     settings_card(ui, |ui| {
         ui.vertical(|ui| {
             ui.label(
-                RichText::new("Created by CodexBar Contributors")
+                RichText::new(localize_text("Created by CodexBar Contributors").as_ref())
                     .size(FontSize::SM)
                     .color(Theme::TEXT_PRIMARY),
             );
             ui.add_space(Spacing::XS);
             ui.label(
-                RichText::new("MIT License")
+                RichText::new(localize_text("MIT License").as_ref())
                     .size(FontSize::SM)
                     .color(Theme::TEXT_MUTED),
             );
@@ -4777,7 +4910,7 @@ fn render_about_tab(ui: &mut egui::Ui) {
 
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Commit:")
+                    RichText::new(localize_text("Commit:").as_ref())
                         .size(FontSize::SM)
                         .color(Theme::TEXT_MUTED),
                 );
@@ -4793,7 +4926,7 @@ fn render_about_tab(ui: &mut egui::Ui) {
 
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Built:")
+                    RichText::new(localize_text("Built:").as_ref())
                         .size(FontSize::SM)
                         .color(Theme::TEXT_MUTED),
                 );
