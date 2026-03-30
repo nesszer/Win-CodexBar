@@ -14,7 +14,7 @@ use super::charts::{
 };
 use super::preferences::PreferencesWindow;
 use super::provider_icons::ProviderIconCache;
-use super::theme::{provider_color, status_color, FontSize, Radius, Spacing, Theme};
+use super::theme::{FontSize, Radius, Spacing, Theme, provider_color, status_color};
 use crate::browser::cookies::get_cookie_header;
 use crate::core::{
     FetchContext, OpenAIDashboardCacheStore, PersonalInfoRedactor, Provider, ProviderFetchResult,
@@ -24,9 +24,9 @@ use crate::core::{TokenAccountStore, TokenAccountSupport};
 use crate::cost_scanner::get_daily_cost_history;
 use crate::login::LoginPhase;
 use crate::providers::*;
-use crate::settings::{ApiKeys, ManualCookies, Settings};
-use crate::shortcuts::{parse_shortcut, ShortcutManager};
-use crate::status::{fetch_provider_status, get_status_page_url, StatusLevel};
+use crate::settings::{ApiKeys, ManualCookies, Settings, UiLanguage};
+use crate::shortcuts::{ShortcutManager, parse_shortcut};
+use crate::status::{StatusLevel, fetch_provider_status, get_status_page_url};
 use crate::tray::{
     LoadingPattern, ProviderUsage, SurpriseAnimation, TrayMenuAction, UnifiedTrayManager,
 };
@@ -34,10 +34,10 @@ use crate::updater::{self, UpdateInfo, UpdateState};
 
 #[cfg(windows)]
 fn restore_main_window() {
-    use windows::core::w;
     use windows::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+        FindWindowW, IsIconic, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
     };
+    use windows::core::w;
 
     unsafe {
         if let Ok(hwnd) = FindWindowW(None, w!("CodexBar")) {
@@ -55,8 +55,8 @@ fn restore_main_window() {
 
 #[cfg(windows)]
 fn show_main_window_no_focus() {
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SW_SHOWNOACTIVATE, ShowWindow};
     use windows::core::w;
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, ShowWindow, SW_SHOWNOACTIVATE};
 
     unsafe {
         if let Ok(hwnd) = FindWindowW(None, w!("CodexBar")) {
@@ -132,6 +132,7 @@ impl ProviderData {
         result: &ProviderFetchResult,
         metadata: &crate::core::ProviderMetadata,
         reset_time_relative: bool,
+        language: UiLanguage,
     ) -> Self {
         let snapshot = &result.usage;
         let (pace_percent, pace_lasts) = calculate_pace(&snapshot.primary);
@@ -162,11 +163,11 @@ impl ProviderData {
             session_reset: snapshot
                 .primary
                 .resets_at
-                .map(|t| format_reset_time(t, reset_time_relative)),
+                .map(|t| format_reset_time(t, reset_time_relative, language)),
             weekly_percent: snapshot.secondary.as_ref().map(|s| s.used_percent),
             weekly_reset: snapshot.secondary.as_ref().and_then(|s| {
                 s.resets_at
-                    .map(|t| format_reset_time(t, reset_time_relative))
+                    .map(|t| format_reset_time(t, reset_time_relative, language))
             }),
             model_percent: snapshot.model_specific.as_ref().map(|m| m.used_percent),
             model_name: snapshot
@@ -247,11 +248,7 @@ impl ProviderData {
                     sum += v;
                     count += 1;
                 }
-                if count > 0 {
-                    sum / count as f64
-                } else {
-                    0.0
-                }
+                if count > 0 { sum / count as f64 } else { 0.0 }
             }
             crate::settings::MetricPreference::Automatic => {
                 // Automatic: prefer the highest available metric (most concerning)
@@ -264,13 +261,17 @@ impl ProviderData {
     }
 }
 
-fn format_reset_time(reset: chrono::DateTime<chrono::Utc>, relative: bool) -> String {
+fn format_reset_time(
+    reset: chrono::DateTime<chrono::Utc>,
+    relative: bool,
+    language: UiLanguage,
+) -> String {
     if relative {
         let now = chrono::Utc::now();
         let diff = reset - now;
 
         if diff.num_seconds() <= 0 {
-            return "正在重置...".to_string();
+            return "Resetting...".to_string();
         }
 
         let hours = diff.num_hours();
@@ -294,7 +295,10 @@ fn format_reset_time(reset: chrono::DateTime<chrono::Utc>, relative: bool) -> St
         if reset_date == today {
             local_time.format("%I:%M %p").to_string()
         } else if reset_date == today + chrono::Days::new(1) {
-            format!("明天 {}", local_time.format("%I:%M %p"))
+            match language {
+                UiLanguage::English => format!("Tomorrow {}", local_time.format("%I:%M %p")),
+                UiLanguage::Chinese => format!("明天 {}", local_time.format("%I:%M %p")),
+            }
         } else {
             local_time.format("%b %d, %I:%M %p").to_string()
         }
@@ -341,11 +345,17 @@ fn usage_display_percent(used_percent: f64, show_as_used: bool) -> f64 {
     }
 }
 
-fn usage_display_label(display_percent: f64, show_as_used: bool) -> String {
+fn usage_display_label(display_percent: f64, show_as_used: bool, language: UiLanguage) -> String {
     if show_as_used {
-        format!("已使用 {:.0}%", display_percent)
+        match language {
+            UiLanguage::English => format!("{:.0}% used", display_percent),
+            UiLanguage::Chinese => format!("已使用 {:.0}%", display_percent),
+        }
     } else {
-        format!("剩余 {:.0}%", display_percent)
+        match language {
+            UiLanguage::English => format!("{:.0}% remaining", display_percent),
+            UiLanguage::Chinese => format!("剩余 {:.0}%", display_percent),
+        }
     }
 }
 
@@ -470,7 +480,7 @@ pub struct CodexBarApp {
 
 impl CodexBarApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Load Windows symbol + CJK fallback fonts so Chinese UI text renders correctly.
+        // Load Windows symbol font
         let mut fonts = FontDefinitions::default();
         if let Ok(font_data) = std::fs::read("C:\\Windows\\Fonts\\seguisym.ttf") {
             fonts.font_data.insert(
@@ -484,8 +494,7 @@ impl CodexBarApp {
                 .push("segoe_symbols".to_owned());
         }
 
-        // Add common Chinese fonts in priority order (if present).
-        // We insert them at the front so CJK glyph lookup hits these first.
+        // Add common CJK fonts in priority order so Chinese text renders correctly.
         let cjk_candidates = [
             ("msyh", "C:\\Windows\\Fonts\\msyh.ttc"),
             ("msyhbd", "C:\\Windows\\Fonts\\msyhbd.ttc"),
@@ -550,26 +559,28 @@ impl CodexBarApp {
         let tray_action_rx = if tray_manager.is_some() {
             let (tx, rx) = mpsc::channel::<TrayMenuAction>();
             let repaint_ctx = cc.egui_ctx.clone();
-            std::thread::spawn(move || loop {
-                if let Some(action) = UnifiedTrayManager::check_events() {
-                    if matches!(action, TrayMenuAction::Open | TrayMenuAction::Refresh) {
-                        // Egui viewport commands alone can be ignored while minimized.
-                        // Force a native restore first so the update loop wakes up.
-                        restore_main_window();
-                        repaint_ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                        repaint_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    } else if matches!(action, TrayMenuAction::Settings) {
-                        // Show main window so update() runs (needed to spawn the
-                        // settings child viewport), but don't steal focus.
-                        show_main_window_no_focus();
-                        repaint_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            std::thread::spawn(move || {
+                loop {
+                    if let Some(action) = UnifiedTrayManager::check_events() {
+                        if matches!(action, TrayMenuAction::Open | TrayMenuAction::Refresh) {
+                            // Egui viewport commands alone can be ignored while minimized.
+                            // Force a native restore first so the update loop wakes up.
+                            restore_main_window();
+                            repaint_ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                            repaint_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        } else if matches!(action, TrayMenuAction::Settings) {
+                            // Show main window so update() runs (needed to spawn the
+                            // settings child viewport), but don't steal focus.
+                            show_main_window_no_focus();
+                            repaint_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        }
+                        if tx.send(action).is_err() {
+                            break;
+                        }
+                        repaint_ctx.request_repaint();
+                    } else {
+                        std::thread::sleep(Duration::from_millis(50));
                     }
-                    if tx.send(action).is_err() {
-                        break;
-                    }
-                    repaint_ctx.request_repaint();
-                } else {
-                    std::thread::sleep(Duration::from_millis(50));
                 }
             });
             Some(rx)
@@ -772,6 +783,7 @@ impl CodexBarApp {
         let manual_cookies = ManualCookies::load();
         let api_keys = ApiKeys::load();
         let reset_time_relative = self.settings.reset_time_relative;
+        let ui_language = self.settings.ui_language;
         // Load token accounts for account switching support
         let token_accounts = TokenAccountStore::new().load().unwrap_or_default();
 
@@ -899,6 +911,7 @@ impl CodexBarApp {
                                     &result,
                                     &metadata,
                                     reset_time_relative,
+                                    ui_language,
                                 ),
                                 Ok(Err(e)) => ProviderData::from_error(id, e.to_string()),
                                 Err(_) => ProviderData::from_error(id, "Timeout".to_string()),
@@ -969,7 +982,7 @@ fn work_area_rect(ctx: &egui::Context) -> Option<Rect> {
     {
         use windows::Win32::Foundation::RECT as WinRect;
         use windows::Win32::UI::WindowsAndMessaging::{
-            SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+            SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
         };
 
         let mut rect = WinRect::default();
@@ -1719,6 +1732,7 @@ impl eframe::App for CodexBarApp {
                                     show_credits,
                                     show_as_used,
                                     hide_personal_info,
+                                    self.settings.ui_language,
                                 );
                                 manual_refresh_requested = refresh;
                                 account_switch_provider = switch;
@@ -1731,6 +1745,7 @@ impl eframe::App for CodexBarApp {
                                     show_credits,
                                     show_as_used,
                                     hide_personal_info,
+                                    self.settings.ui_language,
                                 );
                                 manual_refresh_requested = refresh;
                                 account_switch_provider = switch;
@@ -1760,7 +1775,10 @@ impl eframe::App for CodexBarApp {
                                         ui.spinner();
                                         ui.add_space(Spacing::SM);
                                         ui.label(
-                                            RichText::new("正在加载服务商...")
+                                            RichText::new(match self.settings.ui_language {
+                                                UiLanguage::English => "Loading providers...",
+                                                UiLanguage::Chinese => "正在加载服务商...",
+                                            })
                                                 .size(FontSize::BASE)
                                                 .color(Theme::TEXT_MUTED),
                                         );
@@ -1775,7 +1793,10 @@ impl eframe::App for CodexBarApp {
                                 .show(ui, |ui| {
                                     ui.vertical_centered(|ui| {
                                         ui.label(
-                                            RichText::new("暂无服务商数据。")
+                                            RichText::new(match self.settings.ui_language {
+                                                UiLanguage::English => "No provider data available.",
+                                                UiLanguage::Chinese => "暂无服务商数据。",
+                                            })
                                                 .size(FontSize::BASE)
                                                 .color(Theme::TEXT_MUTED),
                                         );
@@ -1795,18 +1816,30 @@ impl eframe::App for CodexBarApp {
                                         ui.spinner();
                                         ui.add_space(Spacing::SM);
                                         ui.label(
-                                            RichText::new("正在加载服务商...")
+                                            RichText::new(match self.settings.ui_language {
+                                                UiLanguage::English => "Loading providers...",
+                                                UiLanguage::Chinese => "正在加载服务商...",
+                                            })
                                                 .size(FontSize::BASE)
                                                 .color(Theme::TEXT_MUTED),
                                         );
                                     } else {
                                         ui.label(
-                                            RichText::new("尚未选择服务商。")
+                                            RichText::new(match self.settings.ui_language {
+                                                UiLanguage::English => "No providers selected.",
+                                                UiLanguage::Chinese => "尚未选择服务商。",
+                                            })
                                                 .size(FontSize::BASE)
                                                 .color(Theme::TEXT_MUTED),
                                         );
                                         ui.add_space(Spacing::SM);
-                                        if ui.button("打开服务商设置").clicked() {
+                                        if ui
+                                            .button(match self.settings.ui_language {
+                                                UiLanguage::English => "Open Provider Settings",
+                                                UiLanguage::Chinese => "打开服务商设置",
+                                            })
+                                            .clicked()
+                                        {
                                             self.preferences_window.active_tab = super::preferences::PreferencesTab::Providers;
                                             self.preferences_window.open();
                                         }
@@ -1823,14 +1856,32 @@ impl eframe::App for CodexBarApp {
                     draw_horizontal_separator(ui, 0.0);
                     ui.add_space(4.0);
 
-                    if draw_text_menu_item(ui, "设置...") {
+                    if draw_text_menu_item(
+                        ui,
+                        match self.settings.ui_language {
+                            UiLanguage::English => "Settings...",
+                            UiLanguage::Chinese => "设置...",
+                        },
+                    ) {
                         self.preferences_window.open();
                     }
-                    if draw_text_menu_item(ui, "关于 CodexBar") {
+                    if draw_text_menu_item(
+                        ui,
+                        match self.settings.ui_language {
+                            UiLanguage::English => "About CodexBar",
+                            UiLanguage::Chinese => "关于 CodexBar",
+                        },
+                    ) {
                         self.preferences_window.active_tab = super::preferences::PreferencesTab::About;
                         self.preferences_window.open();
                     }
-                    if draw_text_menu_item(ui, "退出") {
+                    if draw_text_menu_item(
+                        ui,
+                        match self.settings.ui_language {
+                            UiLanguage::English => "Quit",
+                            UiLanguage::Chinese => "退出",
+                        },
+                    ) {
                         std::process::exit(0);
                     }
                 }); // end ScrollArea
@@ -1881,6 +1932,7 @@ fn draw_provider_detail_card(
     show_credits_extra: bool,
     show_as_used: bool,
     hide_personal_info: bool,
+    language: UiLanguage,
 ) -> (bool, Option<String>) {
     let mut refresh_requested = false;
     let mut account_switch_requested: Option<String> = None;
@@ -1910,7 +1962,7 @@ fn draw_provider_detail_card(
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(16.0); // Right padding
-                                            // Email - .subheadline, secondary color (redacted if privacy mode enabled)
+                        // Email - .subheadline, secondary color (redacted if privacy mode enabled)
                         if let Some(account) = &provider.account {
                             let display_account = PersonalInfoRedactor::redact_email(
                                 Some(account.as_str()),
@@ -1940,15 +1992,18 @@ fn draw_provider_detail_card(
                         );
                     } else {
                         ui.label(
-                            RichText::new("刚刚更新")
-                                .size(FontSize::XS)
-                                .color(Theme::TEXT_SECONDARY),
+                            RichText::new(match language {
+                                UiLanguage::English => "Updated just now",
+                                UiLanguage::Chinese => "刚刚更新",
+                            })
+                            .size(FontSize::XS)
+                            .color(Theme::TEXT_SECONDARY),
                         );
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(16.0); // Right padding
-                                            // Plan badge - .footnote, secondary
+                        // Plan badge - .footnote, secondary
                         if let Some(plan) = &provider.plan {
                             ui.label(
                                 RichText::new(plan)
@@ -1968,9 +2023,16 @@ fn draw_provider_detail_card(
                         ui.horizontal(|ui| {
                             let status_col = status_color(provider.status_level);
                             ui.label(
-                                RichText::new(format!("状态：{}", status_desc))
-                                    .size(FontSize::XS)
-                                    .color(status_col),
+                                RichText::new(format!(
+                                    "{}{}",
+                                    match language {
+                                        UiLanguage::English => "Status: ",
+                                        UiLanguage::Chinese => "状态：",
+                                    },
+                                    status_desc
+                                ))
+                                .size(FontSize::XS)
+                                .color(status_col),
                             );
                         });
                     }
@@ -2002,7 +2064,10 @@ fn draw_provider_detail_card(
             if let Some(session_pct) = provider.session_percent {
                 draw_metric_row(
                     ui,
-                    "会话",
+                    match language {
+                        UiLanguage::English => "Session",
+                        UiLanguage::Chinese => "会话",
+                    },
                     session_pct,
                     show_as_used,
                     provider.session_reset.as_deref(),
@@ -2010,6 +2075,7 @@ fn draw_provider_detail_card(
                     content_width,
                     None, // No pace for session
                     false,
+                    language,
                 );
             }
 
@@ -2019,7 +2085,10 @@ fn draw_provider_detail_card(
 
                 draw_metric_row(
                     ui,
-                    "周度",
+                    match language {
+                        UiLanguage::English => "Weekly",
+                        UiLanguage::Chinese => "周度",
+                    },
                     weekly_pct,
                     show_as_used,
                     provider.weekly_reset.as_deref(),
@@ -2027,6 +2096,7 @@ fn draw_provider_detail_card(
                     content_width,
                     provider.pace_percent,
                     provider.pace_lasts_to_reset,
+                    language,
                 );
             }
 
@@ -2034,7 +2104,10 @@ fn draw_provider_detail_card(
             if let Some(model_pct) = provider.model_percent {
                 ui.add_space(12.0);
 
-                let model_label = provider.model_name.as_deref().unwrap_or("模型");
+                let model_label = provider.model_name.as_deref().unwrap_or(match language {
+                    UiLanguage::English => "Model",
+                    UiLanguage::Chinese => "模型",
+                });
                 draw_metric_row(
                     ui,
                     model_label,
@@ -2045,6 +2118,7 @@ fn draw_provider_detail_card(
                     content_width,
                     None, // No pace for model
                     false,
+                    language,
                 );
             }
 
@@ -2054,9 +2128,12 @@ fn draw_provider_detail_card(
             ui.horizontal(|ui| {
                 ui.add_space(16.0);
                 ui.label(
-                    RichText::new("无法获取用量")
-                        .size(FontSize::SM)
-                        .color(Theme::TEXT_SECONDARY),
+                    RichText::new(match language {
+                        UiLanguage::English => "Unable to fetch usage",
+                        UiLanguage::Chinese => "无法获取用量",
+                    })
+                    .size(FontSize::SM)
+                    .color(Theme::TEXT_SECONDARY),
                 );
             });
             ui.add_space(2.0);
@@ -2076,10 +2153,13 @@ fn draw_provider_detail_card(
 
                 // Title: "Credits" - .font(.body).fontWeight(.medium)
                 ui.label(
-                    RichText::new("额度")
-                        .size(FontSize::BASE)
-                        .color(Theme::TEXT_PRIMARY)
-                        .strong(),
+                    RichText::new(match language {
+                        UiLanguage::English => "Credits",
+                        UiLanguage::Chinese => "额度",
+                    })
+                    .size(FontSize::BASE)
+                    .color(Theme::TEXT_PRIMARY)
+                    .strong(),
                 );
 
                 // Progress bar
@@ -2107,9 +2187,12 @@ fn draw_provider_detail_card(
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("剩余 {:.2}", credits))
-                            .size(FontSize::XS)
-                            .color(Theme::TEXT_PRIMARY),
+                        RichText::new(match language {
+                            UiLanguage::English => format!("{:.2} left", credits),
+                            UiLanguage::Chinese => format!("剩余 {:.2}", credits),
+                        })
+                        .size(FontSize::XS)
+                        .color(Theme::TEXT_PRIMARY),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
@@ -2122,7 +2205,14 @@ fn draw_provider_detail_card(
 
                 // Buy Credits link
                 ui.add_space(6.0);
-                if draw_menu_item(ui, "⊕", "购买额度...") {
+                if draw_menu_item(
+                    ui,
+                    "⊕",
+                    match language {
+                        UiLanguage::English => "Buy Credits...",
+                        UiLanguage::Chinese => "购买额度...",
+                    },
+                ) {
                     if let Some(ref url) = provider.dashboard_url {
                         let _ = open::that(url);
                     }
@@ -2152,10 +2242,13 @@ fn draw_provider_detail_card(
             ui.add_space(12.0);
 
             ui.label(
-                RichText::new("用量明细")
-                    .size(FontSize::BASE)
-                    .color(Theme::TEXT_PRIMARY)
-                    .strong(),
+                RichText::new(match language {
+                    UiLanguage::English => "Usage breakdown",
+                    UiLanguage::Chinese => "用量明细",
+                })
+                .size(FontSize::BASE)
+                .color(Theme::TEXT_PRIMARY)
+                .strong(),
             );
             ui.add_space(6.0);
 
@@ -2175,10 +2268,13 @@ fn draw_provider_detail_card(
 
             // Title: "Cost" - .font(.body).fontWeight(.medium)
             ui.label(
-                RichText::new("费用")
-                    .size(FontSize::BASE)
-                    .color(Theme::TEXT_PRIMARY)
-                    .strong(),
+                RichText::new(match language {
+                    UiLanguage::English => "Cost",
+                    UiLanguage::Chinese => "费用",
+                })
+                .size(FontSize::BASE)
+                .color(Theme::TEXT_PRIMARY)
+                .strong(),
             );
 
             ui.add_space(6.0);
@@ -2189,14 +2285,20 @@ fn draw_provider_detail_card(
                 let today_cost: f64 = provider.cost_history.last().map(|(_, c)| *c).unwrap_or(0.0);
 
                 ui.label(
-                    RichText::new(format!("今日：${:.2}", today_cost))
-                        .size(FontSize::XS)
-                        .color(Theme::TEXT_PRIMARY),
+                    RichText::new(match language {
+                        UiLanguage::English => format!("Today: ${:.2}", today_cost),
+                        UiLanguage::Chinese => format!("今日：${:.2}", today_cost),
+                    })
+                    .size(FontSize::XS)
+                    .color(Theme::TEXT_PRIMARY),
                 );
                 ui.label(
-                    RichText::new(format!("近 30 天：${:.2}", total_30d))
-                        .size(FontSize::XS)
-                        .color(Theme::TEXT_PRIMARY),
+                    RichText::new(match language {
+                        UiLanguage::English => format!("Last 30 days: ${:.2}", total_30d),
+                        UiLanguage::Chinese => format!("近 30 天：${:.2}", total_30d),
+                    })
+                    .size(FontSize::XS)
+                    .color(Theme::TEXT_PRIMARY),
                 );
             } else if let Some(cost_used) = &provider.cost_used {
                 ui.label(
@@ -2234,7 +2336,14 @@ fn draw_provider_detail_card(
 
             // Vertical action links like macOS
             // Refresh button - first action
-            if draw_menu_item(ui, "↻", "刷新") {
+            if draw_menu_item(
+                ui,
+                "↻",
+                match language {
+                    UiLanguage::English => "Refresh",
+                    UiLanguage::Chinese => "刷新",
+                },
+            ) {
                 refresh_requested = true;
             }
 
@@ -2242,7 +2351,14 @@ fn draw_provider_detail_card(
             if TokenAccountSupport::is_supported(
                 ProviderId::from_cli_name(&provider.name).unwrap_or(ProviderId::Claude),
             ) {
-                if draw_menu_item(ui, "->", "切换账号...") {
+                if draw_menu_item(
+                    ui,
+                    "->",
+                    match language {
+                        UiLanguage::English => "Switch Account...",
+                        UiLanguage::Chinese => "切换账号...",
+                    },
+                ) {
                     account_switch_requested = Some(provider.name.clone());
                 }
             }
@@ -2250,14 +2366,28 @@ fn draw_provider_detail_card(
             // Usage Dashboard link
             if let Some(ref url) = provider.dashboard_url {
                 let dashboard_url = url.clone();
-                if draw_menu_item(ui, "📊", "用量仪表盘") {
+                if draw_menu_item(
+                    ui,
+                    "📊",
+                    match language {
+                        UiLanguage::English => "Usage Dashboard",
+                        UiLanguage::Chinese => "用量仪表盘",
+                    },
+                ) {
                     let _ = open::that(&dashboard_url);
                 }
             }
 
             // Status Page link
             if let Some(status_url) = get_status_page_url(&provider.name) {
-                if draw_menu_item(ui, "⚡", "状态页面") {
+                if draw_menu_item(
+                    ui,
+                    "⚡",
+                    match language {
+                        UiLanguage::English => "Status Page",
+                        UiLanguage::Chinese => "状态页面",
+                    },
+                ) {
                     let _ = open::that(status_url);
                 }
             }
@@ -2265,7 +2395,14 @@ fn draw_provider_detail_card(
             // Copy Error link
             if let Some(ref error) = provider.error {
                 let error_text = error.clone();
-                if draw_menu_item(ui, "📋", "复制错误") {
+                if draw_menu_item(
+                    ui,
+                    "📋",
+                    match language {
+                        UiLanguage::English => "Copy Error",
+                        UiLanguage::Chinese => "复制错误",
+                    },
+                ) {
                     if let Ok(mut clipboard) = arboard::Clipboard::new() {
                         let _ = clipboard.set_text(&error_text);
                     }
@@ -2343,6 +2480,7 @@ fn draw_metric_row(
     _content_width: f32,
     pace_percent: Option<f64>,
     pace_lasts_to_reset: bool,
+    language: UiLanguage,
 ) {
     // Title - .font(.body).fontWeight(.medium)
     ui.label(
@@ -2396,7 +2534,7 @@ fn draw_metric_row(
     // Info row: X% used (left) | Pace status | Resets in Xh (right) - .font(.footnote)
     ui.horizontal(|ui| {
         ui.label(
-            RichText::new(usage_display_label(display_percent, show_as_used))
+            RichText::new(usage_display_label(display_percent, show_as_used, language))
                 .size(FontSize::XS)
                 .color(Theme::TEXT_PRIMARY),
         );
@@ -2405,9 +2543,21 @@ fn draw_metric_row(
         if display_pace_percent.is_some() {
             ui.add_space(8.0);
             let (pace_text, pace_color) = if pace_lasts_to_reset {
-                ("进度正常", Theme::GREEN)
+                (
+                    match language {
+                        UiLanguage::English => "On track",
+                        UiLanguage::Chinese => "进度正常",
+                    },
+                    Theme::GREEN,
+                )
             } else {
-                ("进度滞后", Theme::YELLOW)
+                (
+                    match language {
+                        UiLanguage::English => "Behind",
+                        UiLanguage::Chinese => "进度滞后",
+                    },
+                    Theme::YELLOW,
+                )
             };
             ui.label(
                 RichText::new(pace_text)
@@ -2419,9 +2569,12 @@ fn draw_metric_row(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(reset) = reset_text {
                 ui.label(
-                    RichText::new(format!("重置于 {}", reset))
-                        .size(FontSize::XS)
-                        .color(Theme::TEXT_SECONDARY),
+                    RichText::new(match language {
+                        UiLanguage::English => format!("Resets in {}", reset),
+                        UiLanguage::Chinese => format!("重置于 {}", reset),
+                    })
+                    .size(FontSize::XS)
+                    .color(Theme::TEXT_SECONDARY),
                 );
             }
         });
