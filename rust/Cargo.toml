@@ -11,60 +11,60 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "=1.49.0", features = ["full"] }
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls", "stream"], default-features = false }
+reqwest = { version = "=0.12.28", features = ["json", "cookies", "rustls-tls", "stream"], default-features = false }
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "0.8"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+toml = "=0.8.2"
 
 # CLI
-clap = { version = "4", features = ["derive", "env"] }
+clap = { version = "=4.5.54", features = ["derive", "env"] }
 
 # Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.22", features = ["env-filter", "json"] }
 
 # Error handling
-thiserror = "2"
-anyhow = "1"
+thiserror = "=2.0.17"
+anyhow = "=1.0.100"
 
 # Date/time
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "=0.4.43", features = ["serde"] }
 
 # Async utilities
-async-trait = "0.1"
-futures = "0.3"
+async-trait = "=0.1.89"
+futures = "=0.3.31"
 
 # System tray (Windows)
-tray-icon = "0.19"
+tray-icon = "=0.19.3"
 # muda version must match what tray-icon uses
-muda = "0.15"
+muda = "=0.15.3"
 # Channel for menu events
-crossbeam-channel = "0.5"
+crossbeam-channel = "=0.5.15"
 # Window event loop for proper message pumping
-winit = "0.30"
+winit = "=0.30.12"
 
 # Native GUI with egui
-eframe = { version = "0.30", default-features = false, features = ["default_fonts", "glow", "persistence"] }
-egui = "0.30"
-egui_extras = { version = "0.30", features = ["svg", "image"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
-rand = "0.9.2"
-egui_plot = "0.34.0"
-global-hotkey = "0.7.0"
+eframe = { version = "=0.30.0", default-features = false, features = ["default_fonts", "glow", "persistence"] }
+egui = "=0.30.0"
+egui_extras = { version = "=0.30.0", features = ["svg", "image"] }
+image = { version = "=0.25.9", default-features = false, features = ["png"] }
+rand = "=0.9.2"
+egui_plot = "=0.34.0"
+global-hotkey = "=0.7.0"
 
 # SVG rendering
-resvg = "0.44"
-usvg = "0.44"
-tiny-skia = "0.11"
+resvg = "=0.44.0"
+usvg = "=0.44.0"
+tiny-skia = "=0.11.4"
 
 # Windows-specific
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "=0.58.0", features = [
     "Win32_Foundation",
     "Win32_Security_Credentials",
     "Win32_Security_Cryptography",
@@ -77,51 +77,51 @@ windows = { version = "0.58", features = [
 ] }
 
 # SQLite for reading browser cookies
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "=0.32.1", features = ["bundled"] }
 
 # Encryption for cookie decryption
-aes-gcm = "0.10"
-base64 = "0.22"
+aes-gcm = "=0.10.3"
+base64 = "=0.22.1"
 
 # Hashing for update verification
-sha2 = "0.10"
+sha2 = "=0.10.9"
 
 # Secure credential storage
-keyring = "3"
+keyring = "=3.6.3"
 
 # Directory paths
-directories = "6"
+directories = "=6.0.0"
 
 # URL handling
-url = "2"
+url = "=2.5.8"
 
 # UUID generation
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "=1.19.0", features = ["v4", "serde"] }
 
 # Regex (lite version for simple matching)
-regex-lite = "0.1"
+regex-lite = "=0.1.8"
 
 # Which - find executables in PATH
-which = "7"
+which = "=7.0.3"
 
 # Dirs - standard directories
-dirs = "6"
+dirs = "=6.0.0"
 
 # Open URLs in browser
-open = "5"
+open = "=5.3.3"
 
 # Clipboard access
-arboard = "3.2"
+arboard = "=3.6.1"
 
 # Windows Registry access
-winreg = "0.55"
+winreg = "=0.55.0"
 
 [build-dependencies]
-chrono = "0.4"
+chrono = "=0.4.43"
 
 [dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3"
+tokio-test = "=0.4.5"
+tempfile = "=3.24.0"
 
 [profile.release]
 opt-level = 3
