@@ -35,6 +35,7 @@ pub enum ProviderId {
     JetBrains,
     Alibaba,
     NanoGPT,
+    Infini,
 }
 
 impl ProviderId {
@@ -64,6 +65,7 @@ impl ProviderId {
             ProviderId::JetBrains,
             ProviderId::Alibaba,
             ProviderId::NanoGPT,
+            ProviderId::Infini,
         ]
     }
 
@@ -93,6 +95,7 @@ impl ProviderId {
             ProviderId::JetBrains => "jetbrains",
             ProviderId::Alibaba => "alibaba",
             ProviderId::NanoGPT => "nanogpt",
+            ProviderId::Infini => "infini",
         }
     }
 
@@ -122,6 +125,7 @@ impl ProviderId {
             ProviderId::JetBrains => "JetBrains AI",
             ProviderId::Alibaba => "Alibaba",
             ProviderId::NanoGPT => "NanoGPT",
+            ProviderId::Infini => "Infini",
         }
     }
 
@@ -154,6 +158,7 @@ impl ProviderId {
             ProviderId::Warp => None,
             ProviderId::OpenRouter => None,
             ProviderId::NanoGPT => None,
+            ProviderId::Infini => None,
         }
     }
 
@@ -183,6 +188,7 @@ impl ProviderId {
             "jetbrains" | "jetbrains-ai" | "intellij" => Some(ProviderId::JetBrains),
             "alibaba" | "tongyi" | "qianwen" | "qwen" => Some(ProviderId::Alibaba),
             "nanogpt" | "nano-gpt" => Some(ProviderId::NanoGPT),
+            "infini" | "infini-ai" => Some(ProviderId::Infini),
             _ => None,
         }
     }
@@ -409,6 +415,7 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("tongyi", ProviderId::Alibaba);
     map.insert("qianwen", ProviderId::Alibaba);
     map.insert("qwen", ProviderId::Alibaba);
+    map.insert("infini-ai", ProviderId::Infini);
     map
 }
 
@@ -419,7 +426,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 23);
+        assert_eq!(all.len(), 24);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -428,6 +435,7 @@ mod tests {
         assert!(all.contains(&ProviderId::Synthetic));
         assert!(all.contains(&ProviderId::JetBrains));
         assert!(all.contains(&ProviderId::NanoGPT));
+        assert!(all.contains(&ProviderId::Infini));
     }
 
     #[test]

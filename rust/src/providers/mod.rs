@@ -52,4 +52,4 @@ pub use synthetic::SyntheticProvider;
 pub use vertexai::VertexAIProvider;
 pub use warp::WarpProvider;
 pub use zai::ZaiProvider;
-pub use infini::{InfiniClient, InfiniError, InfiniUsage, PlanType, UsagePeriod};
+pub use infini::{InfiniClient, InfiniError, InfiniUsage, InfiniProvider, PlanType, UsagePeriod};

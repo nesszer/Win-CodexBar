@@ -1,8 +1,14 @@
 //! Infini AI Coding Plan Provider
 
+use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::core::{
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
+    RateWindow, SourceMode, UsageSnapshot,
+};
 
 /// Infini AI Coding Plan 用量数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,5 +263,124 @@ mod tests {
         assert_eq!(usage.five_hour_percentage(), 0.0);
         assert_eq!(usage.seven_day_percentage(), 0.0);
         assert_eq!(usage.thirty_day_percentage(), 0.0);
+    }
+}
+
+// ==================== InfiniProvider ====================
+
+/// Infini AI Provider 实现
+pub struct InfiniProvider {
+    metadata: ProviderMetadata,
+    client: InfiniClient,
+}
+
+impl InfiniProvider {
+    /// 创建新的 InfiniProvider
+    pub fn new(api_key: String) -> Self {
+        Self {
+            metadata: ProviderMetadata {
+                id: ProviderId::Infini,
+                display_name: "Infini",
+                session_label: "5-Hour",
+                weekly_label: "7-Day",
+                supports_opus: false,
+                supports_credits: false,
+                default_enabled: false,
+                is_primary: false,
+                dashboard_url: Some("https://cloud.infini-ai.com"),
+                status_page_url: None,
+            },
+            client: InfiniClient::new(api_key),
+        }
+    }
+
+    /// 设置自定义 API 基础 URL（用于测试）
+    pub fn with_base_url(mut self, base_url: String) -> Self {
+        self.client = self.client.with_base_url(base_url);
+        self
+    }
+
+    /// 从环境变量读取 API Key
+    fn read_api_key() -> Option<String> {
+        std::env::var("INFINI_API_KEY").ok()
+    }
+}
+
+impl Default for InfiniProvider {
+    fn default() -> Self {
+        Self::new(String::new())
+    }
+}
+
+#[async_trait]
+impl Provider for InfiniProvider {
+    fn id(&self) -> ProviderId {
+        ProviderId::Infini
+    }
+
+    fn metadata(&self) -> &ProviderMetadata {
+        &self.metadata
+    }
+
+    async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+        tracing::debug!("Fetching Infini usage");
+
+        // 优先使用传入的 API Key，否则尝试从环境变量读取
+        let api_key = ctx
+            .api_key
+            .clone()
+            .or_else(Self::read_api_key)
+            .ok_or(ProviderError::AuthRequired)?;
+
+        let client = InfiniClient::new(api_key);
+
+        match ctx.source_mode {
+            SourceMode::Auto | SourceMode::Web => {
+                let usage = client.fetch_usage().await.map_err(|e| match e {
+                    InfiniError::Unauthorized => ProviderError::AuthRequired,
+                    InfiniError::RateLimited(msg) => ProviderError::Other(format!("Rate limited: {}", msg)),
+                    InfiniError::ServerError(msg) => ProviderError::Other(format!("Server error: {}", msg)),
+                    InfiniError::ParseError(msg) => ProviderError::Parse(msg),
+                    InfiniError::HttpError(e) => ProviderError::Network(e),
+                })?;
+
+                // 创建 primary rate window (5-hour)
+                let primary = RateWindow::new(usage.five_hour_percentage());
+
+                // 创建 secondary rate window (7-day)
+                let secondary = RateWindow::new(usage.seven_day_percentage());
+
+                // 构建使用快照
+                let snapshot = UsageSnapshot::new(primary)
+                    .with_secondary(secondary)
+                    .with_login_method(usage.plan_type().to_string());
+
+                Ok(ProviderFetchResult::new(snapshot, "web"))
+            }
+            SourceMode::Cli => Err(ProviderError::UnsupportedSource(SourceMode::Cli)),
+            SourceMode::OAuth => Err(ProviderError::UnsupportedSource(SourceMode::OAuth)),
+        }
+    }
+
+    fn available_sources(&self) -> Vec<SourceMode> {
+        vec![SourceMode::Auto, SourceMode::Web]
+    }
+
+    fn supports_web(&self) -> bool {
+        true
+    }
+
+    fn supports_cli(&self) -> bool {
+        false
+    }
+}
+
+impl std::fmt::Display for PlanType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PlanType::Lite => write!(f, "Infini Lite"),
+            PlanType::Pro => write!(f, "Infini Pro"),
+            PlanType::Unknown => write!(f, "Infini"),
+        }
     }
 }
