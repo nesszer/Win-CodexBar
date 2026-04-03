@@ -26,6 +26,7 @@ pub mod synthetic;
 pub mod vertexai;
 pub mod warp;
 pub mod zai;
+pub mod infini;
 
 // Re-export provider implementations
 pub use alibaba::AlibabaProvider;
@@ -51,3 +52,4 @@ pub use synthetic::SyntheticProvider;
 pub use vertexai::VertexAIProvider;
 pub use warp::WarpProvider;
 pub use zai::ZaiProvider;
+pub use infini::{InfiniUsage, PlanType, UsagePeriod};
