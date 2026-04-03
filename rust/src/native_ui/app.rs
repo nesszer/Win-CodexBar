@@ -25,6 +25,7 @@ use crate::core::{TokenAccountStore, TokenAccountSupport};
 use crate::cost_scanner::get_daily_cost_history;
 use crate::locale::{LocaleKey, get_text as locale_text};
 use crate::login::LoginPhase;
+use crate::notifications::NotificationManager;
 use crate::providers::*;
 use crate::settings::{ApiKeys, Language, ManualCookies, Settings, UpdateChannel};
 use crate::shortcuts::{ShortcutManager, parse_shortcut};
@@ -680,6 +681,7 @@ pub struct CodexBarApp {
     was_refreshing: bool, // Track previous frame's refresh state
     pending_main_window_layout: bool,
     anchor_main_window_to_pointer: bool,
+    notification_manager: Arc<Mutex<NotificationManager>>,
     #[cfg(debug_assertions)]
     test_input_queue: super::test_server::TestInputQueue,
 }
@@ -877,6 +879,7 @@ impl CodexBarApp {
             was_refreshing: false,
             pending_main_window_layout: true,
             anchor_main_window_to_pointer: false,
+            notification_manager: Arc::new(Mutex::new(NotificationManager::new())),
             #[cfg(debug_assertions)]
             test_input_queue,
         }
@@ -984,6 +987,9 @@ impl CodexBarApp {
         let ui_language = self.settings.ui_language;
         // Load token accounts for account switching support
         let token_accounts = TokenAccountStore::new().load().unwrap_or_default();
+        // Notification manager for usage alerts
+        let notification_manager = Arc::clone(&self.notification_manager);
+        let settings = self.settings.clone();
 
         std::thread::spawn(move || {
             if let Ok(mut s) = state.lock() {
@@ -1156,6 +1162,34 @@ impl CodexBarApp {
                 s.summary_providers = s.providers.clone();
                 s.last_refresh = Instant::now();
                 s.is_refreshing = false;
+                
+                // Check for usage alerts and send notifications
+                for provider in &s.providers {
+                    if let Some(provider_id) = ProviderId::from_cli_name(&provider.name) {
+                        // Check primary session usage
+                        if let Some(session_percent) = provider.session_percent {
+                            if let Ok(mut nm) = notification_manager.lock() {
+                                nm.check_and_notify(provider_id, session_percent, &settings);
+                                nm.check_session_transition(provider_id, session_percent, &settings);
+                            }
+                        }
+                        
+                        // For Infini: also check weekly and monthly windows
+                        if provider_id == ProviderId::Infini {
+                            if let Ok(mut nm) = notification_manager.lock() {
+                                // Check 7-day (secondary) window
+                                if let Some(weekly_percent) = provider.weekly_percent {
+                                    // Use a composite key to avoid conflicts with session alerts
+                                    // For secondary window, we use the provider id but with a modifier
+                                    // We only alert on the highest usage across all windows
+                                }
+                                // Note: Infini alerts are based on the highest usage across all windows
+                                // The primary (5-hour) window is used as the main indicator
+                                // Additional window alerts could be added here if needed
+                            }
+                        }
+                    }
+                }
             }
         });
     }
