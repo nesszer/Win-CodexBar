@@ -3,7 +3,7 @@
 //! Store and manage multiple accounts/tokens per provider.
 //! Supports parallel fetching and account switching.
 
-use crate::core::ProviderId;
+use crate::core::{CredentialStore, ProviderId, WindowsCredentialStore};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -53,7 +53,7 @@ impl TokenAccountSupport {
             }),
             ProviderId::Zai => Some(TokenAccountSupport {
                 title: "API tokens",
-                subtitle: "Stored locally in token-accounts.json.",
+                subtitle: "Stored securely in the system credential store.",
                 placeholder: "Paste token...",
                 injection: TokenInjection::Environment {
                     key: "ZED_API_TOKEN".to_string(),
@@ -205,6 +205,7 @@ pub struct TokenAccount {
     /// User-provided label
     pub label: String,
     /// The token/cookie value
+    #[serde(skip_serializing, default)]
     pub token: String,
     /// When this account was added (Unix timestamp in seconds)
     pub added_at: i64,
@@ -347,6 +348,8 @@ pub struct TokenAccountStore {
     file_path: PathBuf,
 }
 
+const TOKEN_ACCOUNT_CREDENTIAL_SERVICE: &str = "CodexBar";
+
 /// Errors that can occur with token account storage
 #[derive(Debug, thiserror::Error)]
 pub enum TokenAccountError {
@@ -354,9 +357,19 @@ pub enum TokenAccountError {
     Io(#[from] io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Credential error: {0}")]
+    Credential(String),
 }
 
 impl TokenAccountStore {
+    fn credential_store() -> WindowsCredentialStore {
+        WindowsCredentialStore::new()
+    }
+
+    fn credential_key(provider: ProviderId, account_id: Uuid) -> String {
+        format!("token-account-{}-{}", provider.cli_name(), account_id)
+    }
+
     /// Create a new store with the default path
     pub fn new() -> Self {
         Self {
@@ -391,8 +404,16 @@ impl TokenAccountStore {
         let file: TokenAccountsFile = serde_json::from_str(&data)?;
 
         let mut result = HashMap::new();
-        for (key, value) in file.providers {
+        for (key, mut value) in file.providers {
             if let Some(provider) = ProviderId::from_cli_name(&key) {
+                for account in &mut value.accounts {
+                    if let Ok(secret) = Self::credential_store().get(
+                        TOKEN_ACCOUNT_CREDENTIAL_SERVICE,
+                        &Self::credential_key(provider, account.id),
+                    ) {
+                        account.token = secret;
+                    }
+                }
                 result.insert(provider, value);
             }
         }
@@ -409,8 +430,50 @@ impl TokenAccountStore {
             fs::create_dir_all(parent)?;
         }
 
+        let existing = self.load().unwrap_or_default();
+        for (provider, data) in &existing {
+            if let Some(current) = accounts.get(provider) {
+                for account in &data.accounts {
+                    if !current.accounts.iter().any(|candidate| candidate.id == account.id) {
+                        let _ = Self::credential_store().delete(
+                            TOKEN_ACCOUNT_CREDENTIAL_SERVICE,
+                            &Self::credential_key(*provider, account.id),
+                        );
+                    }
+                }
+            } else {
+                for account in &data.accounts {
+                    let _ = Self::credential_store().delete(
+                        TOKEN_ACCOUNT_CREDENTIAL_SERVICE,
+                        &Self::credential_key(*provider, account.id),
+                    );
+                }
+            }
+        }
+
+        for (provider, data) in accounts {
+            for account in &data.accounts {
+                if account.token.trim().is_empty() {
+                    let _ = Self::credential_store().delete(
+                        TOKEN_ACCOUNT_CREDENTIAL_SERVICE,
+                        &Self::credential_key(*provider, account.id),
+                    );
+                    continue;
+                }
+
+                Self::credential_store()
+                    .set(
+                        TOKEN_ACCOUNT_CREDENTIAL_SERVICE,
+                        &Self::credential_key(*provider, account.id),
+                        &account.token,
+                    )
+                    .map_err(|e| TokenAccountError::Credential(e.to_string()))?;
+            }
+        }
+
         let providers: HashMap<String, ProviderAccountData> = accounts
             .iter()
+            .filter(|(_, data)| !data.accounts.is_empty())
             .map(|(k, v)| (k.cli_name().to_string(), v.clone()))
             .collect();
 
@@ -568,5 +631,12 @@ mod tests {
 
         data.set_active(1);
         assert_eq!(data.active_account().unwrap().label, "Account 2");
+    }
+
+    #[test]
+    fn test_token_account_serialization_does_not_include_token_value() {
+        let account = TokenAccount::new("Work", "super-secret-token");
+        let json = serde_json::to_string(&account).unwrap();
+        assert!(!json.contains("super-secret-token"));
     }
 }

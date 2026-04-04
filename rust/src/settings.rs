@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::core::ProviderId;
+use crate::core::{CredentialStore, ProviderId, WindowsCredentialStore};
 
 /// UI language for the application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -480,11 +480,34 @@ pub struct ManualCookies {
 /// A single manual cookie entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManualCookieEntry {
+    #[serde(skip_serializing, default)]
     pub cookie_header: String,
     pub saved_at: String,
 }
 
 impl ManualCookies {
+    const CREDENTIAL_SERVICE: &'static str = "CodexBar";
+
+    fn credential_key(provider_id: &str) -> String {
+        format!("manual-cookie-{}", provider_id)
+    }
+
+    fn credential_store() -> WindowsCredentialStore {
+        WindowsCredentialStore::new()
+    }
+
+    fn cleanup_stale_credentials(&self) {
+        let existing = Self::load();
+        for provider_id in existing.cookies.keys() {
+            if !self.cookies.contains_key(provider_id) {
+                let _ = Self::credential_store().delete(
+                    Self::CREDENTIAL_SERVICE,
+                    &Self::credential_key(provider_id),
+                );
+            }
+        }
+    }
+
     /// Get the cookies file path
     pub fn cookies_path() -> Option<PathBuf> {
         dirs::config_dir().map(|p| p.join("CodexBar").join("manual_cookies.json"))
@@ -496,7 +519,15 @@ impl ManualCookies {
             && path.exists()
             && let Ok(content) = std::fs::read_to_string(&path)
         {
-            return serde_json::from_str(&content).unwrap_or_default();
+            let mut cookies: Self = serde_json::from_str(&content).unwrap_or_default();
+            for (provider_id, entry) in &mut cookies.cookies {
+                if let Ok(secret) = Self::credential_store()
+                    .get(Self::CREDENTIAL_SERVICE, &Self::credential_key(provider_id))
+                {
+                    entry.cookie_header = secret;
+                }
+            }
+            return cookies;
         }
         Self::default()
     }
@@ -508,6 +539,26 @@ impl ManualCookies {
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
+        }
+
+        self.cleanup_stale_credentials();
+
+        for (provider_id, entry) in &self.cookies {
+            if entry.cookie_header.trim().is_empty() {
+                let _ = Self::credential_store().delete(
+                    Self::CREDENTIAL_SERVICE,
+                    &Self::credential_key(provider_id),
+                );
+                continue;
+            }
+
+            Self::credential_store()
+                .set(
+                    Self::CREDENTIAL_SERVICE,
+                    &Self::credential_key(provider_id),
+                    &entry.cookie_header,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         }
 
         let json = serde_json::to_string_pretty(self)?;
@@ -538,6 +589,10 @@ impl ManualCookies {
     /// Remove cookie for a provider
     pub fn remove(&mut self, provider_id: &str) {
         self.cookies.remove(provider_id);
+        let _ = Self::credential_store().delete(
+            Self::CREDENTIAL_SERVICE,
+            &Self::credential_key(provider_id),
+        );
     }
 
     /// Get all saved cookies for UI display
@@ -577,6 +632,7 @@ pub struct ApiKeys {
 /// A single API key entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKeyEntry {
+    #[serde(skip_serializing, default)]
     pub api_key: String,
     pub saved_at: String,
     /// Optional label for the key (e.g., "Personal", "Work")
@@ -585,6 +641,28 @@ pub struct ApiKeyEntry {
 }
 
 impl ApiKeys {
+    const CREDENTIAL_SERVICE: &'static str = "CodexBar";
+
+    fn credential_key(provider_id: &str) -> String {
+        format!("api-key-{}", provider_id)
+    }
+
+    fn credential_store() -> WindowsCredentialStore {
+        WindowsCredentialStore::new()
+    }
+
+    fn cleanup_stale_credentials(&self) {
+        let existing = Self::load();
+        for provider_id in existing.keys.keys() {
+            if !self.keys.contains_key(provider_id) {
+                let _ = Self::credential_store().delete(
+                    Self::CREDENTIAL_SERVICE,
+                    &Self::credential_key(provider_id),
+                );
+            }
+        }
+    }
+
     /// Get the API keys file path
     pub fn keys_path() -> Option<PathBuf> {
         dirs::config_dir().map(|p| p.join("CodexBar").join("api_keys.json"))
@@ -596,7 +674,15 @@ impl ApiKeys {
             && path.exists()
             && let Ok(content) = std::fs::read_to_string(&path)
         {
-            return serde_json::from_str(&content).unwrap_or_default();
+            let mut keys: Self = serde_json::from_str(&content).unwrap_or_default();
+            for (provider_id, entry) in &mut keys.keys {
+                if let Ok(secret) = Self::credential_store()
+                    .get(Self::CREDENTIAL_SERVICE, &Self::credential_key(provider_id))
+                {
+                    entry.api_key = secret;
+                }
+            }
+            return keys;
         }
         Self::default()
     }
@@ -608,6 +694,26 @@ impl ApiKeys {
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
+        }
+
+        self.cleanup_stale_credentials();
+
+        for (provider_id, entry) in &self.keys {
+            if entry.api_key.trim().is_empty() {
+                let _ = Self::credential_store().delete(
+                    Self::CREDENTIAL_SERVICE,
+                    &Self::credential_key(provider_id),
+                );
+                continue;
+            }
+
+            Self::credential_store()
+                .set(
+                    Self::CREDENTIAL_SERVICE,
+                    &Self::credential_key(provider_id),
+                    &entry.api_key,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         }
 
         let json = serde_json::to_string_pretty(self)?;
@@ -637,6 +743,10 @@ impl ApiKeys {
     /// Remove API key for a provider
     pub fn remove(&mut self, provider_id: &str) {
         self.keys.remove(provider_id);
+        let _ = Self::credential_store().delete(
+            Self::CREDENTIAL_SERVICE,
+            &Self::credential_key(provider_id),
+        );
     }
 
     /// Check if a provider has an API key configured
@@ -957,5 +1067,26 @@ mod tests {
 
         assert_eq!(english, Language::English);
         assert_eq!(chinese, Language::Chinese);
+    }
+
+    #[test]
+    fn test_manual_cookie_entry_serialization_does_not_include_cookie_value() {
+        let entry = ManualCookieEntry {
+            cookie_header: "session=secret".to_string(),
+            saved_at: "2026-04-04 12:00".to_string(),
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(!json.contains("session=secret"));
+    }
+
+    #[test]
+    fn test_api_key_entry_serialization_does_not_include_api_key_value() {
+        let entry = ApiKeyEntry {
+            api_key: "sk-secret-123".to_string(),
+            saved_at: "2026-04-04 12:00".to_string(),
+            label: Some("Personal".to_string()),
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(!json.contains("sk-secret-123"));
     }
 }

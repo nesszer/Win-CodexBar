@@ -78,6 +78,52 @@ impl CredentialStore for WindowsCredentialStore {
     }
 }
 
+#[cfg(not(windows))]
+pub struct WindowsCredentialStore;
+
+#[cfg(not(windows))]
+impl WindowsCredentialStore {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(not(windows))]
+impl Default for WindowsCredentialStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(windows))]
+impl CredentialStore for WindowsCredentialStore {
+    fn get(&self, service: &str, key: &str) -> Result<String, CredentialError> {
+        let entry = keyring::Entry::new(service, key)
+            .map_err(|e| CredentialError::Storage(e.to_string()))?;
+        entry.get_password().map_err(|e| match e {
+            keyring::Error::NoEntry => CredentialError::NotFound,
+            keyring::Error::Ambiguous(_) => CredentialError::Storage("Ambiguous entry".to_string()),
+            _ => CredentialError::Storage(e.to_string()),
+        })
+    }
+
+    fn set(&self, service: &str, key: &str, value: &str) -> Result<(), CredentialError> {
+        let entry = keyring::Entry::new(service, key)
+            .map_err(|e| CredentialError::Storage(e.to_string()))?;
+        entry
+            .set_password(value)
+            .map_err(|e| CredentialError::Storage(e.to_string()))
+    }
+
+    fn delete(&self, service: &str, key: &str) -> Result<(), CredentialError> {
+        let entry = keyring::Entry::new(service, key)
+            .map_err(|e| CredentialError::Storage(e.to_string()))?;
+        entry.delete_credential().map_err(|e| match e {
+            keyring::Error::NoEntry => CredentialError::NotFound,
+            _ => CredentialError::Storage(e.to_string()),
+        })
+    }
+}
 /// OAuth credentials structure
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OAuthCredentials {

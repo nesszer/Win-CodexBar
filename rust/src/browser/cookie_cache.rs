@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use crate::core::ProviderId;
+use crate::core::{CredentialStore, ProviderId, WindowsCredentialStore};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -15,6 +15,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CookieHeaderEntry {
     /// The normalized cookie header string
+    #[serde(skip_serializing, default)]
     pub cookie_header: String,
     /// When this entry was stored
     pub stored_at: DateTime<Utc>,
@@ -41,12 +42,26 @@ impl CookieHeaderEntry {
 /// Cookie header cache store
 pub struct CookieHeaderCache;
 
+const COOKIE_CACHE_SERVICE: &str = "CodexBar";
+
 impl CookieHeaderCache {
+    fn credential_key(provider: ProviderId) -> String {
+        format!("{}-cookie-cache", provider.cli_name())
+    }
+
+    fn credential_store() -> WindowsCredentialStore {
+        WindowsCredentialStore::new()
+    }
+
     /// Load cached cookie header for a provider
     pub fn load(provider: ProviderId) -> Option<CookieHeaderEntry> {
         let path = Self::cache_path(provider)?;
         let data = fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&data).ok()
+        let mut entry: CookieHeaderEntry = serde_json::from_str(&data).ok()?;
+        entry.cookie_header = Self::credential_store()
+            .get(COOKIE_CACHE_SERVICE, &Self::credential_key(provider))
+            .ok()?;
+        Some(entry)
     }
 
     /// Store a cookie header for a provider
@@ -66,8 +81,12 @@ impl CookieHeaderCache {
             return Ok(());
         }
 
-        let entry = CookieHeaderEntry::new(normalized, source_label);
+        let entry = CookieHeaderEntry::new(normalized.clone(), source_label);
         let path = Self::cache_path(provider).ok_or(CookieHeaderCacheError::PathNotAvailable)?;
+
+        Self::credential_store()
+            .set(COOKIE_CACHE_SERVICE, &Self::credential_key(provider), &normalized)
+            .map_err(|e| CookieHeaderCacheError::Credential(e.to_string()))?;
 
         // Create parent directory
         if let Some(parent) = path.parent() {
@@ -88,6 +107,7 @@ impl CookieHeaderCache {
 
     /// Clear cached cookie header for a provider
     pub fn clear(provider: ProviderId) {
+        let _ = Self::credential_store().delete(COOKIE_CACHE_SERVICE, &Self::credential_key(provider));
         if let Some(path) = Self::cache_path(provider)
             && let Err(e) = fs::remove_file(&path)
             && e.kind() != std::io::ErrorKind::NotFound
@@ -158,6 +178,8 @@ pub enum CookieHeaderCacheError {
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Credential error: {0}")]
+    Credential(String),
 }
 
 #[cfg(test)]
@@ -189,5 +211,12 @@ mod tests {
 
         let whitespace = CookieHeaderCache::normalize_cookie_header("   ;  ;  ");
         assert!(whitespace.is_empty());
+    }
+
+    #[test]
+    fn test_cookie_cache_entry_serialization_does_not_include_cookie_value() {
+        let entry = CookieHeaderEntry::new("session=secret", "Chrome");
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(!json.contains("session=secret"));
     }
 }

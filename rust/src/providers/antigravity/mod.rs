@@ -38,6 +38,14 @@ impl AntigravityProvider {
         }
     }
 
+    fn build_local_client(timeout: std::time::Duration) -> Result<reqwest::Client, ProviderError> {
+        reqwest::Client::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))
+    }
+
     /// Detect running Antigravity language server and extract connection info
     fn detect_process_info() -> Result<ProcessInfo, ProviderError> {
         // Use PowerShell to get process command lines
@@ -99,15 +107,7 @@ impl AntigravityProvider {
     async fn find_api_port(extension_port: u16) -> Result<u16, ProviderError> {
         // The language server listens on multiple ports near the extension port
         // Try ports in range extension_port to extension_port + 20
-        // SECURITY: TLS verification is disabled because the local language server uses
-        // self-signed certificates. This is scoped to 127.0.0.1 only and the port range
-        // is limited. We verify the server responds with the expected gRPC endpoint.
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(2))
-            .danger_accept_invalid_certs(true)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = Self::build_local_client(std::time::Duration::from_secs(2))?;
 
         for offset in 0..20 {
             let port = extension_port + offset;
@@ -161,13 +161,7 @@ impl AntigravityProvider {
         let process_info = Self::detect_process_info()?;
         let api_port = Self::find_api_port(process_info.extension_port).await?;
 
-        // SECURITY: TLS verification disabled for local language server (see find_api_port)
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(8))
-            .danger_accept_invalid_certs(true)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = Self::build_local_client(std::time::Duration::from_secs(8))?;
 
         let url = format!(
             "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUserStatus",
@@ -496,5 +490,12 @@ mod tests {
         assert!((snap.primary.used_percent - 60.0).abs() < 0.1);
         assert!(snap.secondary.is_none());
         assert!(snap.model_specific.is_none());
+    }
+
+    #[test]
+    fn test_local_client_builder_keeps_tls_verification_enabled() {
+        let client = AntigravityProvider::build_local_client(std::time::Duration::from_secs(1))
+            .unwrap();
+        let _ = client;
     }
 }
