@@ -1173,21 +1173,8 @@ impl CodexBarApp {
                                 nm.check_session_transition(provider_id, session_percent, &settings);
                             }
                         }
-                        
-                        // For Infini: also check weekly and monthly windows
-                        if provider_id == ProviderId::Infini {
-                            if let Ok(mut nm) = notification_manager.lock() {
-                                // Check 7-day (secondary) window
-                                if let Some(weekly_percent) = provider.weekly_percent {
-                                    // Use a composite key to avoid conflicts with session alerts
-                                    // For secondary window, we use the provider id but with a modifier
-                                    // We only alert on the highest usage across all windows
-                                }
-                                // Note: Infini alerts are based on the highest usage across all windows
-                                // The primary (5-hour) window is used as the main indicator
-                                // Additional window alerts could be added here if needed
-                            }
-                        }
+                        // Note: Infini alerts are based on the highest usage across all windows
+                        // The primary (5-hour) window is used as the main indicator
                     }
                 }
             }
