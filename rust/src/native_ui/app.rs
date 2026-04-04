@@ -1162,20 +1162,18 @@ impl CodexBarApp {
                 s.summary_providers = s.providers.clone();
                 s.last_refresh = Instant::now();
                 s.is_refreshing = false;
-                
+
                 // Check for usage alerts and send notifications
                 for provider in &s.providers {
-                    if let Some(provider_id) = ProviderId::from_cli_name(&provider.name) {
-                        // Check primary session usage
-                        if let Some(session_percent) = provider.session_percent {
-                            if let Ok(mut nm) = notification_manager.lock() {
-                                nm.check_and_notify(provider_id, session_percent, &settings);
-                                nm.check_session_transition(provider_id, session_percent, &settings);
-                            }
-                        }
-                        // Note: Infini alerts are based on the highest usage across all windows
-                        // The primary (5-hour) window is used as the main indicator
+                    if let Some(provider_id) = ProviderId::from_cli_name(&provider.name)
+                        && let Some(session_percent) = provider.session_percent
+                        && let Ok(mut nm) = notification_manager.lock()
+                    {
+                        nm.check_and_notify(provider_id, session_percent, &settings);
+                        nm.check_session_transition(provider_id, session_percent, &settings);
                     }
+                    // Note: Infini alerts are based on the highest usage across all windows
+                    // The primary (5-hour) window is used as the main indicator
                 }
             }
         });
