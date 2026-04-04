@@ -7,7 +7,7 @@ use crate::core::{FetchContext, Provider, ProviderFetchResult, ProviderId, Sourc
 use crate::providers::{
     AlibabaProvider, AmpProvider, AntigravityProvider, AugmentProvider, ClaudeProvider,
     CodexProvider, CopilotProvider, CursorProvider, FactoryProvider, GeminiProvider,
-    JetBrainsProvider, KimiK2Provider, KimiProvider, KiroProvider, MiniMaxProvider,
+    InfiniProvider, JetBrainsProvider, KimiK2Provider, KimiProvider, KiroProvider, MiniMaxProvider,
     NanoGPTProvider, OllamaProvider, OpenCodeProvider, OpenRouterProvider, SyntheticProvider,
     VertexAIProvider, WarpProvider, ZaiProvider,
 };

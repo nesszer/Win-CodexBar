@@ -117,7 +117,8 @@ impl TokenAccountSupport {
             | ProviderId::Warp
             | ProviderId::Ollama
             | ProviderId::OpenRouter
-            | ProviderId::NanoGPT => None,
+            | ProviderId::NanoGPT
+            | ProviderId::Infini => None,
         }
     }
 
