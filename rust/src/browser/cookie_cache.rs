@@ -85,7 +85,11 @@ impl CookieHeaderCache {
         let path = Self::cache_path(provider).ok_or(CookieHeaderCacheError::PathNotAvailable)?;
 
         Self::credential_store()
-            .set(COOKIE_CACHE_SERVICE, &Self::credential_key(provider), &normalized)
+            .set(
+                COOKIE_CACHE_SERVICE,
+                &Self::credential_key(provider),
+                &normalized,
+            )
             .map_err(|e| CookieHeaderCacheError::Credential(e.to_string()))?;
 
         // Create parent directory
@@ -107,7 +111,8 @@ impl CookieHeaderCache {
 
     /// Clear cached cookie header for a provider
     pub fn clear(provider: ProviderId) {
-        let _ = Self::credential_store().delete(COOKIE_CACHE_SERVICE, &Self::credential_key(provider));
+        let _ =
+            Self::credential_store().delete(COOKIE_CACHE_SERVICE, &Self::credential_key(provider));
         if let Some(path) = Self::cache_path(provider)
             && let Err(e) = fs::remove_file(&path)
             && e.kind() != std::io::ErrorKind::NotFound

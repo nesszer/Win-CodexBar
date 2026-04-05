@@ -158,127 +158,6 @@ impl InfiniClient {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_usage_period_deserialization() {
-        let json = r#"{"quota": 5000, "used": 1000, "remain": 4000}"#;
-        let period: UsagePeriod = serde_json::from_str(json).unwrap();
-        assert_eq!(period.quota, 5000);
-        assert_eq!(period.used, 1000);
-        assert_eq!(period.remain, 4000);
-    }
-
-    #[test]
-    fn test_infini_usage_deserialization() {
-        let json = r#"{
-            "5_hour": {"quota": 5000, "used": 1000, "remain": 4000},
-            "7_day": {"quota": 30000, "used": 5000, "remain": 25000},
-            "30_day": {"quota": 60000, "used": 10000, "remain": 50000}
-        }"#;
-        let usage: InfiniUsage = serde_json::from_str(json).unwrap();
-        assert_eq!(usage.five_hour.quota, 5000);
-        assert_eq!(usage.seven_day.used, 5000);
-        assert_eq!(usage.thirty_day.remain, 50000);
-    }
-
-    #[test]
-    fn test_plan_type_pro() {
-        let usage = InfiniUsage {
-            five_hour: UsagePeriod {
-                quota: 5000,
-                used: 1000,
-                remain: 4000,
-            },
-            seven_day: UsagePeriod {
-                quota: 30000,
-                used: 5000,
-                remain: 25000,
-            },
-            thirty_day: UsagePeriod {
-                quota: 60000,
-                used: 10000,
-                remain: 50000,
-            },
-        };
-        assert_eq!(usage.plan_type(), PlanType::Pro);
-    }
-
-    #[test]
-    fn test_plan_type_lite() {
-        let usage = InfiniUsage {
-            five_hour: UsagePeriod {
-                quota: 1000,
-                used: 500,
-                remain: 500,
-            },
-            seven_day: UsagePeriod {
-                quota: 7000,
-                used: 3500,
-                remain: 3500,
-            },
-            thirty_day: UsagePeriod {
-                quota: 30000,
-                used: 15000,
-                remain: 15000,
-            },
-        };
-        assert_eq!(usage.plan_type(), PlanType::Lite);
-    }
-
-    #[test]
-    fn test_percentage_calculation() {
-        let usage = InfiniUsage {
-            five_hour: UsagePeriod {
-                quota: 5000,
-                used: 2500,
-                remain: 2500,
-            },
-            seven_day: UsagePeriod {
-                quota: 30000,
-                used: 15000,
-                remain: 15000,
-            },
-            thirty_day: UsagePeriod {
-                quota: 60000,
-                used: 30000,
-                remain: 30000,
-            },
-        };
-        assert_eq!(usage.five_hour_percentage(), 50.0);
-        assert_eq!(usage.seven_day_percentage(), 50.0);
-        assert_eq!(usage.thirty_day_percentage(), 50.0);
-    }
-
-    #[test]
-    fn test_zero_quota_percentage() {
-        let usage = InfiniUsage {
-            five_hour: UsagePeriod {
-                quota: 0,
-                used: 0,
-                remain: 0,
-            },
-            seven_day: UsagePeriod {
-                quota: 0,
-                used: 0,
-                remain: 0,
-            },
-            thirty_day: UsagePeriod {
-                quota: 0,
-                used: 0,
-                remain: 0,
-            },
-        };
-        assert_eq!(usage.five_hour_percentage(), 0.0);
-        assert_eq!(usage.seven_day_percentage(), 0.0);
-        assert_eq!(usage.thirty_day_percentage(), 0.0);
-    }
-}
-
-// ==================== InfiniProvider ====================
-
 /// Infini AI Provider 实现
 pub struct InfiniProvider {
     metadata: ProviderMetadata,
@@ -409,5 +288,124 @@ impl std::fmt::Display for PlanType {
             PlanType::Pro => write!(f, "Infini Pro"),
             PlanType::Unknown => write!(f, "Infini"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_usage_period_deserialization() {
+        let json = r#"{"quota": 5000, "used": 1000, "remain": 4000}"#;
+        let period: UsagePeriod = serde_json::from_str(json).unwrap();
+        assert_eq!(period.quota, 5000);
+        assert_eq!(period.used, 1000);
+        assert_eq!(period.remain, 4000);
+    }
+
+    #[test]
+    fn test_infini_usage_deserialization() {
+        let json = r#"{
+            "5_hour": {"quota": 5000, "used": 1000, "remain": 4000},
+            "7_day": {"quota": 30000, "used": 5000, "remain": 25000},
+            "30_day": {"quota": 60000, "used": 10000, "remain": 50000}
+        }"#;
+        let usage: InfiniUsage = serde_json::from_str(json).unwrap();
+        assert_eq!(usage.five_hour.quota, 5000);
+        assert_eq!(usage.seven_day.used, 5000);
+        assert_eq!(usage.thirty_day.remain, 50000);
+    }
+
+    #[test]
+    fn test_plan_type_pro() {
+        let usage = InfiniUsage {
+            five_hour: UsagePeriod {
+                quota: 5000,
+                used: 1000,
+                remain: 4000,
+            },
+            seven_day: UsagePeriod {
+                quota: 30000,
+                used: 5000,
+                remain: 25000,
+            },
+            thirty_day: UsagePeriod {
+                quota: 60000,
+                used: 10000,
+                remain: 50000,
+            },
+        };
+        assert_eq!(usage.plan_type(), PlanType::Pro);
+    }
+
+    #[test]
+    fn test_plan_type_lite() {
+        let usage = InfiniUsage {
+            five_hour: UsagePeriod {
+                quota: 1000,
+                used: 500,
+                remain: 500,
+            },
+            seven_day: UsagePeriod {
+                quota: 7000,
+                used: 3500,
+                remain: 3500,
+            },
+            thirty_day: UsagePeriod {
+                quota: 30000,
+                used: 15000,
+                remain: 15000,
+            },
+        };
+        assert_eq!(usage.plan_type(), PlanType::Lite);
+    }
+
+    #[test]
+    fn test_percentage_calculation() {
+        let usage = InfiniUsage {
+            five_hour: UsagePeriod {
+                quota: 5000,
+                used: 2500,
+                remain: 2500,
+            },
+            seven_day: UsagePeriod {
+                quota: 30000,
+                used: 15000,
+                remain: 15000,
+            },
+            thirty_day: UsagePeriod {
+                quota: 60000,
+                used: 30000,
+                remain: 30000,
+            },
+        };
+        assert_eq!(usage.five_hour_percentage(), 50.0);
+        assert_eq!(usage.seven_day_percentage(), 50.0);
+        assert_eq!(usage.thirty_day_percentage(), 50.0);
+    }
+
+    #[test]
+    fn test_zero_quota_percentage() {
+        let usage = InfiniUsage {
+            five_hour: UsagePeriod {
+                quota: 0,
+                used: 0,
+                remain: 0,
+            },
+            seven_day: UsagePeriod {
+                quota: 0,
+                used: 0,
+                remain: 0,
+            },
+            thirty_day: UsagePeriod {
+                quota: 0,
+                used: 0,
+                remain: 0,
+            },
+        };
+        assert_eq!(usage.five_hour_percentage(), 0.0);
+        assert_eq!(usage.seven_day_percentage(), 0.0);
+        assert_eq!(usage.thirty_day_percentage(), 0.0);
     }
 }

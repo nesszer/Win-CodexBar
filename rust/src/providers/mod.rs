@@ -12,6 +12,7 @@ pub mod copilot;
 pub mod cursor;
 pub mod factory;
 pub mod gemini;
+pub mod infini;
 pub mod jetbrains;
 pub mod kimi;
 pub mod kimik2;
@@ -26,7 +27,6 @@ pub mod synthetic;
 pub mod vertexai;
 pub mod warp;
 pub mod zai;
-pub mod infini;
 
 // Re-export provider implementations
 pub use alibaba::AlibabaProvider;
@@ -39,6 +39,7 @@ pub use copilot::CopilotProvider;
 pub use cursor::CursorProvider;
 pub use factory::FactoryProvider;
 pub use gemini::GeminiProvider;
+pub use infini::InfiniProvider;
 pub use jetbrains::JetBrainsProvider;
 pub use kimi::KimiProvider;
 pub use kimik2::KimiK2Provider;
@@ -52,4 +53,3 @@ pub use synthetic::SyntheticProvider;
 pub use vertexai::VertexAIProvider;
 pub use warp::WarpProvider;
 pub use zai::ZaiProvider;
-pub use infini::InfiniProvider;

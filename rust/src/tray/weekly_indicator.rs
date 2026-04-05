@@ -108,7 +108,7 @@ impl WeeklyIndicatorColors {
             ProviderId::Ollama => (255, 255, 255, 255), // Ollama white
             ProviderId::OpenRouter => (110, 65, 226, 255), // OpenRouter purple
             ProviderId::NanoGPT => (59, 130, 246, 255), // Blue
-            ProviderId::Infini => (0, 150, 255, 255),  // Infini blue
+            ProviderId::Infini => (0, 150, 255, 255),   // Infini blue
         }
     }
 

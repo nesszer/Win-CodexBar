@@ -26,8 +26,8 @@ fn is_allowed_kiro_binary(path: &Path) -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        return file_name.eq_ignore_ascii_case("kiro-cli.exe")
-            || file_name.eq_ignore_ascii_case("kiro.exe");
+        file_name.eq_ignore_ascii_case("kiro-cli.exe")
+            || file_name.eq_ignore_ascii_case("kiro.exe")
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -195,15 +195,15 @@ pub fn find_kiro_cli() -> Option<PathBuf> {
 
             // 2. Hardened PATH lookup - use which but validate the result
             //    (avoids CWD hijacking by not executing bare command names)
-            if let Ok(path) = which::which("kiro-cli") {
-                if is_allowed_kiro_binary(&path) {
-                    return Some(path);
-                }
+            if let Ok(path) = which::which("kiro-cli")
+                && is_allowed_kiro_binary(&path)
+            {
+                return Some(path);
             }
-            if let Ok(path) = which::which("kiro") {
-                if is_allowed_kiro_binary(&path) {
-                    return Some(path);
-                }
+            if let Ok(path) = which::which("kiro")
+                && is_allowed_kiro_binary(&path)
+            {
+                return Some(path);
             }
 
             // 3. Fall back to known install locations

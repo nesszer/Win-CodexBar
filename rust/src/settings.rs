@@ -500,10 +500,8 @@ impl ManualCookies {
         let existing = Self::load();
         for provider_id in existing.cookies.keys() {
             if !self.cookies.contains_key(provider_id) {
-                let _ = Self::credential_store().delete(
-                    Self::CREDENTIAL_SERVICE,
-                    &Self::credential_key(provider_id),
-                );
+                let _ = Self::credential_store()
+                    .delete(Self::CREDENTIAL_SERVICE, &Self::credential_key(provider_id));
             }
         }
     }
@@ -545,10 +543,8 @@ impl ManualCookies {
 
         for (provider_id, entry) in &self.cookies {
             if entry.cookie_header.trim().is_empty() {
-                let _ = Self::credential_store().delete(
-                    Self::CREDENTIAL_SERVICE,
-                    &Self::credential_key(provider_id),
-                );
+                let _ = Self::credential_store()
+                    .delete(Self::CREDENTIAL_SERVICE, &Self::credential_key(provider_id));
                 continue;
             }
 
@@ -589,10 +585,8 @@ impl ManualCookies {
     /// Remove cookie for a provider
     pub fn remove(&mut self, provider_id: &str) {
         self.cookies.remove(provider_id);
-        let _ = Self::credential_store().delete(
-            Self::CREDENTIAL_SERVICE,
-            &Self::credential_key(provider_id),
-        );
+        let _ = Self::credential_store()
+            .delete(Self::CREDENTIAL_SERVICE, &Self::credential_key(provider_id));
     }
 
     /// Get all saved cookies for UI display
@@ -655,10 +649,8 @@ impl ApiKeys {
         let existing = Self::load();
         for provider_id in existing.keys.keys() {
             if !self.keys.contains_key(provider_id) {
-                let _ = Self::credential_store().delete(
-                    Self::CREDENTIAL_SERVICE,
-                    &Self::credential_key(provider_id),
-                );
+                let _ = Self::credential_store()
+                    .delete(Self::CREDENTIAL_SERVICE, &Self::credential_key(provider_id));
             }
         }
     }
@@ -700,10 +692,8 @@ impl ApiKeys {
 
         for (provider_id, entry) in &self.keys {
             if entry.api_key.trim().is_empty() {
-                let _ = Self::credential_store().delete(
-                    Self::CREDENTIAL_SERVICE,
-                    &Self::credential_key(provider_id),
-                );
+                let _ = Self::credential_store()
+                    .delete(Self::CREDENTIAL_SERVICE, &Self::credential_key(provider_id));
                 continue;
             }
 
@@ -743,10 +733,8 @@ impl ApiKeys {
     /// Remove API key for a provider
     pub fn remove(&mut self, provider_id: &str) {
         self.keys.remove(provider_id);
-        let _ = Self::credential_store().delete(
-            Self::CREDENTIAL_SERVICE,
-            &Self::credential_key(provider_id),
-        );
+        let _ = Self::credential_store()
+            .delete(Self::CREDENTIAL_SERVICE, &Self::credential_key(provider_id));
     }
 
     /// Check if a provider has an API key configured
