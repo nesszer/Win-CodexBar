@@ -494,8 +494,8 @@ mod tests {
 
     #[test]
     fn test_local_client_builder_keeps_tls_verification_enabled() {
-        let client = AntigravityProvider::build_local_client(std::time::Duration::from_secs(1))
-            .unwrap();
+        let client =
+            AntigravityProvider::build_local_client(std::time::Duration::from_secs(1)).unwrap();
         let _ = client;
     }
 }

@@ -434,7 +434,11 @@ impl TokenAccountStore {
         for (provider, data) in &existing {
             if let Some(current) = accounts.get(provider) {
                 for account in &data.accounts {
-                    if !current.accounts.iter().any(|candidate| candidate.id == account.id) {
+                    if !current
+                        .accounts
+                        .iter()
+                        .any(|candidate| candidate.id == account.id)
+                    {
                         let _ = Self::credential_store().delete(
                             TOKEN_ACCOUNT_CREDENTIAL_SERVICE,
                             &Self::credential_key(*provider, account.id),

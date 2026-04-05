@@ -1162,7 +1162,7 @@ impl CodexBarApp {
                 s.summary_providers = s.providers.clone();
                 s.last_refresh = Instant::now();
                 s.is_refreshing = false;
-                
+
                 // Check for usage alerts and send notifications
                 for provider in &s.providers {
                     if let Some(provider_id) = ProviderId::from_cli_name(&provider.name) {

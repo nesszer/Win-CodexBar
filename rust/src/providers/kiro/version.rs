@@ -26,8 +26,7 @@ fn is_allowed_kiro_binary(path: &Path) -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        file_name.eq_ignore_ascii_case("kiro-cli.exe")
-            || file_name.eq_ignore_ascii_case("kiro.exe")
+        file_name.eq_ignore_ascii_case("kiro-cli.exe") || file_name.eq_ignore_ascii_case("kiro.exe")
     }
 
     #[cfg(not(target_os = "windows"))]
