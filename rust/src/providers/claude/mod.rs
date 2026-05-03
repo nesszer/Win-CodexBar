@@ -250,7 +250,9 @@ impl ClaudeProvider {
         }
 
         // Look for "Current week" section
-        if let Some(weekly_pct) = extract_percent_near_label(&clean, "current week") {
+        if let Some(weekly_pct) = extract_percent_near_label(&clean, "current week (all models)")
+            .or_else(|| extract_percent_near_label(&clean, "current week"))
+        {
             weekly_percent = Some(weekly_pct);
         }
 
@@ -278,7 +280,7 @@ impl ClaudeProvider {
         if session_percent.is_none()
             && weekly_percent.is_none()
             && opus_percent.is_none()
-            && !clean_lower.contains("out of extra usage")
+            && !is_exhausted_short_form(&clean_lower)
         {
             return Err(ProviderError::Parse(
                 "Claude CLI did not return usage data".to_string(),
@@ -291,15 +293,16 @@ impl ClaudeProvider {
 
         // Extract reset times
         let session_reset = extract_reset_description(&clean, "current session");
-        let weekly_reset = extract_reset_description(&clean, "current week");
-        let short_form_reset = if clean_lower.contains("out of extra usage") {
+        let weekly_reset = extract_reset_description(&clean, "current week (all models)")
+            .or_else(|| extract_reset_description(&clean, "current week"));
+        let short_form_reset = if is_exhausted_short_form(&clean_lower) {
             extract_inline_reset_description(&clean)
         } else {
             None
         };
         let session_reset = session_reset.or(short_form_reset);
 
-        if session_percent.is_none() && clean_lower.contains("out of extra usage") {
+        if session_percent.is_none() && is_exhausted_short_form(&clean_lower) {
             session_percent = Some(100.0);
         }
 
@@ -486,14 +489,17 @@ fn strip_ansi(text: &str) -> String {
 /// Extract percentage near a label (e.g., "Current session")
 /// Returns the percentage as "used" (not remaining)
 fn extract_percent_near_label(text: &str, label: &str) -> Option<f64> {
-    let label_lower = label.to_lowercase();
+    let label_normalized = normalized_for_label_search(label);
     let lines: Vec<&str> = text.lines().collect();
 
     // Find the line containing the label
     for (idx, line) in lines.iter().enumerate() {
-        if line.to_lowercase().contains(&label_lower) {
+        if normalized_for_label_search(line).contains(&label_normalized) {
             // Look in the next few lines for a percentage
-            for next_line in lines.iter().skip(idx).take(12) {
+            for (offset, next_line) in lines.iter().skip(idx).take(12).enumerate() {
+                if offset > 0 && starts_next_usage_section(next_line, &label_normalized) {
+                    break;
+                }
                 if let Some(pct) = parse_percent_line(next_line) {
                     return Some(pct);
                 }
@@ -504,11 +510,13 @@ fn extract_percent_near_label(text: &str, label: &str) -> Option<f64> {
     None
 }
 
-/// Parse a line containing "X% used" or "X% left"
+/// Parse a line containing "X% used", "X% left", "X% remaining", etc.
 /// Returns the percentage as used (converts "left" to used)
 fn parse_percent_line(line: &str) -> Option<f64> {
-    // Match patterns like "45% used" or "55% left"
-    let re = Regex::new(r"(\d{1,3})\s*%\s*(used|left)").ok()?;
+    // Match patterns like "45% used", "55% left", "55% remaining", or "12.5% available".
+    let re =
+        Regex::new(r"(\d{1,3}(?:\.\d+)?)\s*%\s*(used|spent|consumed|left|remaining|available)")
+            .ok()?;
 
     if let Some(caps) = re.captures(&line.to_lowercase())
         && let Some(value_match) = caps.get(1)
@@ -518,7 +526,7 @@ fn parse_percent_line(line: &str) -> Option<f64> {
         let kind = kind_match.as_str();
 
         // Convert to "used" percentage
-        if kind == "left" {
+        if matches!(kind, "left" | "remaining" | "available") {
             Some((100.0 - value).max(0.0))
         } else {
             Some(value.min(100.0))
@@ -530,7 +538,9 @@ fn parse_percent_line(line: &str) -> Option<f64> {
 
 /// Extract all percentages from text in order
 fn extract_all_percents(text: &str) -> Vec<f64> {
-    let re = match Regex::new(r"(\d{1,3})\s*%\s*(used|left)") {
+    let re = match Regex::new(
+        r"(\d{1,3}(?:\.\d+)?)\s*%\s*(used|spent|consumed|left|remaining|available)",
+    ) {
         Ok(r) => r,
         Err(_) => return vec![],
     };
@@ -543,7 +553,7 @@ fn extract_all_percents(text: &str) -> Vec<f64> {
             && let Ok(val) = val_match.as_str().parse::<f64>()
         {
             let kind = kind_match.as_str();
-            let used = if kind == "left" {
+            let used = if matches!(kind, "left" | "remaining" | "available") {
                 (100.0 - val).max(0.0)
             } else {
                 val.min(100.0)
@@ -553,6 +563,22 @@ fn extract_all_percents(text: &str) -> Vec<f64> {
     }
 
     results
+}
+
+fn normalized_for_label_search(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+fn starts_next_usage_section(line: &str, current_label: &str) -> bool {
+    let normalized = normalized_for_label_search(line);
+    normalized.starts_with("current") && !normalized.contains(current_label)
+}
+
+fn is_exhausted_short_form(clean_lower: &str) -> bool {
+    clean_lower.contains("out of extra usage") || clean_lower.contains("hit your limit")
 }
 
 /// Extract email address from text
@@ -605,13 +631,16 @@ fn extract_login_method(text: &str) -> Option<String> {
 
 /// Extract reset description near a label
 fn extract_reset_description(text: &str, label: &str) -> Option<String> {
-    let label_lower = label.to_lowercase();
+    let label_normalized = normalized_for_label_search(label);
     let lines: Vec<&str> = text.lines().collect();
 
     for (idx, line) in lines.iter().enumerate() {
-        if line.to_lowercase().contains(&label_lower) {
+        if normalized_for_label_search(line).contains(&label_normalized) {
             // Look in the next few lines for "Resets"
-            for next_line in lines.iter().skip(idx).take(14) {
+            for (offset, next_line) in lines.iter().skip(idx).take(14).enumerate() {
+                if offset > 0 && starts_next_usage_section(next_line, &label_normalized) {
+                    break;
+                }
                 let lower = next_line.to_lowercase();
                 if lower.contains("resets") {
                     // Extract the reset info
@@ -697,6 +726,131 @@ Status   Config   Usage
         assert_eq!(
             result.usage.primary.reset_description.as_deref(),
             Some("resets 12pm (America/Bogota)")
+        );
+    }
+
+    #[test]
+    fn parses_hit_limit_short_form_as_full_session_usage() {
+        let provider = ClaudeProvider::new();
+        let output = "You've hit your limit \u{00b7} resets 3:20pm (Asia/Shanghai)";
+
+        let result = provider.parse_cli_output(output).expect("should parse");
+
+        assert_eq!(result.usage.primary.used_percent, 100.0);
+        assert_eq!(
+            result.usage.primary.reset_description.as_deref(),
+            Some("resets 3:20pm (Asia/Shanghai)")
+        );
+    }
+
+    #[test]
+    fn parses_remaining_available_and_decimal_percentages() {
+        let provider = ClaudeProvider::new();
+        let output = r#"
+Status   Config   Usage
+
+  Current session
+  12.5% remaining
+  Resets 8pm
+
+  Current week (all models)
+  4% available
+  Resets Apr 4, 2pm
+
+  Current week (Sonnet only)
+  1% consumed
+"#;
+
+        let result = provider.parse_cli_output(output).expect("should parse");
+
+        assert_eq!(result.usage.primary.used_percent, 87.5);
+        assert_eq!(
+            result.usage.primary.reset_description.as_deref(),
+            Some("Resets 8pm")
+        );
+
+        let weekly = result
+            .usage
+            .secondary
+            .expect("weekly usage should be present");
+        assert_eq!(weekly.used_percent, 96.0);
+        assert_eq!(
+            weekly.reset_description.as_deref(),
+            Some("Resets Apr 4, 2pm")
+        );
+
+        let sonnet = result
+            .usage
+            .model_specific
+            .expect("sonnet usage should be present");
+        assert_eq!(sonnet.used_percent, 1.0);
+    }
+
+    #[test]
+    fn parses_compact_usage_screen() {
+        let provider = ClaudeProvider::new();
+        let output = r#"
+Settings:StatusConfigUsage(tabtocycle)
+Loadingusagedata...
+Currentsession
+6%used
+Resets4:29am(Asia/Calcutta)
+Currentweek(allmodels)
+4%used
+ResetsFeb12at1:29pm(Asia/Calcutta)
+Currentweek(Sonnetonly)
+1%used
+ResetsFeb12at1:29pm(Asia/Calcutta)
+"#;
+
+        let result = provider.parse_cli_output(output).expect("should parse");
+
+        assert_eq!(result.usage.primary.used_percent, 6.0);
+        assert_eq!(
+            result.usage.primary.reset_description.as_deref(),
+            Some("Resets4:29am(Asia/Calcutta)")
+        );
+        assert_eq!(
+            result
+                .usage
+                .secondary
+                .expect("weekly usage should be present")
+                .used_percent,
+            4.0
+        );
+        assert_eq!(
+            result
+                .usage
+                .model_specific
+                .expect("sonnet usage should be present")
+                .used_percent,
+            1.0
+        );
+    }
+
+    #[test]
+    fn does_not_promote_weekly_reset_to_session() {
+        let provider = ClaudeProvider::new();
+        let output = r#"
+Current session
+17% used
+Current week (all models)
+4% used
+Resets Dec 24 at 3:59pm (Europe/Paris)
+"#;
+
+        let result = provider.parse_cli_output(output).expect("should parse");
+
+        assert_eq!(result.usage.primary.used_percent, 17.0);
+        assert_eq!(result.usage.primary.reset_description, None);
+        assert_eq!(
+            result
+                .usage
+                .secondary
+                .expect("weekly usage should be present")
+                .reset_description
+                .as_deref(),
+            Some("Resets Dec 24 at 3:59pm (Europe/Paris)")
         );
     }
 
