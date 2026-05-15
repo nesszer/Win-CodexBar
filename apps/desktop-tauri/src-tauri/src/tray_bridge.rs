@@ -16,7 +16,9 @@ use crate::shell;
 use crate::state::{AppState, TrayAnchor};
 use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
-use crate::tray_menu::{TrayMenuEntry, build_tray_menu};
+#[cfg(test)]
+use crate::tray_menu::build_tray_menu;
+use crate::tray_menu::{TrayMenuEntry, build_tray_menu_with};
 
 #[derive(Debug, Clone, Copy)]
 struct MonitorScaleInfo {
@@ -124,8 +126,14 @@ fn build_native_tray_menu(
     providers: &[ProviderCatalogEntry],
     status_labels: &[(String, String)],
 ) -> tauri::Result<Menu<tauri::Wry>> {
-    let enabled = Settings::load().enabled_providers;
-    let spec = build_tray_menu(providers, status_labels, &enabled);
+    let settings = Settings::load();
+    let enabled = settings.enabled_providers.clone();
+    let spec = build_tray_menu_with(
+        providers,
+        status_labels,
+        &enabled,
+        settings.float_bar_enabled,
+    );
     let entries = spec
         .iter()
         .map(|entry| build_native_menu_entry(app, entry))
@@ -167,6 +175,8 @@ enum MenuAction {
     CheckForUpdates,
     /// Toggle the enabled/disabled state of the provider with the given CLI name.
     ToggleProvider(String),
+    /// Toggle the floating bar window on/off.
+    ToggleFloatBar,
     Quit,
 }
 
@@ -182,6 +192,7 @@ fn resolve_menu_action(id: &str) -> Option<MenuAction> {
         "quit" => Some(MenuAction::Quit),
         "settings" => Some(MenuAction::OpenSettings("general".into())),
         "about" => Some(MenuAction::OpenSettings("about".into())),
+        "toggle_float_bar" => Some(MenuAction::ToggleFloatBar),
         _ if id.starts_with("toggle_provider:") => {
             let provider_id = id["toggle_provider:".len()..].to_string();
             Some(MenuAction::ToggleProvider(provider_id))
@@ -317,39 +328,46 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 settings.enabled_providers.insert(provider_id);
             }
             let _ = settings.save();
-
-            // Rebuild menu immediately so the checkmark reflects the new state.
-            let catalog = crate::commands::get_provider_catalog();
-            let status_labels = if let Some(st) = app.try_state::<Mutex<AppState>>() {
-                let guard = st.lock().unwrap();
-                guard
-                    .provider_cache
-                    .iter()
-                    .filter(|s| s.error.is_none())
-                    .map(|s| {
-                        let label = s
-                            .tray_status_label
-                            .clone()
-                            .unwrap_or_else(|| format!("{:.0}%", s.primary.used_percent));
-                        (
-                            s.provider_id.clone(),
-                            format!("{} {}", s.display_name, label),
-                        )
-                    })
-                    .collect()
-            } else {
-                vec![]
-            };
-            if let Ok(menu) = build_native_tray_menu(app, &catalog, &status_labels)
-                && let Some(tray) = app.tray_by_id("codexbar-main")
-            {
-                let _ = tray.set_menu(Some(menu));
-            }
+            rebuild_tray_menu(app);
+        }
+        Some(MenuAction::ToggleFloatBar) => {
+            crate::floatbar::toggle(app);
+            rebuild_tray_menu(app);
         }
         Some(MenuAction::Quit) => {
             app.exit(0);
         }
         None => {}
+    }
+}
+
+/// Rebuild the native tray menu from current provider + settings state.
+fn rebuild_tray_menu(app: &AppHandle) {
+    let catalog = crate::commands::get_provider_catalog();
+    let status_labels = if let Some(st) = app.try_state::<Mutex<AppState>>() {
+        let guard = st.lock().unwrap();
+        guard
+            .provider_cache
+            .iter()
+            .filter(|s| s.error.is_none())
+            .map(|s| {
+                let label = s
+                    .tray_status_label
+                    .clone()
+                    .unwrap_or_else(|| format!("{:.0}%", s.primary.used_percent));
+                (
+                    s.provider_id.clone(),
+                    format!("{} {}", s.display_name, label),
+                )
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    if let Ok(menu) = build_native_tray_menu(app, &catalog, &status_labels)
+        && let Some(tray) = app.tray_by_id("codexbar-main")
+    {
+        let _ = tray.set_menu(Some(menu));
     }
 }
 
@@ -680,6 +698,12 @@ mod tests {
         assert!(menu_contains(&menu, "about"));
         assert!(menu_contains(&menu, "toggle_provider:codex"));
         assert!(menu_contains(&menu, "quit"));
+    }
+
+    #[test]
+    fn toggle_float_bar_routes_to_toggle_action() {
+        let action = resolve_menu_action("toggle_float_bar").expect("float bar action");
+        assert!(matches!(action, MenuAction::ToggleFloatBar));
     }
 
     #[test]

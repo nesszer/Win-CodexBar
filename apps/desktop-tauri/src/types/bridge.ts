@@ -28,6 +28,7 @@ export type UpdateChannel = "stable" | "beta";
 export type ThemePreference = "auto" | "light" | "dark";
 
 export type MenuBarDisplayMode = "minimal" | "compact" | "detailed";
+export type FloatBarOrientation = "horizontal" | "vertical";
 export type ProofProviderId =
   | "codex"
   | "claude"
@@ -181,6 +182,13 @@ export interface SettingsSnapshot {
   disableKeychainAccess: boolean;
   showDebugSettings: boolean;
   providerMetrics: Record<string, MetricPreference>;
+  floatBarEnabled: boolean;
+  /** 30..=100 — clamped server-side. */
+  floatBarOpacity: number;
+  floatBarOrientation: FloatBarOrientation;
+  floatBarClickThrough: boolean;
+  /** Empty array = show all enabled providers. */
+  floatBarProviderIds: string[];
 }
 
 /** Partial settings object — only include fields you want to change. */
@@ -217,6 +225,11 @@ export interface SettingsUpdate {
   showDebugSettings?: boolean;
   /** Map of provider CLI name → metric preference label. */
   providerMetrics?: Record<string, MetricPreference>;
+  floatBarEnabled?: boolean;
+  floatBarOpacity?: number;
+  floatBarOrientation?: FloatBarOrientation;
+  floatBarClickThrough?: boolean;
+  floatBarProviderIds?: string[];
 }
 
 export interface BootstrapState {

@@ -89,6 +89,15 @@ pub(crate) fn build_tray_menu(
     status_labels: &[(String, String)],
     enabled_providers: &HashSet<String>,
 ) -> Vec<TrayMenuEntry> {
+    build_tray_menu_with(providers, status_labels, enabled_providers, false)
+}
+
+pub(crate) fn build_tray_menu_with(
+    providers: &[ProviderCatalogEntry],
+    status_labels: &[(String, String)],
+    enabled_providers: &HashSet<String>,
+    float_bar_enabled: bool,
+) -> Vec<TrayMenuEntry> {
     let mut menu: Vec<TrayMenuEntry> = Vec::new();
 
     // Status rows (one per enabled provider with live usage).
@@ -102,6 +111,11 @@ pub(crate) fn build_tray_menu(
     menu.push(TrayMenuEntry::item("refresh", "Refresh All"));
     menu.push(TrayMenuEntry::item("pop_out", "Pop Out Dashboard"));
     menu.push(TrayMenuEntry::item("show_panel", "Show Panel"));
+    menu.push(TrayMenuEntry::check_item(
+        "toggle_float_bar",
+        "Show Float Bar",
+        float_bar_enabled,
+    ));
     menu.push(TrayMenuEntry::separator());
 
     if !providers.is_empty() {
@@ -249,6 +263,7 @@ mod tests {
                 "Refresh All",
                 "Pop Out Dashboard",
                 "Show Panel",
+                "Show Float Bar",
                 "Providers",
                 "Settings",
                 "Check for Updates",
@@ -312,6 +327,34 @@ mod tests {
 
         assert_eq!(claude_item.checked, Some(true), "Claude should be checked");
         assert_eq!(codex_item.checked, Some(false), "Codex should be unchecked");
+    }
+
+    #[test]
+    fn float_bar_toggle_reflects_state() {
+        let menu_on = build_tray_menu_with(
+            &sample_provider_catalog(),
+            &[],
+            &both_enabled(),
+            /* float_bar_enabled = */ true,
+        );
+        let toggle = menu_on
+            .iter()
+            .find(|e| e.id.as_deref() == Some("toggle_float_bar"))
+            .expect("float bar toggle present");
+        assert_eq!(toggle.checked, Some(true));
+        assert_eq!(toggle.label, "Show Float Bar");
+
+        let menu_off = build_tray_menu_with(
+            &sample_provider_catalog(),
+            &[],
+            &both_enabled(),
+            /* float_bar_enabled = */ false,
+        );
+        let toggle = menu_off
+            .iter()
+            .find(|e| e.id.as_deref() == Some("toggle_float_bar"))
+            .expect("float bar toggle present");
+        assert_eq!(toggle.checked, Some(false));
     }
 
     #[test]

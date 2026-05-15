@@ -1,10 +1,8 @@
 import { useLocale } from "../../../hooks/useLocale";
 import { Field, Select, Toggle } from "../../../components/FormControls";
-import type {
-  MenuBarDisplayMode,
-  TrayIconMode,
-} from "../../../types/bridge";
+import type { MenuBarDisplayMode, TrayIconMode } from "../../../types/bridge";
 import type { TabProps } from "../../Settings";
+import { FloatBarSettingsSection } from "../../../floatbar";
 
 export default function DisplayTab({ settings, set, saving }: TabProps) {
   const { t } = useLocale();
@@ -131,6 +129,8 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
           </Field>
         </div>
       </section>
+
+      <FloatBarSettingsSection settings={settings} saving={saving} set={set} />
     </>
   );
 }

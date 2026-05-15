@@ -1,12 +1,13 @@
 {
   "identifier": "default",
   "description": "Default permissions for the CodexBar desktop scaffold.",
-  "windows": ["main", "settings"],
+  "windows": ["main", "settings", "floatbar"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-close",
     "core:window:allow-set-size",
+    "core:window:allow-start-dragging",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister"
   ]

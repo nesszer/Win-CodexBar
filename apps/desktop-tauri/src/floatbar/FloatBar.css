@@ -1,0 +1,101 @@
+/* ── Floating capacity bar (always-on-top overlay window) ───────────── */
+/* The webview's html/body would otherwise paint the app's dark theme
+ * background — force it transparent so only the pills are visible.
+ * The `floatbar-window` class is added by FloatBar.tsx on mount. */
+body.floatbar-window,
+html:has(body.floatbar-window) {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+}
+body.floatbar-window #root {
+  background: transparent !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+/* Container is fully transparent — the pills float individually so the
+ * bar reads as light UI sitting on whatever's underneath. */
+.floatbar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.95);
+  font: 600 10px/1 -apple-system, system-ui, "Segoe UI", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  width: max-content;
+  height: max-content;
+}
+.floatbar--vertical {
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+/* 2-row dot grip — classic drag affordance. */
+.floatbar__handle {
+  width: 6px;
+  height: 14px;
+  flex-shrink: 0;
+  cursor: grab;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.55) 1px, transparent 1.5px);
+  background-size: 3px 4px;
+  background-position: 0 1px;
+  background-repeat: repeat;
+  opacity: 0.7;
+  transition: opacity 120ms ease;
+}
+.floatbar__handle:hover {
+  opacity: 1;
+}
+.floatbar--vertical .floatbar__handle {
+  width: 14px;
+  height: 6px;
+  background-size: 4px 3px;
+  background-position: 1px 0;
+}
+.floatbar__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(18, 18, 20, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--brand, rgba(255, 255, 255, 0.25));
+  white-space: nowrap;
+}
+.floatbar__pill--warn {
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+.floatbar__pill--crit {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+.floatbar__pct {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.floatbar__empty {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(18, 18, 20, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0.75;
+  font-weight: 500;
+}

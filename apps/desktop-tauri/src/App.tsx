@@ -7,6 +7,7 @@ import { useTheme } from "./hooks/useTheme";
 import Settings from "./surfaces/Settings";
 import TrayPanel from "./surfaces/TrayPanel";
 import PopOutPanel from "./surfaces/PopOutPanel";
+import { FloatBar, FLOATBAR_WINDOW_LABEL } from "./floatbar";
 import { LocaleProvider } from "./i18n/LocaleProvider";
 import type { BootstrapState, ThemePreference } from "./types/bridge";
 import type { SurfaceSnapshot } from "./hooks/useSurfaceSnapshot";
@@ -14,6 +15,11 @@ import type { SurfaceSnapshot } from "./hooks/useSurfaceSnapshot";
 /** True when running inside the detached Settings window. */
 function isSettingsWindow(): boolean {
   return getCurrentWebviewWindow().label === "settings";
+}
+
+/** True when running inside the detached FloatBar window. */
+function isFloatBarWindow(): boolean {
+  return getCurrentWebviewWindow().label === FLOATBAR_WINDOW_LABEL;
 }
 
 /** Parse the initial Settings tab from the URL query string. */
@@ -112,6 +118,11 @@ function AppInner() {
   // Detached settings window — render Settings directly, skip SurfaceRouter.
   if (isSettingsWindow()) {
     return <DetachedSettingsApp state={state} />;
+  }
+
+  // Detached floating-bar window — render the FloatBar surface directly.
+  if (isFloatBarWindow()) {
+    return <FloatBar state={state} />;
   }
 
   return <SurfaceRouter surface={surface} state={state} />;

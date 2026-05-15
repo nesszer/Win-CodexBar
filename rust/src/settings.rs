@@ -344,6 +344,53 @@ pub struct Settings {
     /// UI theme preference (Phase 12). Defaults to Auto (prefers-color-scheme).
     #[serde(default)]
     pub theme: ThemePreference,
+
+    /// Show the always-on-top floating capacity bar.
+    #[serde(default)]
+    pub float_bar_enabled: bool,
+
+    /// Opacity of the floating bar window, in the inclusive range 30..=100.
+    /// Stored as `u8` so the on-disk format remains stable.
+    #[serde(default = "default_float_bar_opacity")]
+    pub float_bar_opacity: u8,
+
+    /// Floating-bar orientation: "horizontal" (default) or "vertical".
+    #[serde(default = "default_float_bar_orientation")]
+    pub float_bar_orientation: String,
+
+    /// When true the floating bar is fully click-through (overlay mode).
+    #[serde(default)]
+    pub float_bar_click_through: bool,
+
+    /// Provider CLI names to display in the floating bar. Empty = all enabled.
+    #[serde(default)]
+    pub float_bar_provider_ids: Vec<String>,
+}
+
+fn default_float_bar_opacity() -> u8 {
+    80
+}
+
+fn default_float_bar_orientation() -> String {
+    "horizontal".to_string()
+}
+
+/// Clamp the floating-bar opacity to the supported range.
+///
+/// Opacity values below 30% would make the bar effectively invisible, so we
+/// pin the lower bound; the upper bound is the natural 100%.
+pub fn clamp_float_bar_opacity(value: u8) -> u8 {
+    value.clamp(30, 100)
+}
+
+/// Normalize a floating-bar orientation string. Unknown values fall back to
+/// the default ("horizontal") so a corrupt settings file can't put the
+/// renderer into an undefined state.
+pub fn normalize_float_bar_orientation(value: &str) -> String {
+    match value {
+        "vertical" => "vertical".to_string(),
+        _ => "horizontal".to_string(),
+    }
 }
 
 fn default_global_shortcut() -> String {
@@ -486,6 +533,17 @@ struct RawSettings {
     install_updates_on_quit: bool,
     ui_language: Language,
     theme: ThemePreference,
+
+    #[serde(default)]
+    float_bar_enabled: bool,
+    #[serde(default = "default_float_bar_opacity")]
+    float_bar_opacity: u8,
+    #[serde(default = "default_float_bar_orientation")]
+    float_bar_orientation: String,
+    #[serde(default)]
+    float_bar_click_through: bool,
+    #[serde(default)]
+    float_bar_provider_ids: Vec<String>,
 }
 
 impl Default for RawSettings {
@@ -553,6 +611,11 @@ impl Default for RawSettings {
             install_updates_on_quit: s.install_updates_on_quit,
             ui_language: s.ui_language,
             theme: s.theme,
+            float_bar_enabled: s.float_bar_enabled,
+            float_bar_opacity: s.float_bar_opacity,
+            float_bar_orientation: s.float_bar_orientation,
+            float_bar_click_through: s.float_bar_click_through,
+            float_bar_provider_ids: s.float_bar_provider_ids,
         }
     }
 }
@@ -797,6 +860,11 @@ impl From<RawSettings> for Settings {
             install_updates_on_quit: raw.install_updates_on_quit,
             ui_language: raw.ui_language,
             theme: raw.theme,
+            float_bar_enabled: raw.float_bar_enabled,
+            float_bar_opacity: clamp_float_bar_opacity(raw.float_bar_opacity),
+            float_bar_orientation: normalize_float_bar_orientation(&raw.float_bar_orientation),
+            float_bar_click_through: raw.float_bar_click_through,
+            float_bar_provider_ids: raw.float_bar_provider_ids,
         }
     }
 }
@@ -842,6 +910,11 @@ impl Default for Settings {
             install_updates_on_quit: false, // Don't auto-install on quit by default
             ui_language: Language::default(), // English by default
             theme: ThemePreference::default(), // Auto (follows prefers-color-scheme)
+            float_bar_enabled: false,
+            float_bar_opacity: default_float_bar_opacity(),
+            float_bar_orientation: default_float_bar_orientation(),
+            float_bar_click_through: false,
+            float_bar_provider_ids: Vec::new(),
         }
     }
 }
@@ -1797,6 +1870,94 @@ mod tests {
         assert!(settings.show_notifications);
         assert_eq!(settings.high_usage_threshold, 70.0);
         assert_eq!(settings.critical_usage_threshold, 90.0);
+    }
+
+    #[test]
+    fn float_bar_defaults_are_safe() {
+        let settings = Settings::default();
+        assert!(!settings.float_bar_enabled);
+        assert_eq!(settings.float_bar_opacity, 80);
+        assert_eq!(settings.float_bar_orientation, "horizontal");
+        assert!(!settings.float_bar_click_through);
+        assert!(settings.float_bar_provider_ids.is_empty());
+    }
+
+    #[test]
+    fn float_bar_opacity_clamp_pins_to_supported_range() {
+        // Below 30 → 30 so the bar isn't accidentally invisible.
+        assert_eq!(clamp_float_bar_opacity(0), 30);
+        assert_eq!(clamp_float_bar_opacity(29), 30);
+        // Within range → unchanged.
+        assert_eq!(clamp_float_bar_opacity(45), 45);
+        assert_eq!(clamp_float_bar_opacity(80), 80);
+        // Above 100 → 100.
+        assert_eq!(clamp_float_bar_opacity(150), 100);
+        assert_eq!(clamp_float_bar_opacity(255), 100);
+    }
+
+    #[test]
+    fn float_bar_orientation_normalization_rejects_unknown_values() {
+        assert_eq!(normalize_float_bar_orientation("horizontal"), "horizontal");
+        assert_eq!(normalize_float_bar_orientation("vertical"), "vertical");
+        // Anything else collapses to horizontal so a corrupt settings file
+        // can't poison the renderer with an unknown layout token.
+        assert_eq!(normalize_float_bar_orientation(""), "horizontal");
+        assert_eq!(normalize_float_bar_orientation("diagonal"), "horizontal");
+        assert_eq!(normalize_float_bar_orientation("VERTICAL"), "horizontal");
+    }
+
+    #[test]
+    fn float_bar_settings_round_trip_through_raw() {
+        // Serialize a Settings with custom float-bar values then deserialize
+        // through the `from = "RawSettings"` path — values must survive intact
+        // (after clamping/normalization).
+        let s = Settings {
+            float_bar_enabled: true,
+            float_bar_opacity: 65,
+            float_bar_orientation: "vertical".to_string(),
+            float_bar_click_through: true,
+            float_bar_provider_ids: vec!["claude".into(), "codex".into()],
+            ..Settings::default()
+        };
+
+        let json = serde_json::to_string(&s).expect("serialize");
+        let back: Settings = serde_json::from_str(&json).expect("deserialize");
+        assert!(back.float_bar_enabled);
+        assert_eq!(back.float_bar_opacity, 65);
+        assert_eq!(back.float_bar_orientation, "vertical");
+        assert!(back.float_bar_click_through);
+        assert_eq!(back.float_bar_provider_ids, vec!["claude", "codex"]);
+    }
+
+    #[test]
+    fn float_bar_raw_clamps_out_of_range_opacity_on_load() {
+        // Simulate an externally-edited settings.json with a wild opacity.
+        let json = r#"{
+            "enabled_providers": [],
+            "refresh_interval_secs": 300,
+            "start_minimized": false,
+            "start_at_login": false,
+            "show_notifications": true,
+            "sound_enabled": true,
+            "sound_volume": 100,
+            "high_usage_threshold": 70.0,
+            "critical_usage_threshold": 90.0,
+            "merge_tray_icons": false,
+            "show_as_used": true,
+            "surprise_animations": false,
+            "enable_animations": true,
+            "reset_time_relative": true,
+            "menu_bar_display_mode": "detailed",
+            "show_credits_extra_usage": true,
+            "show_debug_settings": false,
+            "disable_keychain_access": false,
+            "hide_personal_info": false,
+            "float_bar_opacity": 250,
+            "float_bar_orientation": "diagonal"
+        }"#;
+        let loaded: Settings = serde_json::from_str(json).expect("parse");
+        assert_eq!(loaded.float_bar_opacity, 100);
+        assert_eq!(loaded.float_bar_orientation, "horizontal");
     }
 
     #[test]

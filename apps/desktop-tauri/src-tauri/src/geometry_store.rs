@@ -78,7 +78,7 @@ pub fn load(mode: SurfaceMode) -> Option<StoredGeometry> {
     if !should_remember(mode) {
         return None;
     }
-    load_file().entries.get(mode.as_str()).copied()
+    load_entry(mode.as_str())
 }
 
 /// Persist geometry for an eligible surface mode. No-op for modes where
@@ -87,8 +87,19 @@ pub fn save(mode: SurfaceMode, geometry: StoredGeometry) {
     if !should_remember(mode) {
         return;
     }
+    save_entry(mode.as_str(), geometry);
+}
+
+/// Look up remembered geometry for an arbitrary key (e.g. an auxiliary
+/// window label like `floatbar`).
+pub fn load_entry(key: &str) -> Option<StoredGeometry> {
+    load_file().entries.get(key).copied()
+}
+
+/// Persist geometry under an arbitrary key.
+pub fn save_entry(key: &str, geometry: StoredGeometry) {
     let mut file = load_file();
-    file.entries.insert(mode.as_str().to_string(), geometry);
+    file.entries.insert(key.to_string(), geometry);
     if let Err(err) = save_file(&file) {
         tracing::warn!(target: "codexbar::geometry", %err, "failed to persist geometry");
     }
