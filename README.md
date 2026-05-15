@@ -14,7 +14,7 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 
 ## Features
 
-- **40 AI providers** — Codex, Claude, Cursor, Factory, Gemini, Copilot, Antigravity, z.ai, MiniMax, Kiro, Vertex AI, Augment, OpenCode, Kimi, Kimi K2, Amp, Warp, Ollama, OpenRouter, Synthetic, JetBrains AI, Alibaba, NanoGPT, Infini, Perplexity, Abacus AI, Mistral, OpenCode Go, Kilo, Codebuff, DeepSeek, Windsurf, Manus, Xiaomi MiMo, Doubao, Command Code, Crof, StepFun, Venice, OpenAI API
+- **41 AI providers** — Codex, Claude, Cursor, Factory, Gemini, Copilot, Antigravity, z.ai, MiniMax, Kiro, Vertex AI, Augment, OpenCode, Kimi, Kimi K2, Amp, Warp, Ollama, OpenRouter, Synthetic, JetBrains AI, Alibaba, NanoGPT, Infini, Perplexity, Abacus AI, Mistral, OpenCode Go, Kilo, AWS Bedrock, Codebuff, DeepSeek, Windsurf, Manus, Xiaomi MiMo, Doubao, Command Code, Crof, StepFun, Venice, OpenAI API
 - **System tray icon** — dynamic two-bar meter showing session + weekly usage
 - **Browser cookie import** — Chrome, Edge, Brave, Firefox, with browser access kept opt-in
 - **Per-provider credentials** — API keys, cookies, and OAuth all managed from the provider detail pane
@@ -23,13 +23,13 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 - **CLI** — `codexbar usage` and `codexbar cost` for scripting and CI
 - **WSL support** — CLI works out of the box; desktop shell via WSLg
 
-## What's New in v0.25.1
+## What's New in v0.26.0
 
-- Rebuilt and validated the Windows/Tauri release against the upstream **CodexBar 0.25.1** patch line.
-- Reviewed the upstream macOS/Swift fixes for Settings localization, Keychain cache writes, Pi session cost cache migration, Swift concurrency annotations, and Swift CLI archive version fallback. Those exact code paths do not exist in Win-CodexBar's Tauri/Rust shell, so v0.25.1 keeps the Windows runtime behavior from v0.25.0 while moving users onto the matching patch version.
-- Ported upstream v0.25 provider support for **Manus**, **Xiaomi MiMo**, **Doubao**, **Command Code**, **Crof**, **StepFun**, **Venice**, and **OpenAI API balance** to the Windows/Tauri Rust backend.
-- Added the new v0.25 providers to Settings → Providers, API-key management, cookie/token-account flows, provider search/aliases, and the tray/provider icon registry.
-- Added multi-window usage support for provider-specific credit, request, refresh, balance, token-plan, and API-credit displays.
+- Rebuilt the Windows/Tauri release against upstream **CodexBar 0.26.0**.
+- Added **AWS Bedrock** monthly spend tracking through AWS Cost Explorer with optional `CODEXBAR_BEDROCK_BUDGET` budget display.
+- Added OpenRouter daily, weekly, and monthly key spend windows from the `/api/v1/auth/key` endpoint.
+- Updated Moonshot / Kimi API balance parsing for international and China API regions, voucher balance, cash balance, and deficit state.
+- Reviewed the remaining upstream 0.26 changes. Provider features that depend on macOS-only Swift settings, Sparkle, menu rendering, or local Apple APIs are not present in the Windows/Tauri shell.
 
 ## Quick Start
 

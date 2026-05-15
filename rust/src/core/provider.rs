@@ -40,6 +40,7 @@ pub enum ProviderId {
     Mistral,
     OpenCodeGo,
     Kilo,
+    Bedrock,
     Codebuff,
     DeepSeek,
     Windsurf,
@@ -86,6 +87,7 @@ impl ProviderId {
             ProviderId::Mistral,
             ProviderId::OpenCodeGo,
             ProviderId::Kilo,
+            ProviderId::Bedrock,
             ProviderId::Codebuff,
             ProviderId::DeepSeek,
             ProviderId::Windsurf,
@@ -132,6 +134,7 @@ impl ProviderId {
             ProviderId::Mistral => "mistral",
             ProviderId::OpenCodeGo => "opencodego",
             ProviderId::Kilo => "kilo",
+            ProviderId::Bedrock => "bedrock",
             ProviderId::Codebuff => "codebuff",
             ProviderId::DeepSeek => "deepseek",
             ProviderId::Windsurf => "windsurf",
@@ -178,6 +181,7 @@ impl ProviderId {
             ProviderId::Mistral => "Mistral",
             ProviderId::OpenCodeGo => "OpenCode Go",
             ProviderId::Kilo => "Kilo",
+            ProviderId::Bedrock => "AWS Bedrock",
             ProviderId::Codebuff => "Codebuff",
             ProviderId::DeepSeek => "DeepSeek",
             ProviderId::Windsurf => "Windsurf",
@@ -230,6 +234,7 @@ impl ProviderId {
             ProviderId::NanoGPT => None,
             ProviderId::Infini => None,
             ProviderId::Kilo => None,
+            ProviderId::Bedrock => None,
             ProviderId::Codebuff => None,
             ProviderId::DeepSeek => None,
             ProviderId::Windsurf => None,
@@ -275,6 +280,7 @@ impl ProviderId {
             "mistral" | "mistral-ai" | "mistral ai" => Some(ProviderId::Mistral),
             "opencodego" | "opencode-go" | "opencode go" => Some(ProviderId::OpenCodeGo),
             "kilo" => Some(ProviderId::Kilo),
+            "bedrock" | "aws-bedrock" | "aws bedrock" => Some(ProviderId::Bedrock),
             "codebuff" | "manicode" => Some(ProviderId::Codebuff),
             "deepseek" | "deep-seek" | "ds" => Some(ProviderId::DeepSeek),
             "windsurf" | "codeium" => Some(ProviderId::Windsurf),
@@ -469,6 +475,8 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("warp-ai", ProviderId::Warp);
     map.insert("warp-terminal", ProviderId::Warp);
     map.insert("or", ProviderId::OpenRouter);
+    map.insert("aws-bedrock", ProviderId::Bedrock);
+    map.insert("aws bedrock", ProviderId::Bedrock);
     map.insert("tongyi", ProviderId::Alibaba);
     map.insert("qianwen", ProviderId::Alibaba);
     map.insert("qwen", ProviderId::Alibaba);
@@ -495,7 +503,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 40);
+        assert_eq!(all.len(), 41);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -505,6 +513,7 @@ mod tests {
         assert!(all.contains(&ProviderId::JetBrains));
         assert!(all.contains(&ProviderId::NanoGPT));
         assert!(all.contains(&ProviderId::Infini));
+        assert!(all.contains(&ProviderId::Bedrock));
         assert!(all.contains(&ProviderId::Codebuff));
         assert!(all.contains(&ProviderId::DeepSeek));
         assert!(all.contains(&ProviderId::Windsurf));

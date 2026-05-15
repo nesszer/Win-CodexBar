@@ -53,6 +53,9 @@ struct KeyResponse {
 struct KeyData {
     limit: Option<f64>,
     usage: Option<f64>,
+    usage_daily: Option<f64>,
+    usage_weekly: Option<f64>,
+    usage_monthly: Option<f64>,
     rate_limit: Option<RateLimitInfo>,
 }
 
@@ -166,16 +169,38 @@ impl OpenRouterProvider {
             .send()
             .await
             && key_resp.status().is_success()
-            && let Ok(key_data) = key_resp.json::<KeyResponse>().await
-            && let (Some(limit), Some(key_usage)) = (key_data.data.limit, key_data.data.usage)
-            && limit > 0.0
+            && let Ok(key_response) = key_resp.json::<KeyResponse>().await
         {
-            // If the key has per-key limits, show them as secondary
-            let key_percent = ((key_usage / limit) * 100.0).clamp(0.0, 100.0);
-            let key_desc = format!("${:.2}/${:.2} key quota", key_usage, limit);
-            let mut key_window = RateWindow::new(key_percent);
-            key_window.reset_description = Some(key_desc);
-            usage = usage.with_secondary(key_window);
+            let key_data = key_response.data;
+            if let (Some(limit), Some(key_usage)) = (key_data.limit, key_data.usage)
+                && limit > 0.0
+            {
+                // If the key has per-key limits, show them as secondary
+                let key_percent = ((key_usage / limit) * 100.0).clamp(0.0, 100.0);
+                let key_desc = format!("${:.2}/${:.2} key quota", key_usage, limit);
+                let mut key_window = RateWindow::new(key_percent);
+                key_window.reset_description = Some(key_desc);
+                usage = usage.with_secondary(key_window);
+            }
+
+            if let Some(daily) = key_data.usage_daily {
+                let mut daily_window = RateWindow::new(0.0);
+                daily_window.reset_description = Some(format!("${daily:.2} today"));
+                usage = usage.with_extra_rate_window("daily-spend", "Daily spend", daily_window);
+            }
+
+            if let Some(weekly) = key_data.usage_weekly {
+                let mut weekly_window = RateWindow::new(0.0);
+                weekly_window.reset_description = Some(format!("${weekly:.2} this week"));
+                usage = usage.with_extra_rate_window("weekly-spend", "Weekly spend", weekly_window);
+            }
+
+            if let Some(monthly) = key_data.usage_monthly {
+                let mut monthly_window = RateWindow::new(0.0);
+                monthly_window.reset_description = Some(format!("${monthly:.2} this month"));
+                usage =
+                    usage.with_extra_rate_window("monthly-spend", "Monthly spend", monthly_window);
+            }
         }
 
         Ok(usage)

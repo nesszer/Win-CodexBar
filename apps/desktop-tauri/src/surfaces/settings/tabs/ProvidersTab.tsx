@@ -176,6 +176,7 @@ function providerSourceHintShort(
     case "zai":
     case "vertexai":
     case "openrouter":
+    case "bedrock":
     case "synthetic":
     case "nanogpt":
     case "warp":

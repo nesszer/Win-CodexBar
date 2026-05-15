@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.26.0] — 2026-05-15
+
+### Added
+- Ported upstream CodexBar 0.26 AWS Bedrock monthly spend tracking to the Windows/Tauri Rust backend using AWS Cost Explorer and SigV4 request signing.
+- Added Bedrock provider IDs, CLI aliases, metadata, Settings provider rows, API-key configuration support, credential metadata, and provider icon registry entries.
+- Added OpenRouter daily, weekly, and monthly API-key spend windows from the `/api/v1/auth/key` endpoint.
+- Added Moonshot / Kimi API balance parsing for international and China API regions, voucher balance, cash balance, and deficit state.
+
+### Changed
+- Updated app/package versions and provider catalog metadata for the 0.26.0 Windows release.
+
+### Notes
+- Upstream 0.26 also includes macOS/Swift-only menu, Sparkle, localization, and native settings changes that do not map to the Windows/Tauri shell.
+
+---
+
 ## [0.25.1] — 2026-05-11
 
 ### Changed

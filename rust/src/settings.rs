@@ -1706,6 +1706,17 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://app.kilo.ai/usage"),
         },
         ProviderConfigInfo {
+            id: ProviderId::Bedrock,
+            name: "AWS Bedrock",
+            requires_api_key: true,
+            api_key_env_var: Some("AWS_ACCESS_KEY_ID:AWS_SECRET_ACCESS_KEY[:AWS_SESSION_TOKEN]"),
+            api_key_help: Some(
+                "Paste access_key:secret_key[:session_token], JSON credentials, or use AWS env vars.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://console.aws.amazon.com/bedrock"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Codebuff,
             name: "Codebuff",
             requires_api_key: true,
@@ -1839,7 +1850,12 @@ mod tests {
     #[test]
     fn test_api_key_provider_catalog_includes_token_providers() {
         let providers = get_api_key_providers();
-        for id in [ProviderId::Kilo, ProviderId::Codebuff, ProviderId::DeepSeek] {
+        for id in [
+            ProviderId::Kilo,
+            ProviderId::Bedrock,
+            ProviderId::Codebuff,
+            ProviderId::DeepSeek,
+        ] {
             assert!(
                 providers.iter().any(|provider| provider.id == id),
                 "{id} should be configurable from the API Keys UI"

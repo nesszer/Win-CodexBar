@@ -2,9 +2,23 @@
 
 ## Unreleased
 
+---
+
+## [Windows] 0.26.0 - 2026-05-15
+
+### Added
+- Port upstream CodexBar 0.26 AWS Bedrock monthly spend tracking into the Windows/Tauri Rust backend using AWS Cost Explorer and SigV4 request signing.
+- Add Bedrock provider metadata, CLI aliases, Settings provider catalog support, frontend provider types, source hints, and provider icon registry entry.
+- Add OpenRouter daily, weekly, and monthly API-key spend windows from the `/api/v1/auth/key` endpoint.
+- Add Moonshot / Kimi API balance parsing for international and China API regions, voucher balance, cash balance, and deficit state.
+
 ### Changed
 - Stop shipping `WebView2Loader.dll` in Windows installer and portable packages because MSVC release builds statically link the WebView2 loader.
 - Restore portable release packaging to a standalone `CodexBar-<version>-portable.exe` asset instead of a zip bundle.
+- Update app, CLI, package, Tauri, and release metadata to 0.26.0 for the Windows artifact release.
+
+### Notes
+- Upstream 0.26 also includes several macOS/Swift-only menu, Sparkle, localization, and native settings changes. Those code paths do not exist in Win-CodexBar's Tauri/Rust shell.
 
 ---
 

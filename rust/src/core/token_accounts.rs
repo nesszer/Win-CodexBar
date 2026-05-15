@@ -176,6 +176,7 @@ impl TokenAccountSupport {
             | ProviderId::Abacus
             | ProviderId::OpenCodeGo
             | ProviderId::Kilo
+            | ProviderId::Bedrock
             | ProviderId::Codebuff
             | ProviderId::DeepSeek
             | ProviderId::Windsurf

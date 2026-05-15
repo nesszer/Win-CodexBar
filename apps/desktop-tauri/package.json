@@ -1,7 +1,7 @@
 {
   "name": "desktop-tauri",
   "private": true,
-  "version": "0.25.1",
+  "version": "0.26.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

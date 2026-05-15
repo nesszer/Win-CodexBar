@@ -7,11 +7,11 @@ A Windows port of [CodexBar](https://github.com/steipete/CodexBar) - a system tr
 ## Features
 
 - **System Tray Icon** - Color-coded usage indicator with incident badges
-- **Multiple Providers** - Support for 40 AI providers:
+- **Multiple Providers** - Support for 41 AI providers:
   - Codex, Claude, Cursor, Factory, Gemini, Copilot, Antigravity, z.ai
   - MiniMax, Kiro, Vertex AI, Augment, OpenCode, OpenCode Go, Kimi, Kimi K2
   - Amp, Warp, Ollama, OpenRouter, Synthetic, JetBrains AI, Alibaba
-  - NanoGPT, Infini, Perplexity, Abacus AI, Mistral, Kilo, Codebuff, DeepSeek, Windsurf
+  - NanoGPT, Infini, Perplexity, Abacus AI, Mistral, Kilo, AWS Bedrock, Codebuff, DeepSeek, Windsurf
   - Manus, Xiaomi MiMo, Doubao, Command Code, Crof, StepFun, Venice, OpenAI API
 - **Usage Notifications** - Windows toast alerts when usage hits thresholds
 - **Settings Panel** - Enable/disable providers, configure refresh intervals

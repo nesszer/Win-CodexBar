@@ -14,22 +14,22 @@
 
 ## 功能特性
 
-- **40 个 AI 服务商** — Codex、Claude、Cursor、Factory、Gemini、Copilot、Antigravity、z.ai、MiniMax、Kiro、Vertex AI、Augment、OpenCode、Kimi、Kimi K2、Amp、Warp、Ollama、OpenRouter、Synthetic、JetBrains AI、Alibaba、NanoGPT、Infini、Perplexity、Abacus AI、Mistral、OpenCode Go、Kilo、Codebuff、DeepSeek、Windsurf、Manus、小米 MiMo、Doubao、Command Code、Crof、StepFun、Venice、OpenAI API
+- **41 个 AI 服务商** — Codex、Claude、Cursor、Factory、Gemini、Copilot、Antigravity、z.ai、MiniMax、Kiro、Vertex AI、Augment、OpenCode、Kimi、Kimi K2、Amp、Warp、Ollama、OpenRouter、Synthetic、JetBrains AI、Alibaba、NanoGPT、Infini、Perplexity、Abacus AI、Mistral、OpenCode Go、Kilo、AWS Bedrock、Codebuff、DeepSeek、Windsurf、Manus、小米 MiMo、Doubao、Command Code、Crof、StepFun、Venice、OpenAI API
 - **系统托盘图标** — 动态双条进度显示会话与周用量
 - **浏览器 Cookie 导入** — Chrome、Edge、Brave、Firefox（Windows DPAPI 解密）
 - **逐服务商凭据管理** — API Key、Cookie 和 OAuth 均可在服务商详情面板管理
 - **凭据加固** — 应用管理的本地敏感存储会在保存时使用 Windows DPAPI 保护
-- **Windows 发布打包** — Inno Setup 安装包、便携 zip、WebView2 旁加载 DLL、VC++ 运行库引导和 SHA-256 校验文件
+- **Windows 发布打包** — Inno Setup 安装包、独立便携 exe、WebView2 Runtime 引导、VC++ 运行库引导和 SHA-256 校验文件
 - **CLI** — `codexbar usage` 和 `codexbar cost`，便于脚本化和 CI
 - **WSL 支持** — CLI 开箱即用，桌面壳层通过 WSLg 运行
 
-## v0.25.1 更新内容
+## v0.26.0 更新内容
 
-- 已基于上游 **CodexBar 0.25.1** 补丁线重新构建并验证 Windows/Tauri 版本
-- 已检查上游 macOS/Swift 修复：设置页本地化资源、Keychain 缓存写入、Pi 会话费用缓存迁移、Swift 并发标注和 Swift CLI 归档版本回退。这些代码路径不存在于 Win-CodexBar 的 Tauri/Rust 壳层中，因此 v0.25.1 保持 v0.25.0 的 Windows 运行时行为，同时同步补丁版本号
-- 新增上游 v0.25 服务商支持：**Manus**、**小米 MiMo**、**Doubao**、**Command Code**、**Crof**、**StepFun**、**Venice**、**OpenAI API 余额**
-- 新服务商已接入设置页、API Key 管理、Cookie / Token Account 流程、CLI 别名和托盘服务商图标注册表
-- 支持展示信用余额、请求额度、刷新额度、Token 套餐、购买额度、DIEM/USD 余额和 OpenAI API credit grants
+- 已基于上游 **CodexBar 0.26.0** 重新构建 Windows/Tauri 版本
+- 新增 **AWS Bedrock** 月度费用跟踪，通过 AWS Cost Explorer 读取，并支持 `CODEXBAR_BEDROCK_BUDGET` 预算显示
+- OpenRouter 新增来自 `/api/v1/auth/key` 的每日、每周和每月 key 花费窗口
+- Moonshot / Kimi API 余额解析已支持国际区与中国区 API、代金券余额、现金余额和欠费状态
+- 已检查上游 0.26 其余变更；依赖 macOS Swift 设置页、Sparkle、菜单渲染或 Apple 本地 API 的部分不适用于 Windows/Tauri 壳层
 
 ## 快速开始
 

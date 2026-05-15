@@ -57,6 +57,7 @@ export type ProofProviderId =
   | "abacus"
   | "opencodego"
   | "kilo"
+  | "bedrock"
   | "mistral"
   | "codebuff"
   | "deepseek"

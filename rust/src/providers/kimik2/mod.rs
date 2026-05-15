@@ -10,7 +10,8 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
-const KIMIK2_API_BASE: &str = "https://api.moonshot.cn";
+const KIMIK2_API_BASE_INTERNATIONAL: &str = "https://api.moonshot.ai";
+const KIMIK2_API_BASE_CHINA: &str = "https://api.moonshot.cn";
 
 /// Kimi K2 provider (API-based credits)
 pub struct KimiK2Provider {
@@ -22,14 +23,14 @@ impl KimiK2Provider {
         Self {
             metadata: ProviderMetadata {
                 id: ProviderId::KimiK2,
-                display_name: "Kimi K2",
-                session_label: "Credits",
-                weekly_label: "Total",
+                display_name: "Moonshot / Kimi API",
+                session_label: "Balance",
+                weekly_label: "Cash",
                 supports_opus: false,
                 supports_credits: true,
                 default_enabled: false,
                 is_primary: false,
-                dashboard_url: Some("https://platform.moonshot.cn"),
+                dashboard_url: Some("https://platform.moonshot.ai/console/account"),
                 status_page_url: None,
             },
         }
@@ -86,9 +87,19 @@ impl KimiK2Provider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
+        let api_base = match std::env::var("MOONSHOT_API_REGION")
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase()
+            .as_str()
+        {
+            "cn" | "china" => KIMIK2_API_BASE_CHINA,
+            _ => KIMIK2_API_BASE_INTERNATIONAL,
+        };
+
         // Fetch account/billing info
         let resp = client
-            .get(format!("{}/v1/users/me/balance", KIMIK2_API_BASE))
+            .get(format!("{}/v1/users/me/balance", api_base))
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Accept", "application/json")
             .send()
@@ -115,6 +126,25 @@ impl KimiK2Provider {
         &self,
         json: &serde_json::Value,
     ) -> Result<UsageSnapshot, ProviderError> {
+        let code_ok = json
+            .get("code")
+            .and_then(|v| v.as_i64())
+            .is_none_or(|code| code == 0);
+        let status_ok = json.get("status").and_then(|v| v.as_bool()).unwrap_or(true);
+        if !code_ok || !status_ok {
+            let code = json
+                .get("code")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            let scode = json
+                .get("scode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            return Err(ProviderError::Other(format!(
+                "Moonshot API error: code {code}, scode {scode}"
+            )));
+        }
+
         // Extract balance/credit information
         let data = json.get("data").unwrap_or(json);
 
@@ -130,7 +160,7 @@ impl KimiK2Provider {
             .get("total_balance")
             .or_else(|| data.get("total"))
             .and_then(|v| v.as_f64())
-            .unwrap_or(100.0);
+            .unwrap_or(available_balance.max(0.0));
 
         // Used credits
         let used_credits = data
@@ -147,20 +177,33 @@ impl KimiK2Provider {
         };
 
         // Cash balance (if any)
+        let voucher_balance = data.get("voucher_balance").and_then(|v| v.as_f64());
         let cash_balance = data.get("cash_balance").and_then(|v| v.as_f64());
 
         // Create primary rate window (credits used)
-        let primary = RateWindow::new(used_percent);
+        let mut primary = RateWindow::new(used_percent);
+        primary.reset_description = Some(format!("Balance ${available_balance:.2}"));
 
-        let mut usage = UsageSnapshot::new(primary).with_login_method("API Key");
+        let mut login_method = format!("Balance: ${available_balance:.2}");
+        if let Some(cash) = cash_balance
+            && cash < 0.0
+        {
+            login_method.push_str(&format!(" · ${:.2} in deficit", cash.abs()));
+        }
+
+        let mut usage = UsageSnapshot::new(primary).with_login_method(login_method);
 
         // Add secondary window for cash balance if available
-        if let Some(cash) = cash_balance
-            && cash > 0.0
-        {
-            // Show cash balance as secondary metric
-            let secondary = RateWindow::new(0.0); // Not a percentage, but we'll show it
-            usage = usage.with_secondary(secondary);
+        if let Some(voucher) = voucher_balance {
+            let mut voucher_window = RateWindow::new(0.0);
+            voucher_window.reset_description = Some(format!("Voucher ${voucher:.2}"));
+            usage = usage.with_extra_rate_window("voucher", "Voucher balance", voucher_window);
+        }
+
+        if let Some(cash) = cash_balance {
+            let mut cash_window = RateWindow::new(if cash < 0.0 { 100.0 } else { 0.0 });
+            cash_window.reset_description = Some(format!("Cash ${cash:.2}"));
+            usage = usage.with_extra_rate_window("cash", "Cash balance", cash_window);
         }
 
         Ok(usage)
