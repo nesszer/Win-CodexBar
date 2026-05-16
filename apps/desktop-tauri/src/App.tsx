@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkForUpdates, getBootstrapState, getSettingsSnapshot, setSurfaceMode } from "./lib/tauri";
@@ -38,15 +38,22 @@ function AppInner() {
 
   useTheme(themePreference);
 
+  const reloadBootstrapState = useCallback(
+    () => getBootstrapState(),
+    [],
+  );
+
   useEffect(() => {
     let cancelled = false;
 
-    getBootstrapState()
+    reloadBootstrapState()
       .then((bootstrap) => {
-        if (!cancelled) {
-          setState(bootstrap);
-          setThemePreference(bootstrap.settings.theme);
+        if (cancelled) {
+          return;
         }
+        setState(bootstrap);
+        setThemePreference(bootstrap.settings.theme);
+        setError(null);
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
@@ -64,6 +71,18 @@ function AppInner() {
     const unlistenPromise = listen<string>("global-shortcut-triggered", () => {
       void setSurfaceMode("trayPanel", { kind: "summary" }).catch(() => {});
     });
+
+    const unlistenSettingsChangePromise = isSettingsWindow()
+      ? listen<string>("settings-change-tab", () => {
+          void reloadBootstrapState()
+            .then((bootstrap) => {
+              setState(bootstrap);
+              setThemePreference(bootstrap.settings.theme);
+              setError(null);
+            })
+            .catch(() => {});
+        })
+      : Promise.resolve(null);
 
     // Keep the theme in sync when mutations happen inside other surfaces
     // (e.g., Settings → Appearance). `useSettings` dispatches this event
@@ -83,9 +102,12 @@ function AppInner() {
     return () => {
       cancelled = true;
       void unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+      void unlistenSettingsChangePromise
+        .then((unlisten) => unlisten?.())
+        .catch(() => {});
       window.removeEventListener("codexbar:settings-updated", onSettingsUpdated);
     };
-  }, []);
+  }, [reloadBootstrapState]);
 
   if (error) {
     return (
