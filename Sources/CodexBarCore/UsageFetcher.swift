@@ -90,6 +90,7 @@ public struct UsageSnapshot: Codable, Sendable {
     public let minimaxUsage: MiniMaxUsageSnapshot?
     public let openRouterUsage: OpenRouterUsageSnapshot?
     public let openAIAPIUsage: OpenAIAPIUsageSnapshot?
+    public let claudeAdminAPIUsage: ClaudeAdminAPIUsageSnapshot?
     public let mistralUsage: MistralUsageSnapshot?
     public let cursorRequests: CursorRequestUsage?
     public let updatedAt: Date
@@ -104,6 +105,7 @@ public struct UsageSnapshot: Codable, Sendable {
         case kiroUsage
         case openRouterUsage
         case openAIAPIUsage
+        case claudeAdminAPIUsage
         case mistralUsage
         case updatedAt
         case identity
@@ -123,6 +125,7 @@ public struct UsageSnapshot: Codable, Sendable {
         minimaxUsage: MiniMaxUsageSnapshot? = nil,
         openRouterUsage: OpenRouterUsageSnapshot? = nil,
         openAIAPIUsage: OpenAIAPIUsageSnapshot? = nil,
+        claudeAdminAPIUsage: ClaudeAdminAPIUsageSnapshot? = nil,
         mistralUsage: MistralUsageSnapshot? = nil,
         cursorRequests: CursorRequestUsage? = nil,
         updatedAt: Date,
@@ -138,6 +141,7 @@ public struct UsageSnapshot: Codable, Sendable {
         self.minimaxUsage = minimaxUsage
         self.openRouterUsage = openRouterUsage
         self.openAIAPIUsage = openAIAPIUsage
+        self.claudeAdminAPIUsage = claudeAdminAPIUsage
         self.mistralUsage = mistralUsage
         self.cursorRequests = cursorRequests
         self.updatedAt = updatedAt
@@ -156,6 +160,9 @@ public struct UsageSnapshot: Codable, Sendable {
         self.minimaxUsage = nil // Not persisted, fetched fresh each time
         self.openRouterUsage = try container.decodeIfPresent(OpenRouterUsageSnapshot.self, forKey: .openRouterUsage)
         self.openAIAPIUsage = try container.decodeIfPresent(OpenAIAPIUsageSnapshot.self, forKey: .openAIAPIUsage)
+        self.claudeAdminAPIUsage = try container.decodeIfPresent(
+            ClaudeAdminAPIUsageSnapshot.self,
+            forKey: .claudeAdminAPIUsage)
         self.mistralUsage = try container.decodeIfPresent(MistralUsageSnapshot.self, forKey: .mistralUsage)
         self.cursorRequests = nil // Not persisted, fetched fresh each time
         self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
@@ -188,6 +195,7 @@ public struct UsageSnapshot: Codable, Sendable {
         try container.encodeIfPresent(self.kiroUsage, forKey: .kiroUsage)
         try container.encodeIfPresent(self.openRouterUsage, forKey: .openRouterUsage)
         try container.encodeIfPresent(self.openAIAPIUsage, forKey: .openAIAPIUsage)
+        try container.encodeIfPresent(self.claudeAdminAPIUsage, forKey: .claudeAdminAPIUsage)
         try container.encodeIfPresent(self.mistralUsage, forKey: .mistralUsage)
         try container.encode(self.updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(self.identity, forKey: .identity)
@@ -287,6 +295,7 @@ public struct UsageSnapshot: Codable, Sendable {
             minimaxUsage: self.minimaxUsage,
             openRouterUsage: self.openRouterUsage,
             openAIAPIUsage: self.openAIAPIUsage,
+            claudeAdminAPIUsage: self.claudeAdminAPIUsage,
             mistralUsage: self.mistralUsage,
             cursorRequests: self.cursorRequests,
             updatedAt: self.updatedAt,
@@ -319,6 +328,7 @@ public struct UsageSnapshot: Codable, Sendable {
             minimaxUsage: self.minimaxUsage,
             openRouterUsage: self.openRouterUsage,
             openAIAPIUsage: self.openAIAPIUsage,
+            claudeAdminAPIUsage: self.claudeAdminAPIUsage,
             mistralUsage: self.mistralUsage,
             cursorRequests: self.cursorRequests,
             updatedAt: self.updatedAt,

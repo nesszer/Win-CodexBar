@@ -238,22 +238,7 @@ struct MenuDescriptor {
                     resetOverride: opusResetOverride)
             }
 
-            if let cost = snap.providerCost {
-                if cost.currencyCode == "Quota" {
-                    let used = String(format: "%.0f", cost.used)
-                    let limit = String(format: "%.0f", cost.limit)
-                    entries.append(.text("Quota: \(used) / \(limit)", .primary))
-                }
-            }
-            if let openAIAPIUsage = snap.openAIAPIUsage {
-                Self.appendOpenAIAPIUsageSummary(entries: &entries, usage: openAIAPIUsage)
-            }
-            if let openRouterUsage = snap.openRouterUsage {
-                Self.appendOpenRouterUsageSummary(entries: &entries, usage: openRouterUsage)
-            }
-            if let mistralUsage = snap.mistralUsage, !mistralUsage.daily.isEmpty {
-                Self.appendMistralUsageSummary(entries: &entries, usage: mistralUsage)
-            }
+            Self.appendProviderUsageSummaries(entries: &entries, snapshot: snap)
         } else {
             entries.append(.text("No usage yet", .secondary))
         }
@@ -268,6 +253,31 @@ struct MenuDescriptor {
             .appendUsageMenuEntries(context: usageContext, entries: &entries)
 
         return Section(entries: entries)
+    }
+
+    private static func appendProviderUsageSummaries(
+        entries: inout [Entry],
+        snapshot: UsageSnapshot)
+    {
+        if let cost = snapshot.providerCost {
+            if cost.currencyCode == "Quota" {
+                let used = String(format: "%.0f", cost.used)
+                let limit = String(format: "%.0f", cost.limit)
+                entries.append(.text("Quota: \(used) / \(limit)", .primary))
+            }
+        }
+        if let openAIAPIUsage = snapshot.openAIAPIUsage {
+            Self.appendOpenAIAPIUsageSummary(entries: &entries, usage: openAIAPIUsage)
+        }
+        if let claudeAdminAPIUsage = snapshot.claudeAdminAPIUsage {
+            Self.appendClaudeAdminAPIUsageSummary(entries: &entries, usage: claudeAdminAPIUsage)
+        }
+        if let openRouterUsage = snapshot.openRouterUsage {
+            Self.appendOpenRouterUsageSummary(entries: &entries, usage: openRouterUsage)
+        }
+        if let mistralUsage = snapshot.mistralUsage, !mistralUsage.daily.isEmpty {
+            Self.appendMistralUsageSummary(entries: &entries, usage: mistralUsage)
+        }
     }
 
     private static func appendOpenAIAPIUsageSummary(
@@ -289,6 +299,31 @@ struct MenuDescriptor {
         entries.append(.text(
             "30d: \(UsageFormatter.usdString(last30.costUSD)) · " +
                 "\(UsageFormatter.tokenCountString(last30.requests)) requests",
+            .secondary))
+        if let topModel = usage.topModels.first?.name {
+            entries.append(.text("Top model: \(topModel)", .secondary))
+        }
+    }
+
+    private static func appendClaudeAdminAPIUsageSummary(
+        entries: inout [Entry],
+        usage: ClaudeAdminAPIUsageSnapshot)
+    {
+        let today = usage.latestDay
+        let last7 = usage.last7Days
+        let last30 = usage.last30Days
+
+        entries.append(.text(
+            "Today: \(UsageFormatter.usdString(today.costUSD)) · " +
+                "\(UsageFormatter.tokenCountString(today.totalTokens)) tokens",
+            .secondary))
+        entries.append(.text(
+            "7d: \(UsageFormatter.usdString(last7.costUSD)) · " +
+                "\(UsageFormatter.tokenCountString(last7.totalTokens)) tokens",
+            .secondary))
+        entries.append(.text(
+            "30d: \(UsageFormatter.usdString(last30.costUSD)) · " +
+                "\(UsageFormatter.tokenCountString(last30.totalTokens)) tokens",
             .secondary))
         if let topModel = usage.topModels.first?.name {
             entries.append(.text("Top model: \(topModel)", .secondary))

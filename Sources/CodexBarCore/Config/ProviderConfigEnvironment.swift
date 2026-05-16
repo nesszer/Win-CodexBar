@@ -54,6 +54,8 @@ public enum ProviderConfigEnvironment {
         switch provider {
         case .openai:
             OpenAIAPISettingsReader.adminAPIKeyEnvironmentKey
+        case .claude:
+            ClaudeAdminAPISettingsReader.adminAPIKeyEnvironmentKey
         case .zai:
             ZaiSettingsReader.apiTokenKey
         case .minimax:
