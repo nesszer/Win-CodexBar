@@ -53,6 +53,7 @@ fn main() {
             commands::update_settings,
             commands::set_surface_mode,
             commands::open_settings_window,
+            commands::close_settings_window,
             commands::get_current_surface_mode,
             commands::get_current_surface_state,
             commands::get_proof_state,

@@ -63,6 +63,10 @@ export function openSettingsWindow(tab: string): Promise<void> {
   return invoke<void>("open_settings_window", { tab });
 }
 
+export function closeSettingsWindow(): Promise<void> {
+  return invoke<void>("close_settings_window");
+}
+
 export function getCurrentSurfaceMode(): Promise<SurfaceMode> {
   return invoke<SurfaceMode>("get_current_surface_mode");
 }

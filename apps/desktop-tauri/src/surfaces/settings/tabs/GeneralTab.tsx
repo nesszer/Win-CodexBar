@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
-import { playNotificationSound, quitApp } from "../../../lib/tauri";
+import { closeSettingsWindow, playNotificationSound } from "../../../lib/tauri";
 import { Field, NumberInput, Select, Toggle } from "../../../components/FormControls";
 import type { TabProps } from "../../Settings";
 
@@ -24,7 +24,7 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
   }, []);
 
   const handleQuit = useCallback(() => {
-    void quitApp().catch(() => window.close());
+    void closeSettingsWindow();
   }, []);
 
   return (

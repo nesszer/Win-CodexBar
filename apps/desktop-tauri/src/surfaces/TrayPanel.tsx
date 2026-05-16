@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
-import { setSurfaceMode, openSettingsWindow } from "../lib/tauri";
+import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
 import { reanchorTrayPanel } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
@@ -224,7 +224,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     });
   }, []);
   const quitApp = useCallback(() => {
-    void getCurrentWindow().close();
+    void quitApplication();
   }, []);
 
   const headerActions = [

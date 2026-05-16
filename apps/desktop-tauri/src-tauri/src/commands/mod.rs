@@ -560,6 +560,10 @@ fn bridge_commands() -> Vec<BridgeCommandDescriptor> {
             description: "Switch the shell to a visible surface using a required typed target.",
         },
         BridgeCommandDescriptor {
+            id: "close_settings_window",
+            description: "Dismiss Settings without exiting the tray application.",
+        },
+        BridgeCommandDescriptor {
             id: "get_current_surface_mode",
             description: "Read the current coarse shell surface mode.",
         },
@@ -1098,6 +1102,14 @@ pub fn set_surface_mode(
 #[tauri::command]
 pub async fn open_settings_window(app: tauri::AppHandle, tab: String) -> Result<(), String> {
     crate::shell::settings_window::open_or_focus(&app, &tab)
+}
+
+#[tauri::command]
+pub fn close_settings_window(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<(), String> {
+    crate::shell::settings_window::dismiss(&app, &window)
 }
 
 #[tauri::command]

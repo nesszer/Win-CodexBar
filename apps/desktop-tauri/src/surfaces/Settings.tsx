@@ -10,7 +10,7 @@ import { useSettings } from "../hooks/useSettings";
 import { useSurfaceTarget } from "../hooks/useSurfaceMode";
 import { useLocale } from "../hooks/useLocale";
 import type { LocaleKey } from "../i18n/keys";
-import { setSurfaceMode } from "../lib/tauri";
+import { closeSettingsWindow, setSurfaceMode } from "../lib/tauri";
 import GeneralTab from "./settings/tabs/GeneralTab";
 import DisplayTab from "./settings/tabs/DisplayTab";
 import AdvancedTab from "./settings/tabs/AdvancedTab";
@@ -175,7 +175,7 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
           <span className="settings-titlebar__title" data-tauri-drag-region>CodexBar Settings</span>
           <button
             className="settings-titlebar__close"
-            onClick={() => void getCurrentWindow().close()}
+            onClick={() => void closeSettingsWindow()}
             aria-label="Close"
           >
             ✕

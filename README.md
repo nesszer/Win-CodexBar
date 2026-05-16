@@ -23,11 +23,11 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 - **CLI** — `codexbar usage` and `codexbar cost` for scripting and CI
 - **WSL support** — CLI works out of the box; desktop shell via WSLg
 
-## What's New in v0.26.1
+## What's New in v0.26.2
 
-- Hotfix for Moonshot / Kimi API balance checks introduced in v0.26.0.
-- When `MOONSHOT_API_REGION` is unset, Win-CodexBar now tries both international and China Moonshot API endpoints so existing API keys keep working after upgrade.
-- Users who want a single endpoint can still pin `MOONSHOT_API_REGION=international` or `MOONSHOT_API_REGION=china`.
+- Fixed the Settings tab's Quit button so it closes only the Settings window and leaves CodexBar running in the tray.
+- Tray panel, pop-out, and native tray menu Quit actions still exit the whole app when you actually want to stop CodexBar.
+- This keeps Settings dismissal separate from shutting down the background tray service.
 
 ## Quick Start
 

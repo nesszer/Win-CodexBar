@@ -836,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "codexbar"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -888,7 +888,7 @@ dependencies = [
 
 [[package]]
 name = "codexbar-desktop-tauri"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "chrono",
  "codexbar",

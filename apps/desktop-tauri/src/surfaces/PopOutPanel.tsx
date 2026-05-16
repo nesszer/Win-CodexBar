@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
-import { setSurfaceMode, openSettingsWindow } from "../lib/tauri";
+import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
@@ -66,7 +65,7 @@ export default function PopOutPanel({
     openSettingsWindow("about");
   }, []);
   const quitApp = useCallback(() => {
-    void getCurrentWindow().close();
+    void quitApplication();
   }, []);
 
   const headerActions = [

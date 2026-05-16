@@ -4,6 +4,14 @@
 
 ---
 
+## [Windows] 0.26.2 - 2026-05-16
+
+### Fixed
+- Make the Settings tab's Quit button close only the Settings window so the tray service keeps running.
+- Keep tray panel, pop-out, and native tray menu Quit actions on the app-level exit path.
+
+---
+
 ## [Windows] 0.26.1 - 2026-05-15
 
 ### Fixed

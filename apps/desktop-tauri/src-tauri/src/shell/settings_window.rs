@@ -13,6 +13,7 @@ const SETTINGS_HEIGHT: f64 = 580.0;
 /// frontend can switch to the requested tab without a full reload.
 pub fn open_or_focus(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(SETTINGS_LABEL) {
+        window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
         app.emit_to(SETTINGS_LABEL, "settings-change-tab", tab)
             .map_err(|e| e.to_string())?;
@@ -47,5 +48,21 @@ pub fn open_or_focus(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
         let _ = win.set_position(PhysicalPosition::new(x, y));
     }
 
+    Ok(())
+}
+
+/// Dismiss Settings without exiting CodexBar.
+///
+/// The detached Settings window is hidden instead of closed so Tauri's
+/// process/window lifecycle cannot interpret this as an app quit. If Settings
+/// is rendered in the main shell surface, hide that surface back to tray.
+pub fn dismiss(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == SETTINGS_LABEL {
+        return window.hide().map_err(|e| e.to_string());
+    }
+
+    crate::shell::hide_to_tray_if_current(app, |mode| {
+        mode == crate::surface::SurfaceMode::Settings
+    })?;
     Ok(())
 }

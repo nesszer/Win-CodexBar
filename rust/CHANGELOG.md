@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.26.2] — 2026-05-16
+
+### Fixed
+- Made the Settings tab's Quit button close only the Settings window so the tray service keeps running.
+- Kept tray panel, pop-out, and native tray menu Quit actions on the app-level exit path.
+
+---
+
 ## [0.26.1] — 2026-05-15
 
 ### Fixed

@@ -23,11 +23,11 @@
 - **CLI** — `codexbar usage` 和 `codexbar cost`，便于脚本化和 CI
 - **WSL 支持** — CLI 开箱即用，桌面壳层通过 WSLg 运行
 
-## v0.26.1 更新内容
+## v0.26.2 更新内容
 
-- 修复 v0.26.0 引入的 Moonshot / Kimi API 余额检查区域兼容问题
-- 未设置 `MOONSHOT_API_REGION` 时，Win-CodexBar 现在会同时尝试 Moonshot 国际区与中国区 API 端点，避免升级后已有 API key 失效
-- 如需固定单一区域，仍可设置 `MOONSHOT_API_REGION=international` 或 `MOONSHOT_API_REGION=china`
+- 修复 Settings 选项卡中的 Quit 按钮：现在它只关闭 Settings 窗口，并让 CodexBar 继续留在系统托盘中运行。
+- 托盘面板、弹出窗口和原生托盘菜单中的 Quit 仍会在你确实想停止 CodexBar 时退出整个应用。
+- 这样 Settings 的关闭操作与后台托盘服务的退出保持分离。
 
 ## 快速开始
 
