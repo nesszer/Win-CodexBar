@@ -103,7 +103,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   const filterIds = settings.floatBarProviderIds;
   const visible = useMemo(() => {
     const enabled = new Set(settings.enabledProviders);
-    let list = providers.filter((p) => enabled.size === 0 || enabled.has(p.providerId));
+    let list = providers.filter((p) => enabled.has(p.providerId));
     if (filterIds && filterIds.length > 0) {
       const wanted = new Set(filterIds);
       list = list.filter((p) => wanted.has(p.providerId));
@@ -121,7 +121,9 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
       const padding = 8;
       const w = Math.ceil(rect.width + padding);
       const h = Math.ceil(rect.height + padding);
-      void win.setSize({ type: "Logical", width: w, height: h } as never).catch(() => {});
+      void Promise.resolve(
+        win.setSize({ type: "Logical", width: w, height: h } as never),
+      ).catch(() => {});
     });
   }, [visible.length, orientation]);
 

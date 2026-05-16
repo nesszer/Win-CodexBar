@@ -9,11 +9,11 @@ mod commands;
 mod window;
 
 pub use commands::*;
-pub use window::FLOATBAR_LABEL;
 pub use window::FLOAT_BAR_CONFIG_CHANGED_EVENT;
+pub use window::FLOATBAR_LABEL;
 
 use codexbar::settings::Settings;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Reopen the floating bar on app start if it was enabled previously.
 ///
@@ -33,10 +33,7 @@ pub fn install(app: &tauri::AppHandle) {
 /// Handle a `WindowEvent` targeting the floatbar window. Returns `true`
 /// when the event was for the floatbar (and was handled), `false`
 /// otherwise so the caller can fall through to its own handling.
-pub fn handle_window_event(
-    window: &tauri::Window,
-    event: &tauri::WindowEvent,
-) -> bool {
+pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -> bool {
     if window.label() != FLOATBAR_LABEL {
         return false;
     }
@@ -120,8 +117,7 @@ impl SettingsPatch {
             settings.float_bar_opacity = codexbar::settings::clamp_float_bar_opacity(v);
         }
         if let Some(v) = &self.orientation {
-            settings.float_bar_orientation =
-                codexbar::settings::normalize_float_bar_orientation(v);
+            settings.float_bar_orientation = codexbar::settings::normalize_float_bar_orientation(v);
         }
         if let Some(v) = self.click_through {
             settings.float_bar_click_through = v;
@@ -139,13 +135,18 @@ pub fn after_settings_saved(
     app: &tauri::AppHandle,
     patch: &SettingsPatch,
     settings: &Settings,
+    notify_live_config: bool,
 ) {
-    if patch.is_empty() {
-        return;
+    if notify_live_config || !patch.is_empty() {
+        notify_settings_changed(app);
     }
-    use tauri::Emitter;
+    if !patch.is_empty() {
+        apply_state(app, settings);
+    }
+}
+
+pub fn notify_settings_changed(app: &tauri::AppHandle) {
     let _ = app.emit(FLOAT_BAR_CONFIG_CHANGED_EVENT, ());
-    apply_state(app, settings);
 }
 
 #[cfg(test)]

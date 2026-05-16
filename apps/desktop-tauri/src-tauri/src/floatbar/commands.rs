@@ -4,15 +4,13 @@
 //! keep the persisted settings in sync, so the bar reopens with the same
 //! configuration after a restart.
 
-use codexbar::settings::{
-    Settings, clamp_float_bar_opacity, normalize_float_bar_orientation,
-};
+use codexbar::settings::{Settings, clamp_float_bar_opacity, normalize_float_bar_orientation};
 use tauri::{AppHandle, Manager};
 
 use super::window as floatbar_window;
 
 #[tauri::command]
-pub fn show_float_bar(app: AppHandle) -> Result<(), String> {
+pub async fn show_float_bar(app: AppHandle) -> Result<(), String> {
     let mut settings = Settings::load();
     settings.float_bar_enabled = true;
     settings.save().map_err(|e| e.to_string())?;

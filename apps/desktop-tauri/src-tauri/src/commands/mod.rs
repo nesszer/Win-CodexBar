@@ -961,11 +961,16 @@ fn parse_language(s: &str) -> Option<Language> {
 }
 
 #[tauri::command]
-pub fn update_settings(
+pub async fn update_settings(
     app: tauri::AppHandle,
     patch: SettingsUpdate,
 ) -> Result<SettingsSnapshot, String> {
     let mut settings = Settings::load();
+    let notify_float_bar = patch.enabled_providers.is_some()
+        || patch.refresh_interval_secs.is_some()
+        || patch.high_usage_threshold.is_some()
+        || patch.critical_usage_threshold.is_some();
+    let rebuild_tray_menu = patch.float_bar_enabled.is_some();
 
     // If the shortcut is changing, validate and re-register before persisting.
     if let Some(ref new_shortcut) = patch.global_shortcut
@@ -1095,7 +1100,10 @@ pub fn update_settings(
 
     settings.save().map_err(|e| e.to_string())?;
 
-    crate::floatbar::after_settings_saved(&app, &float_bar_patch, &settings);
+    crate::floatbar::after_settings_saved(&app, &float_bar_patch, &settings, notify_float_bar);
+    if rebuild_tray_menu {
+        crate::tray_bridge::rebuild_tray_menu(&app);
+    }
 
     Ok(SettingsSnapshot::from(settings))
 }

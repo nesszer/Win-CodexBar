@@ -328,6 +328,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 settings.enabled_providers.insert(provider_id);
             }
             let _ = settings.save();
+            crate::floatbar::notify_settings_changed(app);
             rebuild_tray_menu(app);
         }
         Some(MenuAction::ToggleFloatBar) => {
@@ -342,7 +343,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 }
 
 /// Rebuild the native tray menu from current provider + settings state.
-fn rebuild_tray_menu(app: &AppHandle) {
+pub(crate) fn rebuild_tray_menu(app: &AppHandle) {
     let catalog = crate::commands::get_provider_catalog();
     let status_labels = if let Some(st) = app.try_state::<Mutex<AppState>>() {
         let guard = st.lock().unwrap();

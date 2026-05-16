@@ -27,6 +27,7 @@ pub fn initial_size(orientation: &str) -> (f64, f64) {
 /// Convert a 0..=100 opacity value to a Win32 SetLayeredWindowAttributes
 /// alpha byte (0..=255). Values below 30 are clamped so the bar is never
 /// fully invisible — that would be a usability footgun.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn opacity_to_alpha(opacity: u8) -> u8 {
     let clamped = opacity.clamp(30, 100);
     ((clamped as u32) * 255 / 100) as u8
@@ -53,7 +54,8 @@ pub fn show(
     }
 
     let (w, h) = initial_size(orientation);
-    let url = WebviewUrl::App(format!("index.html?window=floatbar&orientation={orientation}").into());
+    let url =
+        WebviewUrl::App(format!("index.html?window=floatbar&orientation={orientation}").into());
 
     let win = tauri::WebviewWindowBuilder::new(app, FLOATBAR_LABEL, url)
         .title("CodexBar Float Bar")
@@ -63,7 +65,7 @@ pub fn show(
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .transparent(true)
+        .background_color(tauri::utils::config::Color(0, 0, 0, 0))
         .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
@@ -260,10 +262,19 @@ mod tests {
 
     #[test]
     fn initial_size_picks_orientation() {
-        assert_eq!(initial_size("horizontal"), (FLOATBAR_DEFAULT_WIDTH_H, FLOATBAR_DEFAULT_HEIGHT_H));
-        assert_eq!(initial_size("vertical"), (FLOATBAR_DEFAULT_WIDTH_V, FLOATBAR_DEFAULT_HEIGHT_V));
+        assert_eq!(
+            initial_size("horizontal"),
+            (FLOATBAR_DEFAULT_WIDTH_H, FLOATBAR_DEFAULT_HEIGHT_H)
+        );
+        assert_eq!(
+            initial_size("vertical"),
+            (FLOATBAR_DEFAULT_WIDTH_V, FLOATBAR_DEFAULT_HEIGHT_V)
+        );
         // Unknown values fall through to horizontal so a corrupted setting
         // can't yield an unreadable strip.
-        assert_eq!(initial_size("diagonal"), (FLOATBAR_DEFAULT_WIDTH_H, FLOATBAR_DEFAULT_HEIGHT_H));
+        assert_eq!(
+            initial_size("diagonal"),
+            (FLOATBAR_DEFAULT_WIDTH_H, FLOATBAR_DEFAULT_HEIGHT_H)
+        );
     }
 }

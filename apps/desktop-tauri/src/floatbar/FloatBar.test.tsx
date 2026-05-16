@@ -191,6 +191,24 @@ describe("FloatBar", () => {
     });
   });
 
+  it("does not show stale cached providers when all providers are disabled", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("claude", "Claude", 30),
+      snapshot("codex", "Codex", 50),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(
+      settings({ enabledProviders: [] }),
+    );
+
+    const { container } = render(
+      <FloatBar state={bootstrap({ enabledProviders: [] })} />,
+    );
+    await waitFor(() => {
+      expect(container.querySelectorAll(".floatbar__pill").length).toBe(0);
+      expect(container.querySelector(".floatbar__empty")).not.toBeNull();
+    });
+  });
+
   it("shows an empty state when no providers match", async () => {
     tauriMocks.getCachedProviders.mockResolvedValue([]);
     tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
