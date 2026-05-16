@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useProviders } from "../hooks/useProviders";
-import { getSettingsSnapshot } from "../lib/tauri";
+import { getSettingsSnapshot, refreshProvidersIfStale } from "../lib/tauri";
 import { ProviderIcon } from "../components/providers/ProviderIcon";
 import { getProviderIcon } from "../components/providers/providerIcons";
 import type {
@@ -73,6 +73,21 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   // with the Settings tab. Listen for the Rust-side config-changed event
   // and re-pull the snapshot when fired.
   const [settings, setSettings] = useState<SettingsSnapshot>(state.settings);
+
+  // The Tauri shell has no global refresh timer — providers only update
+  // when something explicitly asks for it. Drive our own tick here so the
+  // bar reflects fresh data even when the tray panel is closed.
+  // `refreshProvidersIfStale` is a no-op when the backend cache is fresh,
+  // so this is safe to call frequently.
+  useEffect(() => {
+    const intervalMs = Math.max(60_000, settings.refreshIntervalSecs * 1000);
+    const tick = () => {
+      void refreshProvidersIfStale().catch(() => {});
+    };
+    tick();
+    const id = setInterval(tick, intervalMs);
+    return () => clearInterval(id);
+  }, [settings.refreshIntervalSecs]);
   useEffect(() => {
     const unlisten = listen(FLOAT_BAR_CONFIG_CHANGED_EVENT, () => {
       void getSettingsSnapshot().then(setSettings).catch(() => {});

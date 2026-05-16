@@ -200,4 +200,30 @@ describe("FloatBar", () => {
       expect(container.querySelector(".floatbar__empty")).not.toBeNull();
     });
   });
+
+  it("polls refreshProvidersIfStale on the configured interval", async () => {
+    vi.useFakeTimers();
+    try {
+      tauriMocks.getCachedProviders.mockResolvedValue([]);
+      tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
+      // 60s minimum is enforced in FloatBar.tsx; use the floor here.
+      render(<FloatBar state={bootstrap({ refreshIntervalSecs: 60 })} />);
+
+      // Initial tick fires synchronously on mount (+ the useProviders
+      // hook's own initial call) — wait for the first to complete.
+      await vi.waitFor(() => {
+        expect(tauriMocks.refreshProvidersIfStale).toHaveBeenCalled();
+      });
+      const initialCalls = tauriMocks.refreshProvidersIfStale.mock.calls.length;
+
+      // Advance the timer past the 60-second interval — the floatbar tick
+      // should fire again.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(tauriMocks.refreshProvidersIfStale.mock.calls.length).toBeGreaterThan(
+        initialCalls,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
