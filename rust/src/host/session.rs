@@ -23,12 +23,12 @@ pub fn is_remote_session() -> bool {
 
 /// User-facing message explaining why launch is blocked under SSH.
 pub fn ssh_session_error_message() -> &'static str {
-    "CodexBar can't render its native window from an SSH session on this machine.\n\nOpen it from the logged-in Windows desktop session instead, or use the CLI over SSH:\n\n  codexbar usage -p claude\n\nThe startup log is written to %TEMP%\\codexbar_launch.log."
+    "CodexBar can't render its native window from an SSH session on this machine.\n\nOpen it from the logged-in Windows desktop session instead, or use the CLI over SSH:\n\n  codexbar usage -p claude\n\nThe startup log is written to %TEMP%\\codexbar_launch_<pid>.log."
 }
 
 /// User-facing message explaining why launch is blocked under RDP.
 pub fn remote_session_error_message() -> &'static str {
-    "CodexBar can't render its native window inside a Windows Remote Desktop session on this machine.\n\nRun it from the local desktop session instead, or use the CLI while connected over RDP:\n\n  codexbar usage -p claude\n\nThe startup log is written to %TEMP%\\codexbar_launch.log."
+    "CodexBar can't render its native window inside a Windows Remote Desktop session on this machine.\n\nRun it from the local desktop session instead, or use the CLI while connected over RDP:\n\n  codexbar usage -p claude\n\nThe startup log is written to %TEMP%\\codexbar_launch_<pid>.log."
 }
 
 /// Return a user-facing reason for blocking launch, or `None` when launch is fine.

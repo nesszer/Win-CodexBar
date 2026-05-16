@@ -44,6 +44,7 @@ apps/desktop-tauri/src-tauri/gen/schemas/macOS-schema.json
 tmpclaude-*
 .claude/
 .factory/
+.clawpatch/
 
 # IDE
 .idea/

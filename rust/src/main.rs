@@ -3,61 +3,47 @@ use codexbar::{
     cli::{self, Cli, Commands, exit_codes},
     logging, wsl,
 };
+use std::path::{Path, PathBuf};
 
-/// Redact sensitive CLI arguments (tokens, keys, cookies) from log output
-fn redact_sensitive_args(args: &[String]) -> Vec<String> {
-    let sensitive_flags = ["--token", "--api-key", "--key", "--cookie", "--password"];
-    let mut result = Vec::with_capacity(args.len());
-    let mut redact_next = false;
-    for arg in args {
-        if redact_next {
-            result.push("[REDACTED]".to_string());
-            redact_next = false;
-        } else if sensitive_flags.iter().any(|f| arg.starts_with(f)) {
-            if arg.contains('=') {
-                let prefix = arg.split('=').next().unwrap_or(arg);
-                result.push(format!("{}=[REDACTED]", prefix));
-            } else {
-                result.push(arg.clone());
-                redact_next = true;
-            }
-        } else {
-            result.push(arg.clone());
-        }
-    }
-    result
+fn launch_log_path() -> PathBuf {
+    std::env::temp_dir().join(format!("codexbar_launch_{}.log", std::process::id()))
+}
+
+fn append_launch_log(log_path: &Path, message: &str) {
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(message.as_bytes())
+        });
+}
+
+fn launch_arg_summary() -> String {
+    let arg_count = std::env::args().count().saturating_sub(1);
+    format!("{} CLI argument value(s) omitted", arg_count)
 }
 
 fn main() {
-    // Log immediately at program start (redact sensitive args)
-    let log_path = std::env::temp_dir().join("codexbar_launch.log");
-    let args: Vec<String> = std::env::args().collect();
-    let redacted_args = redact_sensitive_args(&args);
-    let _ = std::fs::write(
+    let log_path = launch_log_path();
+    append_launch_log(
         &log_path,
-        format!(
+        &format!(
             "main() started at {:?}\nArgs: {:?}\n",
             std::time::SystemTime::now(),
-            redacted_args
+            launch_arg_summary()
         ),
     );
 
-    let exit_code = run();
+    let exit_code = run(&log_path);
 
-    let _ = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&log_path)
-        .and_then(|mut f| {
-            use std::io::Write;
-            writeln!(f, "Exiting with code: {}", exit_code)
-        });
+    append_launch_log(&log_path, &format!("Exiting with code: {}\n", exit_code));
 
     std::process::exit(exit_code);
 }
 
-fn run() -> i32 {
-    // Log to file immediately for debugging
-    let log_path = std::env::temp_dir().join("codexbar_launch.log");
+fn run(log_path: &Path) -> i32 {
     let mut log = String::new();
     log.push_str(&format!("Starting at {:?}\n", std::time::SystemTime::now()));
 
@@ -69,9 +55,8 @@ fn run() -> i32 {
         }
     }
 
-    let args: Vec<String> = std::env::args().collect();
-    log.push_str(&format!("Args: {:?}\n", redact_sensitive_args(&args)));
-    let _ = std::fs::write(&log_path, &log);
+    log.push_str(&format!("Args: {:?}\n", launch_arg_summary()));
+    append_launch_log(log_path, &log);
 
     let cli = Cli::parse();
 
@@ -161,5 +146,20 @@ fn categorize_error(e: &anyhow::Error) -> i32 {
         exit_codes::CLI_TIMEOUT
     } else {
         exit_codes::UNEXPECTED_FAILURE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launch_log_path_is_process_scoped() {
+        let path = launch_log_path();
+        let file_name = path.file_name().and_then(|name| name.to_str()).unwrap();
+
+        assert!(file_name.starts_with("codexbar_launch_"));
+        assert!(file_name.ends_with(".log"));
+        assert!(file_name.contains(&std::process::id().to_string()));
     }
 }
