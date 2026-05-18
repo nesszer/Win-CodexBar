@@ -121,6 +121,15 @@ fn run(log_path: &Path) -> i32 {
                 }
             }
         }),
+        Some(Commands::Cmdpal(args)) => rt.block_on(async {
+            match cli::cmdpal::run(args).await {
+                Ok(()) => exit_codes::SUCCESS,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    categorize_error(&e)
+                }
+            }
+        }),
         None => {
             // The egui menubar shell has been retired; the desktop UI lives in
             // apps/desktop-tauri. The CLI binary now requires an explicit subcommand.

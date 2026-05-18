@@ -53,6 +53,9 @@ tmpclaude-*
 *.swo
 node_modules/
 dist/
+apps/command-palette-extension/**/bin/
+apps/command-palette-extension/**/obj/
+apps/command-palette-extension/**/TestResults/
 nul
 
 # Local scripts and env files

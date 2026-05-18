@@ -10,6 +10,7 @@
 
 pub mod account;
 pub mod autostart;
+pub mod cmdpal;
 pub mod config;
 pub mod cost;
 pub mod tty_runner;
@@ -112,6 +113,9 @@ pub enum Commands {
 
     /// Configuration utilities
     Config(config::ConfigArgs),
+
+    /// Command Palette integration endpoints
+    Cmdpal(cmdpal::CmdPalArgs),
 }
 
 impl Cli {
