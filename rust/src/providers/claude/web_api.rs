@@ -91,8 +91,10 @@ struct UsageResponse {
     seven_day: Option<UsageWindow>,
     seven_day_opus: Option<UsageWindow>,
     seven_day_sonnet: Option<UsageWindow>,
+    seven_day_oauth_apps: Option<UsageWindow>,
     seven_day_design: Option<UsageWindow>,
     seven_day_routines: Option<UsageWindow>,
+    extra_usage: Option<ExtraUsageResponse>,
 }
 
 impl<'de> Deserialize<'de> for UsageResponse {
@@ -121,6 +123,15 @@ impl<'de> Deserialize<'de> for UsageResponse {
             seven_day: take(&mut map, &["seven_day"])?,
             seven_day_opus: take(&mut map, &["seven_day_opus"])?,
             seven_day_sonnet: take(&mut map, &["seven_day_sonnet"])?,
+            seven_day_oauth_apps: take(
+                &mut map,
+                &[
+                    "seven_day_oauth_apps",
+                    "seven_day_claude_oauth_apps",
+                    "oauth_apps",
+                    "oauth",
+                ],
+            )?,
             seven_day_design: take(
                 &mut map,
                 &[
@@ -145,6 +156,12 @@ impl<'de> Deserialize<'de> for UsageResponse {
                     "cowork",
                 ],
             )?,
+            extra_usage: map
+                .remove("extra_usage")
+                .filter(|value| !value.is_null())
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(serde::de::Error::custom)?,
         })
     }
 }
@@ -159,7 +176,7 @@ struct UsageWindow {
 }
 
 /// Extra usage (credits) response
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct ExtraUsageResponse {
     #[serde(rename = "monthly_credit_limit")]
     monthly_credit_limit: Option<f64>,
@@ -180,6 +197,35 @@ struct AccountResponse {
 
     #[serde(rename = "rate_limit_tier")]
     rate_limit_tier: Option<String>,
+
+    #[serde(default)]
+    memberships: Vec<AccountMembership>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountMembership {
+    uuid: Option<String>,
+    organization: Option<AccountOrganization>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountOrganization {
+    uuid: Option<String>,
+}
+
+impl AccountResponse {
+    fn first_membership_org_id(&self) -> Option<String> {
+        self.memberships.iter().find_map(|membership| {
+            membership
+                .organization
+                .as_ref()
+                .and_then(|organization| organization.uuid.as_deref())
+                .or(membership.uuid.as_deref())
+                .map(str::trim)
+                .filter(|uuid| !uuid.is_empty())
+                .map(ToString::to_string)
+        })
+    }
 }
 
 impl ClaudeWebApiFetcher {
@@ -239,14 +285,18 @@ impl ClaudeWebApiFetcher {
         let headers = Self::build_headers(cookie_header);
 
         // Step 1: Get organization ID
-        let org_id = self.get_organization_id(&headers).await?;
+        let org_id = self.get_organization_id(cookie_header, &headers).await?;
         tracing::debug!("Got organization ID: {}", org_id);
 
         // Step 2: Fetch usage data
         let usage = self.get_usage(&org_id, &headers).await?;
 
         // Step 3: Fetch extra usage (credits) - optional
-        let extra_usage = self.get_extra_usage(&org_id, &headers).await.ok();
+        let extra_usage = self
+            .get_extra_usage(&org_id, &headers)
+            .await
+            .ok()
+            .or_else(|| usage.extra_usage.clone());
 
         // Step 4: Fetch account info - optional
         let account = self.get_account_info(&headers).await.ok();
@@ -279,6 +329,14 @@ impl ClaudeWebApiFetcher {
         }
 
         for (id, title, window) in [
+            (
+                "claude-oauth-apps",
+                "OAuth apps",
+                usage
+                    .seven_day_oauth_apps
+                    .as_ref()
+                    .map(|w| self.to_rate_window(w, Some(10080))),
+            ),
             (
                 "claude-design",
                 "Designs",
@@ -396,8 +454,19 @@ impl ClaudeWebApiFetcher {
     /// Get the organization ID
     async fn get_organization_id(
         &self,
+        cookie_header: &str,
         headers: &reqwest::header::HeaderMap,
     ) -> Result<String, ProviderError> {
+        if let Some(org_id) = cookie_value(cookie_header, "lastActiveOrg") {
+            return Ok(org_id);
+        }
+
+        if let Ok(account) = self.get_account_info(headers).await
+            && let Some(org_id) = account.first_membership_org_id()
+        {
+            return Ok(org_id);
+        }
+
         let url = format!("{}/organizations", Self::BASE_URL);
 
         let response = self
@@ -558,9 +627,24 @@ fn normalize_utilization(utilization: f64) -> f64 {
     }
 }
 
+fn cookie_value(cookie_header: &str, name: &str) -> Option<String> {
+    cookie_header.split(';').find_map(|part| {
+        let (key, value) = part.trim().split_once('=')?;
+        if key.trim() != name {
+            return None;
+        }
+        let value = value.trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ClaudeWebApiFetcher, UsageWindow};
+    use super::{AccountResponse, ClaudeWebApiFetcher, UsageWindow, cookie_value};
     use reqwest::header;
     use std::sync::{Mutex, OnceLock};
 
@@ -670,6 +754,34 @@ mod tests {
     }
 
     #[test]
+    fn extracts_last_active_org_from_cookie_header() {
+        let org = cookie_value(
+            "foo=bar; sessionKey=sk-ant-session; lastActiveOrg=org-123; other=value",
+            "lastActiveOrg",
+        );
+
+        assert_eq!(org.as_deref(), Some("org-123"));
+    }
+
+    #[test]
+    fn account_membership_prefers_nested_organization_uuid() {
+        let account: AccountResponse = serde_json::from_str(
+            r#"{
+                "email_address": "user@example.com",
+                "memberships": [
+                    {
+                        "uuid": "membership-id",
+                        "organization": { "uuid": "org-id" }
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(account.first_membership_org_id().as_deref(), Some("org-id"));
+    }
+
+    #[test]
     fn parses_extra_design_and_routines_aliases() {
         let usage: super::UsageResponse = serde_json::from_str(
             r#"{
@@ -722,5 +834,35 @@ mod tests {
 
         assert!((design.used_percent - 31.0).abs() < f64::EPSILON);
         assert!((routines.used_percent - 19.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parses_oauth_apps_window_and_embedded_extra_usage() {
+        let usage: super::UsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": { "utilization": 0.1 },
+                "seven_day_oauth_apps": { "utilization": 42 },
+                "extra_usage": {
+                    "is_enabled": true,
+                    "monthly_credit_limit": 2000,
+                    "used_credits": 550,
+                    "currency": "USD"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let fetcher = ClaudeWebApiFetcher::new();
+        let oauth_apps = usage
+            .seven_day_oauth_apps
+            .as_ref()
+            .map(|w| fetcher.to_rate_window(w, Some(10080)))
+            .expect("oauth apps window");
+        let extra = usage.extra_usage.expect("extra usage");
+
+        assert!((oauth_apps.used_percent - 42.0).abs() < f64::EPSILON);
+        assert_eq!(extra.is_enabled, Some(true));
+        assert_eq!(extra.monthly_credit_limit, Some(2000.0));
+        assert_eq!(extra.used_credits, Some(550.0));
     }
 }

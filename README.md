@@ -71,7 +71,8 @@ The installer includes the desktop app, Microsoft's Evergreen WebView2 bootstrap
 2. Click the tray icon to open the usage panel
 3. Open **Settings → Providers**, enable the services you use
 4. For cookie-based providers, click the provider and use **Browser Cookies → Import**
-5. For CLI-based providers (`codex`, `claude`, `gemini`), make sure you're logged in
+5. For Claude, browser cookies/sessionKey are preferred because they match the settings-page usage numbers; OAuth and CLI stay as fallbacks
+6. For CLI-based providers (`codex`, `gemini`), make sure you're logged in
 
 ## CLI
 
@@ -86,7 +87,7 @@ codexbar cost  -p codex           # local cost from JSONL logs
 | Provider | Auth | Tracks |
 |----------|------|--------|
 | Codex | OAuth / CLI | Session, Weekly, Credits |
-| Claude | OAuth / Cookies / CLI | Session (5h), Weekly |
+| Claude | Cookies / OAuth fallback / CLI fallback | Session (5h), Weekly |
 | Cursor | Cookies | Plan, Usage, Billing |
 | Factory | Cookies | Usage |
 | Gemini | gcloud OAuth | Quota |

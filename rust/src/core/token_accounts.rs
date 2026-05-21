@@ -45,8 +45,8 @@ impl TokenAccountSupport {
         match provider {
             ProviderId::Claude => Some(TokenAccountSupport {
                 title: "Session tokens",
-                subtitle: "Store Claude sessionKey cookies or OAuth access tokens.",
-                placeholder: "Paste sessionKey or OAuth token...",
+                subtitle: "Store Claude sessionKey cookies for settings-page usage. OAuth tokens are kept as a legacy fallback.",
+                placeholder: "Paste sessionKey value or Cookie: sessionKey=...",
                 injection: TokenInjection::CookieHeader,
                 requires_manual_cookie_source: true,
                 cookie_name: Some("sessionKey"),

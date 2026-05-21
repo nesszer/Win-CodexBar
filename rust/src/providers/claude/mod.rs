@@ -180,13 +180,13 @@ impl Provider for ClaudeProvider {
                         Err(error) => failures.push(("Admin API", error)),
                     }
                 }
-                match self.fetch_via_oauth(ctx).await {
-                    Ok(result) => return Ok(result),
-                    Err(error) => failures.push(("OAuth", error)),
-                }
                 match self.fetch_via_web(ctx).await {
                     Ok(result) => return Ok(result),
                     Err(error) => failures.push(("Web", error)),
+                }
+                match self.fetch_via_oauth(ctx).await {
+                    Ok(result) => return Ok(result),
+                    Err(error) => failures.push(("OAuth", error)),
                 }
                 match self.fetch_via_cli(ctx).await {
                     Ok(result) => Ok(result),

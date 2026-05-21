@@ -1002,7 +1002,7 @@ impl LocaleKey {
             LocaleKey::ProviderRegion => "Region",
             LocaleKey::ProviderClaudeCookies => "Claude cookies",
             LocaleKey::ProviderClaudeCookiesHelp => {
-                "Automatic imports browser cookies for the web API."
+                "Browser cookies/sessionKey are preferred because they match Claude's settings usage page."
             }
             LocaleKey::ProviderClaudeAvoidKeychainPrompts => "Avoid Keychain prompts",
             LocaleKey::ProviderClaudeAvoidKeychainPromptsHelp => {
@@ -1662,7 +1662,9 @@ impl LocaleKey {
             LocaleKey::CookieSourceManual => "手动",
             LocaleKey::ProviderRegion => "地区",
             LocaleKey::ProviderClaudeCookies => "Claude Cookie",
-            LocaleKey::ProviderClaudeCookiesHelp => "自动导入浏览器 Cookie 用于网页 API。",
+            LocaleKey::ProviderClaudeCookiesHelp => {
+                "优先使用浏览器 Cookie/sessionKey，因为它与 Claude 设置页的用量一致。"
+            }
             LocaleKey::ProviderClaudeAvoidKeychainPrompts => "避免钥匙串提示",
             LocaleKey::ProviderClaudeAvoidKeychainPromptsHelp => {
                 "使用 /usr/bin/security 读取 Claude 凭据，避免 CodexBar 的钥匙串提示。"
