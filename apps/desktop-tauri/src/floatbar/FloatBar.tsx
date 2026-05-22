@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
 import { useProviders } from "../hooks/useProviders";
 import { getSettingsSnapshot, refreshProvidersIfStale } from "../lib/tauri";
 import { ProviderIcon } from "../components/providers/ProviderIcon";
@@ -37,11 +38,17 @@ function ProviderPill({
 
   const brand = getProviderIcon(provider.providerId).brandColor;
   const label = provider.error ? "—" : `${Math.round(remaining)}%`;
+  const resetText = useFormattedResetTime(
+    provider.primary.resetsAt,
+    provider.primary.resetDescription,
+    true,
+  );
+  const resetSuffix = resetText ? `\n${resetText}` : "";
 
   return (
     <div
       className={`floatbar__pill floatbar__pill--${tone}`}
-      title={`${provider.displayName}: ${label} remaining`}
+      title={`${provider.displayName}: ${label} remaining${resetSuffix}`}
       style={{ "--brand": brand } as React.CSSProperties}
     >
       <ProviderIcon providerId={provider.providerId} size={11} />
@@ -129,11 +136,13 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
 
   const highRemaining = 100 - settings.highUsageThreshold;
   const critRemaining = 100 - settings.criticalUsageThreshold;
+  const opacityFraction = Math.max(0.3, Math.min(1, settings.floatBarOpacity / 100));
 
   return (
     <div
-      className={`floatbar floatbar--${orientation}`}
+      className={`floatbar floatbar--${orientation}${settings.floatBarDarkText ? " floatbar--light-bg" : ""}`}
       data-tauri-drag-region
+      style={{ opacity: opacityFraction }}
     >
       <div className="floatbar__handle" data-tauri-drag-region aria-hidden />
       {visible.length === 0 ? (

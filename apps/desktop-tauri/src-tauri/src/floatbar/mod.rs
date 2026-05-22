@@ -96,6 +96,7 @@ pub struct SettingsPatch {
     pub orientation: Option<String>,
     pub click_through: Option<bool>,
     pub provider_ids: Option<Vec<String>>,
+    pub dark_text: Option<bool>,
 }
 
 impl SettingsPatch {
@@ -105,6 +106,7 @@ impl SettingsPatch {
             && self.orientation.is_none()
             && self.click_through.is_none()
             && self.provider_ids.is_none()
+            && self.dark_text.is_none()
     }
 
     /// Apply this patch to a mutable `Settings`. Values are clamped and
@@ -124,6 +126,9 @@ impl SettingsPatch {
         }
         if let Some(v) = &self.provider_ids {
             settings.float_bar_provider_ids = v.clone();
+        }
+        if let Some(v) = self.dark_text {
+            settings.float_bar_dark_text = v;
         }
     }
 }
@@ -164,17 +169,20 @@ mod tests {
             float_bar_enabled: false,
             float_bar_opacity: 80,
             float_bar_orientation: "horizontal".into(),
+            float_bar_dark_text: false,
             ..Settings::default()
         };
 
         let patch = SettingsPatch {
             enabled: Some(true),
             opacity: Some(45),
+            dark_text: Some(true),
             ..SettingsPatch::default()
         };
         patch.apply(&mut s);
         assert!(s.float_bar_enabled);
         assert_eq!(s.float_bar_opacity, 45);
+        assert!(s.float_bar_dark_text);
         // Orientation untouched by the patch.
         assert_eq!(s.float_bar_orientation, "horizontal");
     }
@@ -200,5 +208,6 @@ mod tests {
         assert_eq!(s.float_bar_enabled, original.float_bar_enabled);
         assert_eq!(s.float_bar_opacity, original.float_bar_opacity);
         assert_eq!(s.float_bar_orientation, original.float_bar_orientation);
+        assert_eq!(s.float_bar_dark_text, original.float_bar_dark_text);
     }
 }

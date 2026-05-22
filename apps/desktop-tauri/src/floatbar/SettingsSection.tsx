@@ -62,6 +62,17 @@ export default function FloatBarSettingsSection({ settings, saving, set }: Props
           />
         </Field>
         <Field
+          label="Light Background Mode"
+          description="Inverts contrast — use when the bar sits over a light desktop background."
+          leading
+        >
+          <Toggle
+            checked={settings.floatBarDarkText}
+            disabled={saving || !settings.floatBarEnabled}
+            onChange={(v) => set({ floatBarDarkText: v })}
+          />
+        </Field>
+        <Field
           label="Click-Through"
           description="Mouse clicks pass through to the window underneath — pure overlay mode."
           leading

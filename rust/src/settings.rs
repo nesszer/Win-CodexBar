@@ -365,6 +365,12 @@ pub struct Settings {
     /// Provider CLI names to display in the floating bar. Empty = all enabled.
     #[serde(default)]
     pub float_bar_provider_ids: Vec<String>,
+
+    /// When true, the floating bar uses a dark-on-light palette so it
+    /// stays legible on light desktop backgrounds. Defaults to false
+    /// (light-on-dark, the original look).
+    #[serde(default)]
+    pub float_bar_dark_text: bool,
 }
 
 fn default_float_bar_opacity() -> u8 {
@@ -544,6 +550,8 @@ struct RawSettings {
     float_bar_click_through: bool,
     #[serde(default)]
     float_bar_provider_ids: Vec<String>,
+    #[serde(default)]
+    float_bar_dark_text: bool,
 }
 
 impl Default for RawSettings {
@@ -616,6 +624,7 @@ impl Default for RawSettings {
             float_bar_orientation: s.float_bar_orientation,
             float_bar_click_through: s.float_bar_click_through,
             float_bar_provider_ids: s.float_bar_provider_ids,
+            float_bar_dark_text: s.float_bar_dark_text,
         }
     }
 }
@@ -865,6 +874,7 @@ impl From<RawSettings> for Settings {
             float_bar_orientation: normalize_float_bar_orientation(&raw.float_bar_orientation),
             float_bar_click_through: raw.float_bar_click_through,
             float_bar_provider_ids: raw.float_bar_provider_ids,
+            float_bar_dark_text: raw.float_bar_dark_text,
         }
     }
 }
@@ -915,6 +925,7 @@ impl Default for Settings {
             float_bar_orientation: default_float_bar_orientation(),
             float_bar_click_through: false,
             float_bar_provider_ids: Vec::new(),
+            float_bar_dark_text: false,
         }
     }
 }
@@ -1929,6 +1940,7 @@ mod tests {
         assert_eq!(settings.float_bar_orientation, "horizontal");
         assert!(!settings.float_bar_click_through);
         assert!(settings.float_bar_provider_ids.is_empty());
+        assert!(!settings.float_bar_dark_text);
     }
 
     #[test]
@@ -1966,6 +1978,7 @@ mod tests {
             float_bar_orientation: "vertical".to_string(),
             float_bar_click_through: true,
             float_bar_provider_ids: vec!["claude".into(), "codex".into()],
+            float_bar_dark_text: true,
             ..Settings::default()
         };
 
@@ -1976,6 +1989,7 @@ mod tests {
         assert_eq!(back.float_bar_orientation, "vertical");
         assert!(back.float_bar_click_through);
         assert_eq!(back.float_bar_provider_ids, vec!["claude", "codex"]);
+        assert!(back.float_bar_dark_text);
     }
 
     #[test]

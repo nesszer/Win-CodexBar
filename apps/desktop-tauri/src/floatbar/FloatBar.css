@@ -39,28 +39,34 @@ body.floatbar-window #root {
   align-items: center;
   gap: 3px;
 }
-/* 2-row dot grip — classic drag affordance. */
+/* 2-row dot grip — classic drag affordance. Sits in its own translucent
+ * pill so the user has a clear target to grab; everything else around it
+ * is fully transparent. */
 .floatbar__handle {
-  width: 6px;
-  height: 14px;
+  width: 10px;
+  height: 16px;
   flex-shrink: 0;
   cursor: grab;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
   background-image:
-    radial-gradient(circle, rgba(255, 255, 255, 0.55) 1px, transparent 1.5px);
+    radial-gradient(circle, rgba(255, 255, 255, 0.7) 1px, transparent 1.5px);
   background-size: 3px 4px;
-  background-position: 0 1px;
+  background-position: center;
   background-repeat: repeat;
-  opacity: 0.7;
-  transition: opacity 120ms ease;
+  opacity: 0.85;
+  transition: opacity 120ms ease, background-color 120ms ease;
 }
 .floatbar__handle:hover {
   opacity: 1;
+  background-color: rgba(255, 255, 255, 0.16);
 }
 .floatbar--vertical .floatbar__handle {
-  width: 14px;
-  height: 6px;
+  width: 16px;
+  height: 10px;
   background-size: 4px 3px;
-  background-position: 1px 0;
 }
 .floatbar__pill {
   display: inline-flex;
@@ -69,10 +75,11 @@ body.floatbar-window #root {
   padding: 1px 5px;
   height: 16px;
   border-radius: 999px;
-  background: rgba(18, 18, 20, 0.55);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid var(--brand, rgba(255, 255, 255, 0.25));
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--brand, rgba(255, 255, 255, 0.22));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   white-space: nowrap;
 }
 .floatbar__pill--warn {
@@ -93,9 +100,39 @@ body.floatbar-window #root {
   height: 16px;
   padding: 0 8px;
   border-radius: 999px;
-  background: rgba(18, 18, 20, 0.55);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
   opacity: 0.75;
   font-weight: 500;
+}
+
+/* ── Light-background mode ─────────────────────────────────────────────
+ * Inverts the palette: light glass + dark text for legibility over a
+ * bright desktop. Brand-colored borders still win via --brand.
+ */
+.floatbar--light-bg {
+  color: rgba(20, 22, 26, 0.95);
+}
+.floatbar--light-bg .floatbar__pill,
+.floatbar--light-bg .floatbar__empty {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: var(--brand, rgba(20, 22, 26, 0.25));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.floatbar--light-bg .floatbar__pill--warn {
+  border-color: #b45309;
+  color: #92400e;
+}
+.floatbar--light-bg .floatbar__pill--crit {
+  border-color: #b91c1c;
+  color: #991b1b;
+}
+.floatbar--light-bg .floatbar__handle {
+  background-color: rgba(20, 22, 26, 0.10);
+  background-image:
+    radial-gradient(circle, rgba(20, 22, 26, 0.75) 1px, transparent 1.5px);
+}
+.floatbar--light-bg .floatbar__handle:hover {
+  background-color: rgba(20, 22, 26, 0.18);
 }

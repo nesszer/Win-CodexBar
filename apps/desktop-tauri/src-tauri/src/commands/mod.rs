@@ -419,6 +419,7 @@ pub struct SettingsSnapshot {
     float_bar_orientation: String,
     float_bar_click_through: bool,
     float_bar_provider_ids: Vec<String>,
+    float_bar_dark_text: bool,
 }
 
 #[tauri::command]
@@ -493,6 +494,7 @@ impl From<Settings> for SettingsSnapshot {
             float_bar_orientation: settings.float_bar_orientation,
             float_bar_click_through: settings.float_bar_click_through,
             float_bar_provider_ids: settings.float_bar_provider_ids,
+            float_bar_dark_text: settings.float_bar_dark_text,
         }
     }
 }
@@ -940,6 +942,7 @@ pub struct SettingsUpdate {
     pub float_bar_orientation: Option<String>,
     pub float_bar_click_through: Option<bool>,
     pub float_bar_provider_ids: Option<Vec<String>>,
+    pub float_bar_dark_text: Option<bool>,
 }
 
 fn parse_tray_icon_mode(s: &str) -> Option<TrayIconMode> {
@@ -1101,6 +1104,7 @@ pub async fn update_settings(
         orientation: patch.float_bar_orientation,
         click_through: patch.float_bar_click_through,
         provider_ids: patch.float_bar_provider_ids,
+        dark_text: patch.float_bar_dark_text,
     };
     float_bar_patch.apply(&mut settings);
 

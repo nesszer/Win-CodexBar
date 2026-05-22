@@ -194,6 +194,8 @@ export interface SettingsSnapshot {
   floatBarClickThrough: boolean;
   /** Empty array = show all enabled providers. */
   floatBarProviderIds: string[];
+  /** When true, render with dark text/glass for light desktops. */
+  floatBarDarkText: boolean;
 }
 
 /** Partial settings object — only include fields you want to change. */
@@ -235,6 +237,7 @@ export interface SettingsUpdate {
   floatBarOrientation?: FloatBarOrientation;
   floatBarClickThrough?: boolean;
   floatBarProviderIds?: string[];
+  floatBarDarkText?: boolean;
 }
 
 export interface BootstrapState {

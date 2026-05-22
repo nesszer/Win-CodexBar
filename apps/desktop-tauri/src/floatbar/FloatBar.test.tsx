@@ -7,6 +7,8 @@ const tauriMocks = vi.hoisted(() => ({
   refreshProvidersIfStale: vi.fn(),
   getSettingsSnapshot: vi.fn(),
   updateSettings: vi.fn(),
+  getLocaleStrings: vi.fn(),
+  setUiLanguage: vi.fn(),
 }));
 
 const eventMocks = vi.hoisted(() => ({
@@ -24,16 +26,25 @@ vi.mock("@tauri-apps/api/event", () => eventMocks);
 vi.mock("@tauri-apps/api/window", () => windowMocks);
 
 import FloatBar from "./FloatBar";
+import { LocaleProvider } from "../i18n/LocaleProvider";
+import { buildBundle } from "../test/localeHarness";
 import type { BootstrapState, ProviderUsageSnapshot, SettingsSnapshot } from "../types/bridge";
 
-function rateWindow(used: number, exhausted = false) {
+function rateWindow(
+  used: number,
+  opts: {
+    exhausted?: boolean;
+    resetsAt?: string | null;
+    resetDescription?: string | null;
+  } = {},
+) {
   return {
     usedPercent: used,
     remainingPercent: 100 - used,
     windowMinutes: null,
-    resetsAt: null,
-    resetDescription: null,
-    isExhausted: exhausted,
+    resetsAt: opts.resetsAt ?? null,
+    resetDescription: opts.resetDescription ?? null,
+    isExhausted: opts.exhausted ?? false,
     reservePercent: null,
     reserveDescription: null,
   };
@@ -43,12 +54,17 @@ function snapshot(
   id: string,
   display: string,
   used: number,
-  opts: { exhausted?: boolean; error?: string | null } = {},
+  opts: {
+    exhausted?: boolean;
+    error?: string | null;
+    resetsAt?: string | null;
+    resetDescription?: string | null;
+  } = {},
 ): ProviderUsageSnapshot {
   return {
     providerId: id,
     displayName: display,
-    primary: rateWindow(used, opts.exhausted),
+    primary: rateWindow(used, opts),
     secondary: null,
     modelSpecific: null,
     tertiary: null,
@@ -103,6 +119,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     floatBarOrientation: "horizontal",
     floatBarClickThrough: false,
     floatBarProviderIds: [],
+    floatBarDarkText: false,
     ...overrides,
   };
 }
@@ -118,11 +135,26 @@ function bootstrap(settingsOverrides: Partial<SettingsSnapshot> = {}): Bootstrap
   };
 }
 
+function renderFloatBar(state: BootstrapState) {
+  return render(
+    <LocaleProvider>
+      <FloatBar state={state} />
+    </LocaleProvider>,
+  );
+}
+
 describe("FloatBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     tauriMocks.refreshProviders.mockResolvedValue(undefined);
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
+    tauriMocks.getLocaleStrings.mockResolvedValue(
+      buildBundle({
+        ResetsInHoursMinutes: "Resets in {}h {}m",
+        ResetsInDaysHours: "Resets in {}d {}h",
+        TrayResetsDueNow: "Resetting",
+      }),
+    );
     eventMocks.listen.mockResolvedValue(() => {});
   });
 
@@ -133,7 +165,7 @@ describe("FloatBar", () => {
     ]);
     tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
 
-    const { container } = render(<FloatBar state={bootstrap()} />);
+    const { container } = renderFloatBar(bootstrap());
     await waitFor(() => {
       const pills = container.querySelectorAll(".floatbar__pill");
       expect(pills.length).toBe(2);
@@ -154,7 +186,7 @@ describe("FloatBar", () => {
     tauriMocks.getCachedProviders.mockResolvedValue([snapshot("claude", "Claude", 75)]);
     tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
 
-    const { container } = render(<FloatBar state={bootstrap()} />);
+    const { container } = renderFloatBar(bootstrap());
     await waitFor(() => {
       expect(container.querySelector(".floatbar__pill--warn")).not.toBeNull();
     });
@@ -166,7 +198,7 @@ describe("FloatBar", () => {
     ]);
     tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
 
-    const { container } = render(<FloatBar state={bootstrap()} />);
+    const { container } = renderFloatBar(bootstrap());
     await waitFor(() => {
       expect(container.querySelector(".floatbar__pill--crit")).not.toBeNull();
     });
@@ -181,8 +213,8 @@ describe("FloatBar", () => {
       settings({ floatBarProviderIds: ["codex"] }),
     );
 
-    const { container } = render(
-      <FloatBar state={bootstrap({ floatBarProviderIds: ["codex"] })} />,
+    const { container } = renderFloatBar(
+      bootstrap({ floatBarProviderIds: ["codex"] }),
     );
     await waitFor(() => {
       const pills = container.querySelectorAll(".floatbar__pill");
@@ -200,9 +232,7 @@ describe("FloatBar", () => {
       settings({ enabledProviders: [] }),
     );
 
-    const { container } = render(
-      <FloatBar state={bootstrap({ enabledProviders: [] })} />,
-    );
+    const { container } = renderFloatBar(bootstrap({ enabledProviders: [] }));
     await waitFor(() => {
       expect(container.querySelectorAll(".floatbar__pill").length).toBe(0);
       expect(container.querySelector(".floatbar__empty")).not.toBeNull();
@@ -213,9 +243,46 @@ describe("FloatBar", () => {
     tauriMocks.getCachedProviders.mockResolvedValue([]);
     tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
 
-    const { container } = render(<FloatBar state={bootstrap()} />);
+    const { container } = renderFloatBar(bootstrap());
     await waitFor(() => {
       expect(container.querySelector(".floatbar__empty")).not.toBeNull();
+    });
+  });
+
+  it("applies the light-background class and CSS opacity", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(
+      settings({ floatBarDarkText: true, floatBarOpacity: 45 }),
+    );
+
+    const { container } = renderFloatBar(
+      bootstrap({ floatBarDarkText: true, floatBarOpacity: 45 }),
+    );
+
+    await waitFor(() => {
+      const bar = container.querySelector<HTMLElement>(".floatbar");
+      expect(bar).not.toBeNull();
+      expect(bar?.classList.contains("floatbar--light-bg")).toBe(true);
+      expect(bar?.style.opacity).toBe("0.45");
+    });
+  });
+
+  it("uses the localized reset formatter in pill tooltips", async () => {
+    const resetsAt = new Date(Date.now() + 3 * 60 * 60_000 + 42 * 60_000).toISOString();
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("claude", "Claude", 20, { resetsAt }),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
+
+    const { container } = renderFloatBar(bootstrap());
+
+    await waitFor(() => {
+      const title = container
+        .querySelector(".floatbar__pill")
+        ?.getAttribute("title");
+      expect(title).toContain("Claude: 80% remaining");
+      expect(title).toMatch(/Resets in 3h 4[12]m/);
+      expect(title).not.toContain("Resets in due now");
     });
   });
 
@@ -225,7 +292,7 @@ describe("FloatBar", () => {
       tauriMocks.getCachedProviders.mockResolvedValue([]);
       tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
       // 60s minimum is enforced in FloatBar.tsx; use the floor here.
-      render(<FloatBar state={bootstrap({ refreshIntervalSecs: 60 })} />);
+      renderFloatBar(bootstrap({ refreshIntervalSecs: 60 }));
 
       // Initial tick fires synchronously on mount (+ the useProviders
       // hook's own initial call) — wait for the first to complete.
