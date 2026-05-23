@@ -48,50 +48,50 @@ impl SyntheticProvider {
 
     /// Read Synthetic access token
     async fn read_access_token(&self, ctx: &FetchContext) -> Result<String, ProviderError> {
-        // Check ctx.api_key first (from settings)
-        if let Some(ref api_key) = ctx.api_key
-            && !api_key.is_empty()
+        if let Some(token) = Self::api_key_from_context(ctx).or_else(Self::api_key_from_env) {
+            return Ok(token);
+        }
+
+        Self::api_key_from_config_file()
+            .await
+            .ok_or(ProviderError::AuthRequired)
+    }
+
+    fn api_key_from_context(ctx: &FetchContext) -> Option<String> {
+        ctx.api_key.as_ref().filter(|key| !key.is_empty()).cloned()
+    }
+
+    fn api_key_from_env() -> Option<String> {
+        std::env::var("SYNTHETIC_API_KEY")
+            .or_else(|_| std::env::var("SYNTHETIC_ACCESS_TOKEN"))
+            .ok()
+    }
+
+    async fn api_key_from_config_file() -> Option<String> {
+        let config_path = Self::get_synthetic_config_path()?;
+        if let Some(token) = Self::api_key_from_json_file(
+            &config_path.join("config.json"),
+            &["apiKey", "accessToken"],
+        )
+        .await
         {
-            return Ok(api_key.clone());
+            return Some(token);
         }
 
-        // Check environment variables as fallback
-        if let Ok(token) = std::env::var("SYNTHETIC_API_KEY") {
-            return Ok(token);
-        }
-        if let Ok(token) = std::env::var("SYNTHETIC_ACCESS_TOKEN") {
-            return Ok(token);
-        }
+        Self::api_key_from_json_file(&config_path.join("credentials.json"), &["apiKey", "token"])
+            .await
+    }
 
-        // Check config file
-        if let Some(config_path) = Self::get_synthetic_config_path() {
-            let config_file = config_path.join("config.json");
-            if config_file.exists()
-                && let Ok(content) = tokio::fs::read_to_string(&config_file).await
-                && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
-                && let Some(token) = json
-                    .get("apiKey")
-                    .or_else(|| json.get("accessToken"))
-                    .and_then(|v| v.as_str())
-            {
-                return Ok(token.to_string());
-            }
-
-            // Also check credentials.json
-            let creds_file = config_path.join("credentials.json");
-            if creds_file.exists()
-                && let Ok(content) = tokio::fs::read_to_string(&creds_file).await
-                && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
-                && let Some(token) = json
-                    .get("apiKey")
-                    .or_else(|| json.get("token"))
-                    .and_then(|v| v.as_str())
-            {
-                return Ok(token.to_string());
-            }
+    async fn api_key_from_json_file(path: &std::path::Path, keys: &[&str]) -> Option<String> {
+        if !path.exists() {
+            return None;
         }
 
-        Err(ProviderError::AuthRequired)
+        let content = tokio::fs::read_to_string(path).await.ok()?;
+        let json = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+        keys.iter()
+            .find_map(|key| json.get(*key).and_then(|v| v.as_str()))
+            .map(ToString::to_string)
     }
 
     /// Fetch usage via Synthetic API

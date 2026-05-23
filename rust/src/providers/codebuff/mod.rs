@@ -17,6 +17,11 @@ use crate::core::{
 const DEFAULT_API_BASE: &str = "https://www.codebuff.com";
 const CODEBUFF_CREDENTIAL_TARGET: &str = "codexbar-codebuff";
 
+fn clean_api_key(token: &str) -> Option<String> {
+    let token = token.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
 pub struct CodebuffProvider {
     metadata: ProviderMetadata,
     client: Client,
@@ -54,47 +59,43 @@ impl CodebuffProvider {
     }
 
     fn get_api_key(api_key: Option<&str>) -> Result<String, ProviderError> {
-        if let Some(key) = api_key
-            && !key.trim().is_empty()
-        {
-            return Ok(key.trim().to_string());
-        }
+        Self::api_key_from_argument(api_key)
+            .or_else(Self::api_key_from_keyring)
+            .or_else(Self::api_key_from_env)
+            .or_else(Self::api_key_from_credentials_file)
+            .ok_or_else(|| {
+                ProviderError::NotInstalled(
+                    "Codebuff API key not found. Set it in Preferences → Providers, CODEBUFF_API_KEY, or sign in with Codebuff/Manicode."
+                        .to_string(),
+                )
+            })
+    }
 
-        if let Ok(entry) = keyring::Entry::new(CODEBUFF_CREDENTIAL_TARGET, "api_key")
-            && let Ok(token) = entry.get_password()
-            && !token.trim().is_empty()
-        {
-            return Ok(token);
-        }
+    fn api_key_from_argument(api_key: Option<&str>) -> Option<String> {
+        api_key.and_then(clean_api_key)
+    }
 
-        if let Ok(token) = std::env::var("CODEBUFF_API_KEY")
-            && !token.trim().is_empty()
-        {
-            return Ok(token);
-        }
+    fn api_key_from_keyring() -> Option<String> {
+        let entry = keyring::Entry::new(CODEBUFF_CREDENTIAL_TARGET, "api_key").ok()?;
+        clean_api_key(&entry.get_password().ok()?)
+    }
 
-        if let Some(home) = dirs::home_dir() {
-            let path = home
-                .join(".config")
-                .join("manicode")
-                .join("credentials.json");
-            if let Ok(text) = std::fs::read_to_string(&path)
-                && let Ok(json) = serde_json::from_str::<Value>(&text)
-            {
-                for key in ["apiKey", "api_key", "token", "accessToken", "access_token"] {
-                    if let Some(token) = json.get(key).and_then(|v| v.as_str())
-                        && !token.trim().is_empty()
-                    {
-                        return Ok(token.trim().to_string());
-                    }
-                }
-            }
-        }
+    fn api_key_from_env() -> Option<String> {
+        clean_api_key(&std::env::var("CODEBUFF_API_KEY").ok()?)
+    }
 
-        Err(ProviderError::NotInstalled(
-            "Codebuff API key not found. Set it in Preferences → Providers, CODEBUFF_API_KEY, or sign in with Codebuff/Manicode."
-                .to_string(),
-        ))
+    fn api_key_from_credentials_file() -> Option<String> {
+        let path = dirs::home_dir()?
+            .join(".config")
+            .join("manicode")
+            .join("credentials.json");
+        let text = std::fs::read_to_string(&path).ok()?;
+        let json = serde_json::from_str::<Value>(&text).ok()?;
+
+        ["apiKey", "api_key", "token", "accessToken", "access_token"]
+            .iter()
+            .find_map(|key| json.get(*key).and_then(|v| v.as_str()))
+            .and_then(clean_api_key)
     }
 
     async fn fetch_usage_api(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
