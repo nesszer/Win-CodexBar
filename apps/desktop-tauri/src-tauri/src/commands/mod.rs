@@ -1251,11 +1251,16 @@ fn build_fetch_context(
     } else {
         match cookie_source {
             _ if active_token_env.is_some() => (SourceMode::OAuth, None),
+            "off" if id == ProviderId::Claude && usage_source != SourceMode::Cli => {
+                (SourceMode::OAuth, None)
+            }
             "off" => (SourceMode::Cli, None),
             "manual" => {
                 let cookie_header = active_token_cookie.or(stored_cookie);
                 let source_mode = if cookie_header.is_some() {
                     SourceMode::Web
+                } else if id == ProviderId::Claude && usage_source != SourceMode::Cli {
+                    SourceMode::OAuth
                 } else {
                     SourceMode::Cli
                 };
@@ -3315,6 +3320,45 @@ mod tests {
 
         let ctx = super::build_fetch_context(
             ProviderId::Cursor,
+            &settings,
+            &cookies,
+            &api_keys,
+            &token_accounts,
+        );
+
+        assert_eq!(ctx.source_mode, SourceMode::Cli);
+        assert!(ctx.manual_cookie_header.is_none());
+    }
+
+    #[test]
+    fn fetch_context_claude_uses_oauth_without_manual_cookie() {
+        let settings = Settings::default();
+        let cookies = ManualCookies::default();
+        let api_keys = ApiKeys::default();
+        let token_accounts = HashMap::new();
+
+        let ctx = super::build_fetch_context(
+            ProviderId::Claude,
+            &settings,
+            &cookies,
+            &api_keys,
+            &token_accounts,
+        );
+
+        assert_eq!(ctx.source_mode, SourceMode::OAuth);
+        assert!(ctx.manual_cookie_header.is_none());
+    }
+
+    #[test]
+    fn fetch_context_claude_explicit_cli_source_still_uses_cli() {
+        let mut settings = Settings::default();
+        settings.set_usage_source(ProviderId::Claude, "cli");
+        let cookies = ManualCookies::default();
+        let api_keys = ApiKeys::default();
+        let token_accounts = HashMap::new();
+
+        let ctx = super::build_fetch_context(
+            ProviderId::Claude,
             &settings,
             &cookies,
             &api_keys,

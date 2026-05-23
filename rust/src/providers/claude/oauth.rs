@@ -60,25 +60,33 @@ struct OAuthData {
 /// OAuth usage response from Claude API
 #[derive(Debug, Deserialize)]
 pub struct OAuthUsageResponse {
-    #[serde(rename = "fiveHour")]
+    #[serde(rename = "fiveHour", alias = "five_hour")]
     pub five_hour: Option<UsageWindow>,
 
-    #[serde(rename = "sevenDay")]
+    #[serde(rename = "sevenDay", alias = "seven_day")]
     pub seven_day: Option<UsageWindow>,
 
-    #[serde(rename = "sevenDaySonnet")]
+    #[serde(rename = "sevenDaySonnet", alias = "seven_day_sonnet")]
     pub seven_day_sonnet: Option<UsageWindow>,
 
-    #[serde(rename = "sevenDayOpus")]
+    #[serde(rename = "sevenDayOpus", alias = "seven_day_opus")]
     pub seven_day_opus: Option<UsageWindow>,
 
-    #[serde(rename = "sevenDayDesign")]
+    #[serde(
+        rename = "sevenDayDesign",
+        alias = "seven_day_design",
+        alias = "seven_day_oauth_apps"
+    )]
     pub seven_day_design: Option<UsageWindow>,
 
-    #[serde(rename = "sevenDayRoutines")]
+    #[serde(
+        rename = "sevenDayRoutines",
+        alias = "seven_day_routines",
+        alias = "seven_day_omelette"
+    )]
     pub seven_day_routines: Option<UsageWindow>,
 
-    #[serde(rename = "extraUsage")]
+    #[serde(rename = "extraUsage", alias = "extra_usage")]
     pub extra_usage: Option<ExtraUsage>,
 }
 
@@ -87,20 +95,20 @@ pub struct OAuthUsageResponse {
 pub struct UsageWindow {
     pub utilization: Option<f64>,
 
-    #[serde(rename = "resetsAt")]
+    #[serde(rename = "resetsAt", alias = "resets_at")]
     pub resets_at: Option<String>,
 }
 
 /// Extra usage (credits) info
 #[derive(Debug, Deserialize)]
 pub struct ExtraUsage {
-    #[serde(rename = "isEnabled")]
+    #[serde(rename = "isEnabled", alias = "is_enabled")]
     pub is_enabled: Option<bool>,
 
-    #[serde(rename = "usedCredits")]
+    #[serde(rename = "usedCredits", alias = "used_credits")]
     pub used_credits: Option<f64>,
 
-    #[serde(rename = "monthlyLimit")]
+    #[serde(rename = "monthlyLimit", alias = "monthly_limit")]
     pub monthly_limit: Option<f64>,
 
     pub currency: Option<String>,
@@ -112,7 +120,7 @@ pub struct ClaudeOAuthFetcher {
 }
 
 impl ClaudeOAuthFetcher {
-    const USAGE_URL: &'static str = "https://api.claude.ai/api/usage";
+    const USAGE_URL: &'static str = "https://api.anthropic.com/api/oauth/usage";
     const CREDENTIALS_PATH: &'static str = ".claude/.credentials.json";
     const ENV_TOKEN_KEY: &'static str = "CODEXBAR_CLAUDE_OAUTH_TOKEN";
     const ENV_SCOPES_KEY: &'static str = "CODEXBAR_CLAUDE_OAUTH_SCOPES";
@@ -282,6 +290,8 @@ impl ClaudeOAuthFetcher {
                 "Authorization",
                 format!("Bearer {}", credentials.access_token),
             )
+            .header("Accept", "application/json")
+            .header("anthropic-beta", "oauth-2025-04-20")
             .timeout(std::time::Duration::from_secs(10))
             .send()
             .await?;
@@ -447,7 +457,7 @@ fn format_reset_date(date: DateTime<Utc>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClaudeOAuthFetcher, UsageWindow};
+    use super::{ClaudeOAuthCredentials, ClaudeOAuthFetcher, OAuthUsageResponse, UsageWindow};
 
     #[test]
     fn converts_fractional_utilization_to_percent() {
@@ -471,5 +481,31 @@ mod tests {
         let rate = ClaudeOAuthFetcher::to_rate_window(&window, Some(300)).expect("rate window");
 
         assert!((rate.used_percent - 23.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parses_current_snake_case_oauth_usage_response() {
+        let response: OAuthUsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": {"utilization": 1.0, "resets_at": "2026-05-22T22:10:00Z"},
+                "seven_day": {"utilization": 0.14, "resets_at": "2026-05-29T10:00:00Z"},
+                "seven_day_oauth_apps": {"utilization": 0.0},
+                "extra_usage": {"is_enabled": true, "used_credits": 0, "monthly_limit": 1000, "currency": "USD"}
+            }"#,
+        )
+        .expect("snake_case OAuth response should parse");
+
+        let credentials = ClaudeOAuthCredentials {
+            access_token: "token".to_string(),
+            refresh_token: None,
+            expires_at: None,
+            scopes: vec!["user:profile".to_string()],
+            rate_limit_tier: Some("default_claude_ai".to_string()),
+        };
+        let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+
+        assert_eq!(usage.primary.used_percent, 100.0);
+        assert!((usage.secondary.expect("weekly").used_percent - 14.0).abs() < 0.001);
+        assert_eq!(usage.extra_rate_windows[0].id, "claude-design");
     }
 }

@@ -9,7 +9,7 @@ use super::transition::{
     monitor_for_preserved_visible_position, reclamp_preserved_visible_position,
     recovery_snapshot_for_failed_transition, resolve_transition_position,
     resolve_transition_request, restore_recovery_surface, restore_surface_snapshot,
-    should_synthesize_default_position,
+    should_hide_tray_panel_on_toggle, should_synthesize_default_position,
 };
 use super::window::{hide_to_tray_state, prepare_hide_to_tray_if_current};
 
@@ -55,6 +55,19 @@ fn conditional_hide_to_tray_leaves_non_matching_surface_alone() {
     assert!(plan.is_none());
     assert_eq!(state.surface_machine.current(), SurfaceMode::PopOut);
     assert_eq!(state.current_target, SurfaceTarget::Dashboard);
+}
+
+#[test]
+fn tray_toggle_hides_only_when_panel_window_is_visible() {
+    assert!(should_hide_tray_panel_on_toggle(
+        SurfaceMode::TrayPanel,
+        true
+    ));
+    assert!(!should_hide_tray_panel_on_toggle(
+        SurfaceMode::TrayPanel,
+        false
+    ));
+    assert!(!should_hide_tray_panel_on_toggle(SurfaceMode::Hidden, true));
 }
 
 #[test]

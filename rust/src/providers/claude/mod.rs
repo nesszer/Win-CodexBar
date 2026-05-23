@@ -198,7 +198,17 @@ impl Provider for ClaudeProvider {
             }
             SourceMode::OAuth => self.fetch_via_oauth(ctx).await,
             SourceMode::Web => self.fetch_via_web(ctx).await,
-            SourceMode::Cli => self.fetch_via_cli(ctx).await,
+            SourceMode::Cli => match self.fetch_via_cli(ctx).await {
+                Ok(result) => Ok(result),
+                Err(error) if should_fallback_from_claude_cli_error(&error) => {
+                    tracing::debug!(
+                        error = %error,
+                        "Claude CLI usage probe failed with a fallback-safe error; trying OAuth"
+                    );
+                    self.fetch_via_oauth(ctx).await
+                }
+                Err(error) => Err(error),
+            },
         }
     }
 
@@ -476,6 +486,22 @@ fn claude_auto_fetch_error(failures: Vec<(&'static str, ProviderError)>) -> Prov
     ))
 }
 
+fn should_fallback_from_claude_cli_error(error: &ProviderError) -> bool {
+    match error {
+        ProviderError::Parse(message) => {
+            matches!(
+                message.as_str(),
+                "Claude CLI did not return usage data" | "Empty output from Claude CLI"
+            )
+        }
+        ProviderError::Other(message) => {
+            message.contains("returned local activity stats")
+                || message.contains("treated /usage as a normal prompt")
+        }
+        _ => false,
+    }
+}
+
 /// Try to find the claude CLI binary
 fn which_claude() -> Option<std::path::PathBuf> {
     #[cfg(windows)]
@@ -521,12 +547,15 @@ fn which_claude() -> Option<std::path::PathBuf> {
 
 #[cfg(windows)]
 fn find_windows_claude_in_path() -> Option<std::path::PathBuf> {
-    let output = StdCommand::new("where")
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let mut command = StdCommand::new("where");
+    command
         .arg("claude")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()
-        .ok()?;
+        .creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().ok()?;
 
     if !output.status.success() {
         return None;
@@ -1048,6 +1077,20 @@ Resets Dec 24 at 3:59pm (Europe/Paris)
             err.to_string(),
             "Claude usage failed from all configured sources. OAuth: OAuth error: token expired; Web: No cookies available for web API; CLI: Parse error: Empty output from Claude CLI"
         );
+    }
+
+    #[test]
+    fn cli_parse_usage_error_can_fallback_to_oauth() {
+        let err = ProviderError::Parse("Claude CLI did not return usage data".to_string());
+
+        assert!(should_fallback_from_claude_cli_error(&err));
+    }
+
+    #[test]
+    fn cli_auth_error_does_not_fallback_to_oauth() {
+        assert!(!should_fallback_from_claude_cli_error(
+            &ProviderError::AuthRequired
+        ));
     }
 
     #[test]

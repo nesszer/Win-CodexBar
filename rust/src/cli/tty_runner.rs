@@ -8,6 +8,8 @@
 use regex_lite::Regex;
 use std::collections::HashMap;
 use std::io::{Read, Write};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 #[cfg(windows)]
 use std::process::{Command, Stdio};
@@ -269,12 +271,15 @@ impl TtyCommandRunner {
     fn run_where(tool: &str) -> Option<PathBuf> {
         #[cfg(windows)]
         {
-            let output = Command::new("where")
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+            let mut command = Command::new("where");
+            command
                 .arg(tool)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .output()
-                .ok()?;
+                .creation_flags(CREATE_NO_WINDOW);
+            let output = command.output().ok()?;
 
             if !output.status.success() {
                 return None;

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- Reopen the tray panel from Windows shortcut/tray activation when the app is hidden, and keep Claude usage detection on the current OAuth API path instead of falling back to unsupported CLI output.
+
 ---
 
 ## [Windows] 0.27.4 - 2026-05-23

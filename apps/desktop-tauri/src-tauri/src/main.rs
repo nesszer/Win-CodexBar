@@ -30,12 +30,29 @@ fn should_hide_close_request(mode: SurfaceMode) -> bool {
     )
 }
 
+fn should_open_tray_panel_from_args<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter().any(|arg| {
+        let normalized = arg
+            .as_ref()
+            .trim()
+            .trim_start_matches(['-', '/'])
+            .replace(['-', '_'], "")
+            .to_ascii_lowercase();
+        matches!(normalized.as_str(), "menubar" | "traypanel" | "tray")
+    })
+}
+
 fn main() {
     codexbar::logging::init(false, false).expect("failed to initialize logging");
 
     let proof_config = proof_harness::ProofConfig::from_env();
     let is_proof_mode = proof_config.is_some();
-    let force_start_visible = std::env::var_os("CODEXBAR_START_VISIBLE").is_some();
+    let force_start_visible = std::env::var_os("CODEXBAR_START_VISIBLE").is_some()
+        || should_open_tray_panel_from_args(std::env::args().skip(1));
 
     let mut initial_state = AppState::new();
     initial_state.proof_config = proof_config;
@@ -43,9 +60,15 @@ fn main() {
     tauri::Builder::default()
         .manage(Mutex::new(initial_state))
         .plugin(shortcut_bridge::plugin())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ =
-                shell::reopen_to_target(app, SurfaceMode::TrayPanel, SurfaceTarget::Summary, None);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.len() <= 1 || should_open_tray_panel_from_args(args.iter().skip(1)) {
+                let _ = shell::reopen_to_target(
+                    app,
+                    SurfaceMode::TrayPanel,
+                    SurfaceTarget::Summary,
+                    None,
+                );
+            }
         }))
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_state,
@@ -221,5 +244,17 @@ mod tests {
     #[test]
     fn close_request_leaves_hidden_surface_alone() {
         assert!(!should_hide_close_request(SurfaceMode::Hidden));
+    }
+
+    #[test]
+    fn menubar_launch_arg_opens_tray_panel() {
+        assert!(should_open_tray_panel_from_args(["menubar"]));
+        assert!(should_open_tray_panel_from_args(["--tray-panel"]));
+        assert!(should_open_tray_panel_from_args(["/tray_panel"]));
+    }
+
+    #[test]
+    fn unrelated_launch_args_do_not_open_tray_panel() {
+        assert!(!should_open_tray_panel_from_args(["usage", "-p", "claude"]));
     }
 }

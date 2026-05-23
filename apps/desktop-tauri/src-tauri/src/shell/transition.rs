@@ -501,15 +501,26 @@ pub fn toggle_tray_panel(app: &AppHandle, position: Option<(i32, i32)>) {
         let st = app.state::<Mutex<AppState>>();
         st.lock().unwrap().surface_machine.current()
     };
+    let main_window_visible = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
 
-    if current == SurfaceMode::TrayPanel {
+    if should_hide_tray_panel_on_toggle(current, main_window_visible) {
         let _ = super::window::hide_to_tray(app);
     } else {
-        let _ = transition_to_target(
+        let _ = reopen_to_target(
             app,
             SurfaceMode::TrayPanel,
             SurfaceTarget::Summary,
             position,
         );
     }
+}
+
+pub(super) fn should_hide_tray_panel_on_toggle(
+    current: SurfaceMode,
+    main_window_visible: bool,
+) -> bool {
+    current == SurfaceMode::TrayPanel && main_window_visible
 }
