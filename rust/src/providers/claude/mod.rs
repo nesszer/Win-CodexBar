@@ -254,31 +254,7 @@ impl Provider for ClaudeProvider {
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
-            SourceMode::Auto => {
-                let mut failures = Vec::new();
-
-                if self.admin_fetcher.has_credentials(ctx) {
-                    match self.fetch_via_admin_api(ctx).await {
-                        Ok(result) => return Ok(result),
-                        Err(error) => failures.push(("Admin API", error)),
-                    }
-                }
-                match self.fetch_via_web(ctx).await {
-                    Ok(result) => return Ok(result),
-                    Err(error) => failures.push(("Web", error)),
-                }
-                match self.fetch_via_oauth(ctx).await {
-                    Ok(result) => return Ok(result),
-                    Err(error) => failures.push(("OAuth", error)),
-                }
-                match self.fetch_via_cli(ctx).await {
-                    Ok(result) => Ok(result),
-                    Err(error) => {
-                        failures.push(("CLI", error));
-                        Err(claude_auto_fetch_error(failures))
-                    }
-                }
-            }
+            SourceMode::Auto => self.fetch_via_auto(ctx).await,
             SourceMode::OAuth => self.fetch_via_oauth(ctx).await,
             SourceMode::Web => self.fetch_via_web(ctx).await,
             SourceMode::Cli => self.fetch_via_cli(ctx).await,
@@ -312,6 +288,50 @@ impl Provider for ClaudeProvider {
 }
 
 impl ClaudeProvider {
+    async fn fetch_via_auto(
+        &self,
+        ctx: &FetchContext,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        let mut failures = Vec::new();
+
+        if let Some(result) = self.try_auto_admin_api(ctx, &mut failures).await {
+            return Ok(result);
+        }
+
+        if let Some(result) =
+            record_auto_source(&mut failures, "Web", self.fetch_via_web(ctx).await)
+        {
+            return Ok(result);
+        }
+
+        if let Some(result) =
+            record_auto_source(&mut failures, "OAuth", self.fetch_via_oauth(ctx).await)
+        {
+            return Ok(result);
+        }
+
+        if let Some(result) =
+            record_auto_source(&mut failures, "CLI", self.fetch_via_cli(ctx).await)
+        {
+            return Ok(result);
+        }
+
+        Err(claude_auto_fetch_error(failures))
+    }
+
+    async fn try_auto_admin_api(
+        &self,
+        ctx: &FetchContext,
+        failures: &mut Vec<(&'static str, ProviderError)>,
+    ) -> Option<ProviderFetchResult> {
+        self.admin_fetcher
+            .has_credentials(ctx)
+            .then(|| async { self.fetch_via_admin_api(ctx).await })?
+            .await
+            .map_err(|error| failures.push(("Admin API", error)))
+            .ok()
+    }
+
     async fn fetch_via_oauth(
         &self,
         ctx: &FetchContext,
@@ -498,6 +518,14 @@ impl ClaudeProvider {
 
         Ok(ProviderFetchResult::new(usage, "cli"))
     }
+}
+
+fn record_auto_source(
+    failures: &mut Vec<(&'static str, ProviderError)>,
+    source: &'static str,
+    result: Result<ProviderFetchResult, ProviderError>,
+) -> Option<ProviderFetchResult> {
+    result.map_err(|error| failures.push((source, error))).ok()
 }
 
 fn claude_auto_fetch_error(failures: Vec<(&'static str, ProviderError)>) -> ProviderError {
