@@ -182,54 +182,46 @@ impl NotificationManager {
         settings: &Settings,
     ) {
         let title = notif_type.title();
-        let body = match notif_type {
+        let body = Self::notification_body(provider, used_percent, notif_type);
+        self.show_toast(title, &body);
+        play_alert(Self::alert_sound_for(notif_type), settings);
+    }
+
+    fn notification_body(
+        provider: ProviderId,
+        used_percent: f64,
+        notif_type: NotificationType,
+    ) -> String {
+        let provider_name = provider.display_name();
+        match notif_type {
             NotificationType::HighUsage => {
-                format!(
-                    "{} usage at {:.0}% - approaching limit",
-                    provider.display_name(),
-                    used_percent
-                )
+                format!("{provider_name} usage at {used_percent:.0}% - approaching limit")
             }
             NotificationType::CriticalUsage => {
-                format!(
-                    "{} usage at {:.0}% - critically high!",
-                    provider.display_name(),
-                    used_percent
-                )
+                format!("{provider_name} usage at {used_percent:.0}% - critically high!")
             }
             NotificationType::Exhausted => {
-                format!(
-                    "{} usage limit exhausted ({:.0}%)",
-                    provider.display_name(),
-                    used_percent
-                )
+                format!("{provider_name} usage limit exhausted ({used_percent:.0}%)")
             }
-            NotificationType::StatusIssue => {
-                format!("{} is experiencing issues", provider.display_name())
-            }
+            NotificationType::StatusIssue => format!("{provider_name} is experiencing issues"),
             NotificationType::SessionDepleted => {
-                format!("{} session depleted. 0% left.", provider.display_name())
+                format!("{provider_name} session depleted. 0% left.")
             }
             NotificationType::SessionRestored => {
-                format!(
-                    "{} session restored. Quota available again.",
-                    provider.display_name()
-                )
+                format!("{provider_name} session restored. Quota available again.")
             }
-        };
+        }
+    }
 
-        self.show_toast(title, &body);
-
-        // Play appropriate sound based on notification type
-        let alert_sound = match notif_type {
+    fn alert_sound_for(notif_type: NotificationType) -> AlertSound {
+        match notif_type {
             NotificationType::HighUsage => AlertSound::Warning,
             NotificationType::CriticalUsage => AlertSound::Critical,
-            NotificationType::Exhausted => AlertSound::Error,
-            NotificationType::StatusIssue => AlertSound::Error,
-            NotificationType::SessionDepleted => AlertSound::Error,
+            NotificationType::Exhausted
+            | NotificationType::StatusIssue
+            | NotificationType::SessionDepleted => AlertSound::Error,
             NotificationType::SessionRestored => AlertSound::Success,
-        };
-        play_alert(alert_sound, settings);
+        }
     }
 
     fn send_status_notification(
