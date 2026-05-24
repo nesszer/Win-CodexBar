@@ -271,7 +271,19 @@ try {
         $process.Refresh()
     }
     $process.WaitForExit()
-    $tauriExitCode = if ($null -eq $process.ExitCode) { 0 } else { $process.ExitCode }
+    $process.Refresh()
+    if ($null -eq $process.ExitCode) {
+        Write-Host "Tauri build did not report an exit code. Last 200 stdout lines:"
+        if (Test-Path $tauriBuildLog) {
+            Get-Content $tauriBuildLog -Tail 200
+        }
+        Write-Host "Last 200 stderr lines:"
+        if (Test-Path $tauriBuildErrLog) {
+            Get-Content $tauriBuildErrLog -Tail 200
+        }
+        throw "pnpm tauri build completed without a reliable exit code"
+    }
+    $tauriExitCode = $process.ExitCode
     if ($tauriExitCode -ne 0) {
         Write-Host "Tauri build failed with exit code $tauriExitCode. Last 200 stdout lines:"
         if (Test-Path $tauriBuildLog) {

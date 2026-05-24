@@ -35,13 +35,13 @@ jobs:
       - restore_cache:
           name: Restore Rust toolchain cache
           keys:
-            - win-rustup-v1-
+            - win-rust-toolchain-v1-
 
       - restore_cache:
           name: Restore Cargo target cache
           keys:
-            - win-cargo-target-v1-{{ checksum "Cargo.lock" }}
-            - win-cargo-target-v1-
+            - win-cargo-target-v2-{{ checksum "Cargo.lock" }}
+            - win-cargo-target-v2-
 
       - restore_cache:
           name: Restore pnpm store cache
@@ -72,13 +72,14 @@ jobs:
 
       - save_cache:
           name: Save Rust toolchain cache
-          key: win-rustup-v1-{{ epoch }}
+          key: win-rust-toolchain-v1-{{ epoch }}
           paths:
+            - C:/Users/circleci/.cargo/bin
             - C:/Users/circleci/.rustup
 
       - save_cache:
           name: Save Cargo target cache
-          key: win-cargo-target-v1-{{ checksum "Cargo.lock" }}-{{ epoch }}
+          key: win-cargo-target-v2-{{ checksum "Cargo.lock" }}-{{ epoch }}
           paths:
             - C:/code/Win-CodexBar-release/cache/cargo-target
 
