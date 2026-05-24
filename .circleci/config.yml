@@ -28,19 +28,19 @@ jobs:
 
       - run:
           name: Install and verify release tools
-          shell: powershell.exe
-          command: $(powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\install-circleci-release-tools.ps1 | Out-Host; $LASTEXITCODE -eq 0)
+          shell: cmd.exe
+          command: scripts\ci\install-circleci-release-tools.cmd
 
       - run:
           name: Build and smoke test Windows release
-          shell: pwsh.exe -NoLogo -ExecutionPolicy Bypass
+          shell: cmd.exe
           no_output_timeout: 30m
-          command: $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc"; .\scripts\ci\circleci-release.ps1
+          command: scripts\ci\circleci-release.cmd
 
       - run:
           name: Assert release artifacts
-          shell: pwsh.exe -NoLogo -ExecutionPolicy Bypass
-          command: .\scripts\ci\assert-release-assets.ps1
+          shell: cmd.exe
+          command: scripts\ci\assert-release-assets.cmd
 
       - store_artifacts:
           path: C:/code/Win-CodexBar-release/assets
