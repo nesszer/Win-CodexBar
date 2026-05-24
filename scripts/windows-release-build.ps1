@@ -74,6 +74,11 @@ $AssetsDir = Join-Path $WorkRoot "assets"
 $DesktopCargoTargetDir = Join-Path $CacheDir "cargo-target"
 $CliCargoTargetDir = Join-Path $CacheDir "cargo-target-cli"
 
+$UserCargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+if (Test-Path $UserCargoBin) {
+    $env:Path = "$UserCargoBin;$env:Path"
+}
+
 function Require-Command {
     param([string]$Name)
 

@@ -19,6 +19,11 @@ if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
         [System.Environment]::GetEnvironmentVariable("Path", "User")
 }
 
+$cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+if (Test-Path $cargoBin) {
+    $env:Path = "$cargoBin;$env:Path"
+}
+
 rustup default stable-x86_64-pc-windows-msvc
 if ($LASTEXITCODE -ne 0) {
     throw "rustup default failed with exit code $LASTEXITCODE"

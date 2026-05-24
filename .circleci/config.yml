@@ -23,24 +23,24 @@ jobs:
     steps:
       - run:
           name: Checkout code over HTTPS
-          shell: cmd.exe
-          command: git clone --no-checkout https://github.com/Finesssee/Win-CodexBar.git . && git checkout %CIRCLE_SHA1%
+          shell: powershell.exe
+          command: $(git clone --no-checkout https://github.com/Finesssee/Win-CodexBar.git . | Out-Host; $?) -and $(git checkout $env:CIRCLE_SHA1 | Out-Host; $?)
 
       - run:
           name: Install and verify release tools
-          shell: cmd.exe
-          command: powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\install-circleci-release-tools.ps1
+          shell: powershell.exe
+          command: $(powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\install-circleci-release-tools.ps1 | Out-Host; $LASTEXITCODE -eq 0)
 
       - run:
           name: Build and smoke test Windows release
-          shell: cmd.exe
+          shell: powershell.exe
           no_output_timeout: 30m
-          command: set "CARGO_BUILD_TARGET=x86_64-pc-windows-msvc" && powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\circleci-release.ps1
+          command: $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc"; $(powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\circleci-release.ps1 | Out-Host; $LASTEXITCODE -eq 0)
 
       - run:
           name: Assert release artifacts
-          shell: cmd.exe
-          command: powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\assert-release-assets.ps1
+          shell: powershell.exe
+          command: $(powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\assert-release-assets.ps1 | Out-Host; $LASTEXITCODE -eq 0)
 
       - store_artifacts:
           path: C:/code/Win-CodexBar-release/assets
