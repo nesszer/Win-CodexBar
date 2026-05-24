@@ -410,11 +410,11 @@ fn append_usage_window_lines(
     metadata: &crate::core::ProviderMetadata,
     use_color: bool,
 ) {
-    append_window_line(lines, &metadata.session_label, &usage.primary, use_color);
+    append_window_line(lines, metadata.session_label, &usage.primary, use_color);
     append_secondary_window_line(
         lines,
         usage.secondary.as_ref(),
-        &metadata.weekly_label,
+        metadata.weekly_label,
         use_color,
     );
     append_model_specific_line(lines, usage.model_specific.as_ref(), use_color);

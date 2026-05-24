@@ -14,7 +14,7 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 
 ## Features
 
-- **46 AI providers** — Codex, Claude, Cursor, Factory, Gemini, Copilot, Antigravity, z.ai, MiniMax, Kiro, Vertex AI, Augment, OpenCode, Kimi, Kimi K2, Amp, Warp, Ollama, OpenRouter, Synthetic, JetBrains AI, Alibaba, NanoGPT, Infini, Perplexity, Abacus AI, Mistral, OpenCode Go, Kilo, AWS Bedrock, Codebuff, DeepSeek, Windsurf, Manus, Xiaomi MiMo, Doubao, Command Code, Crof, StepFun, Venice, OpenAI, Grok, ElevenLabs, Deepgram, Groq, LLM Proxy
+- **48 AI providers** — Codex, Claude, Cursor, Factory, Gemini, Copilot, Antigravity, z.ai, MiniMax, Kiro, Vertex AI, Augment, OpenCode, Kimi, Kimi K2, Amp, Warp, Ollama, Azure OpenAI, T3 Chat, OpenRouter, Synthetic, JetBrains AI, Alibaba, NanoGPT, Infini, Perplexity, Abacus AI, Mistral, OpenCode Go, Kilo, AWS Bedrock, Codebuff, DeepSeek, Windsurf, Manus, Xiaomi MiMo, Doubao, Command Code, Crof, StepFun, Venice, OpenAI, Grok, ElevenLabs, Deepgram, Groq, LLM Proxy
 - **System tray icon** — dynamic two-bar meter showing session + weekly usage
 - **Floating Bar** — optional always-on-top transparent capacity strip with orientation, opacity, and click-through controls
 - **Browser cookie import** — Chrome, Edge, Brave, Firefox, with browser access kept opt-in
@@ -24,12 +24,12 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 - **CLI** — `codexbar usage`, `codexbar cost`, `codexbar config`, and loopback `codexbar serve` for scripting and local integrations
 - **WSL support** — CLI works out of the box; desktop shell via WSLg
 
-## What's New in v0.27.2
+## What's New in v0.28.0
 
-- Adds GitHub device-code sign-in for Copilot directly from the Providers settings pane.
-- Stores Copilot OAuth tokens as protected token accounts, with `gh auth token` and legacy manual token support kept as fallbacks.
-- Fixes Copilot plan usage parsing for paid Premium/Chat quota snapshots and free-plan monthly quota responses.
-- Shows Copilot as OAuth-backed in the provider list instead of making manual API-key setup look like the primary path.
+- Adds Azure OpenAI deployment validation from saved/env credentials.
+- Adds T3 Chat quota tracking with browser cookies or a full copied cURL request.
+- Adds Ollama API-key support while keeping browser-cookie usage as the Web source.
+- Hardens OpenAI dashboard account scraping, MiniMax billing aggregation, and provider catalog/settings metadata.
 
 ## Quick Start
 
@@ -70,7 +70,7 @@ The installer includes the desktop app, Microsoft's Evergreen WebView2 bootstrap
 For local release builds on a Windows server, use the cached release builder:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.27.4
+.\scripts\windows-release-build.ps1 -Ref v0.28.0
 ```
 
 The script keeps a clean managed checkout under `C:\code\Win-CodexBar-release\source`, stores Rust build output in `C:\code\Win-CodexBar-release\cache\cargo-target`, stores pnpm packages in `C:\code\Win-CodexBar-release\cache\pnpm-store`, and reuses signed WebView2/VC++ bootstrapper downloads. It still builds the real release binary, verifies Microsoft signatures for installer dependencies, packages with Inno Setup, and writes the same four GitHub release assets under `C:\code\Win-CodexBar-release\assets`.
@@ -78,11 +78,11 @@ The script keeps a clean managed checkout under `C:\code\Win-CodexBar-release\so
 Useful release flags:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -UploadRelease v0.27.5
-.\scripts\release-doctor.ps1 -Version 0.27.5
+.\scripts\windows-release-build.ps1 -Ref v0.28.0 -WarmCacheOnly
+.\scripts\windows-release-build.ps1 -Ref v0.28.0 -WarmCliCache
+.\scripts\windows-release-build.ps1 -Ref v0.28.0 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.28.0 -UploadRelease v0.28.0
+.\scripts\release-doctor.ps1 -Version 0.28.0
 ```
 
 GitHub Actions are best-effort only for this project. The Windows server script is the primary release path for installer and portable artifacts.
@@ -125,7 +125,9 @@ codexbar cost  -p codex           # local cost from JSONL logs
 | Kimi K2 | API Key | Credits |
 | Amp | Cookies | Usage |
 | Warp | Local Config | Usage |
-| Ollama | Cookies | Usage |
+| Ollama | Cookies / API Key | Usage, Cloud Models |
+| Azure OpenAI | API Key | Deployment |
+| T3 Chat | Cookies / cURL | Base, Overage |
 | OpenRouter | API Key | Credits |
 | JetBrains AI | Local Config | Usage |
 | Alibaba | Cookies | Usage |

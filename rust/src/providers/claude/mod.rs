@@ -326,7 +326,7 @@ impl ClaudeProvider {
     ) -> Option<ProviderFetchResult> {
         self.admin_fetcher
             .has_credentials(ctx)
-            .then(|| async { self.fetch_via_admin_api(ctx).await })?
+            .then_some(async { self.fetch_via_admin_api(ctx).await })?
             .await
             .map_err(|error| failures.push(("Admin API", error)))
             .ok()

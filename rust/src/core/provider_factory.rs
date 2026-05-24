@@ -8,14 +8,14 @@
 use super::{Provider, ProviderId};
 use crate::providers::{
     AbacusProvider, AlibabaProvider, AmpProvider, AntigravityProvider, AugmentProvider,
-    BedrockProvider, ClaudeProvider, CodebuffProvider, CodexProvider, CommandCodeProvider,
-    CopilotProvider, CrofProvider, CursorProvider, DeepSeekProvider, DeepgramProvider,
-    DoubaoProvider, ElevenLabsProvider, FactoryProvider, GeminiProvider, GrokProvider,
-    GroqProvider, InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider, KimiProvider,
-    KiroProvider, LLMProxyProvider, ManusProvider, MiMoProvider, MiniMaxProvider, MistralProvider,
-    NanoGPTProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider, OpenCodeProvider,
-    OpenRouterProvider, PerplexityProvider, StepFunProvider, SyntheticProvider, VeniceProvider,
-    VertexAIProvider, WarpProvider, WindsurfProvider, ZaiProvider,
+    AzureOpenAIProvider, BedrockProvider, ClaudeProvider, CodebuffProvider, CodexProvider,
+    CommandCodeProvider, CopilotProvider, CrofProvider, CursorProvider, DeepSeekProvider,
+    DeepgramProvider, DoubaoProvider, ElevenLabsProvider, FactoryProvider, GeminiProvider,
+    GrokProvider, GroqProvider, InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider,
+    KimiProvider, KiroProvider, LLMProxyProvider, ManusProvider, MiMoProvider, MiniMaxProvider,
+    MistralProvider, NanoGPTProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider,
+    OpenCodeProvider, OpenRouterProvider, PerplexityProvider, StepFunProvider, SyntheticProvider,
+    T3ChatProvider, VeniceProvider, VertexAIProvider, WarpProvider, WindsurfProvider, ZaiProvider,
 };
 
 /// Instantiate the concrete [`Provider`] implementation for a given [`ProviderId`].
@@ -42,6 +42,8 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Amp => Box::new(AmpProvider::new()),
         ProviderId::Warp => Box::new(WarpProvider::new()),
         ProviderId::Ollama => Box::new(OllamaProvider::new()),
+        ProviderId::AzureOpenAI => Box::new(AzureOpenAIProvider::new()),
+        ProviderId::T3Chat => Box::new(T3ChatProvider::new()),
         ProviderId::OpenRouter => Box::new(OpenRouterProvider::new()),
         ProviderId::Synthetic => Box::new(SyntheticProvider::new()),
         ProviderId::JetBrains => Box::new(JetBrainsProvider::new()),

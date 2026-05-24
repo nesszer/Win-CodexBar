@@ -5,14 +5,17 @@
 
 use async_trait::async_trait;
 use regex_lite::Regex;
+use serde::Deserialize;
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::settings::ApiKeys;
 
 /// Ollama settings page URL
 const OLLAMA_SETTINGS_URL: &str = "https://ollama.com/settings";
+const OLLAMA_TAGS_URL: &str = "https://ollama.com/api/tags";
 const OLLAMA_COOKIE_DOMAIN: &str = "ollama.com";
 const OLLAMA_SESSION_COOKIE_NAME: &str = "__Secure-session";
 
@@ -88,6 +91,81 @@ impl OllamaProvider {
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
         self.parse_usage_html(&html)
+    }
+
+    async fn fetch_usage_api(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
+        let api_key = Self::resolve_api_key(ctx).ok_or(ProviderError::AuthRequired)?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(ctx.web_timeout.max(1)))
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let response = client
+            .get(OLLAMA_TAGS_URL)
+            .bearer_auth(api_key)
+            .header("Accept", "application/json")
+            .header("User-Agent", "CodexBar/1.0")
+            .send()
+            .await?;
+        let status = response.status();
+        let bytes = response.bytes().await?;
+        match status {
+            reqwest::StatusCode::OK => Self::parse_api_tags(&bytes),
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+                Err(ProviderError::AuthRequired)
+            }
+            _ => Err(ProviderError::Other(format!(
+                "Ollama API returned status {status}"
+            ))),
+        }
+    }
+
+    fn resolve_api_key(ctx: &FetchContext) -> Option<String> {
+        ctx.api_key
+            .as_deref()
+            .and_then(|key| clean_secret(Some(key)))
+            .or_else(|| {
+                ["OLLAMA_API_KEY", "OLLAMA_KEY"].iter().find_map(|name| {
+                    std::env::var(name)
+                        .ok()
+                        .and_then(|value| clean_secret(Some(&value)))
+                })
+            })
+            .or_else(|| {
+                ApiKeys::load()
+                    .get("ollama")
+                    .and_then(|key| clean_secret(Some(key)))
+            })
+    }
+
+    fn has_api_key(ctx: &FetchContext) -> bool {
+        ctx.api_key
+            .as_deref()
+            .and_then(|key| clean_secret(Some(key)))
+            .is_some()
+            || ["OLLAMA_API_KEY", "OLLAMA_KEY"].iter().any(|name| {
+                std::env::var(name)
+                    .ok()
+                    .and_then(|value| clean_secret(Some(&value)))
+                    .is_some()
+            })
+            || ApiKeys::load()
+                .get("ollama")
+                .and_then(|key| clean_secret(Some(key)))
+                .is_some()
+    }
+
+    fn parse_api_tags(bytes: &[u8]) -> Result<UsageSnapshot, ProviderError> {
+        #[derive(Deserialize)]
+        struct TagsResponse {
+            models: Vec<serde_json::Value>,
+        }
+
+        let response: TagsResponse = serde_json::from_slice(bytes)
+            .map_err(|e| ProviderError::Parse(format!("Could not parse Ollama API tags: {e}")))?;
+        let mut primary = RateWindow::new(0.0);
+        primary.reset_description =
+            Some(format!("{} cloud models available", response.models.len()));
+        Ok(UsageSnapshot::new(primary).with_login_method("API key"))
     }
 
     fn normalize_cookie_header(input: &str) -> Option<String> {
@@ -250,7 +328,16 @@ impl Provider for OllamaProvider {
         tracing::debug!("Fetching Ollama usage");
 
         match ctx.source_mode {
-            SourceMode::Auto | SourceMode::Web => {
+            SourceMode::Auto => {
+                if Self::has_api_key(ctx)
+                    && let Ok(usage) = self.fetch_usage_api(ctx).await
+                {
+                    return Ok(ProviderFetchResult::new(usage, "api"));
+                }
+                let usage = self.fetch_usage_web(ctx).await?;
+                Ok(ProviderFetchResult::new(usage, "web"))
+            }
+            SourceMode::Web => {
                 let usage = self.fetch_usage_web(ctx).await?;
                 Ok(ProviderFetchResult::new(usage, "web"))
             }
@@ -271,6 +358,19 @@ impl Provider for OllamaProvider {
     fn supports_cli(&self) -> bool {
         false
     }
+}
+
+fn clean_secret(raw: Option<&str>) -> Option<String> {
+    let mut value = raw?.trim().to_string();
+    if value.len() >= 2
+        && ((value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\'')))
+    {
+        value.remove(0);
+        value.pop();
+    }
+    let value = value.trim().to_string();
+    (!value.is_empty()).then_some(value)
 }
 
 #[cfg(test)]
@@ -305,5 +405,30 @@ mod tests {
     fn ignores_empty_cookie_input() {
         assert_eq!(OllamaProvider::normalize_cookie_header("   "), None);
         assert_eq!(OllamaProvider::normalize_cookie_header("Cookie:   "), None);
+    }
+
+    #[test]
+    fn strips_wrapping_quotes_from_api_key() {
+        assert_eq!(
+            clean_secret(Some("  'ollama-key'  ")),
+            Some("ollama-key".to_string())
+        );
+        assert_eq!(
+            clean_secret(Some("  \"ollama-key\"  ")),
+            Some("ollama-key".to_string())
+        );
+    }
+
+    #[test]
+    fn parses_api_tags_model_count() {
+        let snapshot =
+            OllamaProvider::parse_api_tags(br#"{"models":[{"name":"gpt-oss"},{"name":"qwen3"}]}"#)
+                .unwrap();
+        assert_eq!(snapshot.primary.used_percent, 0.0);
+        assert_eq!(
+            snapshot.primary.reset_description.as_deref(),
+            Some("2 cloud models available")
+        );
+        assert_eq!(snapshot.login_method.as_deref(), Some("API key"));
     }
 }

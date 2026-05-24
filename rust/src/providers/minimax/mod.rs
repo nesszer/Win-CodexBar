@@ -48,6 +48,8 @@ struct MiniMaxBillingRecord {
     consume_time: Option<String>,
     method: Option<String>,
     model: Option<String>,
+    result: Option<serde_json::Value>,
+    status: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -262,7 +264,12 @@ impl MiniMaxProvider {
         };
 
         let plan = json
-            .get("plan_type")
+            .get("plan_name")
+            .or_else(|| json.get("current_plan_title"))
+            .or_else(|| json.get("current_subscribe_title"))
+            .or_else(|| json.get("combo_title"))
+            .or_else(|| json.pointer("/current_combo_card/title"))
+            .or_else(|| json.get("plan_type"))
             .or_else(|| json.get("type"))
             .and_then(|v| v.as_str())
             .unwrap_or("MiniMax");
@@ -378,6 +385,9 @@ fn aggregate_billing(
     let mut model_totals: HashMap<String, (i64, f64, bool)> = HashMap::new();
 
     for record in records {
+        if !billing_record_succeeded(record) {
+            continue;
+        }
         let Some(date) = record_date(record) else {
             continue;
         };
@@ -409,6 +419,19 @@ fn aggregate_billing(
         last_30_days_cash: last_30_has_cash.then_some(last_30_days_cash),
         top_methods: top_breakdowns(method_totals),
         top_models: top_breakdowns(model_totals),
+    }
+}
+
+fn billing_record_succeeded(record: &MiniMaxBillingRecord) -> bool {
+    let status =
+        scalar_string(record.result.as_ref()).or_else(|| scalar_string(record.status.as_ref()));
+    match status
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        None => true,
+        Some(value) => value.eq_ignore_ascii_case("success"),
     }
 }
 
@@ -586,6 +609,15 @@ fn value_f64(value: Option<&serde_json::Value>) -> Option<f64> {
     }
 }
 
+fn scalar_string(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
+    }
+}
+
 fn format_count(value: i64) -> String {
     let raw = value.to_string();
     let mut out = String::with_capacity(raw.len() + raw.len() / 3);
@@ -675,6 +707,8 @@ mod tests {
                 consume_time: None,
                 method: Some("chat".to_string()),
                 model: Some("abab6.5".to_string()),
+                result: Some(serde_json::json!("SUCCESS")),
+                status: None,
             },
             MiniMaxBillingRecord {
                 consume_token: None,
@@ -687,6 +721,8 @@ mod tests {
                 consume_time: None,
                 method: Some("completion".to_string()),
                 model: Some("abab6.5".to_string()),
+                result: None,
+                status: None,
             },
         ];
         let now = Utc.with_ymd_and_hms(2026, 12, 16, 12, 0, 0).unwrap();
@@ -719,5 +755,107 @@ mod tests {
                 .iter()
                 .any(|window| window.id == "billing-tokens-30d")
         );
+    }
+
+    #[test]
+    fn parses_plan_title_from_coding_plan_fields() {
+        let provider = MiniMaxProvider::new();
+        for (field, expected) in [
+            ("plan_name", "MiniMax Star"),
+            ("current_plan_title", "Coding Plan Pro"),
+            ("current_subscribe_title", "Max"),
+            ("combo_title", "Combo Star"),
+        ] {
+            let snapshot = provider
+                .parse_usage_response(&serde_json::json!({
+                    "base_resp": { "status_code": 0 },
+                    field: expected,
+                    "used_amount": 0,
+                    "total_quota": 100
+                }))
+                .unwrap();
+            assert_eq!(snapshot.login_method.as_deref(), Some(expected));
+        }
+
+        let snapshot = provider
+            .parse_usage_response(&serde_json::json!({
+                "base_resp": { "status_code": 0 },
+                "current_combo_card": { "title": "Card Title" },
+                "used_amount": 0,
+                "total_quota": 100
+            }))
+            .unwrap();
+        assert_eq!(snapshot.login_method.as_deref(), Some("Card Title"));
+    }
+
+    #[test]
+    fn filters_failed_billing_records() {
+        let records = vec![
+            MiniMaxBillingRecord {
+                consume_token: Some(serde_json::json!(1000)),
+                consume_input_token: None,
+                consume_output_token: None,
+                consume_cash: None,
+                consume_cash_after_voucher: None,
+                created_at: None,
+                ymd: Some("2026-05-17".to_string()),
+                consume_time: None,
+                method: Some("chat".to_string()),
+                model: Some("MiniMax-M1".to_string()),
+                result: Some(serde_json::json!("SUCCESS")),
+                status: None,
+            },
+            MiniMaxBillingRecord {
+                consume_token: Some(serde_json::json!(2000)),
+                consume_input_token: None,
+                consume_output_token: None,
+                consume_cash: None,
+                consume_cash_after_voucher: None,
+                created_at: None,
+                ymd: Some("2026-05-17".to_string()),
+                consume_time: None,
+                method: Some("chat".to_string()),
+                model: Some("MiniMax-M1".to_string()),
+                result: Some(serde_json::json!("FAILED")),
+                status: None,
+            },
+            MiniMaxBillingRecord {
+                consume_token: Some(serde_json::json!(3000)),
+                consume_input_token: None,
+                consume_output_token: None,
+                consume_cash: None,
+                consume_cash_after_voucher: None,
+                created_at: None,
+                ymd: Some("2026-05-17".to_string()),
+                consume_time: None,
+                method: Some("audio".to_string()),
+                model: Some("speech".to_string()),
+                result: None,
+                status: None,
+            },
+            MiniMaxBillingRecord {
+                consume_token: Some(serde_json::json!(4000)),
+                consume_input_token: None,
+                consume_output_token: None,
+                consume_cash: None,
+                consume_cash_after_voucher: None,
+                created_at: None,
+                ymd: Some("2026-05-17".to_string()),
+                consume_time: None,
+                method: Some("video".to_string()),
+                model: Some("video".to_string()),
+                result: None,
+                status: Some(serde_json::json!(0)),
+            },
+        ];
+        let now = Utc.with_ymd_and_hms(2026, 5, 17, 12, 0, 0).unwrap();
+        let summary = aggregate_billing(&records, now);
+        assert_eq!(summary.today_tokens, 4000);
+        assert_eq!(summary.last_30_days_tokens, 4000);
+        assert_eq!(summary.top_methods.len(), 2);
+        assert_eq!(summary.top_methods[0].name, "audio");
+        assert_eq!(summary.top_methods[0].tokens, 3000);
+        assert_eq!(summary.top_methods[1].name, "chat");
+        assert_eq!(summary.top_methods[1].tokens, 1000);
     }
 }

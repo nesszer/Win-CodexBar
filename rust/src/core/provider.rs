@@ -29,6 +29,8 @@ pub enum ProviderId {
     Amp,
     Warp,
     Ollama,
+    AzureOpenAI,
+    T3Chat,
     OpenRouter,
     Synthetic,
     JetBrains,
@@ -81,6 +83,8 @@ impl ProviderId {
             ProviderId::Amp,
             ProviderId::Warp,
             ProviderId::Ollama,
+            ProviderId::AzureOpenAI,
+            ProviderId::T3Chat,
             ProviderId::OpenRouter,
             ProviderId::Synthetic,
             ProviderId::JetBrains,
@@ -133,6 +137,8 @@ impl ProviderId {
             ProviderId::Amp => "amp",
             ProviderId::Warp => "warp",
             ProviderId::Ollama => "ollama",
+            ProviderId::AzureOpenAI => "azureopenai",
+            ProviderId::T3Chat => "t3chat",
             ProviderId::OpenRouter => "openrouter",
             ProviderId::Synthetic => "synthetic",
             ProviderId::JetBrains => "jetbrains",
@@ -185,6 +191,8 @@ impl ProviderId {
             ProviderId::Amp => "Amp",
             ProviderId::Warp => "Warp",
             ProviderId::Ollama => "Ollama",
+            ProviderId::AzureOpenAI => "Azure OpenAI",
+            ProviderId::T3Chat => "T3 Chat",
             ProviderId::OpenRouter => "OpenRouter",
             ProviderId::Synthetic => "Synthetic",
             ProviderId::JetBrains => "JetBrains AI",
@@ -236,6 +244,7 @@ impl ProviderId {
             ProviderId::Antigravity => Some("antigravity.ai"),
             ProviderId::Alibaba => Some("tongyi.aliyun.com"),
             ProviderId::Ollama => Some("ollama.com"),
+            ProviderId::T3Chat => Some("t3.chat"),
             ProviderId::Perplexity => Some("perplexity.ai"),
             ProviderId::Abacus => Some("apps.abacus.ai"),
             ProviderId::Mistral => Some("admin.mistral.ai"),
@@ -251,6 +260,7 @@ impl ProviderId {
             ProviderId::JetBrains => None,
             ProviderId::Synthetic => None,
             ProviderId::Warp => None,
+            ProviderId::AzureOpenAI => None,
             ProviderId::OpenRouter => None,
             ProviderId::NanoGPT => None,
             ProviderId::Infini => None,
@@ -292,6 +302,8 @@ impl ProviderId {
             "amp" | "sourcegraph" => Some(ProviderId::Amp),
             "warp" | "warp-ai" | "warp-terminal" => Some(ProviderId::Warp),
             "ollama" => Some(ProviderId::Ollama),
+            "azureopenai" | "azure-openai" | "azure openai" => Some(ProviderId::AzureOpenAI),
+            "t3chat" | "t3-chat" | "t3 chat" => Some(ProviderId::T3Chat),
             "openrouter" | "or" => Some(ProviderId::OpenRouter),
             "synthetic" => Some(ProviderId::Synthetic),
             "jetbrains" | "jetbrains-ai" | "jetbrains ai" | "intellij" => {
@@ -541,12 +553,14 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 46);
+        assert_eq!(all.len(), 48);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
         assert!(all.contains(&ProviderId::KimiK2));
         assert!(all.contains(&ProviderId::Amp));
+        assert!(all.contains(&ProviderId::AzureOpenAI));
+        assert!(all.contains(&ProviderId::T3Chat));
         assert!(all.contains(&ProviderId::Synthetic));
         assert!(all.contains(&ProviderId::JetBrains));
         assert!(all.contains(&ProviderId::NanoGPT));

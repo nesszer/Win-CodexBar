@@ -125,6 +125,14 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: true,
                 cookie_name: Some("__Secure-session"),
             }),
+            ProviderId::T3Chat => Some(TokenAccountSupport {
+                title: "Session tokens",
+                subtitle: "Store multiple T3 Chat Cookie headers or full browser cURL captures.",
+                placeholder: "Cookie: ... or curl ... -H 'Cookie: ...'",
+                injection: TokenInjection::CookieHeader,
+                requires_manual_cookie_source: true,
+                cookie_name: None,
+            }),
             ProviderId::Mistral => Some(TokenAccountSupport {
                 title: "Session tokens",
                 subtitle: "Store multiple Mistral Cookie headers.",
@@ -178,6 +186,7 @@ impl TokenAccountSupport {
             | ProviderId::Synthetic
             | ProviderId::JetBrains
             | ProviderId::Warp
+            | ProviderId::AzureOpenAI
             | ProviderId::OpenRouter
             | ProviderId::NanoGPT
             | ProviderId::Infini

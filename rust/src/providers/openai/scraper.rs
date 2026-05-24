@@ -40,6 +40,10 @@ pub struct OpenAIDashboardData {
     pub credits_history: Vec<CreditsHistoryEntry>,
     /// Account email
     pub email: Option<String>,
+    /// Authentication status from ChatGPT bootstrap data
+    pub auth_status: Option<String>,
+    /// Account plan from ChatGPT bootstrap or Next data
+    pub account_plan: Option<String>,
     /// Organization name
     pub organization: Option<String>,
     /// Purchase credits URL
@@ -205,16 +209,13 @@ pub const OPENAI_DASHBOARD_SCRAPE_SCRIPT: &str = r#"
 
   // Find account email
   const findEmail = () => {
-    // Check __NEXT_DATA__ first
-    const nextData = document.getElementById('__NEXT_DATA__');
-    if (nextData) {
-      try {
-        const data = JSON.parse(nextData.textContent);
-        if (data?.props?.pageProps?.user?.email) {
-          return data.props.pageProps.user.email;
-        }
-      } catch {}
-    }
+    const bootstrap = parseJsonScript('client-bootstrap');
+    const bootstrapEmail = bootstrap?.session?.user?.email || bootstrap?.user?.email || null;
+    if (bootstrapEmail && String(bootstrapEmail).includes('@')) return String(bootstrapEmail);
+
+    const next = parseJsonScript('__NEXT_DATA__');
+    const nextEmail = next?.props?.pageProps?.user?.email || next?.props?.session?.user?.email || null;
+    if (nextEmail && String(nextEmail).includes('@')) return String(nextEmail);
 
     // Look for email patterns in the page
     const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
@@ -223,6 +224,98 @@ pub const OPENAI_DASHBOARD_SCRAPE_SCRIPT: &str = r#"
       const text = textOf(node);
       const match = text.match(emailPattern);
       if (match) return match[0];
+    }
+    return null;
+  };
+
+  const parseJsonScript = (id) => {
+    try {
+      const node = document.getElementById(id);
+      const raw = node && node.textContent ? String(node.textContent) : '';
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const cleanPlanName = (raw) => String(raw || '')
+    .replace(/\b(claude|codex|account|plan)\b/gi, ' ')
+    .replace(/_/g, ' ')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const codexPlanDisplayName = (raw) => {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) return null;
+    const exact = {
+      pro: 'Pro 20x',
+      prolite: 'Pro 5x',
+      'pro_lite': 'Pro 5x',
+      'pro-lite': 'Pro 5x',
+      'pro lite': 'Pro 5x'
+    };
+    const lower = trimmed.toLowerCase();
+    if (exact[lower]) return exact[lower];
+    const cleaned = cleanPlanName(trimmed);
+    if (!cleaned) return trimmed;
+    const cleanedLower = cleaned.toLowerCase();
+    if (exact[cleanedLower]) return exact[cleanedLower];
+    return cleaned.split(' ')
+      .filter(Boolean)
+      .map(word => {
+        const wordLower = word.toLowerCase();
+        if (wordLower === 'cbp' || wordLower === 'k12') return wordLower.toUpperCase();
+        if (word === word.toUpperCase() && /[a-z]/i.test(word)) return word;
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      })
+      .join(' ') || cleaned;
+  };
+
+  const normalizePlanValue = (value) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return null;
+    const lower = trimmed.toLowerCase();
+    const allowed = ['free', 'plus', 'pro', 'team', 'enterprise', 'business', 'edu', 'education', 'gov', 'premium', 'essential'];
+    if (!allowed.some(token => lower.includes(token))) return null;
+    return codexPlanDisplayName(trimmed) || cleanPlanName(trimmed);
+  };
+
+  const planCandidate = (key, value) => {
+    const lower = String(key || '').toLowerCase();
+    if (!lower.includes('plan') && !lower.includes('tier') && !lower.includes('subscription')) return null;
+    if (typeof value === 'string') return normalizePlanValue(value);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return normalizePlanValue(value.name) || normalizePlanValue(value.displayName) || normalizePlanValue(value.tier);
+    }
+    return null;
+  };
+
+  const findPlan = (root) => {
+    if (!root || typeof root !== 'object') return null;
+    const queue = [root];
+    const seenObjects = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+    let index = 0;
+    let seen = 0;
+    while (index < queue.length && seen < 6000) {
+      const cur = queue[index++];
+      seen++;
+      if (!cur || typeof cur !== 'object') continue;
+      if (seenObjects) {
+        if (seenObjects.has(cur)) continue;
+        seenObjects.add(cur);
+      }
+      if (Array.isArray(cur)) {
+        for (const value of cur) {
+          if (value && typeof value === 'object') queue.push(value);
+        }
+        continue;
+      }
+      for (const [key, value] of Object.entries(cur)) {
+        const plan = planCandidate(key, value);
+        if (plan) return plan;
+        if (value && typeof value === 'object') queue.push(value);
+      }
     }
     return null;
   };
@@ -261,6 +354,11 @@ pub const OPENAI_DASHBOARD_SCRAPE_SCRIPT: &str = r#"
     usage_breakdown: extractUsageBreakdown(),
     credits_history: [],
     email: findEmail(),
+    auth_status: (() => {
+      const bootstrap = parseJsonScript('client-bootstrap');
+      return typeof bootstrap?.authStatus === 'string' ? bootstrap.authStatus : null;
+    })(),
+    account_plan: findPlan(parseJsonScript('client-bootstrap')) || findPlan(parseJsonScript('__NEXT_DATA__')),
     organization: null,
     purchase_url: null
   };
@@ -324,10 +422,12 @@ mod tests {
 
     #[test]
     fn test_parse_dashboard_json() {
-        let json = r#"{"credits_remaining":50.0,"credits_limit":100.0,"usage_breakdown":[],"credits_history":[],"email":"test@example.com","organization":null,"purchase_url":null}"#;
+        let json = r#"{"credits_remaining":50.0,"credits_limit":100.0,"usage_breakdown":[],"credits_history":[],"email":"test@example.com","auth_status":"logged_in","account_plan":"Pro 5x","organization":null,"purchase_url":null}"#;
 
         let data = parse_dashboard_json(json).unwrap();
         assert_eq!(data.credits_remaining, Some(50.0));
         assert_eq!(data.email, Some("test@example.com".to_string()));
+        assert_eq!(data.auth_status, Some("logged_in".to_string()));
+        assert_eq!(data.account_plan, Some("Pro 5x".to_string()));
     }
 }

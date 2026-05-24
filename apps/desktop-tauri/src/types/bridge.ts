@@ -48,6 +48,8 @@ export type ProofProviderId =
   | "amp"
   | "warp"
   | "ollama"
+  | "azureopenai"
+  | "t3chat"
   | "openrouter"
   | "synthetic"
   | "jetbrains"
