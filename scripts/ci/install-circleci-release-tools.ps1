@@ -106,8 +106,9 @@ function Install-RustPackage {
             throw "Missing Rust component directory $componentDir"
         }
 
-        Get-ChildItem -Force $componentDir | ForEach-Object {
-            Copy-Item -Force -Recurse -Path $_.FullName -Destination $rustRoot
+        & robocopy.exe $componentDir $rustRoot /E /MT:16 /NFL /NDL /NJH /NJS /NP
+        if ($LASTEXITCODE -gt 7) {
+            throw "robocopy failed installing Rust component $component with exit code $LASTEXITCODE"
         }
     }
 }
