@@ -14,6 +14,7 @@ $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
 $rustVersion = "1.95.0"
 $rustDistDate = "2026-04-16"
 $rustHost = "x86_64-pc-windows-msvc"
+$rustupInitChecksum = "86478e53f769379d7f0ebfa7c9aa97cb76ca92233f79aa2cc0dbee2efaac73c7"
 $rustRoot = Join-Path $env:USERPROFILE ".rust-ms\$rustVersion"
 $rustBin = Join-Path $rustRoot "bin"
 
@@ -157,30 +158,42 @@ function Install-RustToolchain {
         return
     }
 
-    Write-Host "Installing Rust from verified upstream archives..."
-    if (Test-Path $rustRoot) {
-        Write-Host "Removing incomplete cached Rust toolchain at $rustRoot..."
-        Remove-Item -Recurse -Force $rustRoot
-    }
-    New-Item -ItemType Directory -Force $rustRoot | Out-Null
+    Write-Host "Installing Rust with verified rustup-init..."
+    $downloadDir = Join-Path $env:TEMP "win-codexbar-rustup"
+    New-Item -ItemType Directory -Force $downloadDir | Out-Null
+    $rustupInit = Join-Path $downloadDir "rustup-init.exe"
+    Receive-File `
+        -Name "rustup-init-x86_64-pc-windows-msvc" `
+        -Url "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe" `
+        -Destination $rustupInit
 
-    $baseUrl = "https://static.rust-lang.org/dist/$rustDistDate"
-    Install-RustArchive `
-        -Name "rustc-$rustVersion-$rustHost" `
-        -Url "$baseUrl/rustc-$rustVersion-$rustHost.tar.gz" `
-        -Checksum "b1101cba184fda0da47658772d04423fdb86cc9ed888cac3b29d0e9f55faec53"
-    Install-RustArchive `
-        -Name "cargo-$rustVersion-$rustHost" `
-        -Url "$baseUrl/cargo-$rustVersion-$rustHost.tar.gz" `
-        -Checksum "2d68113a00b98f0dec6d0e8473f82e08cec00c392115933a57dbfe9d3c8b2d8c"
-    Install-RustArchive `
-        -Name "rust-std-$rustVersion-$rustHost" `
-        -Url "$baseUrl/rust-std-$rustVersion-$rustHost.tar.gz" `
-        -Checksum "aa56f95b4817f562c0ada0abee3511a802a948303404e8fc872d0371ae0693fc"
+    $actual = Get-FileSha256 $rustupInit
+    if ($actual -ne $rustupInitChecksum) {
+        throw "rustup-init SHA-256 mismatch. Expected $rustupInitChecksum, got $actual"
+    }
+
+    $rustupArgs = @(
+        "-y",
+        "--default-toolchain", "$rustVersion-$rustHost",
+        "--profile", "minimal",
+        "--no-modify-path"
+    )
+    $rustupProcess = Start-Process `
+        -FilePath $rustupInit `
+        -ArgumentList $rustupArgs `
+        -NoNewWindow `
+        -PassThru
+
+    if (-not $rustupProcess.WaitForExit(240000)) {
+        Write-Host "rustup-init exceeded 240s; stopping it and checking whether cargo/rustc were installed..."
+        Stop-Process -Id $rustupProcess.Id -Force -ErrorAction SilentlyContinue
+    } elseif ($rustupProcess.ExitCode -ne 0) {
+        throw "rustup-init failed with exit code $($rustupProcess.ExitCode)"
+    }
 
     Add-RustPath
     if (-not ((Test-Command "cargo") -and (Test-Command "rustc"))) {
-        throw "Missing cargo/rustc after Rust toolchain install."
+        throw "Missing cargo/rustc after rustup-init install."
     }
 }
 
