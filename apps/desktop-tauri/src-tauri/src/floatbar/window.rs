@@ -65,6 +65,12 @@ pub fn show(
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
+        // WebView2 only honors an alpha (transparent) background when the
+        // native window is itself created transparent. Without this the
+        // `background_color` below paints opaque black on Windows, so the
+        // CSS `background: transparent` on the floatbar body has nothing
+        // to show through to.
+        .transparent(true)
         .background_color(tauri::utils::config::Color(0, 0, 0, 0))
         .visible(false)
         .build()
