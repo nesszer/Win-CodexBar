@@ -155,7 +155,7 @@ function Install-RustArchive {
 
     $downloadDir = Join-Path $env:TEMP "win-codexbar-rust"
     New-Item -ItemType Directory -Force $downloadDir | Out-Null
-    $archive = Join-Path $downloadDir "$Name.tar.xz"
+    $archive = Join-Path $downloadDir "$Name.tar.gz"
     $extractDir = Join-Path $downloadDir "$Name-extracted"
 
     if (Test-Path $extractDir) {
@@ -200,16 +200,16 @@ function Install-RustToolchain {
     $baseUrl = "https://static.rust-lang.org/dist/$rustDistDate"
     Install-RustArchive `
         -Name "rustc-$rustVersion-$rustHost" `
-        -Url "$baseUrl/rustc-$rustVersion-$rustHost.tar.xz" `
-        -Checksum "4cb1f3b578adc6541cbe13a6f85f1fd8c0ce643d90b506a36dee24c680864c67"
+        -Url "$baseUrl/rustc-$rustVersion-$rustHost.tar.gz" `
+        -Checksum "b1101cba184fda0da47658772d04423fdb86cc9ed888cac3b29d0e9f55faec53"
     Install-RustArchive `
         -Name "cargo-$rustVersion-$rustHost" `
-        -Url "$baseUrl/cargo-$rustVersion-$rustHost.tar.xz" `
-        -Checksum "cab2606cb2d0aa31c55d50512fe07a9f15e893227566fbeb448306760cd0d2bf"
+        -Url "$baseUrl/cargo-$rustVersion-$rustHost.tar.gz" `
+        -Checksum "2d68113a00b98f0dec6d0e8473f82e08cec00c392115933a57dbfe9d3c8b2d8c"
     Install-RustArchive `
         -Name "rust-std-$rustVersion-$rustHost" `
-        -Url "$baseUrl/rust-std-$rustVersion-$rustHost.tar.xz" `
-        -Checksum "7c659bdc88646e7e1befa370881bd311be87b26f006933a28b40dcab2f7cc832"
+        -Url "$baseUrl/rust-std-$rustVersion-$rustHost.tar.gz" `
+        -Checksum "aa56f95b4817f562c0ada0abee3511a802a948303404e8fc872d0371ae0693fc"
 
     Add-RustPath
     if (-not ((Test-Command "cargo") -and (Test-Command "rustc"))) {
