@@ -75,11 +75,17 @@ function Receive-File {
             -ErrorAction Stop
 
         try {
+            $jobId = $job.JobId
             $elapsed = 0
             while ($elapsed -lt $maxSeconds) {
                 Start-Sleep -Seconds $pollSeconds
                 $elapsed += $pollSeconds
-                $job = Get-BitsTransfer -Id $job.Id -ErrorAction Stop
+                $job = Get-BitsTransfer -ErrorAction Stop |
+                    Where-Object { $_.JobId -eq $jobId } |
+                    Select-Object -First 1
+                if (-not $job) {
+                    throw "BITS job disappeared while downloading $Name."
+                }
 
                 if ($job.JobState -eq "Transferred") {
                     Complete-BitsTransfer -BitsJob $job
