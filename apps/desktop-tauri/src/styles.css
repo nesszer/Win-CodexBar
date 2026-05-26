@@ -4721,6 +4721,21 @@ html:has(.menu-surface--tray) {
   gap: 8px 5px;
 }
 
+/* The 10-column override above also matches the sparse variant (it carries
+   both classes), packing 40px items into ~21px columns so adjacent tab
+   labels overlap. Re-assert the sparse track sizing after it. */
+.menu-surface--tray .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 40px);
+  justify-content: start;
+  gap: 8px 6px;
+}
+
+.menu-surface--popout .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 42px);
+  justify-content: start;
+  gap: 8px 7px;
+}
+
 .provider-grid__item {
   min-height: 42px;
   padding: 2px 1px 3px;
