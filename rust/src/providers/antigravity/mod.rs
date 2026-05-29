@@ -118,17 +118,18 @@ impl AntigravityProvider {
         ))
     }
 
-    /// Find the actual API port by checking listening ports
+    /// Find the actual API port by probing the language server's candidate ports.
     async fn find_api_port(extension_port: u16, pid: Option<u32>) -> Result<u16, ProviderError> {
         // The language server binds a RANDOM localhost port at startup; --extension_server_port
         // is only a reference point (and belongs to a separate HTTP extension server), so the
         // real gRPC/Connect API port is not guaranteed to be within a small window above it.
         // Mirror the macOS/Linux probe (which uses `lsof`) by enumerating the language-server
-        // process's own listening ports first, then fall back to the heuristic window and a
-        // few known ports.
-        // SECURITY: TLS verification is disabled because the local language server uses
-        // self-signed certificates. This is scoped to 127.0.0.1 only and the port range
-        // is limited. We verify the server responds with the expected gRPC endpoint.
+        // process's own listening ports first, then fall back to a heuristic window above the
+        // extension port and a few historically-seen ports.
+        //
+        // SECURITY: TLS verification is disabled because the local language server uses a
+        // self-signed certificate. This is scoped to 127.0.0.1 only; we confirm a port by
+        // checking that it answers the expected gRPC endpoint.
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(2))
             .danger_accept_invalid_certs(true)
@@ -136,66 +137,23 @@ impl AntigravityProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        // 1) Probe the process's ACTUAL listening ports (Windows equivalent of `lsof`).
+        // Ordered candidate ports: the process's real listening ports first (Windows
+        // equivalent of `lsof`), then the heuristic window above the extension port, then a
+        // few known ports as a last resort.
+        let mut candidates: Vec<u16> = Vec::new();
         if let Some(pid) = pid {
-            for port in Self::listening_ports_for_pid(pid) {
-                let url = format!(
-                    "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUnleashData",
-                    port
-                );
-                if let Ok(resp) = client
-                    .post(&url)
-                    .header("Content-Type", "application/json")
-                    .header("Connect-Protocol-Version", "1")
-                    .body("{}")
-                    .send()
-                    .await
-                    && (resp.status().as_u16() == 200 || resp.status().as_u16() == 401)
-                {
-                    return Ok(port);
-                }
-            }
+            candidates.extend(Self::listening_ports_for_pid(pid));
         }
+        candidates.extend((0..20u16).map(|offset| extension_port.saturating_add(offset)));
+        candidates.extend([53835, 53836, 53837, 53838, 53845, 53849]);
 
-        // 2) Heuristic window above the extension port (kept as a fallback).
-        for offset in 0..20u16 {
-            let port = extension_port.saturating_add(offset);
-            let url = format!(
-                "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUnleashData",
-                port
-            );
-
-            // Just check if the port responds (even with error)
-            if let Ok(resp) = client
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .header("Connect-Protocol-Version", "1")
-                .body("{}")
-                .send()
-                .await
-            {
-                // If we get any response (even error), this is the API port
-                if resp.status().as_u16() == 200 || resp.status().as_u16() == 401 {
-                    return Ok(port);
-                }
+        let mut probed: Vec<u16> = Vec::new();
+        for port in candidates {
+            if probed.contains(&port) {
+                continue; // probe each port at most once
             }
-        }
-
-        // 3) Fallback: try common ports
-        for port in [53835, 53836, 53837, 53838, 53845, 53849] {
-            let url = format!(
-                "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUnleashData",
-                port
-            );
-            if let Ok(resp) = client
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .header("Connect-Protocol-Version", "1")
-                .body("{}")
-                .send()
-                .await
-                && (resp.status().as_u16() == 200 || resp.status().as_u16() == 401)
-            {
+            probed.push(port);
+            if Self::probe_api_port(&client, port).await {
                 return Ok(port);
             }
         }
@@ -205,11 +163,34 @@ impl AntigravityProvider {
         ))
     }
 
+    /// Probe a single candidate port. Returns true if it answers the language server's
+    /// gRPC endpoint (HTTP 200 or 401).
+    async fn probe_api_port(client: &reqwest::Client, port: u16) -> bool {
+        let url = format!(
+            "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUnleashData",
+            port
+        );
+        match client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Connect-Protocol-Version", "1")
+            .body("{}")
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let code = resp.status().as_u16();
+                code == 200 || code == 401
+            }
+            Err(_) => false,
+        }
+    }
+
     /// Enumerate the TCP ports a given PID is listening on (Windows `lsof` equivalent).
-    /// Uses Get-NetTCPConnection; returns an empty Vec on any failure so callers fall back
-    /// to the existing heuristics (no regression if the cmdlet is unavailable).
+    /// On Windows this uses `Get-NetTCPConnection`; it returns an empty list on any failure
+    /// so the caller deterministically falls back to the heuristic candidate ports.
+    #[cfg(windows)]
     fn listening_ports_for_pid(pid: u32) -> Vec<u16> {
-        #[cfg(windows)]
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         let mut cmd = Command::new("powershell.exe");
@@ -222,7 +203,6 @@ impl AntigravityProvider {
                  -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort"
             ),
         ]);
-        #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
         let Ok(output) = cmd.output() else {
@@ -240,6 +220,13 @@ impl AntigravityProvider {
         ports.sort_unstable();
         ports.dedup();
         ports
+    }
+
+    /// Non-Windows platforms have no `Get-NetTCPConnection`; return an empty list by design so
+    /// the caller falls back to the heuristic candidate ports.
+    #[cfg(not(windows))]
+    fn listening_ports_for_pid(_pid: u32) -> Vec<u16> {
+        Vec::new()
     }
 
     /// Fetch user status from Antigravity API
@@ -378,21 +365,6 @@ impl AntigravityProvider {
         }
         if let Some(ter) = tertiary {
             snapshot = snapshot.with_model_specific(ter);
-        }
-
-        for (idx, config) in model_configs.iter().enumerate() {
-            let Some(quota) = &config.quota_info else {
-                continue;
-            };
-            let title = clean_model_label(&config.label);
-            if title.is_empty() {
-                continue;
-            }
-            snapshot = snapshot.with_extra_rate_window(
-                format!("model-{idx}"),
-                title,
-                rate_window_from_quota(quota),
-            );
         }
 
         // Add plan info
@@ -541,14 +513,6 @@ fn rate_window_from_quota(quota: &QuotaInfo) -> RateWindow {
     RateWindow::with_details(used_percent, None, None, quota.reset_time.clone())
 }
 
-fn clean_model_label(label: &str) -> String {
-    let mut out = label.trim().replace('_', " ");
-    while out.contains("  ") {
-        out = out.replace("  ", " ");
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -611,12 +575,6 @@ mod tests {
         assert!((sec.used_percent - 50.0).abs() < 0.1);
         let ter = snap.model_specific.unwrap();
         assert!((ter.used_percent - 10.0).abs() < 0.1);
-        assert_eq!(snap.extra_rate_windows.len(), 3);
-        assert!(
-            snap.extra_rate_windows
-                .iter()
-                .any(|window| window.title == "Gemini 2.5 Flash")
-        );
     }
 
     #[test]
