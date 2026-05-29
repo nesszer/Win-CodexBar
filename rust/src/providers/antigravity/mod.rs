@@ -49,7 +49,7 @@ impl AntigravityProvider {
         cmd.args([
                 "-ExecutionPolicy", "Bypass",
                 "-Command",
-                "Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server_windows*' } | Select-Object -ExpandProperty CommandLine"
+                "Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server_windows*' } | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"
             ]);
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
@@ -80,6 +80,13 @@ impl AntigravityProvider {
 
         for line in stdout.lines() {
             if line.contains("language_server_windows") && line.contains("--csrf_token") {
+                // Line is "<pid>\t<command line>"; split off the PID prefix we added so the
+                // PID can be used to enumerate the process's real listening ports below.
+                let (pid, line) = match line.split_once('\t') {
+                    Some((p, rest)) => (p.trim().parse::<u32>().ok(), rest),
+                    None => (None, line),
+                };
+
                 let csrf_token = csrf_regex
                     .captures(line)
                     .and_then(|c| c.get(1))
@@ -100,6 +107,7 @@ impl AntigravityProvider {
                         csrf_token: token,
                         extension_server_csrf_token: ext_csrf_token,
                         extension_port: p,
+                        pid,
                     });
                 }
             }
@@ -111,9 +119,13 @@ impl AntigravityProvider {
     }
 
     /// Find the actual API port by checking listening ports
-    async fn find_api_port(extension_port: u16) -> Result<u16, ProviderError> {
-        // The language server listens on multiple ports near the extension port
-        // Try ports in range extension_port to extension_port + 20
+    async fn find_api_port(extension_port: u16, pid: Option<u32>) -> Result<u16, ProviderError> {
+        // The language server binds a RANDOM localhost port at startup; --extension_server_port
+        // is only a reference point (and belongs to a separate HTTP extension server), so the
+        // real gRPC/Connect API port is not guaranteed to be within a small window above it.
+        // Mirror the macOS/Linux probe (which uses `lsof`) by enumerating the language-server
+        // process's own listening ports first, then fall back to the heuristic window and a
+        // few known ports.
         // SECURITY: TLS verification is disabled because the local language server uses
         // self-signed certificates. This is scoped to 127.0.0.1 only and the port range
         // is limited. We verify the server responds with the expected gRPC endpoint.
@@ -124,8 +136,30 @@ impl AntigravityProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        for offset in 0..20 {
-            let port = extension_port + offset;
+        // 1) Probe the process's ACTUAL listening ports (Windows equivalent of `lsof`).
+        if let Some(pid) = pid {
+            for port in Self::listening_ports_for_pid(pid) {
+                let url = format!(
+                    "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUnleashData",
+                    port
+                );
+                if let Ok(resp) = client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .header("Connect-Protocol-Version", "1")
+                    .body("{}")
+                    .send()
+                    .await
+                    && (resp.status().as_u16() == 200 || resp.status().as_u16() == 401)
+                {
+                    return Ok(port);
+                }
+            }
+        }
+
+        // 2) Heuristic window above the extension port (kept as a fallback).
+        for offset in 0..20u16 {
+            let port = extension_port.saturating_add(offset);
             let url = format!(
                 "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUnleashData",
                 port
@@ -147,7 +181,7 @@ impl AntigravityProvider {
             }
         }
 
-        // Fallback: try common ports
+        // 3) Fallback: try common ports
         for port in [53835, 53836, 53837, 53838, 53845, 53849] {
             let url = format!(
                 "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUnleashData",
@@ -171,10 +205,47 @@ impl AntigravityProvider {
         ))
     }
 
+    /// Enumerate the TCP ports a given PID is listening on (Windows `lsof` equivalent).
+    /// Uses Get-NetTCPConnection; returns an empty Vec on any failure so callers fall back
+    /// to the existing heuristics (no regression if the cmdlet is unavailable).
+    fn listening_ports_for_pid(pid: u32) -> Vec<u16> {
+        #[cfg(windows)]
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args([
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &format!(
+                "Get-NetTCPConnection -OwningProcess {pid} -State Listen \
+                 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort"
+            ),
+        ]);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let Ok(output) = cmd.output() else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut ports: Vec<u16> = stdout
+            .lines()
+            .filter_map(|l| l.trim().parse::<u16>().ok())
+            .collect();
+        ports.sort_unstable();
+        ports.dedup();
+        ports
+    }
+
     /// Fetch user status from Antigravity API
     async fn fetch_user_status(&self) -> Result<UsageSnapshot, ProviderError> {
         let process_info = Self::detect_process_info()?;
-        let api_port = Self::find_api_port(process_info.extension_port).await?;
+        let api_port = Self::find_api_port(process_info.extension_port, process_info.pid).await?;
 
         // SECURITY: TLS verification disabled for local language server (see find_api_port)
         let client = reqwest::Client::builder()
@@ -309,6 +380,21 @@ impl AntigravityProvider {
             snapshot = snapshot.with_model_specific(ter);
         }
 
+        for (idx, config) in model_configs.iter().enumerate() {
+            let Some(quota) = &config.quota_info else {
+                continue;
+            };
+            let title = clean_model_label(&config.label);
+            if title.is_empty() {
+                continue;
+            }
+            snapshot = snapshot.with_extra_rate_window(
+                format!("model-{idx}"),
+                title,
+                rate_window_from_quota(quota),
+            );
+        }
+
         // Add plan info
         let plan_name = user_status
             .plan_status
@@ -364,6 +450,7 @@ struct ProcessInfo {
     csrf_token: String,
     extension_server_csrf_token: Option<String>,
     extension_port: u16,
+    pid: Option<u32>,
 }
 
 // API Response types
@@ -454,6 +541,14 @@ fn rate_window_from_quota(quota: &QuotaInfo) -> RateWindow {
     RateWindow::with_details(used_percent, None, None, quota.reset_time.clone())
 }
 
+fn clean_model_label(label: &str) -> String {
+    let mut out = label.trim().replace('_', " ");
+    while out.contains("  ") {
+        out = out.replace("  ", " ");
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +611,12 @@ mod tests {
         assert!((sec.used_percent - 50.0).abs() < 0.1);
         let ter = snap.model_specific.unwrap();
         assert!((ter.used_percent - 10.0).abs() < 0.1);
+        assert_eq!(snap.extra_rate_windows.len(), 3);
+        assert!(
+            snap.extra_rate_windows
+                .iter()
+                .any(|window| window.title == "Gemini 2.5 Flash")
+        );
     }
 
     #[test]
