@@ -4,6 +4,14 @@
 
 ---
 
+## [Windows] 0.31.1 - 2026-05-30
+
+### Fixed
+- Fix Antigravity usage on Windows when the local language server binds its API to a random listening port instead of a port near `--extension_server_port`.
+- Prefer the Antigravity language-server process's actual listening ports before falling back to heuristic API port probes.
+
+---
+
 ## [Windows] 0.31.0 - 2026-05-29
 
 ### Added

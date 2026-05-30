@@ -24,6 +24,11 @@
 - **CLI** — `codexbar usage`、`codexbar cost`、`codexbar config` 和本机回环 `codexbar serve`，便于脚本化、本地集成和 CI
 - **WSL 支持** — CLI 开箱即用，桌面壳层通过 WSLg 运行
 
+## v0.31.1 更新内容
+
+- 修复 Antigravity 在 Windows 上无法获取用量的问题：当本地 language server 的 API 绑定到随机监听端口，而不是 `--extension_server_port` 附近端口时，现在也能正确发现。
+- 应用会优先检查 Antigravity language server 进程实际监听的端口，同时保留旧的启发式端口探测作为 fallback。
+
 ## v0.31.0 更新内容
 
 - 将上游 CodexBar v0.31.0 的 provider 行为修复移植到 Win-CodexBar。
@@ -99,7 +104,7 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 在 Windows 构建服务器上做本地发布构建时，使用缓存版构建脚本：
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.31.0
+.\scripts\windows-release-build.ps1 -Ref v0.31.1
 ```
 
 脚本会在 `C:\code\Win-CodexBar-release\source` 维护干净源码签出，在 `C:\code\Win-CodexBar-release\cache\cargo-target` 复用 Rust 构建输出，在 `C:\code\Win-CodexBar-release\cache\pnpm-store` 复用 pnpm 包，并复用已签名的 WebView2/VC++ 引导程序下载。它仍会构建真实 release 二进制、校验 Microsoft 签名、用 Inno Setup 打包，并在 `C:\code\Win-CodexBar-release\assets` 输出 GitHub Release 使用的四个资产。
@@ -107,11 +112,11 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 常用发布参数：
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.31.0 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.31.0 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.31.0 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.31.0 -UploadRelease v0.31.0
-.\scripts\release-doctor.ps1 -Version 0.31.0
+.\scripts\windows-release-build.ps1 -Ref v0.31.1 -WarmCacheOnly
+.\scripts\windows-release-build.ps1 -Ref v0.31.1 -WarmCliCache
+.\scripts\windows-release-build.ps1 -Ref v0.31.1 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.31.1 -UploadRelease v0.31.1
+.\scripts\release-doctor.ps1 -Version 0.31.1
 ```
 
 GitHub Actions 只作为辅助检查；安装包和便携版资产以 Windows 构建服务器脚本为主发布路径。
