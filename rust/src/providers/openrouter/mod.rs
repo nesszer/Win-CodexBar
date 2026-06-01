@@ -11,8 +11,13 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
-/// OpenRouter API base URL
-const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1/auth";
+/// OpenRouter API base URL — the bare `/api/v1` prefix, matching upstream
+/// (steipete/CodexBar `OpenRouterSettingsReader.apiURL`).
+///
+/// Both endpoints append their path to this base: `/credits` and `/key`.
+/// The fork's original bug baked `/auth` into the base (`.../api/v1/auth`),
+/// which turned the credits call into `/api/v1/auth/credits` -> 404.
+const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
 const OPENROUTER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const OPENROUTER_KEY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -301,5 +306,35 @@ impl Provider for OpenRouterProvider {
 
     fn supports_cli(&self) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression guard for the `/auth/credits` 404 bug: the base must be the
+    // bare `/api/v1` prefix. Credits and key live on DIFFERENT subpaths, so a
+    // base that bakes in `/auth` (or anything else) silently breaks one of them.
+    #[test]
+    fn api_base_is_bare_v1_prefix() {
+        assert_eq!(OPENROUTER_API_BASE, "https://openrouter.ai/api/v1");
+    }
+
+    // Credits endpoint: `/api/v1/credits` (verified HTTP 200 against live API).
+    // The old base `.../api/v1/auth` produced `/api/v1/auth/credits` -> 404.
+    #[test]
+    fn credits_url_resolves_to_canonical_path() {
+        let url = format!("{}/credits", OPENROUTER_API_BASE);
+        assert_eq!(url, "https://openrouter.ai/api/v1/credits");
+    }
+
+    // Key introspection endpoint: `/api/v1/key` (verified HTTP 200), matching
+    // upstream's `{base}/key` append. (OpenRouter also aliases `/auth/key`, but
+    // we mirror upstream's canonical path.)
+    #[test]
+    fn key_url_resolves_to_canonical_path() {
+        let url = format!("{}/key", OPENROUTER_API_BASE);
+        assert_eq!(url, "https://openrouter.ai/api/v1/key");
     }
 }
