@@ -4,11 +4,16 @@
 
 Win-CodexBar is a Windows system-tray app for keeping AI coding-tool usage visible without opening a dozen dashboards. It ports the spirit of [CodexBar](https://github.com/steipete/CodexBar) to a Tauri + React desktop shell backed by shared Rust provider logic.
 
-<p align="center">
-  <img src="extra-docs/images/tray-panel.png" width="330" alt="Win-CodexBar tray panel showing provider usage cards"/>
-  &nbsp;&nbsp;
-  <img src="extra-docs/images/settings-providers.png" width="560" alt="Win-CodexBar Providers settings page"/>
-</p>
+<table>
+  <tr>
+    <td width="36%" align="center">
+      <img src="extra-docs/images/tray-panel.png" alt="Win-CodexBar tray panel showing provider usage cards"/>
+    </td>
+    <td width="64%" align="center">
+      <img src="extra-docs/images/settings-providers.png" alt="Win-CodexBar Providers settings page"/>
+    </td>
+  </tr>
+</table>
 
 ## Highlights
 
