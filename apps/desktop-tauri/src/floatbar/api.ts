@@ -26,6 +26,10 @@ export function setFloatBarClickThrough(enabled: boolean): Promise<void> {
   return invoke<void>("set_float_bar_click_through", { enabled });
 }
 
+export function reapplyFloatBarInteraction(): Promise<void> {
+  return invoke<void>("reapply_float_bar_interaction");
+}
+
 export function setFloatBarOrientation(orientation: string): Promise<void> {
   return invoke<void>("set_float_bar_orientation", { orientation });
 }

@@ -41,10 +41,13 @@ pub struct SettingsUpdate {
     pub provider_metrics: Option<std::collections::HashMap<String, String>>,
     pub float_bar_enabled: Option<bool>,
     pub float_bar_opacity: Option<u8>,
+    pub float_bar_scale: Option<u8>,
     pub float_bar_orientation: Option<String>,
+    pub float_bar_style: Option<String>,
     pub float_bar_click_through: Option<bool>,
     pub float_bar_provider_ids: Option<Vec<String>>,
     pub float_bar_dark_text: Option<bool>,
+    pub float_bar_show_reset_inline: Option<bool>,
 }
 
 impl SettingsUpdate {
@@ -53,6 +56,8 @@ impl SettingsUpdate {
             || self.refresh_interval_secs.is_some()
             || self.high_usage_threshold.is_some()
             || self.critical_usage_threshold.is_some()
+            || self.show_as_used.is_some()
+            || self.reset_time_relative.is_some()
     }
 
     fn rebuilds_tray_menu(&self) -> bool {
@@ -203,10 +208,13 @@ impl SettingsUpdate {
         crate::floatbar::SettingsPatch {
             enabled: self.float_bar_enabled,
             opacity: self.float_bar_opacity,
+            scale: self.float_bar_scale,
             orientation: self.float_bar_orientation.clone(),
+            style: self.float_bar_style.clone(),
             click_through: self.float_bar_click_through,
             provider_ids: self.float_bar_provider_ids.clone(),
             dark_text: self.float_bar_dark_text,
+            show_reset_inline: self.float_bar_show_reset_inline,
         }
     }
 

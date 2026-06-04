@@ -1,6 +1,8 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Field, Select, Toggle } from "../components/FormControls";
 import type {
   FloatBarOrientation,
+  FloatBarStyle,
   SettingsSnapshot,
   SettingsUpdate,
 } from "../types/bridge";
@@ -11,12 +13,42 @@ interface Props {
   set: (patch: SettingsUpdate) => void;
 }
 
+function useDraftNumber(value: number) {
+  const [draft, setDraft] = useState(value);
+  const lastCommitted = useRef(value);
+
+  useEffect(() => {
+    setDraft(value);
+    lastCommitted.current = value;
+  }, [value]);
+
+  const commit = useCallback(
+    (next: number, onCommit: (value: number) => void) => {
+      if (next === lastCommitted.current) return;
+      lastCommitted.current = next;
+      onCommit(next);
+    },
+    [],
+  );
+
+  return { draft, setDraft, commit };
+}
+
 /**
  * Settings UI block for the floating capacity bar. Rendered as one row
  * in the Display tab — kept in this module so the Display tab only
  * imports a single component.
  */
 export default function FloatBarSettingsSection({ settings, saving, set }: Props) {
+  const opacity = useDraftNumber(settings.floatBarOpacity);
+  const scale = useDraftNumber(settings.floatBarScale);
+  const commitOpacity = () => {
+    opacity.commit(opacity.draft, (value) => set({ floatBarOpacity: value }));
+  };
+  const commitScale = () => {
+    scale.commit(scale.draft, (value) => set({ floatBarScale: value }));
+  };
+
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">Floating Bar</h3>
@@ -47,7 +79,21 @@ export default function FloatBarSettingsSection({ settings, saving, set }: Props
           />
         </Field>
         <Field
-          label={`Opacity (${settings.floatBarOpacity}%)`}
+          label="Style"
+          description="Choose the original floating glass look or the Windows taskbar widget look."
+        >
+          <Select
+            value={settings.floatBarStyle}
+            disabled={saving || !settings.floatBarEnabled}
+            options={[
+              { value: "floating", label: "Floating glass" },
+              { value: "taskbar", label: "Taskbar widget" },
+            ]}
+            onChange={(v) => set({ floatBarStyle: v as FloatBarStyle })}
+          />
+        </Field>
+        <Field
+          label={`Opacity (${opacity.draft}%)`}
           description="Lower values make the bar more see-through."
         >
           <input
@@ -55,15 +101,49 @@ export default function FloatBarSettingsSection({ settings, saving, set }: Props
             min={30}
             max={100}
             step={5}
-            value={settings.floatBarOpacity}
-            disabled={saving || !settings.floatBarEnabled}
-            onChange={(e) => set({ floatBarOpacity: Number(e.target.value) })}
+            value={opacity.draft}
+            disabled={!settings.floatBarEnabled}
+            onChange={(e) => opacity.setDraft(Number(e.target.value))}
+            onPointerUp={commitOpacity}
+            onTouchEnd={commitOpacity}
+            onBlur={commitOpacity}
+            onKeyUp={commitOpacity}
             aria-label="Floating bar opacity"
           />
         </Field>
         <Field
-          label="Light Background Mode"
-          description="Inverts contrast — use when the bar sits over a light desktop background."
+          label={`Size (${scale.draft}%)`}
+          description="Scales the floating bar icons, text, and pill spacing."
+        >
+          <input
+            type="range"
+            min={75}
+            max={200}
+            step={5}
+            value={scale.draft}
+            disabled={!settings.floatBarEnabled}
+            onChange={(e) => scale.setDraft(Number(e.target.value))}
+            onPointerUp={commitScale}
+            onTouchEnd={commitScale}
+            onBlur={commitScale}
+            onKeyUp={commitScale}
+            aria-label="Floating bar size"
+          />
+        </Field>
+        <Field
+          label="Show Reset Time Inline"
+          description="Shows the reset time beside each provider percentage with a reset icon."
+          leading
+        >
+          <Toggle
+            checked={settings.floatBarShowResetInline}
+            disabled={saving || !settings.floatBarEnabled}
+            onChange={(v) => set({ floatBarShowResetInline: v })}
+          />
+        </Field>
+        <Field
+          label="Invert Colors"
+          description="Switches to dark text on light glass for bright backgrounds."
           leading
         >
           <Toggle

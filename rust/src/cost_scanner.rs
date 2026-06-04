@@ -293,7 +293,7 @@ impl CostScanner {
 
     fn parse_codex_file(
         &self,
-        path: &PathBuf,
+        path: &Path,
         summary: &mut CostSummary,
         cancel: Option<&AtomicBool>,
     ) {

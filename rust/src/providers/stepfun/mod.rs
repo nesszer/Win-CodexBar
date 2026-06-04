@@ -162,10 +162,10 @@ impl StepFunProvider {
     }
 
     fn persist_refreshed_token(&self, token: &str) {
-        if let Ok(entry) = keyring::Entry::new(STEPFUN_CREDENTIAL_TARGET, "api_key") {
-            if let Err(error) = entry.set_password(token) {
-                tracing::debug!("Could not persist refreshed StepFun token: {error}");
-            }
+        if let Ok(entry) = keyring::Entry::new(STEPFUN_CREDENTIAL_TARGET, "api_key")
+            && let Err(error) = entry.set_password(token)
+        {
+            tracing::debug!("Could not persist refreshed StepFun token: {error}");
         }
     }
 

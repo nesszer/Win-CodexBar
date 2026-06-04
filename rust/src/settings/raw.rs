@@ -115,14 +115,20 @@ pub(super) struct RawSettings {
     float_bar_enabled: bool,
     #[serde(default = "default_float_bar_opacity")]
     float_bar_opacity: u8,
+    #[serde(default = "default_float_bar_scale")]
+    float_bar_scale: u8,
     #[serde(default = "default_float_bar_orientation")]
     float_bar_orientation: String,
+    #[serde(default = "default_float_bar_style")]
+    float_bar_style: String,
     #[serde(default)]
     float_bar_click_through: bool,
     #[serde(default)]
     float_bar_provider_ids: Vec<String>,
     #[serde(default)]
     float_bar_dark_text: bool,
+    #[serde(default)]
+    float_bar_show_reset_inline: bool,
 }
 
 impl Default for RawSettings {
@@ -192,10 +198,13 @@ impl Default for RawSettings {
             theme: s.theme,
             float_bar_enabled: s.float_bar_enabled,
             float_bar_opacity: s.float_bar_opacity,
+            float_bar_scale: s.float_bar_scale,
             float_bar_orientation: s.float_bar_orientation,
+            float_bar_style: s.float_bar_style,
             float_bar_click_through: s.float_bar_click_through,
             float_bar_provider_ids: s.float_bar_provider_ids,
             float_bar_dark_text: s.float_bar_dark_text,
+            float_bar_show_reset_inline: s.float_bar_show_reset_inline,
         }
     }
 }
@@ -442,10 +451,13 @@ impl From<RawSettings> for Settings {
             theme: raw.theme,
             float_bar_enabled: raw.float_bar_enabled,
             float_bar_opacity: clamp_float_bar_opacity(raw.float_bar_opacity),
+            float_bar_scale: clamp_float_bar_scale(raw.float_bar_scale),
             float_bar_orientation: normalize_float_bar_orientation(&raw.float_bar_orientation),
+            float_bar_style: normalize_float_bar_style(&raw.float_bar_style),
             float_bar_click_through: raw.float_bar_click_through,
             float_bar_provider_ids: raw.float_bar_provider_ids,
             float_bar_dark_text: raw.float_bar_dark_text,
+            float_bar_show_reset_inline: raw.float_bar_show_reset_inline,
         }
     }
 }

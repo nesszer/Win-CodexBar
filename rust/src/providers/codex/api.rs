@@ -112,7 +112,7 @@ impl CodexApi {
     }
 
     fn parse_credentials_json(content: &str) -> Result<CodexCredentials, ProviderError> {
-        let json: serde_json::Value = serde_json::from_str(&content)
+        let json: serde_json::Value = serde_json::from_str(content)
             .map_err(|e| ProviderError::Parse(format!("Invalid Codex credentials JSON: {}", e)))?;
 
         // Check for OPENAI_API_KEY first

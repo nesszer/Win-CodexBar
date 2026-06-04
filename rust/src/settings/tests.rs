@@ -16,10 +16,13 @@ fn float_bar_defaults_are_safe() {
     let settings = Settings::default();
     assert!(!settings.float_bar_enabled);
     assert_eq!(settings.float_bar_opacity, 80);
+    assert_eq!(settings.float_bar_scale, 100);
     assert_eq!(settings.float_bar_orientation, "horizontal");
+    assert_eq!(settings.float_bar_style, "floating");
     assert!(!settings.float_bar_click_through);
     assert!(settings.float_bar_provider_ids.is_empty());
     assert!(!settings.float_bar_dark_text);
+    assert!(!settings.float_bar_show_reset_inline);
 }
 
 #[test]
@@ -36,6 +39,15 @@ fn float_bar_opacity_clamp_pins_to_supported_range() {
 }
 
 #[test]
+fn float_bar_scale_clamp_pins_to_supported_range() {
+    assert_eq!(clamp_float_bar_scale(0), 75);
+    assert_eq!(clamp_float_bar_scale(74), 75);
+    assert_eq!(clamp_float_bar_scale(100), 100);
+    assert_eq!(clamp_float_bar_scale(150), 150);
+    assert_eq!(clamp_float_bar_scale(250), 200);
+}
+
+#[test]
 fn float_bar_orientation_normalization_rejects_unknown_values() {
     assert_eq!(normalize_float_bar_orientation("horizontal"), "horizontal");
     assert_eq!(normalize_float_bar_orientation("vertical"), "vertical");
@@ -47,6 +59,15 @@ fn float_bar_orientation_normalization_rejects_unknown_values() {
 }
 
 #[test]
+fn float_bar_style_normalization_rejects_unknown_values() {
+    assert_eq!(normalize_float_bar_style("floating"), "floating");
+    assert_eq!(normalize_float_bar_style("taskbar"), "taskbar");
+    assert_eq!(normalize_float_bar_style(""), "floating");
+    assert_eq!(normalize_float_bar_style("TASKBAR"), "floating");
+    assert_eq!(normalize_float_bar_style("glass"), "floating");
+}
+
+#[test]
 fn float_bar_settings_round_trip_through_raw() {
     // Serialize a Settings with custom float-bar values then deserialize
     // through the `from = "RawSettings"` path — values must survive intact
@@ -54,10 +75,13 @@ fn float_bar_settings_round_trip_through_raw() {
     let s = Settings {
         float_bar_enabled: true,
         float_bar_opacity: 65,
+        float_bar_scale: 140,
         float_bar_orientation: "vertical".to_string(),
+        float_bar_style: "taskbar".to_string(),
         float_bar_click_through: true,
         float_bar_provider_ids: vec!["claude".into(), "codex".into()],
         float_bar_dark_text: true,
+        float_bar_show_reset_inline: true,
         ..Settings::default()
     };
 
@@ -65,10 +89,13 @@ fn float_bar_settings_round_trip_through_raw() {
     let back: Settings = serde_json::from_str(&json).expect("deserialize");
     assert!(back.float_bar_enabled);
     assert_eq!(back.float_bar_opacity, 65);
+    assert_eq!(back.float_bar_scale, 140);
     assert_eq!(back.float_bar_orientation, "vertical");
+    assert_eq!(back.float_bar_style, "taskbar");
     assert!(back.float_bar_click_through);
     assert_eq!(back.float_bar_provider_ids, vec!["claude", "codex"]);
     assert!(back.float_bar_dark_text);
+    assert!(back.float_bar_show_reset_inline);
 }
 
 #[test]
@@ -95,11 +122,15 @@ fn float_bar_raw_clamps_out_of_range_opacity_on_load() {
             "disable_keychain_access": false,
             "hide_personal_info": false,
             "float_bar_opacity": 250,
-            "float_bar_orientation": "diagonal"
+            "float_bar_scale": 250,
+            "float_bar_orientation": "diagonal",
+            "float_bar_style": "glass"
         }"#;
     let loaded: Settings = serde_json::from_str(json).expect("parse");
     assert_eq!(loaded.float_bar_opacity, 100);
+    assert_eq!(loaded.float_bar_scale, 200);
     assert_eq!(loaded.float_bar_orientation, "horizontal");
+    assert_eq!(loaded.float_bar_style, "floating");
 }
 
 #[test]

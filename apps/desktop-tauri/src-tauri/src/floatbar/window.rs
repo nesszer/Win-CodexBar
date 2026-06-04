@@ -41,15 +41,14 @@ pub fn show(
     app: &tauri::AppHandle,
     opacity: u8,
     orientation: &str,
+    style: &str,
     click_through: bool,
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(FLOATBAR_LABEL) {
+        apply_no_activate(&window);
         apply_opacity(&window, opacity);
         apply_click_through(&window, click_through);
         window.show().map_err(|e| e.to_string())?;
-        if !click_through {
-            window.set_focus().map_err(|e| e.to_string())?;
-        }
         return Ok(());
     }
 
@@ -79,7 +78,9 @@ pub fn show(
         .build()
         .map_err(|e| e.to_string())?;
 
-    // Restore prior geometry if we have one; otherwise center top.
+    // Restore prior geometry if we have one. Otherwise, taskbar style opens
+    // near the bottom while the original floating style keeps its top-center
+    // placement.
     if let Some(g) = geometry_store::load_entry(FLOATBAR_LABEL) {
         let _ = win.set_position(LogicalPosition::new(g.x as f64, g.y as f64));
         if let (Some(w), Some(h)) = (g.width, g.height) {
@@ -87,17 +88,23 @@ pub fn show(
         }
     } else if let Ok(Some(monitor)) = win.primary_monitor() {
         let scale = win.scale_factor().unwrap_or(1.0);
+        let mon_x = monitor.position().x as f64 / scale;
+        let mon_y = monitor.position().y as f64 / scale;
         let mon_w = monitor.size().width as f64 / scale;
-        let x = (mon_w - w) / 2.0;
-        let _ = win.set_position(LogicalPosition::new(x.max(0.0), 8.0));
+        let mon_h = monitor.size().height as f64 / scale;
+        let x = mon_x + (mon_w - w) / 2.0;
+        let y = if style == "taskbar" {
+            mon_y + mon_h - h - 8.0
+        } else {
+            mon_y + 8.0
+        };
+        let _ = win.set_position(LogicalPosition::new(x.max(mon_x), y.max(mon_y)));
     }
 
+    apply_no_activate(&win);
     apply_opacity(&win, opacity);
     apply_click_through(&win, click_through);
     win.show().map_err(|e| e.to_string())?;
-    if !click_through {
-        let _ = win.set_focus();
-    }
     Ok(())
 }
 
@@ -187,14 +194,37 @@ pub fn apply_opacity(window: &tauri::WebviewWindow, opacity: u8) {
         };
         unsafe {
             // Ensure WS_EX_LAYERED is set so SetLayeredWindowAttributes works.
-            const GWL_EXSTYLE: i32 = -20;
             const WS_EX_LAYERED: isize = 0x00080000;
             let ex = GetWindowLongPtrW(h.hwnd.get(), GWL_EXSTYLE);
             if ex & WS_EX_LAYERED == 0 {
-                SetWindowLongPtrW(h.hwnd.get(), GWL_EXSTYLE, ex | WS_EX_LAYERED);
+                set_extended_style(h.hwnd.get(), ex | WS_EX_LAYERED);
             }
             const LWA_ALPHA: u32 = 0x00000002;
             SetLayeredWindowAttributes(h.hwnd.get(), 0, alpha, LWA_ALPHA);
+        }
+    }
+}
+
+/// Keep the floatbar from activating when it is shown or clicked. This makes
+/// it behave like a desktop widget that visually sits above the taskbar without
+/// stealing focus from the active app.
+pub fn apply_no_activate(window: &tauri::WebviewWindow) {
+    let _ = window;
+    #[cfg(windows)]
+    {
+        use raw_window_handle::HasWindowHandle;
+        let Ok(handle) = window.window_handle() else {
+            return;
+        };
+        let raw_window_handle::RawWindowHandle::Win32(h) = handle.as_raw() else {
+            return;
+        };
+        unsafe {
+            const WS_EX_NOACTIVATE: isize = 0x08000000;
+            let ex = GetWindowLongPtrW(h.hwnd.get(), GWL_EXSTYLE);
+            if ex & WS_EX_NOACTIVATE == 0 {
+                set_extended_style(h.hwnd.get(), ex | WS_EX_NOACTIVATE);
+            }
         }
     }
 }
@@ -213,7 +243,6 @@ pub fn apply_click_through(window: &tauri::WebviewWindow, click_through: bool) {
             return;
         };
         unsafe {
-            const GWL_EXSTYLE: i32 = -20;
             const WS_EX_LAYERED: isize = 0x00080000;
             const WS_EX_TRANSPARENT: isize = 0x00000020;
             let ex = GetWindowLongPtrW(h.hwnd.get(), GWL_EXSTYLE);
@@ -224,9 +253,26 @@ pub fn apply_click_through(window: &tauri::WebviewWindow, click_through: bool) {
                 new_ex &= !WS_EX_TRANSPARENT;
             }
             if new_ex != ex {
-                SetWindowLongPtrW(h.hwnd.get(), GWL_EXSTYLE, new_ex);
+                set_extended_style(h.hwnd.get(), new_ex);
             }
         }
+    }
+}
+
+#[cfg(windows)]
+const GWL_EXSTYLE: i32 = -20;
+
+#[cfg(windows)]
+unsafe fn set_extended_style(hwnd: isize, ex_style: isize) {
+    unsafe {
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style);
+        const SWP_NOSIZE: u32 = 0x0001;
+        const SWP_NOMOVE: u32 = 0x0002;
+        const SWP_NOZORDER: u32 = 0x0004;
+        const SWP_NOACTIVATE: u32 = 0x0010;
+        const SWP_FRAMECHANGED: u32 = 0x0020;
+        let flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED;
+        SetWindowPos(hwnd, 0, 0, 0, 0, 0, flags);
     }
 }
 
@@ -236,6 +282,15 @@ unsafe extern "system" {
     fn GetWindowLongPtrW(hwnd: isize, index: i32) -> isize;
     fn SetWindowLongPtrW(hwnd: isize, index: i32, new: isize) -> isize;
     fn SetLayeredWindowAttributes(hwnd: isize, color_key: u32, alpha: u8, flags: u32) -> i32;
+    fn SetWindowPos(
+        hwnd: isize,
+        hwnd_insert_after: isize,
+        x: i32,
+        y: i32,
+        cx: i32,
+        cy: i32,
+        flags: u32,
+    ) -> i32;
 }
 
 #[cfg(test)]

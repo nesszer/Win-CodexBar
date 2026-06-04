@@ -79,6 +79,7 @@ pub async fn get_provider_chart_data(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn build_provider_chart_data(
     provider_id: String,
     account_email: Option<String>,
