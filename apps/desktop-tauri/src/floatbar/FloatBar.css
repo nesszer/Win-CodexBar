@@ -19,16 +19,16 @@ body.floatbar-window #root {
 }
 
 /* Container is fully transparent — the pills float individually so the
- * bar reads as light UI sitting on whatever's underneath. */
+ * group reads like a compact widget sitting on the Windows taskbar. */
 .floatbar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: calc(4px * var(--floatbar-scale, 1));
   padding: 0;
   background: transparent;
-  color: rgba(255, 255, 255, 0.95);
-  font: 600 10px/1 -apple-system, system-ui, "Segoe UI", sans-serif;
+  color: rgba(24, 42, 54, 0.94);
+  font: 600 calc(10px * var(--floatbar-scale, 1))/1 -apple-system, system-ui, "Segoe UI", sans-serif;
   -webkit-user-select: none;
   user-select: none;
   width: max-content;
@@ -37,72 +37,129 @@ body.floatbar-window #root {
 .floatbar--vertical {
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: calc(3px * var(--floatbar-scale, 1));
 }
-/* 2-row dot grip — classic drag affordance. Sits in its own translucent
- * pill so the user has a clear target to grab; everything else around it
- * is fully transparent. */
+/* Compact line grip, matching the small handle affordance in Windows taskbar
+ * widgets while still giving the user a clear drag target. */
 .floatbar__handle {
-  width: 10px;
-  height: 16px;
+  width: calc(10px * var(--floatbar-scale, 1));
+  height: calc(16px * var(--floatbar-scale, 1));
   flex-shrink: 0;
   cursor: grab;
-  border-radius: 999px;
-  background-color: rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-radius: calc(3px * var(--floatbar-scale, 1));
+  background-color: transparent;
   background-image:
-    radial-gradient(circle, rgba(255, 255, 255, 0.7) 1px, transparent 1.5px);
-  background-size: 3px 4px;
+    repeating-linear-gradient(
+      to bottom,
+      rgba(25, 47, 60, 0.68) 0,
+      rgba(25, 47, 60, 0.68) 1px,
+      transparent 1px,
+      transparent calc(4px * var(--floatbar-scale, 1))
+    );
+  background-size: calc(8px * var(--floatbar-scale, 1)) calc(12px * var(--floatbar-scale, 1));
   background-position: center;
-  background-repeat: repeat;
+  background-repeat: no-repeat;
   opacity: 0.85;
   transition: opacity 120ms ease, background-color 120ms ease;
 }
 .floatbar__handle:hover {
   opacity: 1;
-  background-color: rgba(255, 255, 255, 0.16);
+  background-color: rgba(255, 255, 255, 0.22);
 }
 .floatbar--vertical .floatbar__handle {
-  width: 16px;
-  height: 10px;
-  background-size: 4px 3px;
+  width: calc(16px * var(--floatbar-scale, 1));
+  height: calc(10px * var(--floatbar-scale, 1));
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      rgba(25, 47, 60, 0.68) 0,
+      rgba(25, 47, 60, 0.68) 1px,
+      transparent 1px,
+      transparent calc(4px * var(--floatbar-scale, 1))
+    );
+  background-size: calc(12px * var(--floatbar-scale, 1)) calc(8px * var(--floatbar-scale, 1));
 }
 .floatbar__pill {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 5px;
-  height: 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid var(--brand, rgba(255, 255, 255, 0.22));
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  gap: calc(3px * var(--floatbar-scale, 1));
+  padding: calc(1px * var(--floatbar-scale, 1)) calc(5px * var(--floatbar-scale, 1));
+  min-height: calc(16px * var(--floatbar-scale, 1));
+  border-radius: calc(7px * var(--floatbar-scale, 1));
+  background: rgba(213, 231, 242, 0.74);
+  backdrop-filter: blur(16px) saturate(145%);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
+    0 1px 2px rgba(14, 42, 62, 0.22);
   white-space: nowrap;
+  cursor: grab;
+}
+.floatbar__pill *,
+.floatbar__handle *,
+.floatbar__empty * {
+  pointer-events: none;
+}
+.floatbar__provider-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .floatbar__pill--warn {
-  border-color: #f59e0b;
-  color: #fbbf24;
+  background: rgba(250, 221, 171, 0.84);
+  border-color: rgba(255, 246, 219, 0.62);
+  color: #7a4c05;
 }
 .floatbar__pill--crit {
-  border-color: #ef4444;
-  color: #fca5a5;
+  background: rgba(255, 194, 194, 0.86);
+  border-color: rgba(255, 236, 236, 0.66);
+  color: #7f1d1d;
+}
+.floatbar__text {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--floatbar-scale, 1));
+  line-height: 1;
 }
 .floatbar__pct {
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+  line-height: 1;
+}
+.floatbar__reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(2px * var(--floatbar-scale, 1));
+  color: currentColor;
+  opacity: 0.72;
+  line-height: 1;
+}
+.floatbar__reset-icon-svg {
+  display: block;
+  flex-shrink: 0;
+}
+.floatbar__reset-time {
+  font-size: 0.86em;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.floatbar--vertical .floatbar__text {
+  flex-direction: column;
+  align-items: center;
+  gap: calc(1px * var(--floatbar-scale, 1));
 }
 .floatbar__empty {
   display: inline-flex;
   align-items: center;
-  height: 16px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  min-height: calc(16px * var(--floatbar-scale, 1));
+  padding: 0 calc(8px * var(--floatbar-scale, 1));
+  border-radius: calc(7px * var(--floatbar-scale, 1));
+  background: rgba(213, 231, 242, 0.74);
+  backdrop-filter: blur(16px) saturate(145%);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
   opacity: 0.75;
   font-weight: 500;
 }
@@ -116,8 +173,8 @@ body.floatbar-window #root {
 }
 .floatbar--light-bg .floatbar__pill,
 .floatbar--light-bg .floatbar__empty {
-  background: rgba(255, 255, 255, 0.55);
-  border-color: var(--brand, rgba(20, 22, 26, 0.25));
+  background: rgba(248, 252, 255, 0.82);
+  border-color: rgba(255, 255, 255, 0.64);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 .floatbar--light-bg .floatbar__pill--warn {
@@ -129,10 +186,98 @@ body.floatbar-window #root {
   color: #991b1b;
 }
 .floatbar--light-bg .floatbar__handle {
+  background-color: transparent;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(20, 22, 26, 0.75) 0,
+      rgba(20, 22, 26, 0.75) 1px,
+      transparent 1px,
+      transparent calc(4px * var(--floatbar-scale, 1))
+    );
+}
+.floatbar--light-bg .floatbar__handle:hover {
+  background-color: rgba(20, 22, 26, 0.08);
+}
+.floatbar--light-bg.floatbar--vertical .floatbar__handle {
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      rgba(20, 22, 26, 0.75) 0,
+      rgba(20, 22, 26, 0.75) 1px,
+      transparent 1px,
+      transparent calc(4px * var(--floatbar-scale, 1))
+    );
+}
+
+/* ── Original floating-glass style ─────────────────────────────────── */
+.floatbar--floating {
+  color: rgba(255, 255, 255, 0.95);
+}
+.floatbar--floating .floatbar__handle {
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.7) 1px, transparent 1.5px);
+  background-size: calc(3px * var(--floatbar-scale, 1)) calc(4px * var(--floatbar-scale, 1));
+  background-repeat: repeat;
+}
+.floatbar--floating .floatbar__handle:hover {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+.floatbar--floating.floatbar--vertical .floatbar__handle {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.7) 1px, transparent 1.5px);
+  background-size: calc(4px * var(--floatbar-scale, 1)) calc(3px * var(--floatbar-scale, 1));
+}
+.floatbar--floating .floatbar__pill {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--brand, rgba(255, 255, 255, 0.22));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.floatbar--floating .floatbar__pill--warn {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+.floatbar--floating .floatbar__pill--crit {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+.floatbar--floating .floatbar__empty {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+.floatbar--floating.floatbar--light-bg {
+  color: rgba(20, 22, 26, 0.95);
+}
+.floatbar--floating.floatbar--light-bg .floatbar__pill,
+.floatbar--floating.floatbar--light-bg .floatbar__empty {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: var(--brand, rgba(20, 22, 26, 0.25));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.floatbar--floating.floatbar--light-bg .floatbar__pill--warn {
+  border-color: #b45309;
+  color: #92400e;
+}
+.floatbar--floating.floatbar--light-bg .floatbar__pill--crit {
+  border-color: #b91c1c;
+  color: #991b1b;
+}
+.floatbar--floating.floatbar--light-bg .floatbar__handle {
   background-color: rgba(20, 22, 26, 0.10);
   background-image:
     radial-gradient(circle, rgba(20, 22, 26, 0.75) 1px, transparent 1.5px);
 }
-.floatbar--light-bg .floatbar__handle:hover {
+.floatbar--floating.floatbar--light-bg .floatbar__handle:hover {
   background-color: rgba(20, 22, 26, 0.18);
 }

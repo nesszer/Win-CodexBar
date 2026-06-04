@@ -148,6 +148,7 @@ fn main() {
             floatbar::hide_float_bar,
             floatbar::set_float_bar_opacity,
             floatbar::set_float_bar_click_through,
+            floatbar::reapply_float_bar_interaction,
             floatbar::set_float_bar_orientation,
         ])
         .setup(move |app| {

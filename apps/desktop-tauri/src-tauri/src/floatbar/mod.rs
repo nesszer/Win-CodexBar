@@ -25,6 +25,7 @@ pub fn install(app: &tauri::AppHandle) {
             app,
             persisted.float_bar_opacity,
             &persisted.float_bar_orientation,
+            &persisted.float_bar_style,
             persisted.float_bar_click_through,
         );
     }
@@ -59,6 +60,7 @@ pub fn toggle(app: &tauri::AppHandle) {
             app,
             settings.float_bar_opacity,
             &settings.float_bar_orientation,
+            &settings.float_bar_style,
             settings.float_bar_click_through,
         );
     } else {
@@ -76,11 +78,13 @@ pub fn apply_state(app: &tauri::AppHandle, settings: &Settings) {
             app,
             settings.float_bar_opacity,
             &settings.float_bar_orientation,
+            &settings.float_bar_style,
             settings.float_bar_click_through,
         );
     } else if !settings.float_bar_enabled && open {
         let _ = window::hide(app);
     } else if let Some(w) = app.get_webview_window(FLOATBAR_LABEL) {
+        window::apply_no_activate(&w);
         window::apply_opacity(&w, settings.float_bar_opacity);
         window::apply_click_through(&w, settings.float_bar_click_through);
     }
@@ -93,20 +97,26 @@ pub fn apply_state(app: &tauri::AppHandle, settings: &Settings) {
 pub struct SettingsPatch {
     pub enabled: Option<bool>,
     pub opacity: Option<u8>,
+    pub scale: Option<u8>,
     pub orientation: Option<String>,
+    pub style: Option<String>,
     pub click_through: Option<bool>,
     pub provider_ids: Option<Vec<String>>,
     pub dark_text: Option<bool>,
+    pub show_reset_inline: Option<bool>,
 }
 
 impl SettingsPatch {
     pub fn is_empty(&self) -> bool {
         self.enabled.is_none()
             && self.opacity.is_none()
+            && self.scale.is_none()
             && self.orientation.is_none()
+            && self.style.is_none()
             && self.click_through.is_none()
             && self.provider_ids.is_none()
             && self.dark_text.is_none()
+            && self.show_reset_inline.is_none()
     }
 
     /// Apply this patch to a mutable `Settings`. Values are clamped and
@@ -118,8 +128,14 @@ impl SettingsPatch {
         if let Some(v) = self.opacity {
             settings.float_bar_opacity = codexbar::settings::clamp_float_bar_opacity(v);
         }
+        if let Some(v) = self.scale {
+            settings.float_bar_scale = codexbar::settings::clamp_float_bar_scale(v);
+        }
         if let Some(v) = &self.orientation {
             settings.float_bar_orientation = codexbar::settings::normalize_float_bar_orientation(v);
+        }
+        if let Some(v) = &self.style {
+            settings.float_bar_style = codexbar::settings::normalize_float_bar_style(v);
         }
         if let Some(v) = self.click_through {
             settings.float_bar_click_through = v;
@@ -129,6 +145,9 @@ impl SettingsPatch {
         }
         if let Some(v) = self.dark_text {
             settings.float_bar_dark_text = v;
+        }
+        if let Some(v) = self.show_reset_inline {
+            settings.float_bar_show_reset_inline = v;
         }
     }
 }
@@ -168,21 +187,30 @@ mod tests {
         let mut s = Settings {
             float_bar_enabled: false,
             float_bar_opacity: 80,
+            float_bar_scale: 100,
             float_bar_orientation: "horizontal".into(),
+            float_bar_style: "floating".into(),
             float_bar_dark_text: false,
+            float_bar_show_reset_inline: false,
             ..Settings::default()
         };
 
         let patch = SettingsPatch {
             enabled: Some(true),
             opacity: Some(45),
+            scale: Some(135),
+            style: Some("taskbar".into()),
             dark_text: Some(true),
+            show_reset_inline: Some(true),
             ..SettingsPatch::default()
         };
         patch.apply(&mut s);
         assert!(s.float_bar_enabled);
         assert_eq!(s.float_bar_opacity, 45);
+        assert_eq!(s.float_bar_scale, 135);
+        assert_eq!(s.float_bar_style, "taskbar");
         assert!(s.float_bar_dark_text);
+        assert!(s.float_bar_show_reset_inline);
         // Orientation untouched by the patch.
         assert_eq!(s.float_bar_orientation, "horizontal");
     }
@@ -192,12 +220,16 @@ mod tests {
         let mut s = Settings::default();
         let patch = SettingsPatch {
             opacity: Some(250),
+            scale: Some(250),
             orientation: Some("diagonal".into()),
+            style: Some("glass".into()),
             ..SettingsPatch::default()
         };
         patch.apply(&mut s);
         assert_eq!(s.float_bar_opacity, 100);
+        assert_eq!(s.float_bar_scale, 200);
         assert_eq!(s.float_bar_orientation, "horizontal");
+        assert_eq!(s.float_bar_style, "floating");
     }
 
     #[test]
@@ -207,7 +239,13 @@ mod tests {
         SettingsPatch::default().apply(&mut s);
         assert_eq!(s.float_bar_enabled, original.float_bar_enabled);
         assert_eq!(s.float_bar_opacity, original.float_bar_opacity);
+        assert_eq!(s.float_bar_scale, original.float_bar_scale);
         assert_eq!(s.float_bar_orientation, original.float_bar_orientation);
+        assert_eq!(s.float_bar_style, original.float_bar_style);
         assert_eq!(s.float_bar_dark_text, original.float_bar_dark_text);
+        assert_eq!(
+            s.float_bar_show_reset_inline,
+            original.float_bar_show_reset_inline
+        );
     }
 }

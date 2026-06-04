@@ -116,10 +116,13 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     providerMetrics: {},
     floatBarEnabled: true,
     floatBarOpacity: 80,
+    floatBarScale: 100,
     floatBarOrientation: "horizontal",
+    floatBarStyle: "floating",
     floatBarClickThrough: false,
     floatBarProviderIds: [],
     floatBarDarkText: false,
+    floatBarShowResetInline: false,
     ...overrides,
   };
 }
@@ -283,6 +286,19 @@ describe("FloatBar", () => {
     });
   });
 
+  it("applies the configured scale as a CSS variable", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ floatBarScale: 150 }));
+
+    const { container } = renderFloatBar(bootstrap({ floatBarScale: 150 }));
+
+    await waitFor(() => {
+      const bar = container.querySelector<HTMLElement>(".floatbar");
+      expect(bar).not.toBeNull();
+      expect(bar?.style.getPropertyValue("--floatbar-scale")).toBe("1.5");
+    });
+  });
+
   it("uses the localized reset formatter in pill tooltips", async () => {
     const resetsAt = new Date(Date.now() + 3 * 60 * 60_000 + 42 * 60_000).toISOString();
     tauriMocks.getCachedProviders.mockResolvedValue([
@@ -299,6 +315,28 @@ describe("FloatBar", () => {
       expect(title).toContain("Claude: 20% used");
       expect(title).toMatch(/Resets in 3h 4[12]m/);
       expect(title).not.toContain("Resets in due now");
+    });
+  });
+
+  it("can render a next reset icon and time in provider pills", async () => {
+    const resetsAt = new Date(Date.now() + 2 * 60 * 60_000 + 5 * 60_000).toISOString();
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("claude", "Claude", 20, { resetsAt }),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(
+      settings({ floatBarShowResetInline: true }),
+    );
+
+    const { container } = renderFloatBar(
+      bootstrap({ floatBarShowResetInline: true }),
+    );
+
+    await waitFor(() => {
+      const reset = container.querySelector(".floatbar__reset");
+      expect(reset).not.toBeNull();
+      expect(reset?.getAttribute("aria-label")).toMatch(/Resets in 2h [45]m/);
+      expect(reset?.textContent).toMatch(/2h [45]m/);
+      expect(reset?.textContent).not.toContain("Resets in");
     });
   });
 

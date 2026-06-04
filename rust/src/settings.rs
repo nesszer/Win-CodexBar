@@ -162,9 +162,17 @@ pub struct Settings {
     #[serde(default = "default_float_bar_opacity")]
     pub float_bar_opacity: u8,
 
+    /// Floating-bar visual scale, in the inclusive range 75..=200.
+    #[serde(default = "default_float_bar_scale")]
+    pub float_bar_scale: u8,
+
     /// Floating-bar orientation: "horizontal" (default) or "vertical".
     #[serde(default = "default_float_bar_orientation")]
     pub float_bar_orientation: String,
+
+    /// Floating-bar visual style: "floating" (default) or "taskbar".
+    #[serde(default = "default_float_bar_style")]
+    pub float_bar_style: String,
 
     /// When true the floating bar is fully click-through (overlay mode).
     #[serde(default)]
@@ -179,14 +187,26 @@ pub struct Settings {
     /// (light-on-dark, the original look).
     #[serde(default)]
     pub float_bar_dark_text: bool,
+
+    /// When true, show the primary window's next reset inline in each pill.
+    #[serde(default)]
+    pub float_bar_show_reset_inline: bool,
 }
 
 fn default_float_bar_opacity() -> u8 {
     80
 }
 
+fn default_float_bar_scale() -> u8 {
+    100
+}
+
 fn default_float_bar_orientation() -> String {
     "horizontal".to_string()
+}
+
+fn default_float_bar_style() -> String {
+    "floating".to_string()
 }
 
 /// Clamp the floating-bar opacity to the supported range.
@@ -197,6 +217,11 @@ pub fn clamp_float_bar_opacity(value: u8) -> u8 {
     value.clamp(30, 100)
 }
 
+/// Clamp the floating-bar visual scale to the supported range.
+pub fn clamp_float_bar_scale(value: u8) -> u8 {
+    value.clamp(75, 200)
+}
+
 /// Normalize a floating-bar orientation string. Unknown values fall back to
 /// the default ("horizontal") so a corrupt settings file can't put the
 /// renderer into an undefined state.
@@ -204,6 +229,15 @@ pub fn normalize_float_bar_orientation(value: &str) -> String {
     match value {
         "vertical" => "vertical".to_string(),
         _ => "horizontal".to_string(),
+    }
+}
+
+/// Normalize a floating-bar style string. Unknown values fall back to the
+/// original floating style so existing settings keep their previous look.
+pub fn normalize_float_bar_style(value: &str) -> String {
+    match value {
+        "taskbar" => "taskbar".to_string(),
+        _ => "floating".to_string(),
     }
 }
 
@@ -280,10 +314,13 @@ impl Default for Settings {
             theme: ThemePreference::default(), // Auto (follows prefers-color-scheme)
             float_bar_enabled: false,
             float_bar_opacity: default_float_bar_opacity(),
+            float_bar_scale: default_float_bar_scale(),
             float_bar_orientation: default_float_bar_orientation(),
+            float_bar_style: default_float_bar_style(),
             float_bar_click_through: false,
             float_bar_provider_ids: Vec::new(),
             float_bar_dark_text: false,
+            float_bar_show_reset_inline: false,
         }
     }
 }

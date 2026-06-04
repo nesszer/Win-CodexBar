@@ -71,10 +71,13 @@ const settings: SettingsSnapshot = {
   providerMetrics: {},
   floatBarEnabled: false,
   floatBarOpacity: 0.9,
+  floatBarScale: 100,
   floatBarOrientation: "horizontal",
+  floatBarStyle: "floating",
   floatBarClickThrough: false,
   floatBarProviderIds: [],
   floatBarDarkText: false,
+  floatBarShowResetInline: false,
 };
 
 describe("AboutTab", () => {

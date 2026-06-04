@@ -29,6 +29,7 @@ export type ThemePreference = "auto" | "light" | "dark";
 
 export type MenuBarDisplayMode = "minimal" | "compact" | "detailed";
 export type FloatBarOrientation = "horizontal" | "vertical";
+export type FloatBarStyle = "floating" | "taskbar";
 export type ProofProviderId =
   | "codex"
   | "claude"
@@ -193,12 +194,17 @@ export interface SettingsSnapshot {
   floatBarEnabled: boolean;
   /** 30..=100 — clamped server-side. */
   floatBarOpacity: number;
+  /** 75..=200 — clamped server-side. */
+  floatBarScale: number;
   floatBarOrientation: FloatBarOrientation;
+  floatBarStyle: FloatBarStyle;
   floatBarClickThrough: boolean;
   /** Empty array = show all enabled providers. */
   floatBarProviderIds: string[];
   /** When true, render with dark text/glass for light desktops. */
   floatBarDarkText: boolean;
+  /** When true, render the next primary reset inline in each provider pill. */
+  floatBarShowResetInline: boolean;
 }
 
 /** Partial settings object — only include fields you want to change. */
@@ -237,10 +243,13 @@ export interface SettingsUpdate {
   providerMetrics?: Record<string, MetricPreference>;
   floatBarEnabled?: boolean;
   floatBarOpacity?: number;
+  floatBarScale?: number;
   floatBarOrientation?: FloatBarOrientation;
+  floatBarStyle?: FloatBarStyle;
   floatBarClickThrough?: boolean;
   floatBarProviderIds?: string[];
   floatBarDarkText?: boolean;
+  floatBarShowResetInline?: boolean;
 }
 
 export interface BootstrapState {

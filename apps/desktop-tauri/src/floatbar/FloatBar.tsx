@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
@@ -11,8 +18,46 @@ import type {
   ProviderUsageSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
-import { FLOAT_BAR_CONFIG_CHANGED_EVENT } from "./api";
+import { FLOAT_BAR_CONFIG_CHANGED_EVENT, reapplyFloatBarInteraction } from "./api";
 import "./FloatBar.css";
+
+function ResetIcon({ size }: { size: number }) {
+  return (
+    <svg
+      className="floatbar__reset-icon-svg"
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M12.9 7.1a5 5 0 1 0-1.2 3.9"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12.9 3.8v3.3H9.6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function inlineResetTime(resetText: string): string {
+  const normalized = resetText.trim();
+  if (/^reset(?:s|ting)?(?:\s+due)?\s*(?:now)?$/i.test(normalized)) {
+    return "now";
+  }
+  return normalized
+    .replace(/^resets?\s+in\s+/i, "")
+    .replace(/^resets?\s+/i, "")
+    .trim();
+}
 
 /**
  * The capacity pill shown for a single provider.
@@ -26,11 +71,17 @@ function ProviderPill({
   highRemaining,
   critRemaining,
   showAsUsed,
+  scale,
+  showResetInline,
+  resetRelative,
 }: {
   provider: ProviderUsageSnapshot;
   highRemaining: number;
   critRemaining: number;
   showAsUsed: boolean;
+  scale: number;
+  showResetInline: boolean;
+  resetRelative: boolean;
 }) {
   const remaining = Math.max(0, Math.min(100, provider.primary.remainingPercent));
   const used = Math.max(0, Math.min(100, provider.primary.usedPercent));
@@ -46,18 +97,41 @@ function ProviderPill({
   const resetText = useFormattedResetTime(
     provider.primary.resetsAt,
     provider.primary.resetDescription,
-    true,
+    resetRelative,
   );
   const resetSuffix = resetText ? `\n${resetText}` : "";
+  const inlineReset = resetText ? inlineResetTime(resetText) : null;
+  const iconSize = Math.round(11 * scale);
+  const resetIconSize = Math.round(10 * scale);
 
   return (
     <div
       className={`floatbar__pill floatbar__pill--${tone}`}
       title={`${provider.displayName}: ${label} ${displaySuffix}${resetSuffix}`}
-      style={{ "--brand": brand } as React.CSSProperties}
+      data-tauri-drag-region
+      style={{ "--brand": brand } as CSSProperties}
     >
-      <ProviderIcon providerId={provider.providerId} size={11} />
-      <span className="floatbar__pct">{label}</span>
+      <span className="floatbar__provider-icon" data-tauri-drag-region>
+        <ProviderIcon providerId={provider.providerId} size={iconSize} />
+      </span>
+      <span className="floatbar__text" data-tauri-drag-region>
+        <span className="floatbar__pct" data-tauri-drag-region>
+          {label}
+        </span>
+        {showResetInline && resetText && inlineReset && (
+          <span
+            className="floatbar__reset"
+            title={resetText}
+            aria-label={resetText}
+            data-tauri-drag-region
+          >
+            <ResetIcon size={resetIconSize} />
+            <span className="floatbar__reset-time" data-tauri-drag-region>
+              {inlineReset}
+            </span>
+          </span>
+        )}
+      </span>
     </div>
   );
 }
@@ -71,6 +145,10 @@ function ProviderPill({
  */
 export default function FloatBar({ state }: { state: BootstrapState }) {
   const { providers } = useProviders({ refreshOnMount: false });
+  const startDrag = useCallback((event: MouseEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    void getCurrentWindow().startDragging().catch(() => {});
+  }, []);
 
   // Mark the body so our CSS can strip the dark theme background — the
   // floatbar window is meant to be fully transparent around the pills.
@@ -112,7 +190,10 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   // Orientation flips re-lay-out the bar without recreating the window.
   const orientation: "horizontal" | "vertical" =
     settings.floatBarOrientation === "vertical" ? "vertical" : "horizontal";
+  const style = settings.floatBarStyle === "taskbar" ? "taskbar" : "floating";
   const filterIds = settings.floatBarProviderIds;
+  const scale = Math.max(0.75, Math.min(2, settings.floatBarScale / 100));
+  const showResetInline = settings.floatBarShowResetInline;
   const visible = useMemo(() => {
     const enabled = new Set(settings.enabledProviders);
     let list = providers.filter((p) => enabled.has(p.providerId));
@@ -135,9 +216,18 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
       const h = Math.ceil(rect.height + padding);
       void Promise.resolve(
         win.setSize({ type: "Logical", width: w, height: h } as never),
-      ).catch(() => {});
+      )
+        .then(() => reapplyFloatBarInteraction())
+        .catch(() => {});
     });
-  }, [visible.length, orientation]);
+  }, [
+    visible.length,
+    orientation,
+    style,
+    scale,
+    showResetInline,
+    settings.resetTimeRelative,
+  ]);
 
   const highRemaining = 100 - settings.highUsageThreshold;
   const critRemaining = 100 - settings.criticalUsageThreshold;
@@ -145,13 +235,21 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
 
   return (
     <div
-      className={`floatbar floatbar--${orientation}${settings.floatBarDarkText ? " floatbar--light-bg" : ""}`}
+      className={`floatbar floatbar--${orientation} floatbar--${style}${settings.floatBarDarkText ? " floatbar--light-bg" : ""}`}
       data-tauri-drag-region
-      style={{ opacity: opacityFraction }}
+      onMouseDown={startDrag}
+      style={
+        {
+          opacity: opacityFraction,
+          "--floatbar-scale": scale,
+        } as CSSProperties
+      }
     >
       <div className="floatbar__handle" data-tauri-drag-region aria-hidden />
       {visible.length === 0 ? (
-        <div className="floatbar__empty">No providers</div>
+        <div className="floatbar__empty" data-tauri-drag-region>
+          No providers
+        </div>
       ) : (
         visible.map((p) => (
           <ProviderPill
@@ -160,6 +258,9 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
             highRemaining={highRemaining}
             critRemaining={critRemaining}
             showAsUsed={settings.showAsUsed}
+            scale={scale}
+            showResetInline={showResetInline}
+            resetRelative={settings.resetTimeRelative}
           />
         ))
       )}
