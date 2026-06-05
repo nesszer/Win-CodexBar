@@ -14,17 +14,7 @@ import MenuSurface, {
 import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid, { prioritizeProviders } from "../components/ProviderGrid";
 import { DEMO_ENABLED, DEMO_PROVIDERS } from "../lib/demoProviders";
-
-/** Sort: highest primary used% first, then alphabetical by name. */
-function sortProviders(
-  list: ProviderUsageSnapshot[],
-): ProviderUsageSnapshot[] {
-  return [...list].sort((a, b) => {
-    const diff = b.primary.usedPercent - a.primary.usedPercent;
-    if (Math.abs(diff) > 0.01) return diff;
-    return a.displayName.localeCompare(b.displayName);
-  });
-}
+import { orderProviderSnapshots } from "../lib/providerOrder";
 
 /**
  * Pop-out window — dashboard and provider deep-links both keep the full card
@@ -51,8 +41,8 @@ export default function PopOutPanel({
   const { t } = useLocale();
 
   const sorted = useMemo(() => {
-    return sortProviders(providers);
-  }, [providers]);
+    return orderProviderSnapshots(providers, state.providers, settings.enabledProviders);
+  }, [providers, settings.enabledProviders, state.providers]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
     providerId ?? null,
   );
@@ -75,6 +65,10 @@ export default function PopOutPanel({
       return match ? [match] : sorted;
     },
     [sorted, selectedProviderId, gridExpanded],
+  );
+  const providerOrderKey = useMemo(
+    () => sorted.map((provider) => provider.providerId).join(","),
+    [sorted],
   );
 
   const handleGridClick = useCallback((nextProviderId: string | null) => {
@@ -106,7 +100,7 @@ export default function PopOutPanel({
   }, []);
 
   useEffect(() => {
-    if (!providerId || selectedProviderId !== providerId || sorted.length === 0) return;
+    if (!providerId || selectedProviderId !== providerId || providerOrderKey.length === 0) return;
 
     let cancelled = false;
     const scrollToProvider = () => {
@@ -141,7 +135,7 @@ export default function PopOutPanel({
       window.clearTimeout(timer);
       window.clearTimeout(lateTimer);
     };
-  }, [providerId, selectedProviderId, sorted]);
+  }, [providerId, selectedProviderId, providerOrderKey]);
 
   const openSettings = useCallback(() => {
     openSettingsWindow("general");
@@ -228,7 +222,7 @@ export default function PopOutPanel({
       footerRows={footerRows}
     >
       <ProviderGrid
-        providers={providers}
+        providers={sorted}
         selectedProviderId={selectedProviderId}
         showAsUsed={settings.showAsUsed}
         expanded={gridExpanded}

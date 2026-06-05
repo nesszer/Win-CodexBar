@@ -326,10 +326,10 @@ impl ClaudeOAuthFetcher {
     }
 
     fn parse_credentials_json(content: &str) -> Result<ClaudeOAuthCredentials, ProviderError> {
-        if let Ok(file) = serde_json::from_str::<CredentialsFile>(content) {
-            if let Some(oauth) = file.claude_ai_oauth {
-                return Self::credentials_from_oauth_data(oauth);
-            }
+        if let Ok(file) = serde_json::from_str::<CredentialsFile>(content)
+            && let Some(oauth) = file.claude_ai_oauth
+        {
+            return Self::credentials_from_oauth_data(oauth);
         }
 
         let oauth: OAuthData = serde_json::from_str(content)

@@ -44,13 +44,20 @@ export default function ProvidersTab({
     setOrderedProviders(providers);
   }, [providers]);
 
-  const enabled = new Set(settings.enabledProviders);
+  const enabled = useMemo(
+    () => new Set(settings.enabledProviders),
+    [settings.enabledProviders],
+  );
 
   const toggle = (id: string, on: boolean) => {
     const next = new Set(enabled);
     if (on) next.add(id);
     else next.delete(id);
-    set({ enabledProviders: [...next].sort() });
+    set({
+      enabledProviders: orderedProviders
+        .map((provider) => provider.id)
+        .filter((providerId) => next.has(providerId)),
+    });
   };
 
   const rows: ProviderSidebarRow[] = useMemo(() => {

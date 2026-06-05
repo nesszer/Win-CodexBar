@@ -1,8 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
+import type { BootstrapState, ProviderCatalogEntry, ProviderUsageSnapshot } from "../types/bridge";
 import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
-import { getWorkAreaRect, reanchorTrayPanel } from "../lib/tauri";
+import { getWorkAreaRect, reanchorTrayPanel, revealTrayPanelWindow } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
@@ -17,6 +17,7 @@ import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid, { prioritizeProviders } from "../components/ProviderGrid";
 import { openProviderDashboard, openProviderStatusPage } from "../lib/tauri";
 import { DEMO_ENABLED, DEMO_PROVIDERS } from "../lib/demoProviders";
+import { orderProviderSnapshots } from "../lib/providerOrder";
 
 /** Provider IDs that have a dashboard URL in the backend */
 const HAS_DASHBOARD = new Set([
@@ -39,6 +40,77 @@ const HAS_STATUS_PAGE = new Set([
 ]);
 
 const TRAY_INITIAL_REFRESH_DELAY_MS = 250;
+const TRAY_WIDTH = 328;
+const TRAY_MAX_MEASURE_HEIGHT = 920;
+const TRAY_OVERVIEW_MIN_HEIGHT = 200;
+const TRAY_DETAIL_MIN_HEIGHT = 420;
+const TRAY_DENSE_OVERVIEW_HEIGHT = 776;
+const DENSE_OVERVIEW_THRESHOLD = 32;
+
+function emptyRateWindow() {
+  return {
+    usedPercent: 0,
+    remainingPercent: 100,
+    windowMinutes: null,
+    resetsAt: null,
+    resetDescription: null,
+    isExhausted: false,
+    reservePercent: null,
+    reserveDescription: null,
+  };
+}
+
+function providerPlaceholder(providerId: string, displayName: string): ProviderUsageSnapshot {
+  return {
+    providerId,
+    displayName,
+    primary: emptyRateWindow(),
+    primaryLabel: "Usage",
+    secondary: null,
+    modelSpecific: null,
+    tertiary: null,
+    extraRateWindows: [],
+    cost: null,
+    planName: null,
+    accountEmail: null,
+    sourceLabel: "pending",
+    updatedAt: new Date(0).toISOString(),
+    error: "Loading provider data...",
+    pace: null,
+    accountOrganization: null,
+    trayStatusLabel: null,
+    fetchDurationMs: null,
+  };
+}
+
+function orderedEnabledProviderSlots(
+  catalog: ProviderCatalogEntry[],
+  enabledProviderIds: string[],
+  snapshots: ProviderUsageSnapshot[],
+): Array<{ id: string; displayName: string }> {
+  const enabled = new Set(enabledProviderIds);
+  const snapshotNames = new Map(
+    snapshots.map((provider) => [provider.providerId, provider.displayName]),
+  );
+  const slots: Array<{ id: string; displayName: string }> = [];
+  const seen = new Set<string>();
+
+  for (const provider of catalog) {
+    if (!enabled.has(provider.id)) continue;
+    seen.add(provider.id);
+    slots.push({ id: provider.id, displayName: provider.displayName });
+  }
+
+  for (const providerId of enabledProviderIds) {
+    if (seen.has(providerId)) continue;
+    slots.push({
+      id: providerId,
+      displayName: snapshotNames.get(providerId) ?? providerId,
+    });
+  }
+
+  return slots;
+}
 
 function getProviderStatus(
   p: ProviderUsageSnapshot,
@@ -50,17 +122,6 @@ function getProviderStatus(
 }
 void getProviderStatus;
 
-/** Sort: highest primary used% first, then alphabetical by name. */
-function sortProviders(
-  list: ProviderUsageSnapshot[],
-): ProviderUsageSnapshot[] {
-  return [...list].sort((a, b) => {
-    const diff = b.primary.usedPercent - a.primary.usedPercent;
-    if (Math.abs(diff) > 0.01) return diff;
-    return a.displayName.localeCompare(b.displayName);
-  });
-}
-
 /**
  * Tray popover surface — two modes like macOS CodexBar:
  * 1. Overview (default): provider grid + all cards stacked
@@ -71,7 +132,9 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     providers: realProviders,
     isRefreshing,
     refresh,
+    lastRefresh,
     hasCachedData,
+    hasLoadedCache,
   } = useProviders({ initialRefreshDelayMs: TRAY_INITIAL_REFRESH_DELAY_MS });
   const providers = DEMO_ENABLED ? DEMO_PROVIDERS : realProviders;
   const { settings } = useSettings(state.settings);
@@ -80,7 +143,18 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   const { t } = useLocale();
   const surfaceTarget = useSurfaceTarget("trayPanel");
 
-  const sorted = useMemo(() => sortProviders(providers), [providers]);
+  const sorted = useMemo(
+    () => orderProviderSnapshots(providers, state.providers, settings.enabledProviders),
+    [providers, settings.enabledProviders, state.providers],
+  );
+  const denseProviderSlots = useMemo(
+    () => orderedEnabledProviderSlots(state.providers, settings.enabledProviders, sorted),
+    [settings.enabledProviders, sorted, state.providers],
+  );
+  const providersById = useMemo(
+    () => new Map(sorted.map((provider) => [provider.providerId, provider])),
+    [sorted],
+  );
   const initialProviderId =
     surfaceTarget?.kind === "provider" ? surfaceTarget.providerId : null;
 
@@ -89,6 +163,24 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     initialProviderId,
   );
   const [gridExpanded, setGridExpanded] = useState(false);
+  const expectsDenseOverview =
+    selectedProviderId === null &&
+    !gridExpanded &&
+    settings.enabledProviders.length + 1 > DENSE_OVERVIEW_THRESHOLD;
+  const denseTrayProviders = useMemo(() => {
+    if (!expectsDenseOverview) return sorted;
+    return denseProviderSlots.map((slot) =>
+      providersById.get(slot.id) ?? providerPlaceholder(slot.id, slot.displayName),
+    );
+  }, [denseProviderSlots, expectsDenseOverview, providersById, sorted]);
+  const denseTopProviderIds = useMemo(
+    () => denseProviderSlots.slice(0, 4).map((slot) => slot.id),
+    [denseProviderSlots],
+  );
+  const denseOverviewReady =
+    !expectsDenseOverview ||
+    denseTopProviderIds.every((providerId) => providersById.has(providerId)) ||
+    lastRefresh !== null;
 
   useEffect(() => {
     setSelectedProviderId(initialProviderId);
@@ -101,6 +193,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   const layoutReadyRef = useRef(false);
   const resizeRunRef = useRef(0);
   const layoutTimerRef = useRef<number | undefined>(undefined);
+  const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
 
   // Cards to display based on mode
   // Overview: all providers in the grid — non-error first, then errors
@@ -112,23 +205,19 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           .map((id) => providers.find((p) => p.providerId === id))
           .filter((p): p is ProviderUsageSnapshot => p !== undefined);
       }
-      // Overview: show all providers (they have data, email, or error), non-error first
-      if (sorted.length + 1 > 32 && !gridExpanded) {
-        return prioritizeProviders(sorted, null).slice(0, 4);
+      // Overview: show providers in the same Settings/catalog order as the grid.
+      if (sorted.length + 1 > DENSE_OVERVIEW_THRESHOLD && !gridExpanded) {
+        return prioritizeProviders(denseTrayProviders, null).slice(0, 4);
       }
-      const normal = sorted.filter((p) => !p.error);
-      const errors = sorted.filter((p) => !!p.error);
-      return [...normal, ...errors];
+      return sorted;
     }
     // Detail: show ONLY the selected provider (macOS behavior — no appended errors)
     const match = sorted.find((p) => p.providerId === selectedProviderId);
     if (!match) {
-      const normal = sorted.filter((p) => !p.error);
-      const errors = sorted.filter((p) => !!p.error);
-      return [...normal, ...errors];
+      return sorted;
     }
     return [match];
-  }, [sorted, selectedProviderId, gridExpanded]);
+  }, [denseTrayProviders, sorted, selectedProviderId, gridExpanded]);
 
   const handleMenuCardLayoutChange = useCallback(() => {
     if (layoutTimerRef.current !== undefined) {
@@ -136,8 +225,47 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     }
     layoutTimerRef.current = window.setTimeout(() => {
       setLayoutRevision((current) => current + 1);
-    }, 50);
+    }, layoutReadyRef.current ? 100 : 16);
   }, []);
+
+  const layoutContentKey = useMemo(
+    () => [
+      selectedProviderId ?? "overview",
+      gridExpanded ? "expanded" : "collapsed",
+      isRefreshing ? "refreshing" : "idle",
+      updateState.status,
+      updateState.version ?? "",
+      updateState.error ?? "",
+      expectsDenseOverview ? "dense" : "normal",
+      hasLoadedCache ? "cache-ready" : "cache-pending",
+      denseOverviewReady ? "dense-ready" : "dense-pending",
+      visibleProviders.map((provider) => provider.providerId).join(","),
+    ].join("|"),
+    [
+      gridExpanded,
+      isRefreshing,
+      selectedProviderId,
+      updateState.error,
+      updateState.status,
+      updateState.version,
+      expectsDenseOverview,
+      denseOverviewReady,
+      hasLoadedCache,
+      visibleProviders,
+    ],
+  );
+
+  useEffect(() => {
+    handleMenuCardLayoutChange();
+  }, [handleMenuCardLayoutChange, layoutContentKey]);
+
+  useEffect(() => {
+    const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
+    if (!surface || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => handleMenuCardLayoutChange());
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, [handleMenuCardLayoutChange, sorted.length === 0]);
 
   useEffect(() => {
     return () => {
@@ -147,14 +275,20 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     };
   }, []);
 
-  // Dynamically size the Tauri window to fit content, capped at 800px.
-  // The first pass can grow the hidden window for a complete measurement.
-  // Later content updates measure in-place so the visible panel does not
-  // bounce to max height and back while providers finish refreshing.
+  // Dynamically size the Tauri window to fit content, capped at the work area.
+  // Measurements are debounced and skip no-op size changes to avoid the
+  // visible bounce caused by resizing/reanchoring on every provider update.
   useEffect(() => {
-    const TRAY_WIDTH = 310;
-    const MAX_MEASURE_HEIGHT = 920;
-    const MIN_HEIGHT = 200;
+    if (!hasLoadedCache && sorted.length === 0) {
+      return;
+    }
+
+    const minHeight =
+      selectedProviderId !== null
+        ? TRAY_DETAIL_MIN_HEIGHT
+        : expectsDenseOverview
+          ? TRAY_DENSE_OVERVIEW_HEIGHT
+          : TRAY_OVERVIEW_MIN_HEIGHT;
 
     const resize = async () => {
       const run = ++resizeRunRef.current;
@@ -165,8 +299,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       const pageBody = document.body;
       const workArea = await getWorkAreaRect().catch(() => null);
       const maxHeight = Math.max(
-        MIN_HEIGHT,
-        Math.min(MAX_MEASURE_HEIGHT, (workArea?.height ?? MAX_MEASURE_HEIGHT) - 16),
+        minHeight,
+        Math.min(TRAY_MAX_MEASURE_HEIGHT, (workArea?.height ?? TRAY_MAX_MEASURE_HEIGHT) - 16),
       );
 
       const body = surface.querySelector<HTMLElement>(".menu-surface__body");
@@ -176,6 +310,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         htmlOverflow: html.style.overflow,
         bodyOverflow: pageBody.style.overflow,
         bodyMinHeight: pageBody.style.minHeight,
+        surfaceMinHeight: surface.style.minHeight,
+        surfaceHeight: surface.style.height,
         surfaceMaxHeight: surface.style.maxHeight,
         surfaceOverflow: surface.style.overflow,
         bodyInnerOverflow: body?.style.overflow,
@@ -187,25 +323,27 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       html.style.overflow = "visible";
       pageBody.style.overflow = "visible";
       pageBody.style.minHeight = "0";
+      surface.style.minHeight = "0";
+      surface.style.height = "auto";
       surface.style.maxHeight = "none";
       surface.style.overflow = "visible";
       if (body) { body.style.overflow = "visible"; body.style.flex = "0 0 auto"; }
       if (stack) { stack.style.overflow = "visible"; }
 
-      const revealPanel = () => {
-        if (run === resizeRunRef.current) {
-          layoutReadyRef.current = true;
-          setLayoutReady(true);
-        }
+      const revealPanel = async () => {
+      if (run !== resizeRunRef.current || !denseOverviewReady) return;
+      layoutReadyRef.current = true;
+      setLayoutReady(true);
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      if (run === resizeRunRef.current) {
+        await Promise.resolve(revealTrayPanelWindow()).catch(() => {});
+      }
       };
 
       try {
         if (!layoutReadyRef.current) {
-          await win.setSize(new LogicalSize(TRAY_WIDTH, maxHeight));
-          for (let i = 0; i < 20; i++) {
-            await new Promise<void>((r) => setTimeout(r, 50));
-            if (html.clientHeight >= maxHeight - 20) break;
-          }
+          await win.setSize(new LogicalSize(TRAY_WIDTH, minHeight));
+          lastSizeRef.current = { width: TRAY_WIDTH, height: minHeight };
         }
 
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
@@ -213,43 +351,53 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
 
         if (run !== resizeRunRef.current) return;
 
-        // Scan all descendants to find true content extent
         const surfaceRect = surface.getBoundingClientRect();
-        let maxBottom = surfaceRect.bottom;
-        for (const el of surface.querySelectorAll("*")) {
-          const r = (el as HTMLElement).getBoundingClientRect();
-          if (r.height > 0 && r.bottom > maxBottom) maxBottom = r.bottom;
+        let contentHeight = Math.max(
+          surface.scrollHeight,
+          Math.ceil(surfaceRect.height),
+        );
+        let maxBottom = surfaceRect.top + contentHeight;
+        const bodyRect = body?.getBoundingClientRect();
+        if (bodyRect && bodyRect.height > 0 && bodyRect.bottom > maxBottom) {
+          maxBottom = bodyRect.bottom;
         }
-
-        // Also check the footer explicitly — it may lay out below the
-        // surface border-box when body flex overflows the auto-height parent.
         const footer = surface.querySelector<HTMLElement>(".menu-surface__footer");
         const footerRect = footer?.getBoundingClientRect();
         if (footerRect && footerRect.height > 0 && footerRect.bottom > maxBottom) {
           maxBottom = footerRect.bottom;
         }
+        contentHeight = Math.ceil(maxBottom - surfaceRect.top) + 4;
 
-        const contentHeight = Math.ceil(maxBottom - surfaceRect.top) + 4;
-        const height = Math.min(Math.max(contentHeight, MIN_HEIGHT), maxHeight);
+        const height = Math.min(Math.max(contentHeight, minHeight), maxHeight);
 
         // Lock surface to measured content height.
         surface.style.maxHeight = `${height}px`;
         committedHeight = true;
 
-        await win.setSize(new LogicalSize(TRAY_WIDTH, height));
-        await reanchorTrayPanel().catch(() => {});
+        const previousSize = lastSizeRef.current;
+        const shouldResize =
+          previousSize === null ||
+          previousSize.width !== TRAY_WIDTH ||
+          Math.abs(previousSize.height - height) > 2;
+        if (shouldResize) {
+          await win.setSize(new LogicalSize(TRAY_WIDTH, height));
+          lastSizeRef.current = { width: TRAY_WIDTH, height };
+          await Promise.resolve(reanchorTrayPanel()).catch(() => {});
+        }
 
         // First layout pass complete — reveal the panel.
-        revealPanel();
+        await revealPanel();
       } catch (error) {
         console.warn("CodexBar tray panel resize failed", error);
         // If Windows refuses a transient resize/reanchor request, prefer a
         // visible slightly-imperfect panel over an unusable invisible one.
-        revealPanel();
+        void revealPanel();
       } finally {
         if (!committedHeight) {
           surface.style.maxHeight = previous.surfaceMaxHeight;
         }
+        surface.style.minHeight = previous.surfaceMinHeight;
+        surface.style.height = previous.surfaceHeight;
         surface.style.overflow = previous.surfaceOverflow;
         html.style.overflow = previous.htmlOverflow;
         pageBody.style.overflow = previous.bodyOverflow;
@@ -264,13 +412,20 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       }
     };
 
-    const t0 = setTimeout(() => void resize(), layoutReadyRef.current ? 50 : 100);
+    const t0 = setTimeout(() => void resize(), layoutReadyRef.current ? 25 : 0);
 
     return () => {
       clearTimeout(t0);
       resizeRunRef.current += 1;
     };
-  }, [visibleProviders, providers, layoutRevision]);
+  }, [
+    expectsDenseOverview,
+    denseOverviewReady,
+    hasLoadedCache,
+    layoutRevision,
+    selectedProviderId,
+    sorted.length,
+  ]);
 
   const openSettings = useCallback(() => {
     void openSettingsWindow("general").finally(() => {
@@ -342,7 +497,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
 
   if (sorted.length === 0) {
     return (
-      <div className={`tray-panel-reveal${layoutReady ? " tray-panel-reveal--ready" : ""}`}>
+      <div className={`tray-panel-reveal${layoutReady && denseOverviewReady ? " tray-panel-reveal--ready" : ""}${expectsDenseOverview ? " tray-panel-reveal--dense" : ""}`}>
       <MenuSurface
         variant="tray"
         onRefresh={refresh}
@@ -361,7 +516,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   }
 
   return (
-    <div className={`tray-panel-reveal${layoutReady ? " tray-panel-reveal--ready" : ""}`}>
+    <div className={`tray-panel-reveal${layoutReady && denseOverviewReady ? " tray-panel-reveal--ready" : ""}${expectsDenseOverview ? " tray-panel-reveal--dense" : ""}`}>
     <MenuSurface
       variant="tray"
       onRefresh={refresh}
@@ -371,7 +526,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       footerRows={footerRows}
     >
       <ProviderGrid
-        providers={providers}
+        providers={expectsDenseOverview ? denseTrayProviders : sorted}
         selectedProviderId={selectedProviderId}
         showAsUsed={settings.showAsUsed}
         expanded={gridExpanded}

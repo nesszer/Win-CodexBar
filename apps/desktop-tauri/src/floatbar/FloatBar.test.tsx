@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tauriMocks = vi.hoisted(() => ({
@@ -308,12 +308,14 @@ describe("FloatBar", () => {
       tauriMocks.getCachedProviders.mockResolvedValue([]);
       tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
       // 60s minimum is enforced in FloatBar.tsx; use the floor here.
-      renderFloatBar(bootstrap({ refreshIntervalSecs: 60 }));
+      await act(async () => {
+        renderFloatBar(bootstrap({ refreshIntervalSecs: 60 }));
+      });
 
-      // Initial tick fires synchronously on mount (+ the useProviders
-      // hook's own initial call) — wait for the first to complete.
+      // Initial tick fires synchronously on mount; useProviders is passive here
+      // so the floatbar does not double-request stale refreshes at startup.
       await vi.waitFor(() => {
-        expect(tauriMocks.refreshProvidersIfStale).toHaveBeenCalled();
+        expect(tauriMocks.refreshProvidersIfStale).toHaveBeenCalledTimes(1);
       });
       const initialCalls = tauriMocks.refreshProvidersIfStale.mock.calls.length;
 

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
-import { closeSettingsWindow, playNotificationSound } from "../../../lib/tauri";
+import { playNotificationSound } from "../../../lib/tauri";
 import { Field, NumberInput, Select, Toggle } from "../../../components/FormControls";
 import type { TabProps } from "../../Settings";
 
@@ -21,10 +21,6 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
     setPlayingSound(true);
     void playNotificationSound().catch(() => {});
     window.setTimeout(() => setPlayingSound(false), 1500);
-  }, []);
-
-  const handleQuit = useCallback(() => {
-    void closeSettingsWindow();
   }, []);
 
   return (
@@ -152,19 +148,6 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
               onChange={(v) => set({ refreshIntervalSecs: Number(v) })}
             />
           </Field>
-        </div>
-      </section>
-
-      {/* ── Quit ─────────────────────────────────────────────────── */}
-      <section className="settings-section">
-        <div className="settings-quit-row">
-          <button
-            type="button"
-            className="credential-btn credential-btn--primary"
-            onClick={handleQuit}
-          >
-            {t("TrayQuit")}
-          </button>
         </div>
       </section>
     </>

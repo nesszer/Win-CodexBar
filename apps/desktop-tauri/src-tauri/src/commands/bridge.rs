@@ -302,21 +302,11 @@ pub(crate) fn friendly_provider_error(id: ProviderId, error: &str) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapState {
     pub(crate) contract_version: &'static str,
-    pub(crate) surface_modes: Vec<SurfaceModeDescriptor>,
-    pub(crate) commands: Vec<BridgeCommandDescriptor>,
-    pub(crate) events: Vec<BridgeEventDescriptor>,
     pub(crate) providers: Vec<ProviderCatalogEntry>,
     pub(crate) settings: SettingsSnapshot,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SurfaceModeDescriptor {
-    id: &'static str,
-    label: &'static str,
-    description: &'static str,
-}
-
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeCommandDescriptor {
@@ -324,6 +314,7 @@ pub struct BridgeCommandDescriptor {
     pub(crate) description: &'static str,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeEventDescriptor {
@@ -392,9 +383,6 @@ pub struct SettingsSnapshot {
 pub fn get_bootstrap_state() -> BootstrapState {
     BootstrapState {
         contract_version: "v1",
-        surface_modes: surface_modes(),
-        commands: bridge_commands(),
-        events: bridge_events(),
         providers: provider_catalog(),
         settings: SettingsSnapshot::from(Settings::load()),
     }
@@ -476,31 +464,7 @@ fn provider_catalog() -> Vec<ProviderCatalogEntry> {
         .collect()
 }
 
-fn surface_modes() -> Vec<SurfaceModeDescriptor> {
-    vec![
-        SurfaceModeDescriptor {
-            id: "hidden",
-            label: "Hidden",
-            description: "No window is visible; the tray icon remains active.",
-        },
-        SurfaceModeDescriptor {
-            id: "trayPanel",
-            label: "Tray panel",
-            description: "Borderless anchored panel opened from a tray left click.",
-        },
-        SurfaceModeDescriptor {
-            id: "popOut",
-            label: "Pop out",
-            description: "Decorated window for a richer, persistent provider view.",
-        },
-        SurfaceModeDescriptor {
-            id: "settings",
-            label: "Settings",
-            description: "Dedicated settings surface for provider and shell configuration.",
-        },
-    ]
-}
-
+#[cfg(test)]
 pub(crate) fn bridge_commands() -> Vec<BridgeCommandDescriptor> {
     vec![
         BridgeCommandDescriptor {
@@ -770,6 +734,7 @@ pub(crate) fn bridge_commands() -> Vec<BridgeCommandDescriptor> {
     ]
 }
 
+#[cfg(test)]
 pub(crate) fn bridge_events() -> Vec<BridgeEventDescriptor> {
     vec![
         BridgeEventDescriptor {

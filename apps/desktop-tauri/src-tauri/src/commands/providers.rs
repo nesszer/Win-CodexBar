@@ -1,4 +1,7 @@
 use super::*;
+use std::sync::Arc;
+
+const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 8;
 
 // ── Provider refresh commands ────────────────────────────────────────
 
@@ -225,10 +228,12 @@ fn spawn_provider_refreshes(
     inputs: &ProviderRefreshInputs,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let mut handles = Vec::with_capacity(inputs.enabled_ids.len());
+    let fetch_permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES));
 
     for id in &inputs.enabled_ids {
         let id = *id;
         let app_handle = app.clone();
+        let fetch_permits = Arc::clone(&fetch_permits);
         let ctx = build_fetch_context(
             id,
             &inputs.settings,
@@ -238,6 +243,9 @@ fn spawn_provider_refreshes(
         );
 
         handles.push(tokio::spawn(async move {
+            let Ok(_permit) = fetch_permits.acquire_owned().await else {
+                return;
+            };
             refresh_provider(app_handle, id, ctx).await;
         }));
     }
@@ -251,8 +259,9 @@ async fn refresh_provider(app: tauri::AppHandle, id: ProviderId, ctx: FetchConte
     let state = app.state::<Mutex<AppState>>();
     if let Ok(mut guard) = state.lock() {
         let snapshot = preserve_last_good_transient_failure(&mut guard, id, snapshot);
+        upsert_provider_cache(&mut guard.provider_cache, snapshot.clone());
+        drop(guard);
         events::emit_provider_updated(&app, &snapshot);
-        upsert_provider_cache(&mut guard.provider_cache, snapshot);
     } else {
         events::emit_provider_updated(&app, &snapshot);
     }

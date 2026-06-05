@@ -32,14 +32,14 @@ export default function ProviderGrid({
   };
   const totalItems = providers.length + 1;
   const shouldCollapse = totalItems > 32;
-  const prioritizedProviders = useMemo(
+  const collapsedProviders = useMemo(
     () => prioritizeProviders(providers, selectedProviderId),
     [providers, selectedProviderId],
   );
   const visibleProviders =
     shouldCollapse && !isExpanded
-      ? prioritizedProviders.slice(0, 18)
-      : prioritizedProviders;
+      ? collapsedProviders.slice(0, 18)
+      : providers;
   const hiddenCount = Math.max(0, providers.length - visibleProviders.length);
   const densityClass =
     totalItems <= 6
@@ -60,7 +60,6 @@ export default function ProviderGrid({
         type="button"
         className={`provider-grid__item${selectedProviderId === null ? " provider-grid__item--active" : ""}`}
         onClick={() => onSelect(null)}
-        title="Overview"
         aria-label="All providers"
       >
         <span className="provider-grid__icon-overview">⊞</span>
@@ -72,7 +71,6 @@ export default function ProviderGrid({
           type="button"
           className={`provider-grid__item${p.providerId === selectedProviderId ? " provider-grid__item--active" : ""}`}
           onClick={() => onSelect(p.providerId)}
-          title={p.displayName}
           aria-label={p.displayName}
         >
           <ProviderIcon providerId={p.providerId} size={16} />
@@ -93,7 +91,6 @@ export default function ProviderGrid({
           type="button"
           className="provider-grid__item provider-grid__item--more"
           onClick={() => setExpanded(!isExpanded)}
-          title={isExpanded ? "Show fewer providers" : "Show all providers"}
           aria-label={isExpanded ? "Show fewer providers" : "Show all providers"}
           aria-expanded={isExpanded}
         >
@@ -113,27 +110,11 @@ export function prioritizeProviders(
   providers: ProviderUsageSnapshot[],
   selectedProviderId: string | null,
 ): ProviderUsageSnapshot[] {
-  return [...providers].sort((a, b) => {
-    if (selectedProviderId) {
-      if (a.providerId === selectedProviderId) return -1;
-      if (b.providerId === selectedProviderId) return 1;
-    }
-
-    const aHasData = a.error ? 0 : 1;
-    const bHasData = b.error ? 0 : 1;
-    if (aHasData !== bHasData) return bHasData - aHasData;
-
-    const aUpdated = Date.parse(a.updatedAt);
-    const bUpdated = Date.parse(b.updatedAt);
-    const aRecent = Number.isFinite(aUpdated) ? aUpdated : 0;
-    const bRecent = Number.isFinite(bUpdated) ? bUpdated : 0;
-    if (aRecent !== bRecent) return bRecent - aRecent;
-
-    const usageDiff = b.primary.usedPercent - a.primary.usedPercent;
-    if (Math.abs(usageDiff) > 0.01) return usageDiff;
-
-    return a.displayName.localeCompare(b.displayName);
-  });
+  if (!selectedProviderId) return providers;
+  const selectedIndex = providers.findIndex((provider) => provider.providerId === selectedProviderId);
+  if (selectedIndex < 0 || selectedIndex < 18) return providers;
+  const selected = providers[selectedIndex];
+  return [selected, ...providers.slice(0, selectedIndex), ...providers.slice(selectedIndex + 1)];
 }
 
 function compactGridLabel(displayName: string): string {

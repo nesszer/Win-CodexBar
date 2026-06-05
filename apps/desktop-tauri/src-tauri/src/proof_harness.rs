@@ -244,8 +244,9 @@ fn proof_window_position(app: &AppHandle) -> Option<(i32, i32)> {
         let work_area = m.work_area();
         let work_bottom = work_area.position.y + work_area.size.height as i32;
         let scale = m.scale_factor().max(1.0);
-        let panel_w = (310.0 * scale) as i32;
-        let panel_h = (720.0 * scale) as i32;
+        let props = SurfaceMode::TrayPanel.window_properties();
+        let panel_w = (props.width * scale) as i32;
+        let panel_h = (props.height * scale) as i32;
         let margin = (12.0 * scale) as i32;
         let x = screen_w - panel_w - margin;
         let y = work_bottom - panel_h - margin;

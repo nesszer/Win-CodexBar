@@ -26,6 +26,25 @@ pub async fn open_settings_window(app: tauri::AppHandle, tab: String) -> Result<
 }
 
 #[tauri::command]
+pub fn reveal_tray_panel_window(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Result<(), String> {
+    use tauri::Manager;
+
+    if state.lock().unwrap().surface_machine.current() != SurfaceMode::TrayPanel {
+        return Ok(());
+    }
+
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window unavailable".to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn close_settings_window(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,

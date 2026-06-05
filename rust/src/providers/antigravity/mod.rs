@@ -624,10 +624,8 @@ fn model_label(config: &ModelConfig) -> &str {
         &config.label
     } else if let Some(model_id) = config.model_id.as_deref() {
         model_id
-    } else if let Some(id) = config.id.as_deref() {
-        id
     } else {
-        ""
+        config.id.as_deref().unwrap_or_default()
     }
 }
 

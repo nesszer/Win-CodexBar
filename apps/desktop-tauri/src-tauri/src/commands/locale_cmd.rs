@@ -77,6 +77,11 @@ mod locale_tests {
             Some("General"),
             "TabGeneral should resolve to English"
         );
+        assert_eq!(
+            bundle.entries.get("ProviderSidebarSearch").copied(),
+            Some("Search"),
+            "ProviderSidebarSearch should resolve instead of leaking the key"
+        );
         assert_eq!(bundle.entries.len(), locale::LocaleKey::ALL.len());
     }
 

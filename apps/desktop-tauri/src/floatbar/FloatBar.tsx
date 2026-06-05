@@ -70,7 +70,7 @@ function ProviderPill({
  * setting changes (filter list, orientation) live without a reload.
  */
 export default function FloatBar({ state }: { state: BootstrapState }) {
-  const { providers } = useProviders();
+  const { providers } = useProviders({ refreshOnMount: false });
 
   // Mark the body so our CSS can strip the dark theme background — the
   // floatbar window is meant to be fully transparent around the pills.

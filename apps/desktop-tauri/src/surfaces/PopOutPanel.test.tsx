@@ -43,6 +43,7 @@ import { buildBundle } from "../test/localeHarness";
 import { TEST_PROVIDER_CATALOG } from "../test/providerCatalog";
 import type {
   BootstrapState,
+  ProviderCatalogEntry,
   ProviderUsageSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
@@ -125,22 +126,26 @@ function settings(): SettingsSnapshot {
   };
 }
 
-function bootstrap(): BootstrapState {
+function bootstrap(catalog: ProviderCatalogEntry[] = []): BootstrapState {
   return {
     contractVersion: "v1",
     surfaceModes: [],
     commands: [],
     events: [],
-    providers: [],
+    providers: catalog,
     settings: settings(),
   };
 }
 
-function renderPopOut(providers: ProviderUsageSnapshot[], providerId?: string) {
+function renderPopOut(
+  providers: ProviderUsageSnapshot[],
+  providerId?: string,
+  catalog: ProviderCatalogEntry[] = [],
+) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
   return render(
     <LocaleProvider>
-      <PopOutPanel state={bootstrap()} providerId={providerId} />
+      <PopOutPanel state={bootstrap(catalog)} providerId={providerId} />
     </LocaleProvider>,
   );
 }
@@ -184,9 +189,37 @@ describe("PopOutPanel", () => {
       expect(container.querySelectorAll(".provider-grid__item")).toHaveLength(3);
     });
 
-    expect(container.querySelector(".provider-grid__item--active")?.getAttribute("title")).toBe("Claude");
+    expect(container.querySelector(".provider-grid__item--active")?.getAttribute("aria-label")).toBe("Claude");
     expect(screen.getAllByText("Claude").length).toBeGreaterThanOrEqual(2);
     expect(container.querySelectorAll(".menu-stack__item")).toHaveLength(1);
+  });
+
+  it("renders overview cards in settings catalog order instead of fetch order", async () => {
+    const catalog: ProviderCatalogEntry[] = [
+      { id: "codex", displayName: "Codex", cookieDomain: null },
+      { id: "claude", displayName: "Claude", cookieDomain: null },
+      { id: "cursor", displayName: "Cursor", cookieDomain: null },
+    ];
+
+    const { container } = renderPopOut(
+      [
+        provider("cursor", "Cursor", 15),
+        provider("codex", "Codex", 95),
+        provider("claude", "Claude", 40),
+      ],
+      undefined,
+      catalog,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".menu-stack__item")).toHaveLength(3);
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".menu-card__name")).map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(["Codex", "Claude", "Cursor"]);
   });
 
   it("keeps the popout overview focused until the provider grid expands", async () => {

@@ -38,7 +38,7 @@ describe("ProvidersSidebar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle({
-      ProviderSidebarSearch: "Search providers",
+      ProviderSidebarSearch: "Search",
       ProviderSidebarNoMatches: "No matching providers",
     }));
     eventMocks.listen.mockResolvedValue(() => {});
@@ -83,7 +83,7 @@ describe("ProvidersSidebar", () => {
       </LocaleProvider>,
     );
 
-    expect(await screen.findByRole("searchbox", { name: "Search providers" })).toBeInTheDocument();
+    expect(await screen.findByRole("searchbox", { name: "Search" })).toBeInTheDocument();
     expect(screen.getByText("No matching providers")).toBeInTheDocument();
   });
 });

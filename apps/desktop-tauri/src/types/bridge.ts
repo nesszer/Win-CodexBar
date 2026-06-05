@@ -245,9 +245,9 @@ export interface SettingsUpdate {
 
 export interface BootstrapState {
   contractVersion: string;
-  surfaceModes: SurfaceModeDescriptor[];
-  commands: BridgeCommandDescriptor[];
-  events: BridgeEventDescriptor[];
+  surfaceModes?: SurfaceModeDescriptor[];
+  commands?: BridgeCommandDescriptor[];
+  events?: BridgeEventDescriptor[];
   providers: ProviderCatalogEntry[];
   settings: SettingsSnapshot;
 }

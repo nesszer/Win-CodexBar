@@ -456,8 +456,10 @@ pub(super) fn apply_transition(
             )?;
             events::emit_surface_mode_changed(app, transition.from, transition.to, current_target);
 
-            // Phase 3: now make the window visible.
-            if needs_show {
+            // Phase 3: now make the window visible. TrayPanel is revealed by
+            // the frontend after its first layout pass so Windows never shows
+            // the pre-measure blank/backing frame.
+            if needs_show && transition.to != SurfaceMode::TrayPanel {
                 let _ = show_window(window);
             }
             clamp_current_window_to_work_area(window);
