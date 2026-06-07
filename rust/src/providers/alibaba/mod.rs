@@ -71,6 +71,9 @@ const INTL_PROFILE: AlibabaRequestProfile = AlibabaRequestProfile {
     commodity_code: "sfm_codingplan_public_intl",
     switch_agent: 313762,
     switch_user_type: 3,
+    // NOTE: this is Alibaba's own (misspelled) token — "ALBABACLOUD", not
+    // "ALIBABACLOUD". It is copied verbatim from a verified working capture;
+    // the gateway rejects the correctly-spelled value. Do NOT "fix" it.
     console_site: "MODELSTUDIO_ALBABACLOUD",
     console_domain: "modelstudio.console.alibabacloud.com",
 };
@@ -108,12 +111,23 @@ impl AlibabaRegion {
         match value.unwrap_or_default().trim().to_lowercase().as_str() {
             "us" | "us-east-1" | "useast" | "us-west-1" => Self::UsEast,
             "germany" | "eu" | "eu-central-1" | "frankfurt" => Self::Germany,
-            "hongkong" | "hong-kong" | "hk" | "cn-hongkong" | "ap-east-1" => Self::HongKong,
+            "hongkong" | "hong-kong" | "hk" | "cn-hongkong" => Self::HongKong,
             "cn" | "china" | "china-mainland" | "china_mainland" | "mainland" => {
                 Self::ChinaMainland
             }
-            // singapore / intl / ap-southeast-1 / unrecognised → Singapore
-            _ => Self::Singapore,
+            // Known aliases that explicitly map to Singapore.
+            "" | "singapore" | "intl" | "ap-southeast-1" | "international" => Self::Singapore,
+            // Unrecognised → Singapore (safe default) but log a warning so the
+            // fall-through isn't completely silent. A corrupted/typoed
+            // settings value should be visible in logs rather than silently
+            // changing the selected endpoint and cookie-domain hint.
+            other => {
+                tracing::warn!(
+                    value = other,
+                    "Unknown Alibaba api_region value; falling back to Singapore",
+                );
+                Self::Singapore
+            }
         }
     }
 
@@ -155,9 +169,19 @@ impl AlibabaRegion {
     }
 
     /// Browser cookie domains to try (in priority order) for auto-import.
+    ///
+    /// For China Mainland we try both `alibabacloud.com` and the legacy
+    /// `aliyun.com` Bailian hosts, because existing CN browser sessions may
+    /// have cookies scoped to either depending on which console URL the user
+    /// logged in through.
     pub fn cookie_domains(self) -> &'static [&'static str] {
         match self {
-            Self::ChinaMainland => &["bailian.console.alibabacloud.com", "alibabacloud.com"],
+            Self::ChinaMainland => &[
+                "bailian.console.alibabacloud.com",
+                "bailian.console.aliyun.com",
+                "alibabacloud.com",
+                "aliyun.com",
+            ],
             _ => &["modelstudio.console.alibabacloud.com", "alibabacloud.com"],
         }
     }
@@ -168,16 +192,17 @@ impl AlibabaRegion {
     }
 
     /// Per-platform gateway request constants.
+    ///
+    /// China Mainland routes to its own `bailian.console.alibabacloud.com`
+    /// gateway with CN cookie domains — never the international endpoint. Its
+    /// remaining request constants (commodity code / action / method) inherit
+    /// the international values; if the China-mainland console expects
+    /// different ones, replace them here once a real CN request is captured.
     pub fn request_profile(self) -> AlibabaRequestProfile {
         match self {
             Self::ChinaMainland => AlibabaRequestProfile {
                 gateway: "https://bailian.console.alibabacloud.com",
                 console_domain: "bailian.console.alibabacloud.com",
-                // The China-mainland console uses a different commodity code /
-                // action than the international plan; these inherit the intl
-                // values until a real CN request is captured. The gateway and
-                // cookie domains above are CN-correct, so CN cookies are never
-                // sent to the international endpoint.
                 ..INTL_PROFILE
             },
             _ => INTL_PROFILE,
@@ -211,14 +236,16 @@ fn token_cache() -> &'static RwLock<HashMap<String, CachedSecToken>> {
     CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-/// Cache key bound to the real auth boundary: the region code plus a hash of
-/// the cookie header (account / cookie identity). Changing region, account,
-/// or cookies yields a different key, so a stale token is never reused.
+/// Cache key bound to the real auth boundary: the region code plus a full
+/// SHA-256 hash of the cookie header (account / cookie identity). Changing
+/// region, account, or cookies yields a different key, so a stale token is
+/// never reused. The full digest is hex-encoded (no truncation) so the
+/// collision resistance the comment claims actually holds.
 fn sec_token_cache_key(region_code: &str, cookies: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(cookies.as_bytes());
     let digest = hasher.finalize();
-    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     format!("{region_code}:{hex}")
 }
 
@@ -230,6 +257,7 @@ fn cached_sec_token(key: &str) -> Option<String> {
 
 fn store_sec_token(key: &str, token: &str) {
     if let Ok(mut cache) = token_cache().write() {
+        cache.retain(|_, v| v.fetched_at.elapsed() < SEC_TOKEN_TTL);
         cache.insert(
             key.to_string(),
             CachedSecToken {
@@ -332,7 +360,7 @@ impl AlibabaProvider {
         cookies: &str,
         region: AlibabaRegion,
     ) -> Option<String> {
-        let dashboard_url = format!("{}/{}?tab=plan", region.gateway(), region.region_code());
+        let dashboard_url = format!("{}?tab=plan", region.dashboard_url());
         let resp = client
             .get(&dashboard_url)
             .header("Cookie", cookies)
@@ -345,15 +373,20 @@ impl AlibabaProvider {
             .await
             .ok()?;
         if !resp.status().is_success() {
-            return extract_cookie_value("sec_token", cookies);
+            tracing::debug!(
+                status = %resp.status(),
+                region = ?region,
+                "Alibaba dashboard fetch returned non-success; not falling back to cookie sec_token",
+            );
+            return None;
         }
         let html = resp.text().await.ok()?;
         extract_sec_token(&html).or_else(|| extract_cookie_value("sec_token", cookies))
     }
 
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
-        let cookies = self.resolve_cookies(ctx)?;
         let region = AlibabaRegion::from_settings_value(ctx.api_region.as_deref());
+        let cookies = self.resolve_cookies(ctx)?;
         let cache_key = sec_token_cache_key(region.region_code(), &cookies);
 
         let client = reqwest::Client::builder()
@@ -395,7 +428,7 @@ impl AlibabaProvider {
     ) -> Result<UsageSnapshot, ProviderError> {
         let profile = region.request_profile();
         let cna = extract_cookie_value("cna", cookies).unwrap_or_default();
-        let referer = format!("{}/{}?tab=plan", profile.gateway, region.region_code());
+        let referer = format!("{}?tab=plan", region.dashboard_url());
         let fe_url = format!("{referer}#/efm/subscription/coding-plan");
 
         let params = serde_json::json!({
@@ -425,16 +458,20 @@ impl AlibabaProvider {
         });
 
         let url = format!(
-            "{}/data/api.json?action={}&product={}",
+            "{}/data/api.json?action={}&product={}&_tag=",
             profile.gateway, profile.api_action, profile.api_product
         );
 
+        // Field order and the `region` field match a verified working capture.
+        // The Intl gateway uses `region` to resolve the `api` method against the
+        // correct regional registry — dropping it yields `ApiEndpointNotExist`.
         let mut form = vec![
             ("action", profile.api_action.to_string()),
             ("product", profile.api_product.to_string()),
             ("api", profile.api_method.to_string()),
             ("_v", "undefined".to_string()),
             ("params", params.to_string()),
+            ("region", region.region_code().to_string()),
         ];
         if let Some(token) = sec_token.filter(|t| !t.is_empty()) {
             form.push(("sec_token", token));
@@ -580,40 +617,101 @@ impl AlibabaProvider {
     }
 }
 
+/// Scan the dashboard HTML for a `SEC_TOKEN` assignment. Tries every
+/// occurrence of the `SEC_TOKEN` substring (so a leading mention in a
+/// comment, error string, or user-controllable nickname cannot poison the
+/// extraction), and accepts only a value that follows an `=` or `:`
+/// assignment with either single or double quoting and a sane charset.
 fn extract_sec_token(html: &str) -> Option<String> {
-    let pos = html.find("SEC_TOKEN")?;
-    let rest = &html[pos + "SEC_TOKEN".len()..];
-    let start = rest.find('"')? + 1;
-    let rest = &rest[start..];
-    let end = rest.find('"')?;
-    let token = rest[..end].trim();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token.to_string())
+    const NEEDLE: &str = "SEC_TOKEN";
+    let mut search_from = 0;
+    while let Some(rel) = html[search_from..].find(NEEDLE) {
+        let pos = search_from + rel;
+        let after = &html[pos + NEEDLE.len()..];
+        if let Some(token) = parse_sec_token_value(after) {
+            return Some(token);
+        }
+        search_from = pos + NEEDLE.len();
     }
+    None
 }
 
+fn parse_sec_token_value(after_key: &str) -> Option<String> {
+    let mut chars = after_key.char_indices().peekable();
+    // Optional closing quote when the key itself was quoted (e.g. "SEC_TOKEN").
+    if matches!(chars.peek(), Some(&(_, '"' | '\''))) {
+        chars.next();
+    }
+    while let Some(&(_, c)) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    let assign = chars.next()?;
+    if assign.1 != ':' && assign.1 != '=' {
+        return None;
+    }
+    while let Some(&(_, c)) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    let (open_idx, open_quote) = chars.next()?;
+    if open_quote != '"' && open_quote != '\'' {
+        return None;
+    }
+    let value_start = open_idx + open_quote.len_utf8();
+    let value = &after_key[value_start..];
+    let end = value.find(open_quote)?;
+    let token = &value[..end];
+    if token.is_empty() || !is_valid_sec_token(token) {
+        return None;
+    }
+    Some(token.to_string())
+}
+
+fn is_valid_sec_token(token: &str) -> bool {
+    token.len() >= 8
+        && token.len() <= 256
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'/' | b'='))
+}
+
+/// Look up a cookie value by name from a `Cookie:` header.
+///
+/// Cookie names are case-sensitive per RFC 6265 §4.1.1, so this comparison
+/// is case-sensitive too. Trims surrounding whitespace from name/value but
+/// preserves case.
 fn extract_cookie_value(name: &str, cookie_header: &str) -> Option<String> {
     cookie_header.split(';').find_map(|part| {
         let (key, value) = part.trim().split_once('=')?;
-        key.trim()
-            .eq_ignore_ascii_case(name)
+        (key.trim() == name)
             .then(|| value.trim().to_string())
             .filter(|v| !v.is_empty())
     })
 }
 
 fn fmt_tokens(n: i64) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, ch) in s.chars().rev().enumerate() {
+    let negative = n < 0;
+    let magnitude = (n as i128).unsigned_abs();
+    let digits = magnitude.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
+    for (i, ch) in digits.chars().rev().enumerate() {
         if i > 0 && i % 3 == 0 {
             out.push(',');
         }
         out.push(ch);
     }
-    out.chars().rev().collect()
+    let mut result: String = out.chars().rev().collect();
+    if negative {
+        result.insert(0, '-');
+    }
+    result
 }
 
 impl Default for AlibabaProvider {
@@ -859,5 +957,117 @@ mod tests {
         assert_eq!(fmt_tokens(90000), "90,000");
         assert_eq!(fmt_tokens(25), "25");
         assert_eq!(fmt_tokens(1000000), "1,000,000");
+    }
+
+    #[test]
+    fn fmt_tokens_handles_negative_values() {
+        assert_eq!(fmt_tokens(-100), "-100");
+        assert_eq!(fmt_tokens(-1000), "-1,000");
+        assert_eq!(fmt_tokens(-1000000), "-1,000,000");
+        assert_eq!(fmt_tokens(-1), "-1");
+        assert_eq!(fmt_tokens(0), "0");
+        assert_eq!(fmt_tokens(i64::MIN), "-9,223,372,036,854,775,808");
+    }
+
+    #[test]
+    fn extract_cookie_value_is_case_sensitive() {
+        assert_eq!(
+            extract_cookie_value("sec_token", "sec_token=lower").as_deref(),
+            Some("lower"),
+        );
+        assert_eq!(extract_cookie_value("sec_token", "SEC_TOKEN=upper"), None);
+        assert_eq!(
+            extract_cookie_value("sec_token", "SEC_TOKEN=upper; sec_token=lower").as_deref(),
+            Some("lower"),
+            "case-sensitive: must match the exact lowercase cookie, not the uppercase one",
+        );
+    }
+
+    #[test]
+    fn extract_sec_token_handles_json_quoted_key() {
+        let html = r#"{"SEC_TOKEN":"AbcDefGhi123","other":1}"#;
+        assert_eq!(extract_sec_token(html).as_deref(), Some("AbcDefGhi123"));
+    }
+
+    #[test]
+    fn extract_sec_token_handles_single_quotes() {
+        let html = r#"window.SEC_TOKEN = 'AvLZTKds7DW5utd3p5xm48';"#;
+        assert_eq!(
+            extract_sec_token(html).as_deref(),
+            Some("AvLZTKds7DW5utd3p5xm48"),
+        );
+    }
+
+    #[test]
+    fn extract_sec_token_skips_decoy_occurrences() {
+        let html = r#"<!-- SEC_TOKEN missing on "deadbeef" -->
+            <script>var config = { SEC_TOKEN: "RealTokenValue1234" };</script>"#;
+        assert_eq!(
+            extract_sec_token(html).as_deref(),
+            Some("RealTokenValue1234"),
+            "must not return the decoy 'deadbeef' from the comment",
+        );
+    }
+
+    #[test]
+    fn extract_sec_token_rejects_invalid_charset() {
+        let html = r#"var x = { SEC_TOKEN: "bad token with spaces" };"#;
+        assert_eq!(extract_sec_token(html), None);
+    }
+
+    #[test]
+    fn extract_sec_token_rejects_too_short_value() {
+        let html = r#"var x = { SEC_TOKEN: "abc" };"#;
+        assert_eq!(extract_sec_token(html), None);
+    }
+
+    #[test]
+    fn china_cookie_domains_include_legacy_aliyun() {
+        let domains = AlibabaRegion::ChinaMainland.cookie_domains();
+        assert!(
+            domains.contains(&"bailian.console.aliyun.com"),
+            "legacy aliyun.com fallback must remain for upgrading users; got {domains:?}",
+        );
+        assert!(domains.contains(&"bailian.console.alibabacloud.com"));
+    }
+
+    #[test]
+    fn intl_console_site_matches_verified_capture() {
+        // Alibaba's gateway expects its own misspelled token ("ALBABACLOUD").
+        // This value is from a verified working request — a "spelling fix"
+        // here silently breaks the live quota call, which no unit test that
+        // avoids the network can catch. Pin it.
+        assert_eq!(INTL_PROFILE.console_site, "MODELSTUDIO_ALBABACLOUD");
+    }
+
+    #[test]
+    fn sec_token_cache_key_uses_full_sha256_hex() {
+        let key = sec_token_cache_key("ap-southeast-1", "cookie=value");
+        let (_region, hex) = key.split_once(':').expect("key must contain ':'");
+        assert_eq!(hex.len(), 64, "full SHA-256 hex is 64 characters");
+        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn ap_east_1_no_longer_aliases_to_hongkong() {
+        assert_eq!(
+            AlibabaRegion::from_settings_value(Some("ap-east-1")),
+            AlibabaRegion::Singapore,
+            "ap-east-1 is an AWS region code, not Alibaba's; removed as HK alias",
+        );
+    }
+
+    #[test]
+    fn dashboard_url_with_tab_is_consistent_across_regions() {
+        let intl_url = format!("{}?tab=plan", AlibabaRegion::Singapore.dashboard_url());
+        assert_eq!(
+            intl_url,
+            "https://modelstudio.console.alibabacloud.com/ap-southeast-1?tab=plan",
+        );
+        let cn_url = format!("{}?tab=plan", AlibabaRegion::ChinaMainland.dashboard_url());
+        assert_eq!(
+            cn_url, "https://bailian.console.alibabacloud.com?tab=plan",
+            "CN dashboard URL must NOT contain a region-code path segment",
+        );
     }
 }
