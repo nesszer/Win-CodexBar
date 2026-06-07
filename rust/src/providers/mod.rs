@@ -55,7 +55,7 @@ pub mod zai;
 
 // Re-export provider implementations
 pub use abacus::AbacusProvider;
-pub use alibaba::AlibabaProvider;
+pub use alibaba::{AlibabaProvider, AlibabaRegion};
 pub use alibabatokenplan::AlibabaTokenPlanProvider;
 pub use amp::AmpProvider;
 pub use antigravity::AntigravityProvider;

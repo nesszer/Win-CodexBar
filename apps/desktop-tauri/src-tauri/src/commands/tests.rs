@@ -920,7 +920,7 @@ fn cookie_options_empty_for_providers_without_picker() {
 fn region_options_for_regional_provider() {
     let opts = super::region_options_for("alibaba");
     let values: Vec<_> = opts.iter().map(|o| o.value.as_str()).collect();
-    assert_eq!(values, vec!["intl", "cn"]);
+    assert_eq!(values, vec!["singapore", "us", "germany", "hongkong", "cn"]);
 }
 
 #[test]

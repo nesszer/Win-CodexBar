@@ -549,7 +549,7 @@ fn test_per_provider_defaults_applied() {
     let settings = Settings::default();
     assert_eq!(settings.cookie_source(ProviderId::Codex), "manual");
     assert_eq!(settings.usage_source(ProviderId::Codex), "auto");
-    assert_eq!(settings.api_region(ProviderId::Alibaba), "intl");
+    assert_eq!(settings.api_region(ProviderId::Alibaba), "singapore");
     assert_eq!(settings.api_region(ProviderId::Zai), "global");
     assert_eq!(settings.api_region(ProviderId::MiniMax), "global");
     assert!(settings.openai_web_extras(ProviderId::Codex));

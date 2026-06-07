@@ -464,16 +464,13 @@ pub fn cookie_source_options_for(provider_id: &str, lang: Language) -> Vec<Cooki
 /// Empty vec means the provider has no region picker.
 pub fn region_options_for(provider_id: &str) -> Vec<RegionOption> {
     match provider_id {
-        "alibaba" => vec![
-            RegionOption {
-                value: "intl".to_string(),
-                label: "International (Model Studio)".to_string(),
-            },
-            RegionOption {
-                value: "cn".to_string(),
-                label: "China Mainland (Bailian)".to_string(),
-            },
-        ],
+        "alibaba" => codexbar::providers::AlibabaRegion::ALL
+            .iter()
+            .map(|region| RegionOption {
+                value: region.settings_value().to_string(),
+                label: region.display_name().to_string(),
+            })
+            .collect(),
         "zai" => vec![
             RegionOption {
                 value: "global".to_string(),

@@ -246,7 +246,9 @@ impl ProviderId {
             ProviderId::Augment => Some("app.augmentcode.com"),
             ProviderId::Amp => Some("sourcegraph.com"),
             ProviderId::Antigravity => Some("antigravity.ai"),
-            ProviderId::Alibaba => Some("tongyi.aliyun.com"),
+            ProviderId::Alibaba => {
+                Some(crate::providers::AlibabaRegion::Singapore.primary_cookie_domain())
+            }
             ProviderId::AlibabaTokenPlan => Some("bailian.console.aliyun.com"),
             ProviderId::Ollama => Some("ollama.com"),
             ProviderId::T3Chat => Some("t3.chat"),
@@ -715,7 +717,7 @@ mod tests {
         assert_eq!(ProviderId::Alibaba.display_name(), "Alibaba");
         assert_eq!(
             ProviderId::Alibaba.cookie_domain(),
-            Some("tongyi.aliyun.com")
+            Some("modelstudio.console.alibabacloud.com")
         );
         assert_eq!(
             ProviderId::from_cli_name("alibaba"),

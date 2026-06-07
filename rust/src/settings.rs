@@ -228,7 +228,7 @@ const DEFAULT_PROVIDER_SOURCE: &str = "auto";
 /// Default API region for providers that expose one.
 fn default_api_region(id: ProviderId) -> &'static str {
     match id {
-        ProviderId::Alibaba => "intl",
+        ProviderId::Alibaba => crate::providers::AlibabaRegion::Singapore.settings_value(),
         ProviderId::Zai | ProviderId::MiniMax => "global",
         _ => "",
     }

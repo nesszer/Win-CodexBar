@@ -97,6 +97,13 @@ pub(crate) fn provider_cookie_domain(id: ProviderId, settings: &Settings) -> Opt
             )),
         );
     }
+    if id == ProviderId::Alibaba {
+        return Some(
+            codexbar::providers::AlibabaProvider::cookie_domain_for_region(Some(
+                settings.api_region(id),
+            )),
+        );
+    }
     id.cookie_domain()
 }
 
