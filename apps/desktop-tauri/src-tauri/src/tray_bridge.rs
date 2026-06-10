@@ -620,20 +620,29 @@ fn build_tooltip(snapshots: &[crate::commands::ProviderUsageSnapshot]) -> String
     let mut lines = Vec::with_capacity(snapshots.len() + 1);
     for s in snapshots {
         let status = if let Some(ref err) = s.error {
-            // Truncate long error messages
-            let short: String = err.chars().take(40).collect();
+            let short = truncate_tooltip_text(err, 36);
             format!("{}: error ({})", s.display_name, short)
         } else {
             let label = s
                 .tray_status_label
                 .clone()
                 .unwrap_or_else(|| format!("{:.0}%", s.primary.used_percent));
-            format!("{}: {}", s.display_name, label)
+            format!("{}: {}", s.display_name, truncate_tooltip_text(&label, 42))
         };
         lines.push(status);
     }
 
     format!("CodexBar\n{}", lines.join("\n"))
+}
+
+fn truncate_tooltip_text(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
 }
 
 #[allow(dead_code)]
@@ -1046,6 +1055,35 @@ mod tests {
 
         assert_eq!((bar_w, bar_h), (pct_w, pct_h));
         assert_ne!(bar, percent);
+    }
+
+    #[test]
+    fn tooltip_uses_compact_status_labels() {
+        let mut claude = fake_snapshot("claude", "Claude", 13.0);
+        claude.tray_status_label = Some("13% • resets in 2h 05m".to_string());
+        let mut codex = fake_snapshot("codex", "Codex", 8.0);
+        codex.tray_status_label = Some("8% • resets in 4h 10m".to_string());
+
+        let tooltip = build_tooltip(&[claude, codex]);
+
+        assert_eq!(
+            tooltip,
+            "CodexBar\nClaude: 13% • resets in 2h 05m\nCodex: 8% • resets in 4h 10m"
+        );
+    }
+
+    #[test]
+    fn tooltip_truncates_long_provider_lines() {
+        let mut claude = fake_snapshot("claude", "Claude", 13.0);
+        claude.tray_status_label =
+            Some("13% • resets in Jun 10 at 3:00PM with extra noisy suffix".to_string());
+
+        let tooltip = build_tooltip(&[claude]);
+
+        let line = tooltip.lines().nth(1).expect("provider tooltip line");
+        assert!(line.starts_with("Claude: 13% • resets in Jun 10 at 3:00PM"));
+        assert!(line.ends_with("..."));
+        assert!(line.chars().count() <= 53);
     }
 
     #[test]

@@ -159,14 +159,10 @@ impl ProviderUsageSnapshot {
             s
         });
 
-        let tray_status_label = {
-            let pct = format!("{:.0}%", usage.primary.used_percent);
-            if let Some(desc) = &usage.primary.reset_description {
-                Some(format!("{pct} • resets in {desc}"))
-            } else {
-                Some(pct)
-            }
-        };
+        let tray_status_label = Some(compact_tray_status_label(
+            &usage.primary,
+            usage.primary.used_percent,
+        ));
 
         Self {
             provider_id: id.cli_name().to_string(),
@@ -249,6 +245,57 @@ impl ProviderUsageSnapshot {
             tray_status_label: None,
             fetch_duration_ms: None,
         }
+    }
+}
+
+fn compact_tray_status_label(window: &RateWindow, used_percent: f64) -> String {
+    let pct = format!("{used_percent:.0}%");
+    if let Some(reset) = compact_reset_description(window) {
+        format!("{pct} • {reset}")
+    } else {
+        pct
+    }
+}
+
+fn compact_reset_description(window: &RateWindow) -> Option<String> {
+    if let Some(resets_at) = window.resets_at {
+        return Some(format_compact_reset_countdown(resets_at));
+    }
+
+    window
+        .reset_description
+        .as_deref()
+        .map(normalize_reset_description)
+        .filter(|desc| !desc.is_empty())
+}
+
+fn format_compact_reset_countdown(resets_at: chrono::DateTime<chrono::Utc>) -> String {
+    let now = chrono::Utc::now();
+    if resets_at <= now {
+        return "resets now".to_string();
+    }
+
+    let total_minutes = (resets_at - now).num_minutes().max(0);
+    let days = total_minutes / 1440;
+    let hours = (total_minutes % 1440) / 60;
+    let minutes = total_minutes % 60;
+
+    if days > 0 {
+        format!("resets in {days}d {hours}h")
+    } else {
+        format!("resets in {hours}h {minutes:02}m")
+    }
+}
+
+fn normalize_reset_description(desc: &str) -> String {
+    let trimmed = desc.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("resets in ") || lower.starts_with("reset in ") {
+        trimmed.to_string()
+    } else if lower.starts_with("in ") {
+        format!("resets {trimmed}")
+    } else {
+        format!("resets in {trimmed}")
     }
 }
 
@@ -873,5 +920,36 @@ pub(super) fn parse_metric_preference(s: &str) -> Option<MetricPreference> {
         "extraUsage" | "extrausage" => Some(MetricPreference::ExtraUsage),
         "average" => Some(MetricPreference::Average),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tray_status_prefers_relative_reset_countdown() {
+        let window = RateWindow::with_details(
+            13.0,
+            Some(300),
+            Some(chrono::Utc::now() + chrono::Duration::minutes(125)),
+            Some("Jun 10 at 3:00PM".to_string()),
+        );
+
+        let label = compact_tray_status_label(&window, window.used_percent);
+
+        assert!(label.starts_with("13% • resets in 2h "));
+        assert!(label.ends_with('m'));
+        assert!(!label.contains("Jun 10"));
+    }
+
+    #[test]
+    fn tray_status_normalizes_fallback_reset_description() {
+        let window = RateWindow::with_details(8.0, Some(300), None, Some("2h 05m".to_string()));
+
+        assert_eq!(
+            compact_tray_status_label(&window, window.used_percent),
+            "8% • resets in 2h 05m"
+        );
     }
 }
