@@ -255,17 +255,17 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button,
-                button_state: MouseButtonState::Up,
+                button_state,
                 position,
                 rect,
                 ..
             } = event
             {
                 let app = tray.app_handle();
-                store_anchor(app, &rect, position);
-                if button == MouseButton::Left {
+                if button == MouseButton::Left && button_state == MouseButtonState::Up {
+                    store_anchor(app, &rect, position);
                     let position = shell::tray_panel_position(app);
-                    shell::toggle_tray_panel(app, position);
+                    shell::handle_tray_panel_click(app, position);
                 }
             }
         })

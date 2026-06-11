@@ -143,6 +143,9 @@ pub struct AppState {
     /// Instant when the tray panel was last shown — used to suppress
     /// spurious blur-dismiss during the show animation on Windows.
     pub last_shown_at: Option<std::time::Instant>,
+    /// Instant when focus loss last dismissed the tray panel. The following
+    /// tray click consumes this marker instead of reopening the panel.
+    pub last_blur_dismissed_at: Option<std::time::Instant>,
 }
 
 impl Default for AppState {
@@ -182,7 +185,22 @@ impl AppState {
             proof_config: None,
             notification_manager: codexbar::notifications::NotificationManager::new(),
             last_shown_at: None,
+            last_blur_dismissed_at: None,
         }
+    }
+
+    pub fn mark_blur_dismissed(&mut self, dismissed_at: std::time::Instant) {
+        self.last_blur_dismissed_at = Some(dismissed_at);
+    }
+
+    pub fn take_recent_blur_dismissal(
+        &mut self,
+        now: std::time::Instant,
+        max_age: std::time::Duration,
+    ) -> bool {
+        self.last_blur_dismissed_at
+            .take()
+            .is_some_and(|dismissed_at| now.duration_since(dismissed_at) <= max_age)
     }
 
     pub fn transition_surface(

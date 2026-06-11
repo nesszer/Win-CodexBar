@@ -71,6 +71,36 @@ fn tray_toggle_hides_only_when_panel_window_is_visible() {
 }
 
 #[test]
+fn immediate_tray_click_consumes_blur_dismissal() {
+    let mut state = AppState::new();
+    let dismissed_at = std::time::Instant::now();
+
+    state.mark_blur_dismissed(dismissed_at);
+
+    assert!(state.take_recent_blur_dismissal(
+        dismissed_at + std::time::Duration::from_millis(20),
+        std::time::Duration::from_millis(250),
+    ));
+    assert!(!state.take_recent_blur_dismissal(
+        dismissed_at + std::time::Duration::from_millis(20),
+        std::time::Duration::from_millis(250),
+    ));
+}
+
+#[test]
+fn later_tray_click_does_not_consume_expired_blur_dismissal() {
+    let mut state = AppState::new();
+    let dismissed_at = std::time::Instant::now();
+
+    state.mark_blur_dismissed(dismissed_at);
+
+    assert!(!state.take_recent_blur_dismissal(
+        dismissed_at + std::time::Duration::from_millis(251),
+        std::time::Duration::from_millis(250),
+    ));
+}
+
+#[test]
 fn same_mode_about_request_resolves_as_retarget() {
     let mut state = AppState::new();
     state.transition_surface(
