@@ -855,6 +855,10 @@ pub(crate) fn bridge_events() -> Vec<BridgeEventDescriptor> {
             id: "locale-changed",
             description: "Emitted when the persisted UI language changes. Payload: serialized language label.",
         },
+        BridgeEventDescriptor {
+            id: "settings-updated",
+            description: "Emitted after settings are persisted. Payload: the full settings snapshot.",
+        },
     ]
 }
 

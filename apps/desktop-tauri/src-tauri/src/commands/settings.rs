@@ -61,9 +61,11 @@ impl SettingsUpdate {
 
     fn refreshes_tray_presentation(&self) -> bool {
         self.tray_icon_mode.is_some()
+            || self.switcher_shows_icons.is_some()
             || self.menu_bar_shows_highest_usage.is_some()
             || self.menu_bar_shows_percent.is_some()
             || self.show_as_used.is_some()
+            || self.reset_time_relative.is_some()
             || self.menu_bar_display_mode.is_some()
             || self.provider_metrics.is_some()
             || self.enabled_providers.is_some()
@@ -295,5 +297,31 @@ pub async fn update_settings(
         crate::tray_bridge::refresh_tray_presentation(&app);
     }
 
-    Ok(SettingsSnapshot::from(settings))
+    let snapshot = SettingsSnapshot::from(settings);
+    events::emit_settings_updated(&app, &snapshot);
+
+    Ok(snapshot)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_settings_that_affect_tray_trigger_presentation_refresh() {
+        assert!(
+            SettingsUpdate {
+                switcher_shows_icons: Some(false),
+                ..Default::default()
+            }
+            .refreshes_tray_presentation()
+        );
+        assert!(
+            SettingsUpdate {
+                reset_time_relative: Some(false),
+                ..Default::default()
+            }
+            .refreshes_tray_presentation()
+        );
+    }
 }

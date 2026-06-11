@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type { SettingsSnapshot, SettingsUpdate } from "../types/bridge";
 import { getSettingsSnapshot, updateSettings } from "../lib/tauri";
 
@@ -33,8 +34,29 @@ export function useSettings(initial: SettingsSnapshot): UseSettingsReturn {
         // Keep the bootstrap snapshot if the background sync fails.
       });
 
+    const onDomSettingsUpdated = (event: Event) => {
+      if (cancelled) return;
+      const next = (event as CustomEvent<SettingsSnapshot>).detail;
+      if (next) {
+        setSettings(next);
+      }
+    };
+
+    window.addEventListener("codexbar:settings-updated", onDomSettingsUpdated);
+
+    const unlistenSettingsUpdated = listen<SettingsSnapshot>(
+      "settings-updated",
+      (event) => {
+        if (!cancelled) {
+          setSettings(event.payload);
+        }
+      },
+    );
+
     return () => {
       cancelled = true;
+      window.removeEventListener("codexbar:settings-updated", onDomSettingsUpdated);
+      unlistenSettingsUpdated.then((fn) => fn());
     };
   }, [initial]);
 

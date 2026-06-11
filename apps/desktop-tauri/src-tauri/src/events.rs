@@ -4,7 +4,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::commands::ProviderUsageSnapshot;
+use crate::commands::{ProviderUsageSnapshot, SettingsSnapshot};
 use crate::proof_harness::ProofStatePayload;
 use crate::state::UpdateStatePayload;
 use crate::surface::SurfaceMode;
@@ -20,6 +20,7 @@ pub const UPDATE_STATE_CHANGED: &str = "update-state-changed";
 pub const LOGIN_PHASE_CHANGED: &str = "login-phase-changed";
 pub const PROOF_STATE_CHANGED: &str = "proof-state-changed";
 pub const LOCALE_CHANGED: &str = "locale-changed";
+pub const SETTINGS_UPDATED: &str = "settings-updated";
 
 // ── Payloads ─────────────────────────────────────────────────────────
 
@@ -84,4 +85,8 @@ pub fn emit_login_phase_changed(app: &AppHandle) {
 
 pub fn emit_proof_state_changed(app: &AppHandle, payload: &ProofStatePayload) {
     let _ = app.emit(PROOF_STATE_CHANGED, payload);
+}
+
+pub fn emit_settings_updated(app: &AppHandle, snapshot: &SettingsSnapshot) {
+    let _ = app.emit(SETTINGS_UPDATED, snapshot);
 }
