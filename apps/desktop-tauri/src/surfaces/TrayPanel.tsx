@@ -1,7 +1,12 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
-import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
+import {
+  dismissTrayPanel,
+  openSettingsWindow,
+  quitApp as quitApplication,
+  setSurfaceMode,
+} from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
@@ -197,6 +202,17 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (
+        e.key === "Escape" &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.metaKey
+      ) {
+        e.preventDefault();
+        void dismissTrayPanel().catch(() => {});
+        return;
+      }
       if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
       switch (e.key.toLowerCase()) {
         case "r":

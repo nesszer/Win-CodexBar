@@ -101,6 +101,7 @@ fn main() {
             commands::get_settings_snapshot,
             commands::update_settings,
             commands::set_surface_mode,
+            commands::dismiss_tray_panel,
             commands::reveal_tray_panel_window,
             commands::open_settings_window,
             commands::close_settings_window,

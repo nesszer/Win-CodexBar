@@ -14,6 +14,7 @@ const tauriMocks = vi.hoisted(() => ({
   dismissUpdate: vi.fn(),
   openReleasePage: vi.fn(),
   setSurfaceMode: vi.fn(),
+  dismissTrayPanel: vi.fn(),
   openSettingsWindow: vi.fn(),
   quitApp: vi.fn(),
   getWorkAreaRect: vi.fn(),
@@ -174,6 +175,7 @@ describe("TrayPanel provider grid", () => {
     eventMocks.listeners.clear();
     tauriMocks.refreshProviders.mockResolvedValue(undefined);
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
+    tauriMocks.dismissTrayPanel.mockResolvedValue(undefined);
     tauriMocks.reanchorTrayPanel.mockResolvedValue(undefined);
     tauriMocks.getWorkAreaRect.mockResolvedValue({
       x: 0,
@@ -212,6 +214,50 @@ describe("TrayPanel provider grid", () => {
         return Promise.resolve(() => {});
       },
     );
+  });
+
+  it("dismisses the tray panel on unmodified Escape", async () => {
+    const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
+
+    await waitFor(() => {
+      expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(tauriMocks.dismissTrayPanel).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not dismiss the tray panel on modified Escape", async () => {
+    const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
+
+    await waitFor(() => {
+      expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
+    });
+
+    fireEvent.keyDown(window, { key: "Escape", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "Escape", shiftKey: true });
+    fireEvent.keyDown(window, { key: "Escape", altKey: true });
+    fireEvent.keyDown(window, { key: "Escape", metaKey: true });
+
+    expect(tauriMocks.dismissTrayPanel).not.toHaveBeenCalled();
+  });
+
+  it("keeps the existing Ctrl+R tray shortcut", async () => {
+    const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
+
+    await waitFor(() => {
+      expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
+    });
+    tauriMocks.refreshProviders.mockClear();
+
+    fireEvent.keyDown(window, { key: "r", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(tauriMocks.refreshProviders).toHaveBeenCalledTimes(1);
+    });
   });
 
   it.each([

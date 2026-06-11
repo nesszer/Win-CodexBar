@@ -60,6 +60,10 @@ export function setSurfaceMode<M extends VisibleSurfaceMode>(
   return invoke<SurfaceMode>("set_surface_mode", { mode, target });
 }
 
+export function dismissTrayPanel(): Promise<void> {
+  return invoke<void>("dismiss_tray_panel");
+}
+
 export function openSettingsWindow(tab: string): Promise<void> {
   return invoke<void>("open_settings_window", { tab });
 }

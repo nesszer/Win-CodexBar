@@ -15,6 +15,11 @@ pub fn set_surface_mode(
         .map(|mode| mode.as_str().to_string())
 }
 
+#[tauri::command]
+pub fn dismiss_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
+    crate::shell::hide_to_tray_if_current(&app, |mode| mode == SurfaceMode::TrayPanel).map(|_| ())
+}
+
 /// Open (or focus) a detached Settings/About window.
 ///
 /// Unlike `set_surface_mode`, this spawns a *separate* window so the tray

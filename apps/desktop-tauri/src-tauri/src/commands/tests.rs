@@ -60,6 +60,7 @@ fn bootstrap_contract_lists_current_surface_commands() {
         .collect::<Vec<_>>();
 
     assert!(ids.contains(&"set_surface_mode"));
+    assert!(ids.contains(&"dismiss_tray_panel"));
     assert!(ids.contains(&"get_current_surface_mode"));
     assert!(ids.contains(&"get_current_surface_state"));
     assert!(ids.contains(&"get_app_info"));

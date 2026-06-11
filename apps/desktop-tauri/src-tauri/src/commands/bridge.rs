@@ -587,6 +587,10 @@ pub(crate) fn bridge_commands() -> Vec<BridgeCommandDescriptor> {
             description: "Switch the shell to a visible surface using a required typed target.",
         },
         BridgeCommandDescriptor {
+            id: "dismiss_tray_panel",
+            description: "Hide the tray panel without affecting other visible surfaces.",
+        },
+        BridgeCommandDescriptor {
             id: "close_settings_window",
             description: "Dismiss Settings without exiting the tray application.",
         },
