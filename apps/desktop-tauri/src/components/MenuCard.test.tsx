@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tauriMocks = vi.hoisted(() => ({
@@ -24,17 +24,24 @@ import MenuCard from "./MenuCard";
 
 function rateWindow(
   usedPercent = 0,
-  opts: { exhausted?: boolean; resetDescription?: string | null } = {},
+  opts: {
+    exhausted?: boolean;
+    resetDescription?: string | null;
+    reservePercent?: number | null;
+    reserveDescription?: string | null;
+    windowMinutes?: number | null;
+    resetsAt?: string | null;
+  } = {},
 ) {
   return {
     usedPercent,
     remainingPercent: 100 - usedPercent,
-    windowMinutes: null,
-    resetsAt: null,
+    windowMinutes: opts.windowMinutes ?? null,
+    resetsAt: opts.resetsAt ?? null,
     resetDescription: opts.resetDescription ?? null,
     isExhausted: opts.exhausted ?? false,
-    reservePercent: null,
-    reserveDescription: null,
+    reservePercent: opts.reservePercent ?? null,
+    reserveDescription: opts.reserveDescription ?? null,
   };
 }
 
@@ -163,5 +170,82 @@ describe("MenuCard", () => {
     expect(screen.getByText("30d tokens")).toBeInTheDocument();
     expect(screen.getByText("584K")).toBeInTheDocument();
     expect(screen.getByText("Estimated from local logs")).toBeInTheDocument();
+  });
+
+  it("shows on-pace budgets and expands projection details", async () => {
+    const onLayoutChange = vi.fn();
+    const resetAt = new Date(
+      Date.now() + 0.6 * 7 * 24 * 60 * 60 * 1000,
+    );
+    const snapshot = provider(null, 20);
+    snapshot.primary = rateWindow(20, {
+      reservePercent: 20,
+      reserveDescription: "Lasts until reset",
+      windowMinutes: 7 * 24 * 60,
+      resetsAt: resetAt.toISOString(),
+    });
+
+    renderCard(snapshot, { onLayoutChange });
+
+    const toggle = await screen.findByRole("button", { name: /On-pace budget/ });
+    expect(screen.getByText("now 20%")).toBeInTheDocument();
+    expect(screen.getByText("1h 21%")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /usage pace/i })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("img", { name: /usage pace/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(onLayoutChange).toHaveBeenCalled();
+    });
+  });
+
+  it("shows on-pace budgets when timing exists without reserve metadata", async () => {
+    const resetAt = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000);
+    const snapshot = provider(null, 31);
+    snapshot.primary = rateWindow(31, {
+      windowMinutes: 7 * 24 * 60,
+      resetsAt: resetAt.toISOString(),
+    });
+
+    renderCard(snapshot);
+
+    expect(
+      await screen.findByRole("button", { name: /On-pace budget/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("now 0%")).toBeInTheDocument();
+    expect(screen.queryByText(/in reserve/)).not.toBeInTheDocument();
+  });
+
+  it("does not show pace budgets for a five-hour session window", async () => {
+    const resetAt = new Date(Date.now() + 4 * 60 * 60 * 1000);
+    const snapshot = provider(null, 31);
+    snapshot.primary = rateWindow(31, {
+      windowMinutes: 5 * 60,
+      resetsAt: resetAt.toISOString(),
+    });
+
+    renderCard(snapshot);
+
+    expect(await screen.findByText("69% left")).toBeInTheDocument();
+    expect(screen.queryByText("On-pace budget")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("img", { name: /usage pace/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the reserve row when timing data is incomplete", async () => {
+    const snapshot = provider(null, 20);
+    snapshot.primary = rateWindow(20, {
+      reservePercent: 12,
+      reserveDescription: "Lasts until reset",
+      windowMinutes: 7 * 24 * 60,
+    });
+
+    renderCard(snapshot);
+
+    expect(await screen.findByText("12% in reserve")).toBeInTheDocument();
+    expect(screen.queryByText("On-pace budget")).not.toBeInTheDocument();
   });
 });

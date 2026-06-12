@@ -15,6 +15,8 @@ import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
 import { DEMO_ENABLED } from "../lib/demoProviders";
 import { providerSupportsChartData } from "../lib/providerCharts";
+import { getPaceBudget } from "../lib/paceBudget";
+import PaceDetailsChart from "./PaceDetailsChart";
 
 /** Small copy-to-clipboard button matching macOS CopyIconButton (doc.on.doc → checkmark). */
 function CopyIconButton({ text }: { text: string }) {
@@ -227,6 +229,8 @@ function paceStageKey(stage: PaceSnapshot["stage"]): LocaleKey {
 }
 
 type UsageLevel = "normal" | "high" | "critical" | "exhausted";
+const WEEKLY_WINDOW_MINUTES = 7 * 24 * 60;
+
 function levelOf(remainPct: number, exhausted: boolean): UsageLevel {
   if (exhausted) return "exhausted";
   if (remainPct <= 5) return "critical";
@@ -235,6 +239,7 @@ function levelOf(remainPct: number, exhausted: boolean): UsageLevel {
 }
 
 interface MetricEntry {
+  id: string;
   label: string;
   snap: RateWindowSnapshot;
 }
@@ -251,12 +256,16 @@ function MetricRow({
   exhaustedLabel,
   resetTimeRelative,
   showAsUsed,
+  expanded,
+  onToggleExpanded,
 }: {
   title: string;
   snap: RateWindowSnapshot;
   exhaustedLabel: string;
   resetTimeRelative: boolean;
   showAsUsed: boolean;
+  expanded: boolean;
+  onToggleExpanded: () => void;
 }) {
   const usedPct = Number.isFinite(snap.usedPercent) ? Math.max(0, snap.usedPercent) : 0;
   const barPct = Math.min(100, usedPct);
@@ -270,6 +279,11 @@ function MetricRow({
     snap.resetDescription,
     resetTimeRelative,
   );
+  const isWeeklyWindow =
+    snap.windowMinutes != null && snap.windowMinutes >= WEEKLY_WINDOW_MINUTES;
+  const paceBudget = isWeeklyWindow ? getPaceBudget(snap) : null;
+  const formatBudget = (value: number) =>
+    value < 10 ? value.toFixed(1).replace(/\.0$/, "") : Math.round(value).toString();
   return (
     <div className="menu-metric">
       <span className="menu-metric__title">{title}</span>
@@ -285,14 +299,43 @@ function MetricRow({
       {snap.isExhausted && (
         <div className="menu-metric__exhausted">{exhaustedLabel}</div>
       )}
-      {snap.reservePercent != null && (
+      {paceBudget && !snap.isExhausted && (
+        <div className="menu-metric__budget">
+          <button
+            type="button"
+            className="menu-metric__budget-header"
+            onClick={onToggleExpanded}
+            aria-expanded={expanded}
+          >
+            <span>On-pace budget</span>
+            <span>{snap.reserveDescription ?? "Lasts until reset"}</span>
+          </button>
+          <div className="menu-metric__budget-pills">
+            {[
+              ["now", paceBudget.now],
+              ["1h", paceBudget.nextHour],
+              ["5h", paceBudget.nextFiveHours],
+              ["today", paceBudget.today],
+            ].map(([label, value]) => (
+              <span className="menu-metric__budget-pill" key={String(label)}>
+                {label} {formatBudget(Number(value))}%
+              </span>
+            ))}
+          </div>
+          {expanded && <PaceDetailsChart snap={snap} />}
+        </div>
+      )}
+      {isWeeklyWindow &&
+        snap.reservePercent != null &&
+        !paceBudget &&
+        !snap.isExhausted && (
         <div className="menu-metric__row menu-metric__reserve">
           <span className="menu-metric__pct">{Math.round(snap.reservePercent)}% in reserve</span>
           {snap.reserveDescription && (
             <span className="menu-metric__reset">{snap.reserveDescription}</span>
           )}
         </div>
-      )}
+        )}
     </div>
   );
 }
@@ -324,6 +367,7 @@ export default function MenuCard({
 }: MenuCardProps) {
   const { t } = useLocale();
   const [chartData, setChartData] = useState<ProviderChartData | null>(null);
+  const [expandedPaceWindow, setExpandedPaceWindow] = useState<string | null>(null);
   const formattedCostReset = useFormattedResetTime(
     provider.cost?.resetsAt ?? null,
     null,
@@ -363,19 +407,36 @@ export default function MenuCard({
   const planName = displayPlanName(provider.planName);
 
   const metrics: MetricEntry[] = [
-    { label: provider.primaryLabel ?? t("DetailWindowPrimary"), snap: provider.primary },
+    {
+      id: "primary",
+      label: provider.primaryLabel ?? t("DetailWindowPrimary"),
+      snap: provider.primary,
+    },
   ];
   if (provider.secondary)
-    metrics.push({ label: provider.secondaryLabel ?? t("DetailWindowSecondary"), snap: provider.secondary });
+    metrics.push({
+      id: "secondary",
+      label: provider.secondaryLabel ?? t("DetailWindowSecondary"),
+      snap: provider.secondary,
+    });
   if (provider.modelSpecific)
     metrics.push({
+      id: "model-specific",
       label: t("DetailWindowModelSpecific"),
       snap: provider.modelSpecific,
     });
   if (provider.tertiary)
-    metrics.push({ label: t("DetailWindowTertiary"), snap: provider.tertiary });
+    metrics.push({
+      id: "tertiary",
+      label: t("DetailWindowTertiary"),
+      snap: provider.tertiary,
+    });
   for (const extra of provider.extraRateWindows ?? []) {
-    metrics.push({ label: extra.title, snap: extra.window });
+    metrics.push({
+      id: `extra-${extra.id}`,
+      label: extra.title,
+      snap: extra.window,
+    });
   }
   const visibleMetrics = compactMetrics ? metrics.slice(0, 2) : metrics;
 
@@ -438,12 +499,19 @@ export default function MenuCard({
             <section className="menu-card__group menu-card__metrics">
               {visibleMetrics.map((m) => (
                 <MetricRow
-                  key={m.label}
+                  key={m.id}
                   title={m.label}
                   snap={m.snap}
                   exhaustedLabel={t("DetailWindowExhausted")}
                   resetTimeRelative={resetTimeRelative}
                   showAsUsed={showAsUsed}
+                  expanded={expandedPaceWindow === m.id}
+                  onToggleExpanded={() => {
+                    setExpandedPaceWindow((current) =>
+                      current === m.id ? null : m.id,
+                    );
+                    requestAnimationFrame(() => onLayoutChange?.());
+                  }}
                 />
               ))}
             </section>

@@ -3775,6 +3775,116 @@ html:has(.menu-surface--tray) {
   font-size: 10px;
 }
 
+.menu-metric__budget {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.menu-metric__budget-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.menu-metric__budget-header span:last-child {
+  color: var(--text-secondary);
+}
+
+.menu-metric__budget-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.menu-metric__budget-pill {
+  padding: 2px 6px;
+  border: 1px solid var(--usage-bar-track);
+  border-radius: 999px;
+  background: var(--surface-elevated);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pace-details-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 2px;
+}
+
+.pace-details-chart svg {
+  width: 100%;
+  height: 76px;
+  overflow: visible;
+}
+
+.pace-details-chart__grid {
+  stroke: var(--usage-bar-track);
+  stroke-width: 1;
+}
+
+.pace-details-chart__ideal {
+  stroke: var(--chart-credits-fg);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__actual {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__projection {
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__point {
+  fill: var(--accent);
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__legend {
+  display: flex;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.pace-details-chart__legend span::before {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+  background: var(--text-secondary);
+  content: "";
+}
+
+.pace-details-chart__legend span[data-series="actual"]::before {
+  background: var(--accent);
+}
+
+.pace-details-chart__legend span[data-series="ideal"]::before {
+  background: var(--chart-credits-fg);
+}
+
 /* ── Cost section (upstream `tokenUsage` block) ─────────────────────── */
 
 .menu-card__cost-line {
