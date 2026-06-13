@@ -214,8 +214,9 @@ describe("MenuCard", () => {
     expect(
       await screen.findByRole("button", { name: /On-pace budget/ }),
     ).toBeInTheDocument();
-    expect(screen.getByText("now 0%")).toBeInTheDocument();
-    expect(screen.queryByText(/in reserve/)).not.toBeInTheDocument();
+      expect(screen.getByText("now 0%")).toBeInTheDocument();
+      expect(screen.queryByText(/in reserve/)).not.toBeInTheDocument();
+      expect(screen.queryByText("Lasts until reset")).not.toBeInTheDocument();
   });
 
   it("does not show pace budgets for a five-hour session window", async () => {
@@ -238,10 +239,9 @@ describe("MenuCard", () => {
   it("keeps the reserve row when timing data is incomplete", async () => {
     const snapshot = provider(null, 20);
     snapshot.primary = rateWindow(20, {
-      reservePercent: 12,
-      reserveDescription: "Lasts until reset",
-      windowMinutes: 7 * 24 * 60,
-    });
+        reservePercent: 12,
+        reserveDescription: "Lasts until reset",
+      });
 
     renderCard(snapshot);
 

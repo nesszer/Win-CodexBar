@@ -244,6 +244,30 @@ interface MetricEntry {
   snap: RateWindowSnapshot;
 }
 
+type MetricPaceView =
+  | { kind: "budget"; budget: NonNullable<ReturnType<typeof getPaceBudget>> }
+  | { kind: "reserve"; percent: number; description: string | null }
+  | { kind: "none" };
+
+function getMetricPaceView(snap: RateWindowSnapshot): MetricPaceView {
+  if (snap.isExhausted) return { kind: "none" };
+
+  const isWeeklyWindow =
+    snap.windowMinutes != null && snap.windowMinutes >= WEEKLY_WINDOW_MINUTES;
+  const budget = isWeeklyWindow ? getPaceBudget(snap) : null;
+  if (budget) return { kind: "budget", budget };
+
+  if (snap.reservePercent != null) {
+    return {
+      kind: "reserve",
+      percent: snap.reservePercent,
+      description: snap.reserveDescription,
+    };
+  }
+
+  return { kind: "none" };
+}
+
 /**
  * Single metric row inside the card — mirrors upstream `MetricRow`:
  *   • title (body / medium)
@@ -279,9 +303,7 @@ function MetricRow({
     snap.resetDescription,
     resetTimeRelative,
   );
-  const isWeeklyWindow =
-    snap.windowMinutes != null && snap.windowMinutes >= WEEKLY_WINDOW_MINUTES;
-  const paceBudget = isWeeklyWindow ? getPaceBudget(snap) : null;
+  const paceView = getMetricPaceView(snap);
   const formatBudget = (value: number) =>
     value < 10 ? value.toFixed(1).replace(/\.0$/, "") : Math.round(value).toString();
   return (
@@ -299,7 +321,7 @@ function MetricRow({
       {snap.isExhausted && (
         <div className="menu-metric__exhausted">{exhaustedLabel}</div>
       )}
-      {paceBudget && !snap.isExhausted && (
+      {paceView.kind === "budget" && (
         <div className="menu-metric__budget">
           <button
             type="button"
@@ -308,14 +330,14 @@ function MetricRow({
             aria-expanded={expanded}
           >
             <span>On-pace budget</span>
-            <span>{snap.reserveDescription ?? "Lasts until reset"}</span>
+            {snap.reserveDescription && <span>{snap.reserveDescription}</span>}
           </button>
           <div className="menu-metric__budget-pills">
             {[
-              ["now", paceBudget.now],
-              ["1h", paceBudget.nextHour],
-              ["5h", paceBudget.nextFiveHours],
-              ["today", paceBudget.today],
+              ["now", paceView.budget.now],
+              ["1h", paceView.budget.nextHour],
+              ["5h", paceView.budget.nextFiveHours],
+              ["today", paceView.budget.today],
             ].map(([label, value]) => (
               <span className="menu-metric__budget-pill" key={String(label)}>
                 {label} {formatBudget(Number(value))}%
@@ -325,17 +347,14 @@ function MetricRow({
           {expanded && <PaceDetailsChart snap={snap} />}
         </div>
       )}
-      {isWeeklyWindow &&
-        snap.reservePercent != null &&
-        !paceBudget &&
-        !snap.isExhausted && (
+      {paceView.kind === "reserve" && (
         <div className="menu-metric__row menu-metric__reserve">
-          <span className="menu-metric__pct">{Math.round(snap.reservePercent)}% in reserve</span>
-          {snap.reserveDescription && (
-            <span className="menu-metric__reset">{snap.reserveDescription}</span>
+          <span className="menu-metric__pct">{Math.round(paceView.percent)}% in reserve</span>
+          {paceView.description && (
+            <span className="menu-metric__reset">{paceView.description}</span>
           )}
         </div>
-        )}
+      )}
     </div>
   );
 }
