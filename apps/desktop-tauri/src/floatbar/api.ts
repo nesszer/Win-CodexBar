@@ -3,9 +3,10 @@
  *
  * Kept inside the module so the rest of the desktop shell doesn't see
  * these — the Settings UI uses the regular `update_settings` bridge to
- * mutate float-bar fields, while these commands are only used when we
- * need to nudge the window directly (e.g. from a tray toggle path that
- * lives outside the React tree).
+ * mutate float-bar fields, while these commands drive the native window
+ * directly: tray toggle paths outside the React tree, plus `resizeFloatBar`,
+ * which lets the floatbar webview hand a size change to the native layer so
+ * the resize and the Win32 interaction state are applied together.
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -26,8 +27,8 @@ export function setFloatBarClickThrough(enabled: boolean): Promise<void> {
   return invoke<void>("set_float_bar_click_through", { enabled });
 }
 
-export function reapplyFloatBarInteraction(): Promise<void> {
-  return invoke<void>("reapply_float_bar_interaction");
+export function resizeFloatBar(width: number, height: number): Promise<void> {
+  return invoke<void>("resize_float_bar", { width, height });
 }
 
 export function setFloatBarOrientation(orientation: string): Promise<void> {

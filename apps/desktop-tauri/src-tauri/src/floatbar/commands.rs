@@ -1,8 +1,8 @@
 //! Tauri commands that drive the floating-bar window.
 //!
 //! These are thin wrappers around the local `window` module. User-initiated
-//! changes keep persisted settings in sync, while repair commands only refresh
-//! the native window state.
+//! changes keep persisted settings in sync, while the resize command applies a
+//! new size and the native interaction state together.
 
 use codexbar::settings::{Settings, clamp_float_bar_opacity, normalize_float_bar_orientation};
 use tauri::{AppHandle, Manager};
@@ -60,11 +60,12 @@ pub fn set_float_bar_click_through(app: AppHandle, enabled: bool) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn reapply_float_bar_interaction(app: AppHandle) -> Result<(), String> {
+pub fn resize_float_bar(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
     let settings = Settings::load();
     if let Some(window) = app.get_webview_window(floatbar_window::FLOATBAR_LABEL) {
-        floatbar_window::apply_no_activate(&window);
-        floatbar_window::apply_click_through(&window, settings.float_bar_click_through);
+        // One native operation owns the resize + interaction-state invariant,
+        // so the webview never has to repair Win32 window styles itself.
+        floatbar_window::resize(&window, width, height, settings.float_bar_click_through)?;
     }
     Ok(())
 }

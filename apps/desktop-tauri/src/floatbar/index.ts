@@ -7,6 +7,6 @@ export {
   hideFloatBar,
   setFloatBarOpacity,
   setFloatBarClickThrough,
-  reapplyFloatBarInteraction,
+  resizeFloatBar,
   setFloatBarOrientation,
 } from "./api";

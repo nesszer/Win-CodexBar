@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Field, Select, Toggle } from "../components/FormControls";
 import type {
   FloatBarOrientation,
@@ -15,20 +15,22 @@ interface Props {
 
 function useDraftNumber(value: number) {
   const [draft, setDraft] = useState(value);
-  const lastCommitted = useRef(value);
 
   useEffect(() => {
     setDraft(value);
-    lastCommitted.current = value;
   }, [value]);
 
   const commit = useCallback(
     (next: number, onCommit: (value: number) => void) => {
-      if (next === lastCommitted.current) return;
-      lastCommitted.current = next;
+      // Dedupe against the committed prop value, which is the persisted
+      // source of truth. The parent's save is fire-and-forget, so we can't
+      // observe success/failure here — comparing to `value` (rather than an
+      // optimistically-advanced marker) means a failed save leaves the prop
+      // unchanged and a re-commit of the same number still fires the retry.
+      if (next === value) return;
       onCommit(next);
     },
-    [],
+    [value],
   );
 
   return { draft, setDraft, commit };

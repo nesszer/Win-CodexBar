@@ -17,13 +17,18 @@ const eventMocks = vi.hoisted(() => ({
 
 const windowMocks = vi.hoisted(() => ({
   getCurrentWindow: vi.fn(() => ({
-    setSize: vi.fn().mockResolvedValue(undefined),
+    startDragging: vi.fn().mockResolvedValue(undefined),
   })),
+}));
+
+const coreMocks = vi.hoisted(() => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../lib/tauri", () => tauriMocks);
 vi.mock("@tauri-apps/api/event", () => eventMocks);
 vi.mock("@tauri-apps/api/window", () => windowMocks);
+vi.mock("@tauri-apps/api/core", () => coreMocks);
 
 import FloatBar from "./FloatBar";
 import { LocaleProvider } from "../i18n/LocaleProvider";
