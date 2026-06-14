@@ -18,7 +18,7 @@ import type {
   ProviderUsageSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
-import { FLOAT_BAR_CONFIG_CHANGED_EVENT, reapplyFloatBarInteraction } from "./api";
+import { FLOAT_BAR_CONFIG_CHANGED_EVENT, resizeFloatBar } from "./api";
 import "./FloatBar.css";
 
 function ResetIcon({ size }: { size: number }) {
@@ -144,7 +144,7 @@ function ProviderPill({
  * setting changes (filter list, orientation) live without a reload.
  */
 export default function FloatBar({ state }: { state: BootstrapState }) {
-  const { providers } = useProviders();
+  const { providers } = useProviders({ refreshOnMount: false });
   const startDrag = useCallback((event: MouseEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     void getCurrentWindow().startDragging().catch(() => {});
@@ -204,9 +204,10 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return [...list].sort((a, b) => b.primary.usedPercent - a.primary.usedPercent);
   }, [providers, settings.enabledProviders, filterIds]);
 
-  // Resize the window to fit content when the visible set or orientation changes.
+  // Resize the window to fit content when the visible set or orientation
+  // changes. The native `resize_float_bar` command owns both the size change
+  // and the Win32 interaction state, so the webview only reports a target size.
   useEffect(() => {
-    const win = getCurrentWindow();
     const el = document.querySelector<HTMLElement>(".floatbar");
     if (!el) return;
     requestAnimationFrame(() => {
@@ -214,11 +215,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
       const padding = 8;
       const w = Math.ceil(rect.width + padding);
       const h = Math.ceil(rect.height + padding);
-      void Promise.resolve(
-        win.setSize({ type: "Logical", width: w, height: h } as never),
-      )
-        .then(() => reapplyFloatBarInteraction())
-        .catch(() => {});
+      void resizeFloatBar(w, h).catch(() => {});
     });
   }, [
     visible.length,

@@ -1049,14 +1049,22 @@ html {
    fades the content in smoothly. */
 html:has(.tray-panel-reveal),
 body:has(.tray-panel-reveal) {
-  background: transparent;
+  background: var(--menu-popover-bg);
 }
 .tray-panel-reveal {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--menu-popover-bg);
   opacity: 0;
 }
 .tray-panel-reveal--ready {
   opacity: 1;
   transition: opacity 80ms ease-out;
+}
+
+.tray-panel-reveal--dense .menu-surface--tray {
+  min-height: 100vh;
 }
 
 .shell--tray-panel {
@@ -3173,7 +3181,7 @@ html:has(.menu-surface--tray) {
 }
 .menu-surface--tray .menu-surface__body {
   flex: 0 1 auto;
-  overflow-y: auto;
+  overflow-y: visible;
   overflow-x: hidden;
   min-height: 0;
   min-width: 0;
@@ -3235,25 +3243,24 @@ html:has(.menu-surface--tray) {
   background: transparent;
   border: none;
   border-radius: 0;
-  padding: 8px 10px 6px;
-  /* Upstream packs the provider switcher densely: icon-first, about
-     thirteen columns at the menu width instead of readable sidebar labels. */
-  grid-template-columns: repeat(13, minmax(0, 1fr));
-  gap: 9px 3px;
-}
-
-.menu-surface--tray .provider-grid--sparse {
-  grid-template-columns: repeat(auto-fit, 40px);
+  padding: 8px 12px 6px;
+  grid-template-columns: repeat(10, 24px);
   justify-content: start;
   gap: 8px 6px;
 }
 
+.menu-surface--tray .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 26px);
+  justify-content: start;
+  gap: 8px 7px;
+}
+
 .menu-surface--tray .provider-grid--sparse .provider-grid__item {
-  width: 40px;
+  width: 26px;
 }
 
 .menu-surface--tray .provider-grid--sparse .provider-grid__label {
-  max-width: 40px;
+  display: none;
 }
 /* Divider between provider grid and card stack */
 .menu-surface--tray .provider-grid__divider {
@@ -4284,21 +4291,59 @@ html:has(.menu-surface--tray) {
   color: rgba(255, 255, 255, 0.7);
   letter-spacing: 0.02em;
 }
-.settings-titlebar__close {
+
+.settings-titlebar__controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-self: stretch;
+  margin-right: -4px;
+}
+
+.settings-titlebar__control {
   -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
+  width: 46px;
+  min-width: 46px;
   height: 32px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 13px;
+  color: rgba(255, 255, 255, 0.82);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-.settings-titlebar__close:hover {
+
+.settings-titlebar__control svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.settings-titlebar__control--minimize::before {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+  border-radius: 1px;
+}
+
+.settings-titlebar__control:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.settings-titlebar__control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.settings-titlebar__control--close:hover {
   background: #e81123;
   color: #fff;
 }
@@ -4332,6 +4377,7 @@ html:has(.menu-surface--tray) {
   color: var(--text-secondary);
   font-size: 0.65rem;
   font-weight: 500;
+  line-height: 1;
   letter-spacing: 0;
   text-transform: none;
   transition: background 0.12s ease, color 0.12s ease;
@@ -4352,6 +4398,11 @@ html:has(.menu-surface--tray) {
   width: 16px;
   height: 16px;
   display: block;
+}
+
+.settings-tab__label {
+  display: block;
+  line-height: 1.1;
 }
 .settings-tab:hover {
   background: rgba(255, 255, 255, 0.05);
@@ -4392,20 +4443,18 @@ html:has(.menu-surface--tray) {
 /* ── Grouped form (SwiftUI Form .grouped) ─────────────────────────── */
 .settings-section {
   margin: 0 0 0;
-  padding: 0 0 16px;
+  padding: 0 0 10px;
   background: transparent;
   gap: 12px;
-  border-bottom: 1px solid var(--panel-border);
 }
 .settings-section:last-child {
-  border-bottom: none;
   padding-bottom: 0;
 }
 .settings-section + .settings-section {
-  padding-top: 16px;
+  padding-top: 14px;
 }
 .settings-section__title {
-  margin: 0 0 4px;
+  margin: 0 0 8px;
   font-size: var(--font-caption);
   font-weight: 400;
   letter-spacing: 0.04em;
@@ -4419,17 +4468,18 @@ html:has(.menu-surface--tray) {
   line-height: 1.4;
 }
 .settings-field {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
   align-items: center;
-  padding: 6px 0;
+  padding: 5px 0;
   border-radius: 0;
   background: transparent;
   transition: none;
 }
 .settings-field--leading {
-  justify-content: flex-start;
-  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
 }
 [data-theme="light"] .settings-field {
   background: transparent;
@@ -4441,15 +4491,30 @@ html:has(.menu-surface--tray) {
   background: transparent;
 }
 .settings-field__label {
+  display: block;
   font-size: var(--font-body);
   font-weight: 400;
   color: var(--text-primary);
+  line-height: 1.2;
 }
 .settings-field__desc {
+  display: block;
   font-size: var(--font-caption);
   color: var(--text-muted);
-  line-height: 1.35;
-  margin-top: 2px;
+  line-height: 1.25;
+  margin-top: 1px;
+}
+
+.settings-field__text {
+  min-width: 0;
+  align-self: center;
+}
+
+.settings-field__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
 }
 
 /* Flat field stack: matches upstream SwiftUI VStack + Divider() per
@@ -4458,7 +4523,7 @@ html:has(.menu-surface--tray) {
 .settings-section__group {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 4px;
   border-radius: 0;
   background: transparent;
   transition: none;
@@ -4468,12 +4533,6 @@ html:has(.menu-surface--tray) {
   border-radius: 0;
   background: transparent;
 }
-.settings-section__group > .settings-field + .settings-field,
-.settings-section__group > .sound-enabled-row + .settings-field,
-.settings-section__group > .settings-field + .sound-enabled-row {
-  border-top: 1px solid var(--panel-border);
-}
-
 /* ── Form controls: native-feeling macOS look ─────────────────────── */
 /* `.toggle` is now a native checkbox; styles defined earlier in this
    file. The earlier macOS toggle-switch overrides have been removed. */
@@ -4485,42 +4544,39 @@ html:has(.menu-surface--tray) {
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 5px;
   font-size: var(--font-body);
-  padding: 4px 10px;
   color: var(--text-primary);
   height: 22px;
   box-shadow: none;
 }
 .select {
   appearance: none;
-  min-width: 132px;
-  padding-right: 28px;
-  line-height: 1;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
-    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
-  background-position:
-    calc(100% - 13px) 9px,
-    calc(100% - 8px) 9px;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
+  -webkit-appearance: none;
+  padding: 0 10px;
+  line-height: 20px;
+  color-scheme: light;
 }
 .select option {
-  background: #242426;
-  color: var(--text-primary);
+  color: #000;
+  background: #fff;
 }
 .select option:checked {
-  background: var(--accent);
-  color: #fff;
+  color: #000;
+  background: #dceeff;
+}
+.text-input {
+  padding: 0 10px;
+  line-height: 20px;
 }
 .number-input {
   width: 52px;
   height: 22px;
-  padding: 2px 6px;
+  padding: 0 6px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.04);
   text-align: center;
   font-variant-numeric: tabular-nums;
+  line-height: 20px;
 }
 [data-theme="light"] .select,
 [data-theme="light"] .number-input,
@@ -4738,13 +4794,6 @@ html:has(.menu-surface--tray) {
   line-height: 1.4;
 }
 
-/* ── Quit button row (right-aligned) */
-.settings-quit-row {
-  display: flex;
-  justify-content: flex-end;
-  padding: 8px 0;
-}
-
 /* About update controls block */
 .about-update-controls {
   display: flex;
@@ -4849,21 +4898,27 @@ html:has(.menu-surface--tray) {
   min-width: 0;
 }
 
-/* ── Windows QA polish: adaptive provider grid and compact heights ─── */
-.menu-surface--tray .provider-grid,
-.menu-surface--popout .provider-grid,
+/* ── Windows QA polish: stable provider grid and compact heights ─── */
 .provider-grid {
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 8px 5px;
+  grid-template-columns: repeat(8, 34px);
+  justify-content: start;
+  gap: 7px 4px;
 }
 
-/* The 10-column override above also matches the sparse variant (it carries
-   both classes), packing 40px items into ~21px columns so adjacent tab
-   labels overlap. Re-assert the sparse track sizing after it. */
-.menu-surface--tray .provider-grid--sparse {
-  grid-template-columns: repeat(auto-fit, 40px);
-  justify-content: start;
+.menu-surface--tray .provider-grid {
+  grid-template-columns: repeat(10, 24px);
   gap: 8px 6px;
+}
+
+.menu-surface--popout .provider-grid {
+  grid-template-columns: repeat(8, 38px);
+  gap: 8px 6px;
+}
+
+.menu-surface--tray .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 26px);
+  justify-content: start;
+  gap: 8px 7px;
 }
 
 .menu-surface--popout .provider-grid--sparse {
@@ -4873,37 +4928,64 @@ html:has(.menu-surface--tray) {
 }
 
 .provider-grid__item {
-  min-height: 42px;
-  padding: 2px 1px 3px;
+  min-height: 40px;
+  padding: 2px 2px 3px;
+}
+
+.menu-surface--tray .provider-grid__item {
+  width: 24px;
+  min-height: 26px;
+  padding: 3px 0;
+  gap: 0;
+  justify-content: center;
 }
 
 .provider-grid__label {
-  max-width: 30px;
+  max-width: 32px;
 }
 
-.menu-surface--tray .provider-grid--compact,
-.menu-surface--popout .provider-grid--compact,
+.menu-surface--tray .provider-grid__label {
+  display: none;
+}
+
 .provider-grid--compact {
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 7px 5px;
+  grid-template-columns: repeat(8, 34px);
+  gap: 7px 4px;
   padding-top: 7px;
   padding-bottom: 5px;
 }
 
+.menu-surface--popout .provider-grid--compact {
+  grid-template-columns: repeat(8, 38px);
+  gap: 8px 6px;
+}
+
 .provider-grid--compact .provider-grid__item {
-  min-height: 37px;
-  gap: 1px;
+  min-height: 40px;
+  gap: 2px;
+}
+
+.menu-surface--tray .provider-grid--compact .provider-grid__item {
+  min-height: 26px;
+  gap: 0;
 }
 
 .provider-grid--compact .provider-grid__label {
-  max-width: 28px;
-  font-size: 9px;
-  text-overflow: clip;
+  max-width: 32px;
+  font-size: 9.5px;
+  text-overflow: ellipsis;
 }
 
 .provider-grid--compact .provider-grid__weekly-track {
   width: 20px;
   height: 3px;
+}
+
+.menu-surface--tray .provider-grid__weekly-track,
+.menu-surface--tray .provider-grid--compact .provider-grid__weekly-track {
+  width: 18px;
+  height: 3px;
+  margin-top: 2px;
 }
 
 .provider-grid__item--more {
@@ -4926,19 +5008,17 @@ html:has(.menu-surface--tray) {
   background: rgba(255, 255, 255, 0.16);
 }
 
-.provider-grid--compact .provider-icon,
-.provider-grid--compact .provider-grid__icon-overview {
-  transform: translateY(1px);
-}
 
 .settings-tabs {
   gap: 4px;
-  padding: 5px;
+  padding: 5px 12px;
   background: rgba(255, 255, 255, 0.035);
 }
 
 .settings-tab {
   border: 1px solid transparent;
+  min-height: 42px;
+  padding: 5px 12px 6px;
 }
 
 .settings-tab:hover:not(.settings-tab--active) {

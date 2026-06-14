@@ -53,7 +53,7 @@ For Claude, browser cookies/sessionKey are preferred because they match Claude's
 
 ## Latest Release
 
-**v0.32.5** fixes two targeted upstream provider issues: GitHub Copilot Business token-based billing quota rows no longer show misleading `0% used` usage, and OpenAI Web login/Cloudflare blocking states are prioritized over public-route detection.
+**v0.32.6** fixes Windows tray startup/layout glitches, reduces provider refresh contention, lazy-loads heavier surfaces after tray startup, and keeps provider ordering stable in the tray and pop-out views.
 
 See the full history in [CHANGELOG.md](CHANGELOG.md).
 
@@ -143,7 +143,7 @@ codexbar cost -p codex
 For local Windows release builds, use the cached release builder:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.32.5 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.32.6 -SmokeInstall
 ```
 
 The script builds the real Tauri release binary, verifies signed installer dependencies, packages with Inno Setup, writes installer/portable assets, writes SHA-256 sidecars, and can run a silent install/uninstall smoke test.

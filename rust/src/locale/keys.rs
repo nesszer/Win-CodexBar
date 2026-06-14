@@ -658,6 +658,15 @@ impl LocaleKey {
             "BannerUpdateFailedPrefix",
         ),
         (LocaleKey::BannerRetry, "BannerRetry"),
+        (LocaleKey::ProviderSidebarSearch, "ProviderSidebarSearch"),
+        (
+            LocaleKey::ProviderSidebarClearSearch,
+            "ProviderSidebarClearSearch",
+        ),
+        (
+            LocaleKey::ProviderSidebarNoMatches,
+            "ProviderSidebarNoMatches",
+        ),
         (
             LocaleKey::ProviderSidebarReorderHint,
             "ProviderSidebarReorderHint",

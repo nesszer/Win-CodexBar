@@ -44,9 +44,13 @@ export function Select({
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
+  const width = Math.min(128, Math.max(48, Math.ceil(selectedLabel.length * 6.8) + 18));
+
   return (
     <select
       className="select"
+      style={{ width }}
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}

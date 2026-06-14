@@ -17,6 +17,12 @@ export interface UseProvidersOptions {
    * starts.
    */
   initialRefreshDelayMs?: number;
+  /**
+   * Whether mounting this hook should ask the backend for a stale-aware refresh.
+   * Passive surfaces can turn this off when another timer already drives
+   * freshness, while still receiving cached data and live provider events.
+   */
+  refreshOnMount?: boolean;
 }
 
 export interface UseProvidersResult {
@@ -30,6 +36,8 @@ export interface UseProvidersResult {
   lastRefresh: RefreshCompletePayload | null;
   /** True when the hook has provider data that can stay visible during refresh. */
   hasCachedData: boolean;
+  /** True after the initial cached-provider read has completed. */
+  hasLoadedCache: boolean;
 }
 
 /**
@@ -48,22 +56,44 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
   const [lastRefresh, setLastRefresh] = useState<RefreshCompletePayload | null>(
     null,
   );
+  const [hasLoadedCache, setHasLoadedCache] = useState(false);
   const refreshingRef = useRef(false);
+  const pendingSnapshotsRef = useRef<Map<string, ProviderUsageSnapshot>>(new Map());
+  const flushTimerRef = useRef<number | undefined>(undefined);
 
-  // Upsert a single snapshot into the providers array.
-  const upsert = useCallback((snapshot: ProviderUsageSnapshot) => {
+  const mergeSnapshots = useCallback((snapshots: ProviderUsageSnapshot[]) => {
+    if (snapshots.length === 0) return;
     setProviders((prev) => {
-      const idx = prev.findIndex(
-        (p) => p.providerId === snapshot.providerId,
-      );
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = snapshot;
-        return next;
+      const next = [...prev];
+      const byId = new Map(next.map((provider, index) => [provider.providerId, index]));
+      for (const snapshot of snapshots) {
+        const idx = byId.get(snapshot.providerId);
+        if (idx !== undefined) {
+          next[idx] = snapshot;
+        } else {
+          byId.set(snapshot.providerId, next.length);
+          next.push(snapshot);
+        }
       }
-      return [...prev, snapshot];
+      return next;
     });
   }, []);
+
+  const flushPendingSnapshots = useCallback(() => {
+    if (flushTimerRef.current !== undefined) {
+      window.clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = undefined;
+    }
+    const snapshots = Array.from(pendingSnapshotsRef.current.values());
+    pendingSnapshotsRef.current.clear();
+    mergeSnapshots(snapshots);
+  }, [mergeSnapshots]);
+
+  const queueSnapshot = useCallback((snapshot: ProviderUsageSnapshot) => {
+    pendingSnapshotsRef.current.set(snapshot.providerId, snapshot);
+    if (flushTimerRef.current !== undefined) return;
+    flushTimerRef.current = window.setTimeout(flushPendingSnapshots, 80);
+  }, [flushPendingSnapshots]);
 
   const refresh = useCallback(() => {
     if (refreshingRef.current) return;
@@ -79,17 +109,23 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     let cancelled = false;
 
     // Load existing cache first.
-    getCachedProviders().then((cached) => {
-      if (!cancelled && cached.length > 0) {
-        setProviders(cached);
-      }
-    });
+    getCachedProviders()
+      .then((cached) => {
+        if (!cancelled && cached.length > 0) {
+          mergeSnapshots(cached);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHasLoadedCache(true);
+        }
+      });
 
     // Event listeners.
     const unlistenUpdated = listen<ProviderUsageSnapshot>(
       "provider-updated",
       (event) => {
-        if (!cancelled) upsert(event.payload);
+        if (!cancelled) queueSnapshot(event.payload);
       },
     );
 
@@ -104,6 +140,7 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
       "refresh-complete",
       (event) => {
         if (!cancelled) {
+          flushPendingSnapshots();
           refreshingRef.current = false;
           setIsRefreshing(false);
           setLastRefresh(event.payload);
@@ -123,11 +160,13 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     };
 
     // Kick off the initial refresh, but let the backend reuse fresh cache.
-    const delay = Math.max(0, options.initialRefreshDelayMs ?? 0);
-    if (delay > 0) {
-      initialRefreshTimer = window.setTimeout(runInitialRefresh, delay);
-    } else {
-      runInitialRefresh();
+    if (options.refreshOnMount !== false) {
+      const delay = Math.max(0, options.initialRefreshDelayMs ?? 0);
+      if (delay > 0) {
+        initialRefreshTimer = window.setTimeout(runInitialRefresh, delay);
+      } else {
+        runInitialRefresh();
+      }
     }
 
     return () => {
@@ -135,11 +174,23 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
       if (initialRefreshTimer !== undefined) {
         window.clearTimeout(initialRefreshTimer);
       }
+      if (flushTimerRef.current !== undefined) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = undefined;
+      }
+      pendingSnapshotsRef.current.clear();
       unlistenUpdated.then((fn) => fn());
       unlistenStarted.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
     };
-  }, [options.initialRefreshDelayMs, refresh, upsert]);
+  }, [
+    options.initialRefreshDelayMs,
+    options.refreshOnMount,
+    flushPendingSnapshots,
+    mergeSnapshots,
+    queueSnapshot,
+    refresh,
+  ]);
 
   return {
     providers,
@@ -147,5 +198,6 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     refresh,
     lastRefresh,
     hasCachedData: providers.length > 0,
+    hasLoadedCache,
   };
 }

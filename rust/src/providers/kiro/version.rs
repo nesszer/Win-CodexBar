@@ -26,7 +26,7 @@ fn is_allowed_kiro_binary(path: &Path) -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        file_name.eq_ignore_ascii_case("kiro-cli.exe") || file_name.eq_ignore_ascii_case("kiro.exe")
+        file_name.eq_ignore_ascii_case("kiro-cli.exe")
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -211,10 +211,7 @@ pub fn find_kiro_cli() -> Option<PathBuf> {
                 let possible_paths = [
                     dirs::data_local_dir()
                         .map(|p| p.join("Programs").join("Kiro").join("kiro-cli.exe")),
-                    dirs::data_local_dir()
-                        .map(|p| p.join("Programs").join("Kiro").join("kiro.exe")),
                     Some(PathBuf::from("C:\\Program Files\\Kiro\\kiro-cli.exe")),
-                    Some(PathBuf::from("C:\\Program Files\\Kiro\\kiro.exe")),
                 ];
                 for path in possible_paths.into_iter().flatten() {
                     if is_allowed_kiro_binary(&path) {
@@ -302,6 +299,16 @@ pub fn reset_cache() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+
+    fn temp_binary_path(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("codexbar-kiro-version-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp binary directory");
+        let path = dir.join(name);
+        File::create(&path).expect("create temp binary placeholder");
+        path
+    }
 
     #[test]
     fn test_parse_version_simple() {
@@ -371,5 +378,21 @@ mod tests {
         let v = KiroVersion::parse("1.2.3-beta+build").unwrap();
         assert_eq!(v.display(), "1.2.3");
         assert_eq!(v.to_string(), "1.2.3-beta+build");
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_rejects_gui_kiro_binary_as_cli() {
+        let cli_path = temp_binary_path("kiro-cli.exe");
+        let gui_path = temp_binary_path("kiro.exe");
+
+        assert!(is_allowed_kiro_binary(&cli_path));
+        assert!(
+            !is_allowed_kiro_binary(&gui_path),
+            "kiro.exe is the Electron GUI app on Windows; running it as a CLI spawns the IDE"
+        );
+
+        let _ = std::fs::remove_file(cli_path);
+        let _ = std::fs::remove_file(gui_path);
     }
 }

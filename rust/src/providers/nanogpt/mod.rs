@@ -24,9 +24,11 @@ const NANOGPT_CREDENTIAL_TARGET: &str = "codexbar-nanogpt";
 struct UsageResponse {
     active: bool,
     limits: UsageLimits,
+    #[serde(default)]
     enforce_daily_limit: bool,
     period: BillingPeriod,
-    daily: UsageMetric,
+    #[serde(default)]
+    daily: Option<UsageMetric>,
     monthly: UsageMetric,
     state: String,
     grace_until: Option<String>,
@@ -35,7 +37,8 @@ struct UsageResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UsageLimits {
-    daily: f64,
+    #[serde(default)]
+    daily: Option<f64>,
     monthly: f64,
 }
 
@@ -51,6 +54,7 @@ struct UsageMetric {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BillingPeriod {
+    #[serde(default)]
     current_period_end: String,
 }
 
@@ -107,26 +111,14 @@ impl NanoGPTProvider {
             return Err(ProviderError::AuthRequired);
         }
 
-        // NanoGPT documents these as usage units, not tokens or dollars.
-        let daily_percent = (usage.daily.percent_used * 100.0).clamp(0.0, 100.0);
-        let mut daily_window = RateWindow::new(daily_percent);
-        if let Some(reset_at) = Self::ms_to_datetime(usage.daily.reset_at) {
-            daily_window.resets_at = Some(reset_at);
-        }
-        daily_window.reset_description = Some(format!(
-            "{:.0}/{:.0} units",
-            usage.daily.used, usage.limits.daily
-        ));
-
-        let monthly_percent = (usage.monthly.percent_used * 100.0).clamp(0.0, 100.0);
-        let mut monthly_window = RateWindow::new(monthly_percent);
-        if let Some(reset_at) = Self::ms_to_datetime(usage.monthly.reset_at) {
-            monthly_window.resets_at = Some(reset_at);
-        }
-        monthly_window.reset_description = Some(format!(
-            "{:.0}/{:.0} units",
-            usage.monthly.used, usage.limits.monthly
-        ));
+        // NanoGPT documents these as usage units, not tokens or dollars. Some
+        // live responses omit the daily block entirely, so monthly usage must
+        // be able to stand alone instead of failing deserialization.
+        let monthly_window = Self::window_from_metric(&usage.monthly, usage.limits.monthly);
+        let daily_window = usage
+            .daily
+            .as_ref()
+            .map(|daily| Self::window_from_metric(daily, usage.limits.daily.unwrap_or_default()));
 
         let period_note = if let Some(grace_until) = usage.grace_until.as_deref() {
             format!("{} until {}", usage.state, grace_until)
@@ -138,9 +130,29 @@ impl NanoGPTProvider {
             usage.state
         };
 
-        Ok(UsageSnapshot::new(daily_window)
-            .with_secondary(monthly_window)
-            .with_login_method(period_note))
+        let usage = if let Some(daily_window) = daily_window {
+            UsageSnapshot::new(daily_window).with_secondary(monthly_window)
+        } else {
+            UsageSnapshot::new(monthly_window)
+        };
+
+        Ok(usage.with_login_method(period_note))
+    }
+
+    fn window_from_metric(metric: &UsageMetric, limit: f64) -> RateWindow {
+        let mut window = RateWindow::new((metric.percent_used * 100.0).clamp(0.0, 100.0));
+        if let Some(reset_at) = Self::ms_to_datetime(metric.reset_at) {
+            window.resets_at = Some(reset_at);
+        }
+        if limit > 0.0 {
+            window.reset_description = Some(format!("{:.0}/{:.0} units", metric.used, limit));
+        } else {
+            window.reset_description = Some(format!(
+                "{:.0} used, {:.0} remaining",
+                metric.used, metric.remaining
+            ));
+        }
+        window
     }
 
     /// Fetch usage from NanoGPT API
@@ -277,6 +289,46 @@ mod tests {
         assert_eq!(
             secondary.reset_description.as_deref(),
             Some("3000/60000 units")
+        );
+        assert_eq!(
+            usage.login_method.as_deref(),
+            Some("active until 2025-02-13T23:59:59.000Z")
+        );
+    }
+
+    #[test]
+    fn parses_monthly_usage_when_daily_is_missing() {
+        let response: UsageResponse = serde_json::from_value(serde_json::json!({
+            "active": true,
+            "limits": {
+                "monthly": 60000.0
+            },
+            "enforceDailyLimit": false,
+            "monthly": {
+                "used": 3000.0,
+                "remaining": 57000.0,
+                "percentUsed": 0.05,
+                "resetAt": 1739404800000_i64
+            },
+            "period": {
+                "currentPeriodEnd": "2025-02-13T23:59:59.000Z"
+            },
+            "state": "active",
+            "graceUntil": null
+        }))
+        .expect("monthly-only response should deserialize");
+
+        let usage = NanoGPTProvider::usage_snapshot_from_response(response)
+            .expect("monthly-only response should parse");
+
+        assert!((usage.primary.used_percent - 5.0).abs() < 0.0001);
+        assert_eq!(
+            usage.primary.reset_description.as_deref(),
+            Some("3000/60000 units")
+        );
+        assert!(
+            usage.secondary.is_none(),
+            "daily usage should not be synthesized when the API omits it"
         );
         assert_eq!(
             usage.login_method.as_deref(),

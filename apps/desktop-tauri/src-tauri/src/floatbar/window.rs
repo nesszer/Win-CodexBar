@@ -178,6 +178,28 @@ impl<R: tauri::Runtime> WindowGeometry<R> for tauri::Window<R> {
     }
 }
 
+/// Resize the floatbar to the given logical dimensions and re-assert the
+/// native interaction invariants in the same step.
+///
+/// A resize goes through `SetWindowPos`/frame changes, which can drop the
+/// extended window styles, so the no-activate and click-through flags must be
+/// re-applied afterwards. Keeping both halves here gives callers (including the
+/// webview) a single canonical "the bar changed size" entry point instead of
+/// pairing a JS `setSize` with a separate native repair command.
+pub fn resize(
+    window: &tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+    click_through: bool,
+) -> Result<(), String> {
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    apply_no_activate(window);
+    apply_click_through(window, click_through);
+    Ok(())
+}
+
 /// Apply the current opacity setting to an existing floatbar window via
 /// `SetLayeredWindowAttributes`. No-op on non-Windows platforms.
 pub fn apply_opacity(window: &tauri::WebviewWindow, opacity: u8) {

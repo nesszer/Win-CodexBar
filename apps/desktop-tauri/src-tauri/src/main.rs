@@ -23,6 +23,9 @@ use surface::SurfaceMode;
 use surface_target::SurfaceTarget;
 use tauri::Manager;
 
+const PROOF_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
+const VISIBLE_START_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
+
 fn should_hide_close_request(mode: SurfaceMode) -> bool {
     matches!(
         mode,
@@ -76,6 +79,7 @@ fn main() {
             commands::get_settings_snapshot,
             commands::update_settings,
             commands::set_surface_mode,
+            commands::reveal_tray_panel_window,
             commands::open_settings_window,
             commands::close_settings_window,
             commands::get_current_surface_mode,
@@ -144,7 +148,7 @@ fn main() {
             floatbar::hide_float_bar,
             floatbar::set_float_bar_opacity,
             floatbar::set_float_bar_click_through,
-            floatbar::reapply_float_bar_interaction,
+            floatbar::resize_float_bar,
             floatbar::set_float_bar_orientation,
         ])
         .setup(move |app| {
@@ -156,18 +160,18 @@ fn main() {
             shortcut_bridge::register(app.handle());
             floatbar::install(app.handle());
 
-            // In proof mode, show the target surface after a brief delay
-            // so WebView2 has time to initialize.
+            // The frontend receives surface state before show, so fixed
+            // startup sleeps only make tray activation feel slower.
             if is_proof_mode {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    tokio::time::sleep(PROOF_ACTIVATION_DELAY).await;
                     proof_harness::activate(&app_handle);
                 });
             } else if force_start_visible {
                 let app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    tokio::time::sleep(VISIBLE_START_ACTIVATION_DELAY).await;
                     let _ = shell::reopen_to_target(
                         &app,
                         SurfaceMode::TrayPanel,
@@ -260,5 +264,11 @@ mod tests {
     #[test]
     fn unrelated_launch_args_do_not_open_tray_panel() {
         assert!(!should_open_tray_panel_from_args(["usage", "-p", "claude"]));
+    }
+
+    #[test]
+    fn visible_start_delays_stay_short() {
+        assert_eq!(PROOF_ACTIVATION_DELAY, Duration::ZERO);
+        assert_eq!(VISIBLE_START_ACTIVATION_DELAY, Duration::ZERO);
     }
 }

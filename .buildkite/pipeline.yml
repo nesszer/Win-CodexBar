@@ -1,8 +1,0 @@
-steps:
-  - label: ":windows: Windows release build"
-    if: build.tag != null && build.tag =~ /^v/
-    agents:
-      queue: "windows-release"
-    command: "powershell -NoLogo -ExecutionPolicy Bypass -File scripts\\ci\\buildkite-release.ps1"
-    artifact_paths:
-      - "C:/code/Win-CodexBar-release/assets/**/*"

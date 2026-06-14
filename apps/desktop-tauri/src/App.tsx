@@ -1,16 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkForUpdates, getBootstrapState, getSettingsSnapshot, setSurfaceMode } from "./lib/tauri";
 import { useSurfaceSnapshot } from "./hooks/useSurfaceSnapshot";
 import { useTheme } from "./hooks/useTheme";
-import Settings from "./surfaces/Settings";
 import TrayPanel from "./surfaces/TrayPanel";
-import PopOutPanel from "./surfaces/PopOutPanel";
-import { FloatBar, FLOATBAR_WINDOW_LABEL } from "./floatbar";
+import { FLOATBAR_WINDOW_LABEL } from "./floatbar/api";
 import { LocaleProvider } from "./i18n/LocaleProvider";
 import type { BootstrapState, ThemePreference } from "./types/bridge";
 import type { SurfaceSnapshot } from "./hooks/useSurfaceSnapshot";
+
+const Settings = lazy(() => import("./surfaces/Settings"));
+const PopOutPanel = lazy(() => import("./surfaces/PopOutPanel"));
+const FloatBar = lazy(() => import("./floatbar/FloatBar"));
+
+function SurfaceFallback() {
+  return null;
+}
 
 /** True when running inside the detached Settings window. */
 function isSettingsWindow(): boolean {
@@ -67,8 +73,11 @@ function AppInner() {
         }
       });
 
-    // Fire-and-forget initial update check; results flow via events.
-    checkForUpdates().catch(() => {});
+    // Fire-and-forget update checks after the first paint so startup/tray open
+    // is not competing with network work.
+    const updateTimer = window.setTimeout(() => {
+      checkForUpdates().catch(() => {});
+    }, 2_000);
 
     // Listen for user-registered global shortcut events from the
     // `register_global_shortcut` command. The persistent shortcut (bound via
@@ -111,6 +120,7 @@ function AppInner() {
       void unlistenSettingsChangePromise
         .then((unlisten) => unlisten?.())
         .catch(() => {});
+      window.clearTimeout(updateTimer);
       window.removeEventListener("codexbar:settings-updated", onSettingsUpdated);
     };
   }, [reloadBootstrapState]);
@@ -144,7 +154,11 @@ function AppInner() {
 
   // Detached floating-bar window — render the FloatBar surface directly.
   if (isFloatBarWindow()) {
-    return <FloatBar state={state} />;
+    return (
+      <Suspense fallback={<SurfaceFallback />}>
+        <FloatBar state={state} />
+      </Suspense>
+    );
   }
 
   return <SurfaceRouter surface={surface} state={state} />;
@@ -167,10 +181,18 @@ function SurfaceRouter({
         surface.target.kind === "provider"
           ? surface.target.providerId
           : undefined;
-      return <PopOutPanel state={state} providerId={providerId} />;
+      return (
+        <Suspense fallback={<SurfaceFallback />}>
+          <PopOutPanel state={state} providerId={providerId} />
+        </Suspense>
+      );
     }
     case "settings":
-      return <SettingsLayout state={state} />;
+      return (
+        <Suspense fallback={<SurfaceFallback />}>
+          <SettingsLayout state={state} />
+        </Suspense>
+      );
     default:
       return <TrayPanel state={state} />;
   }
@@ -199,8 +221,10 @@ function DetachedSettingsApp({ state }: { state: BootstrapState }) {
   }, []);
 
   return (
-    <main className="settings-surface settings-surface--full">
-      <Settings state={state} initialTab={tab} />
-    </main>
+    <Suspense fallback={<SurfaceFallback />}>
+      <main className="settings-surface settings-surface--full">
+        <Settings state={state} initialTab={tab} />
+      </main>
+    </Suspense>
   );
 }

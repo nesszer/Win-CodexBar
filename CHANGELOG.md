@@ -4,6 +4,22 @@
 
 ---
 
+## [Windows] 0.32.6 - 2026-06-05
+
+### Changed
+- Reveal the Windows tray panel only after the frontend completes its first layout pass, avoiding the blank backing-frame flash on tray startup.
+- Lazy-load heavier secondary surfaces so first tray activation does not compete with Settings, Pop Out, or Floating Bar module startup.
+- Limit concurrent provider refreshes and emit provider-updated events after releasing the provider-cache lock to reduce refresh contention.
+- Keep tray and pop-out provider ordering aligned with the configured provider catalog order.
+
+### Fixed
+- Restore the full bootstrap bridge contract for surface modes, commands, and events instead of exposing test-only descriptors.
+- Keep dense tray overview layout visible while provider data is still loading, using stable placeholders instead of waiting indefinitely for the first providers to fetch.
+- Handle surface-state mutex errors at the Tauri command boundary instead of panicking.
+- Fix NanoGPT monthly-only usage parsing.
+
+---
+
 ## [Windows] 0.32.5 - 2026-06-02
 
 ### Fixed
