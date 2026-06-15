@@ -31,6 +31,10 @@ struct BalanceResponse {
 struct BalanceData {
     balance: String,
     currency: String,
+    #[serde(default, alias = "cashBalance")]
+    cash_balance: Option<String>,
+    #[serde(default, alias = "giftBalance")]
+    gift_balance: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,6 +126,8 @@ impl MiMoProvider {
         Ok(snapshot_from_parts(
             balance_value,
             data.currency,
+            data.cash_balance,
+            data.gift_balance,
             detail,
             usage,
         ))
@@ -203,6 +209,8 @@ fn normalize_cookie_header(raw: &str) -> Option<String> {
 fn snapshot_from_parts(
     balance: f64,
     currency: String,
+    cash_balance: Option<String>,
+    gift_balance: Option<String>,
     detail: Option<TokenPlanDetailResponse>,
     usage: Option<TokenPlanUsageResponse>,
 ) -> UsageSnapshot {
@@ -233,7 +241,12 @@ fn snapshot_from_parts(
         RateWindow::with_details(0.0, None, period_end, Some("No token-plan usage".into()))
     };
     let mut secondary = RateWindow::new(0.0);
-    secondary.reset_description = Some(format!("{balance:.2} {currency} balance"));
+    secondary.reset_description = Some(balance_description(
+        balance,
+        &currency,
+        cash_balance.as_deref(),
+        gift_balance.as_deref(),
+    ));
 
     let mut snapshot = UsageSnapshot::new(primary).with_secondary(secondary);
     if let Some(plan) = plan_name {
@@ -248,6 +261,27 @@ fn parse_mimo_date(value: &str) -> Option<DateTime<Utc>> {
     NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
         .ok()
         .map(|dt| Utc.from_utc_datetime(&dt))
+}
+
+fn parse_decimal(value: Option<&str>) -> Option<f64> {
+    value?.trim().parse().ok()
+}
+
+fn balance_description(
+    balance: f64,
+    currency: &str,
+    cash_balance: Option<&str>,
+    gift_balance: Option<&str>,
+) -> String {
+    let currency = currency.trim();
+    let total = format!("{balance:.2} {currency} balance");
+    let Some(cash) = parse_decimal(cash_balance) else {
+        return total;
+    };
+    let Some(gift) = parse_decimal(gift_balance) else {
+        return total;
+    };
+    format!("{total} (Paid: {cash:.2} {currency} / Granted: {gift:.2} {currency})")
 }
 
 impl Default for MiMoProvider {
@@ -301,5 +335,17 @@ mod tests {
     fn mimo_cookie_requires_service_token_and_user_id() {
         assert!(normalize_cookie_header("api-platform_serviceToken=abc; userId=42").is_some());
         assert!(normalize_cookie_header("api-platform_serviceToken=abc").is_none());
+    }
+
+    #[test]
+    fn mimo_balance_description_includes_paid_and_granted_components() {
+        assert_eq!(
+            balance_description(12.5, "CNY", Some("8.25"), Some("4.25")),
+            "12.50 CNY balance (Paid: 8.25 CNY / Granted: 4.25 CNY)"
+        );
+        assert_eq!(
+            balance_description(12.5, "CNY", Some("8.25"), None),
+            "12.50 CNY balance"
+        );
     }
 }

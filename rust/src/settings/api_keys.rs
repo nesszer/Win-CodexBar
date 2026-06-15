@@ -251,6 +251,17 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://cloud.infini-ai.com"),
         },
         ProviderConfigInfo {
+            id: ProviderId::Kimi,
+            name: "Kimi Code API",
+            requires_api_key: true,
+            api_key_env_var: Some("KIMI_CODE_API_KEY"),
+            api_key_help: Some(
+                "Get your Kimi Code API key from Kimi. Optional HTTPS proxy base URL: KIMI_CODE_BASE_URL.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://platform.moonshot.cn/console/api-keys"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Kilo,
             name: "Kilo",
             requires_api_key: true,

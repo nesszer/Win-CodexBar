@@ -15,6 +15,7 @@ pub(crate) fn build_fetch_context(
 ) -> FetchContext {
     let cookie_source = settings.cookie_source(id);
     let stored_cookie = cookies.get(id.cli_name()).map(|s| s.to_string());
+    let stored_api_key = api_keys.get(id.cli_name()).map(|s| s.to_string());
     let token_override = token_accounts
         .get(&id)
         .and_then(|data| data.active_account())
@@ -28,6 +29,9 @@ pub(crate) fn build_fetch_context(
         .and_then(|override_data| override_data.env_override.as_ref());
     let active_token_api_key = active_token_env.and_then(|env| env.values().next().cloned());
     let usage_source = SourceMode::parse(settings.usage_source(id)).unwrap_or_default();
+    let api_key = stored_api_key.or(active_token_api_key);
+    let has_kimi_code_api_key =
+        id == ProviderId::Kimi && api_key.as_deref().is_some_and(|key| !key.trim().is_empty());
 
     let (source_mode, cookie_header) = if id.cookie_domain().is_none() {
         let source_mode = if active_token_env.is_some() {
@@ -42,10 +46,15 @@ pub(crate) fn build_fetch_context(
             "off" if id == ProviderId::Claude && usage_source != SourceMode::Cli => {
                 (SourceMode::OAuth, None)
             }
+            "off" if has_kimi_code_api_key && usage_source == SourceMode::Auto => {
+                (SourceMode::Auto, None)
+            }
             "off" => (SourceMode::Cli, None),
             "manual" => {
                 let cookie_header = active_token_cookie.or(stored_cookie);
-                let source_mode = if cookie_header.is_some() {
+                let source_mode = if has_kimi_code_api_key && usage_source == SourceMode::Auto {
+                    SourceMode::Auto
+                } else if cookie_header.is_some() {
                     SourceMode::Web
                 } else if id == ProviderId::Claude && usage_source != SourceMode::Cli {
                     SourceMode::OAuth
@@ -70,11 +79,6 @@ pub(crate) fn build_fetch_context(
             _ => (usage_source, stored_cookie),
         }
     };
-
-    let api_key = api_keys
-        .get(id.cli_name())
-        .map(|s| s.to_string())
-        .or(active_token_api_key);
 
     let workspace_id = settings.workspace_id(id).trim().to_string();
     let api_region = settings.api_region(id).trim().to_string();
