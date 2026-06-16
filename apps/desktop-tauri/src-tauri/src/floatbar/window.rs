@@ -49,6 +49,7 @@ pub fn show(
         apply_opacity(&window, opacity);
         apply_click_through(&window, click_through);
         window.show().map_err(|e| e.to_string())?;
+        start_keep_on_top(app.clone());
         return Ok(());
     }
 
@@ -105,6 +106,7 @@ pub fn show(
     apply_opacity(&win, opacity);
     apply_click_through(&win, click_through);
     win.show().map_err(|e| e.to_string())?;
+    start_keep_on_top(app.clone());
     Ok(())
 }
 
@@ -278,6 +280,73 @@ pub fn apply_click_through(window: &tauri::WebviewWindow, click_through: bool) {
                 set_extended_style(h.hwnd.get(), new_ex);
             }
         }
+    }
+}
+
+/// Re-assert the float bar's top-most z-order on a short interval so it stays
+/// pinned above the Windows taskbar.
+///
+/// The taskbar (`Shell_TrayWnd`) is itself a top-most window. When the user
+/// clicks it, the shell raises it above other top-most windows — including the
+/// float bar, which visually overlaps the taskbar/tray area. `always_on_top`
+/// only sets `HWND_TOPMOST` once at creation, so without periodic re-assertion
+/// the bar gets covered and appears to "disappear" on every taskbar click.
+///
+/// The task is guarded so only one runs at a time, and it exits (clearing the
+/// guard) once the float bar window is gone — so a later `show()` restarts it.
+#[cfg(windows)]
+pub fn start_keep_on_top(app: tauri::AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    static KEEP_ON_TOP_RUNNING: AtomicBool = AtomicBool::new(false);
+    // Short enough that any taskbar-click occlusion is corrected before it is
+    // perceptible; cheap enough (a single no-op `SetWindowPos`) to run often.
+    const KEEP_ON_TOP_INTERVAL: Duration = Duration::from_millis(150);
+
+    if KEEP_ON_TOP_RUNNING.swap(true, Ordering::SeqCst) {
+        return; // a keep-on-top task is already running
+    }
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match app.get_webview_window(FLOATBAR_LABEL) {
+                Some(window) => ensure_topmost(&window),
+                None => break,
+            }
+            tokio::time::sleep(KEEP_ON_TOP_INTERVAL).await;
+        }
+        KEEP_ON_TOP_RUNNING.store(false, Ordering::SeqCst);
+    });
+}
+
+#[cfg(not(windows))]
+pub fn start_keep_on_top(_app: tauri::AppHandle) {}
+
+/// Re-assert `HWND_TOPMOST` for the float bar without activating, moving, or
+/// resizing it. No-op on non-Windows platforms.
+#[cfg(windows)]
+fn ensure_topmost(window: &tauri::WebviewWindow) {
+    use raw_window_handle::HasWindowHandle;
+    let Ok(handle) = window.window_handle() else {
+        return;
+    };
+    let raw_window_handle::RawWindowHandle::Win32(h) = handle.as_raw() else {
+        return;
+    };
+    unsafe {
+        const HWND_TOPMOST: isize = -1;
+        const SWP_NOSIZE: u32 = 0x0001;
+        const SWP_NOMOVE: u32 = 0x0002;
+        const SWP_NOACTIVATE: u32 = 0x0010;
+        SetWindowPos(
+            h.hwnd.get(),
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
     }
 }
 
