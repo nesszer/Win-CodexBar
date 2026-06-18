@@ -404,10 +404,15 @@ pub fn update_tray_icon_and_tooltip(
     };
 
     // ── Icon ─────────────────────────────────────────────────────────────
-    let ok_snapshots: Vec<_> = snapshots.iter().filter(|s| s.error.is_none()).collect();
+    let settings = Settings::load();
+    let ordered_snapshots = ordered_snapshot_refs(&settings, snapshots);
+    let ok_snapshots: Vec<_> = ordered_snapshots
+        .iter()
+        .copied()
+        .filter(|s| s.error.is_none())
+        .collect();
     let all_error = ok_snapshots.is_empty() && !snapshots.is_empty();
 
-    let settings = Settings::load();
     let prefer_highest = settings.menu_bar_shows_highest_usage
         || settings.menu_bar_display_mode.as_str() == "minimal";
 
@@ -437,7 +442,11 @@ fn status_labels_for_settings(
     settings: &Settings,
     snapshots: &[crate::commands::ProviderUsageSnapshot],
 ) -> Vec<(String, String)> {
-    let healthy: Vec<_> = snapshots.iter().filter(|s| s.error.is_none()).collect();
+    let ordered_snapshots = ordered_snapshot_refs(settings, snapshots);
+    let healthy: Vec<_> = ordered_snapshots
+        .into_iter()
+        .filter(|s| s.error.is_none())
+        .collect();
     if settings.tray_icon_mode == TrayIconMode::PerProvider {
         return healthy
             .into_iter()
@@ -454,6 +463,30 @@ fn status_labels_for_settings(
 
     let (_, label) = provider_status_label(selected);
     vec![("status_summary".to_string(), label)]
+}
+
+fn ordered_snapshot_refs<'a>(
+    settings: &Settings,
+    snapshots: &'a [crate::commands::ProviderUsageSnapshot],
+) -> Vec<&'a crate::commands::ProviderUsageSnapshot> {
+    let order = settings
+        .provider_display_order_names()
+        .into_iter()
+        .enumerate()
+        .map(|(index, provider_id)| (provider_id, index))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut ordered = snapshots.iter().collect::<Vec<_>>();
+    ordered.sort_by(|a, b| {
+        let a_order = order.get(&a.provider_id);
+        let b_order = order.get(&b.provider_id);
+        match (a_order, b_order) {
+            (Some(a_order), Some(b_order)) if a_order != b_order => a_order.cmp(b_order),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            _ => a.display_name.cmp(&b.display_name),
+        }
+    });
+    ordered
 }
 
 fn provider_status_label(snapshot: &crate::commands::ProviderUsageSnapshot) -> (String, String) {
@@ -999,6 +1032,10 @@ mod tests {
     fn status_labels_per_provider_mode_lists_each_healthy_provider() {
         let settings = Settings {
             tray_icon_mode: TrayIconMode::PerProvider,
+            provider_order: codexbar::settings::normalize_provider_order(&[
+                "claude".to_string(),
+                "codex".to_string(),
+            ]),
             ..Settings::default()
         };
         let snapshots = vec![
@@ -1011,8 +1048,8 @@ mod tests {
         assert_eq!(
             labels,
             vec![
-                ("codex".to_string(), "Codex 30%".to_string()),
                 ("claude".to_string(), "Claude 72%".to_string()),
+                ("codex".to_string(), "Codex 30%".to_string()),
             ]
         );
     }

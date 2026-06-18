@@ -168,6 +168,42 @@ fn test_settings_get_enabled_provider_ids() {
 }
 
 #[test]
+fn provider_order_dedupes_unknowns_and_appends_canonical_ids() {
+    let order = normalize_provider_order(&[
+        "gemini".to_string(),
+        "not-a-provider".to_string(),
+        "claude".to_string(),
+        "gemini".to_string(),
+    ]);
+
+    assert_eq!(order[0], "gemini");
+    assert_eq!(order[1], "claude");
+    assert!(!order.iter().any(|id| id == "not-a-provider"));
+    assert_eq!(order.len(), ProviderId::all().len());
+}
+
+#[test]
+fn enabled_provider_ids_follow_custom_provider_order() {
+    let settings = Settings {
+        enabled_providers: ["claude", "codex", "gemini"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        provider_order: normalize_provider_order(&[
+            "gemini".to_string(),
+            "claude".to_string(),
+            "codex".to_string(),
+        ]),
+        ..Settings::default()
+    };
+
+    assert_eq!(
+        settings.get_enabled_provider_ids(),
+        vec![ProviderId::Gemini, ProviderId::Claude, ProviderId::Codex]
+    );
+}
+
+#[test]
 fn test_settings_get_all_providers_status() {
     let settings = Settings::default();
     let status = settings.get_all_providers_status();

@@ -1,0 +1,65 @@
+name: Feature request
+description: Suggest an improvement for Win-CodexBar.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Existing issues
+      description: Please search open and closed issues before filing a new one.
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, and what is hard or impossible today?
+      placeholder: I want to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or UX you would like.
+      placeholder: It would be helpful if...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: affected-area
+    attributes:
+      label: Affected area
+      description: Select every surface that should change or needs consideration.
+      options:
+        - label: Tray panel
+        - label: Settings UI
+        - label: Config file / settings persistence
+        - label: CLI
+        - label: Provider-specific behavior
+        - label: Installer / release packaging
+        - label: Startup / background behavior
+        - label: Documentation
+        - label: Other
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe workarounds or other designs you considered.
+
+  - type: textarea
+    id: visual-details
+    attributes:
+      label: Visual details
+      description: Add mockups, screenshots, recordings, or examples if this affects UI/tray behavior.
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Links, related tools, provider docs, or other background.

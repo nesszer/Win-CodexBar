@@ -82,12 +82,24 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   const surfaceTarget = useSurfaceTarget("trayPanel");
 
   const sorted = useMemo(
-    () => orderProviderSnapshots(providers, state.providers, settings.enabledProviders),
-    [providers, settings.enabledProviders, state.providers],
+    () =>
+      orderProviderSnapshots(
+        providers,
+        state.providers,
+        settings.enabledProviders,
+        settings.providerOrder,
+      ),
+    [providers, settings.enabledProviders, settings.providerOrder, state.providers],
   );
   const denseProviderSlots = useMemo(
-    () => orderedEnabledProviderSlots(state.providers, settings.enabledProviders, sorted),
-    [settings.enabledProviders, sorted, state.providers],
+    () =>
+      orderedEnabledProviderSlots(
+        state.providers,
+        settings.enabledProviders,
+        sorted,
+        settings.providerOrder,
+      ),
+    [settings.enabledProviders, settings.providerOrder, sorted, state.providers],
   );
   const providersById = useMemo(
     () => new Map(sorted.map((provider) => [provider.providerId, provider])),

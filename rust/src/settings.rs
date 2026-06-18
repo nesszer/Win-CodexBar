@@ -241,6 +241,35 @@ pub fn normalize_float_bar_style(value: &str) -> String {
     }
 }
 
+/// Canonicalize a requested provider display order.
+///
+/// Keeps requested provider IDs that map to a real [`ProviderId`], drops
+/// duplicates, and appends omitted providers in canonical order. An empty
+/// request intentionally returns the full canonical order so display callers
+/// can use one path for default and customized ordering.
+pub fn normalize_provider_order(requested: &[String]) -> Vec<String> {
+    let canonical = ProviderId::all()
+        .iter()
+        .map(|provider| provider.cli_name().to_string())
+        .collect::<Vec<_>>();
+    let valid = canonical.iter().map(String::as_str).collect::<HashSet<_>>();
+    let mut seen = HashSet::new();
+    let mut out = Vec::with_capacity(canonical.len());
+
+    for provider_id in requested {
+        if valid.contains(provider_id.as_str()) && seen.insert(provider_id.clone()) {
+            out.push(provider_id.clone());
+        }
+    }
+    for provider_id in canonical {
+        if seen.insert(provider_id.clone()) {
+            out.push(provider_id);
+        }
+    }
+
+    out
+}
+
 fn default_global_shortcut() -> String {
     "Ctrl+Shift+U".to_string()
 }
@@ -455,23 +484,36 @@ impl Settings {
 
     /// Get list of enabled provider IDs
     pub fn get_enabled_provider_ids(&self) -> Vec<ProviderId> {
-        ProviderId::all()
-            .iter()
-            .filter(|id| self.is_provider_enabled(**id))
-            .copied()
+        self.provider_display_order()
+            .into_iter()
+            .filter(|id| self.is_provider_enabled(*id))
             .collect()
     }
 
     /// Get all available providers with their enabled status
     pub fn get_all_providers_status(&self) -> Vec<ProviderStatus> {
-        ProviderId::all()
-            .iter()
+        self.provider_display_order()
+            .into_iter()
             .map(|id| ProviderStatus {
                 id: id.cli_name().to_string(),
                 name: id.display_name().to_string(),
-                enabled: self.is_provider_enabled(*id),
+                enabled: self.is_provider_enabled(id),
             })
             .collect()
+    }
+
+    /// Provider display order as typed IDs, falling back to canonical order
+    /// when no custom order has been persisted.
+    pub fn provider_display_order(&self) -> Vec<ProviderId> {
+        normalize_provider_order(&self.provider_order)
+            .into_iter()
+            .filter_map(|provider_id| ProviderId::from_cli_name(&provider_id))
+            .collect()
+    }
+
+    /// Provider display order as CLI-name strings.
+    pub fn provider_display_order_names(&self) -> Vec<String> {
+        normalize_provider_order(&self.provider_order)
     }
 
     /// Get the metric preference for a provider

@@ -56,6 +56,7 @@ const STATUS_TO_KEY: Record<ProviderSidebarStatus, LocaleKey> = {
  * Responsibilities (Phase 6a only):
  *  - render rows with brand icon + status dot + two-line subtitle + toggle
  *  - drag-and-drop reorder (HTML5 native; emits `onReorder`)
+ *  - button reorder for WebView2/automation paths where HTML5 drag can be brittle
  *  - keyboard reorder: Alt+ArrowUp / Alt+ArrowDown on the selected row
  *  - mount-in reveal animation keyed on row id
  */
@@ -222,12 +223,14 @@ export function ProvidersSidebar({
             {t("ProviderSidebarNoMatches")}
           </li>
         )}
-        {ordered.map((p) => {
+        {ordered.map((p, index) => {
           const isSelected = p.id === selectedId;
           const isDrop = dropTargetId === p.id;
           const isDragging = dragId === p.id;
           const reveal = justMounted.has(p.id);
           const brand = getProviderIcon(p.id).brandColor;
+          const canMoveUp = index > 0 && !disabled;
+          const canMoveDown = index < ordered.length - 1 && !disabled;
           const cls = [
             "providers-sidebar__row",
             isSelected && "providers-sidebar__row--selected",
@@ -284,6 +287,34 @@ export function ProvidersSidebar({
                 title={t("ProviderSidebarReorderHint")}
               >
                 ⋮⋮
+              </span>
+              <span className="providers-sidebar__reorder-controls">
+                <button
+                  type="button"
+                  className="providers-sidebar__reorder-button"
+                  disabled={!canMoveUp}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    moveId(p.id, -1);
+                  }}
+                  aria-label={`${t("ProviderSidebarMoveUp")} ${p.displayName}`}
+                  title={`${t("ProviderSidebarMoveUp")} ${p.displayName}`}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="providers-sidebar__reorder-button"
+                  disabled={!canMoveDown}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    moveId(p.id, 1);
+                  }}
+                  aria-label={`${t("ProviderSidebarMoveDown")} ${p.displayName}`}
+                  title={`${t("ProviderSidebarMoveDown")} ${p.displayName}`}
+                >
+                  ↓
+                </button>
               </span>
               <input
                 type="checkbox"

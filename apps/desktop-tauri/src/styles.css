@@ -2131,7 +2131,7 @@ body:has(.tray-panel-reveal) {
 .providers-sidebar__row {
   position: relative;
   display: grid;
-  grid-template-columns: 8px 24px 1fr auto auto;
+  grid-template-columns: 8px 24px 1fr auto auto auto;
   align-items: center;
   gap: 8px;
   padding: 8px 16px 8px 10px;
@@ -2280,6 +2280,43 @@ body:has(.tray-panel-reveal) {
 .providers-sidebar__row--selected .providers-sidebar__handle,
 .providers-sidebar__row--dragging .providers-sidebar__handle {
   opacity: 0.7;
+}
+
+.providers-sidebar__reorder-controls {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.providers-sidebar__reorder-button {
+  width: 18px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--provider-row-text-secondary);
+  cursor: pointer;
+  font-size: 0.62rem;
+  line-height: 1;
+  opacity: 0.72;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.providers-sidebar__reorder-button:hover:not(:disabled),
+.providers-sidebar__reorder-button:focus-visible {
+  background: var(--surface-card-hover);
+  border-color: var(--provider-row-border-selected);
+  color: var(--provider-row-text-primary);
+  opacity: 1;
+  outline: none;
+}
+
+.providers-sidebar__reorder-button:disabled {
+  cursor: default;
+  opacity: 0.2;
 }
 
 .providers-sidebar__checkbox {
@@ -4748,7 +4785,7 @@ html:has(.menu-surface--tray) {
   border: 1px solid rgba(0, 0, 0, 0.10);
 }
 .providers-sidebar__row {
-  grid-template-columns: 12px var(--icon-sidebar) 1fr auto auto;
+  grid-template-columns: 12px var(--icon-sidebar) 1fr auto auto auto;
   padding: 6px 8px;
 }
 .providers-sidebar__name {

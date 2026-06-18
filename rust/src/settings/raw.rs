@@ -443,7 +443,11 @@ impl From<RawSettings> for Settings {
             hide_personal_info: raw.hide_personal_info,
             update_channel: raw.update_channel,
             provider_metrics: raw.provider_metrics,
-            provider_order: raw.provider_order,
+            provider_order: if raw.provider_order.is_empty() {
+                Vec::new()
+            } else {
+                normalize_provider_order(&raw.provider_order)
+            },
             global_shortcut: raw.global_shortcut,
             auto_download_updates: raw.auto_download_updates,
             install_updates_on_quit: raw.install_updates_on_quit,

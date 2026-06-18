@@ -4,14 +4,18 @@ export function orderProviderSnapshots(
   providers: ProviderUsageSnapshot[],
   catalog: ProviderCatalogEntry[],
   enabledProviderIds: string[],
+  providerOrder: string[] = [],
 ): ProviderUsageSnapshot[] {
   const order = new Map<string, number>();
-  for (const [index, provider] of catalog.entries()) {
-    order.set(provider.id, index);
+  const orderedIds = providerOrder.length > 0
+    ? providerOrder
+    : catalog.map((provider) => provider.id);
+  for (const [index, providerId] of orderedIds.entries()) {
+    order.set(providerId, index);
   }
   for (const [index, providerId] of enabledProviderIds.entries()) {
     if (!order.has(providerId)) {
-      order.set(providerId, catalog.length + index);
+      order.set(providerId, orderedIds.length + index);
     }
   }
 

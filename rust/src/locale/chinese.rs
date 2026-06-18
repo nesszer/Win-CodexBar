@@ -558,6 +558,8 @@ impl LocaleKey {
             LocaleKey::ProviderSidebarClearSearch => "清除提供商搜索",
             LocaleKey::ProviderSidebarNoMatches => "没有匹配的提供商",
             LocaleKey::ProviderSidebarReorderHint => "拖动以重新排序",
+            LocaleKey::ProviderSidebarMoveUp => "上移",
+            LocaleKey::ProviderSidebarMoveDown => "下移",
             LocaleKey::ProviderStatusOk => "已更新",
             LocaleKey::ProviderStatusStale => "已过期",
             LocaleKey::ProviderStatusError => "错误",

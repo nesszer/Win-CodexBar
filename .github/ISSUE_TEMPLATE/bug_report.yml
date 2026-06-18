@@ -1,0 +1,75 @@
+name: Bug report
+description: Report something broken in Win-CodexBar.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Existing issues
+      description: Please search open and closed issues before filing a new one.
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the bug and the behavior you expected instead.
+      placeholder: The tray panel shows...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: affected-area
+    attributes:
+      label: Affected area
+      description: Select every surface that seems relevant.
+      options:
+        - label: Tray panel
+        - label: Settings UI
+        - label: Config file / settings persistence
+        - label: CLI
+        - label: Provider-specific behavior
+        - label: Installer / release packaging
+        - label: Startup / background behavior
+        - label: Other
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable reproduction you know.
+      placeholder: |
+        1. Open...
+        2. Click...
+        3. See...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, or recordings
+      description: Add logs, screenshots, CUA proof, or a short recording if relevant. Do not paste secrets, tokens, cookies, or API keys.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Version, commit, or installer used.
+      placeholder: v0.33.3
+
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else that would help debug the issue.

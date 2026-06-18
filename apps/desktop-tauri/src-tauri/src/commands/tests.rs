@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{
-    ProviderSummary, ProviderUsageSnapshot, apply_provider_order, bridge_commands, bridge_events,
+    ProviderSummary, ProviderUsageSnapshot, bridge_commands, bridge_events,
     provider_cookie_source_lookup, provider_region_lookup, validate_external_url,
     validate_surface_target,
 };
@@ -193,7 +193,8 @@ fn bootstrap_contract_lists_global_shortcut_event() {
 fn apply_provider_order_dedupes_and_appends_unknown_canonical() {
     // Request only "codex" and "claude" — remaining canonical ids should
     // be appended after, preserving canonical order.
-    let order = apply_provider_order(&["codex".to_string(), "claude".to_string()]);
+    let order =
+        codexbar::settings::normalize_provider_order(&["codex".to_string(), "claude".to_string()]);
     assert_eq!(order[0], "codex");
     assert_eq!(order[1], "claude");
     // Every canonical id appears exactly once.
@@ -213,7 +214,10 @@ fn apply_provider_order_dedupes_and_appends_unknown_canonical() {
 
 #[test]
 fn apply_provider_order_ignores_unknown_ids() {
-    let order = apply_provider_order(&["not-a-provider".to_string(), "codex".to_string()]);
+    let order = codexbar::settings::normalize_provider_order(&[
+        "not-a-provider".to_string(),
+        "codex".to_string(),
+    ]);
     assert_eq!(order[0], "codex");
     assert!(!order.iter().any(|id| id == "not-a-provider"));
 }
@@ -228,6 +232,67 @@ fn provider_summaries_reflect_settings_order() {
     for (i, s) in summaries.iter().enumerate() {
         assert_eq!(s.order, i as u32);
     }
+}
+
+#[test]
+fn provider_catalog_preserves_partial_config_order() {
+    let settings = Settings {
+        provider_order: codexbar::settings::normalize_provider_order(&[
+            "gemini".to_string(),
+            "claude".to_string(),
+            "codex".to_string(),
+        ]),
+        ..Settings::default()
+    };
+
+    let catalog = super::provider_catalog_for(&settings);
+
+    assert_eq!(
+        catalog
+            .iter()
+            .take(3)
+            .map(|provider| provider.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["gemini", "claude", "codex"]
+    );
+}
+
+#[test]
+fn settings_snapshot_preserves_partial_config_order_for_enabled_providers() {
+    let settings = Settings {
+        enabled_providers: ["gemini", "claude", "codex"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        provider_order: codexbar::settings::normalize_provider_order(&[
+            "gemini".to_string(),
+            "claude".to_string(),
+            "codex".to_string(),
+        ]),
+        ..Settings::default()
+    };
+
+    let snapshot = serde_json::to_value(super::SettingsSnapshot::from(settings)).unwrap();
+
+    assert_eq!(
+        snapshot["providerOrder"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .take(3)
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["gemini", "claude", "codex"],
+    );
+    assert_eq!(
+        snapshot["enabledProviders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["gemini", "claude", "codex"],
+    );
 }
 
 #[test]

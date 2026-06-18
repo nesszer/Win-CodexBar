@@ -620,6 +620,8 @@ pub enum LocaleKey {
     ProviderSidebarClearSearch,
     ProviderSidebarNoMatches,
     ProviderSidebarReorderHint,
+    ProviderSidebarMoveUp,
+    ProviderSidebarMoveDown,
     ProviderStatusOk,
     ProviderStatusStale,
     ProviderStatusError,

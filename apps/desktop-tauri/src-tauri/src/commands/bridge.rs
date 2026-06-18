@@ -397,6 +397,7 @@ pub struct ProviderCatalogEntry {
 #[serde(rename_all = "camelCase")]
 pub struct SettingsSnapshot {
     enabled_providers: Vec<String>,
+    provider_order: Vec<String>,
     refresh_interval_secs: u64,
     start_at_login: bool,
     start_minimized: bool,
@@ -440,19 +441,20 @@ pub struct SettingsSnapshot {
 
 #[tauri::command]
 pub fn get_bootstrap_state() -> BootstrapState {
+    let settings = Settings::load();
     BootstrapState {
         contract_version: "v1",
         surface_modes: surface_modes(),
         commands: bridge_commands(),
         events: bridge_events(),
-        providers: provider_catalog(),
-        settings: SettingsSnapshot::from(Settings::load()),
+        providers: provider_catalog_for(&settings),
+        settings: SettingsSnapshot::from(settings),
     }
 }
 
 #[tauri::command]
 pub fn get_provider_catalog() -> Vec<ProviderCatalogEntry> {
-    provider_catalog()
+    provider_catalog_for(&Settings::load())
 }
 
 #[tauri::command]
@@ -464,8 +466,12 @@ impl From<Settings> for SettingsSnapshot {
     fn from(settings: Settings) -> Self {
         let avoid_keychain_prompts = settings.claude_avoid_keychain_prompts();
 
-        let mut enabled_providers = settings.enabled_providers.into_iter().collect::<Vec<_>>();
-        enabled_providers.sort();
+        let provider_order = settings.provider_display_order_names();
+        let enabled_providers = provider_order
+            .iter()
+            .filter(|provider_id| settings.enabled_providers.contains(*provider_id))
+            .cloned()
+            .collect();
 
         let provider_metrics = settings
             .provider_metrics
@@ -475,6 +481,7 @@ impl From<Settings> for SettingsSnapshot {
 
         Self {
             enabled_providers,
+            provider_order,
             refresh_interval_secs: settings.refresh_interval_secs,
             start_at_login: settings.start_at_login,
             start_minimized: settings.start_minimized,
@@ -518,9 +525,10 @@ impl From<Settings> for SettingsSnapshot {
     }
 }
 
-fn provider_catalog() -> Vec<ProviderCatalogEntry> {
-    ProviderId::all()
-        .iter()
+pub(crate) fn provider_catalog_for(settings: &Settings) -> Vec<ProviderCatalogEntry> {
+    settings
+        .provider_display_order()
+        .into_iter()
         .map(|provider| ProviderCatalogEntry {
             id: provider.cli_name().to_string(),
             display_name: provider.display_name().to_string(),

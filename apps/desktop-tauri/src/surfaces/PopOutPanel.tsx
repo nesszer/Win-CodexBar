@@ -41,8 +41,13 @@ export default function PopOutPanel({
   const { t } = useLocale();
 
   const sorted = useMemo(() => {
-    return orderProviderSnapshots(providers, state.providers, settings.enabledProviders);
-  }, [providers, settings.enabledProviders, state.providers]);
+    return orderProviderSnapshots(
+      providers,
+      state.providers,
+      settings.enabledProviders,
+      settings.providerOrder,
+    );
+  }, [providers, settings.enabledProviders, settings.providerOrder, state.providers]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
     providerId ?? null,
   );

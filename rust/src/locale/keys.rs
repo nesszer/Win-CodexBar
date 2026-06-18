@@ -672,6 +672,11 @@ impl LocaleKey {
             LocaleKey::ProviderSidebarReorderHint,
             "ProviderSidebarReorderHint",
         ),
+        (LocaleKey::ProviderSidebarMoveUp, "ProviderSidebarMoveUp"),
+        (
+            LocaleKey::ProviderSidebarMoveDown,
+            "ProviderSidebarMoveDown",
+        ),
         (LocaleKey::ProviderStatusOk, "ProviderStatusOk"),
         (LocaleKey::ProviderStatusStale, "ProviderStatusStale"),
         (LocaleKey::ProviderStatusError, "ProviderStatusError"),

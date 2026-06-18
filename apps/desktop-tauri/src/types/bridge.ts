@@ -161,6 +161,7 @@ export interface ProviderSummary {
 
 export interface SettingsSnapshot {
   enabledProviders: string[];
+  providerOrder?: string[];
   refreshIntervalSecs: number;
   startAtLogin: boolean;
   startMinimized: boolean;

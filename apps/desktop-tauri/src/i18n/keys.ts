@@ -436,6 +436,8 @@ export const ALL_LOCALE_KEYS = [
   "ProviderSidebarClearSearch",
   "ProviderSidebarNoMatches",
   "ProviderSidebarReorderHint",
+  "ProviderSidebarMoveUp",
+  "ProviderSidebarMoveDown",
   "ProviderStatusOk",
   "ProviderStatusStale",
   "ProviderStatusError",

@@ -12,40 +12,9 @@ pub struct ProviderSummary {
     pub order: u32,
 }
 
-/// Canonicalise a requested provider order: keep requested ids that match a
-/// real `ProviderId`, drop duplicates, and append any canonical ids that were
-/// omitted (preserving their canonical order).
-pub(crate) fn apply_provider_order(requested: &[String]) -> Vec<String> {
-    let canonical: Vec<String> = ProviderId::all()
-        .iter()
-        .map(|p| p.cli_name().to_string())
-        .collect();
-    let valid: std::collections::HashSet<&str> = canonical.iter().map(|s| s.as_str()).collect();
-
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut out: Vec<String> = Vec::with_capacity(canonical.len());
-
-    for id in requested {
-        if valid.contains(id.as_str()) && seen.insert(id.clone()) {
-            out.push(id.clone());
-        }
-    }
-    for id in &canonical {
-        if seen.insert(id.clone()) {
-            out.push(id.clone());
-        }
-    }
-
-    out
-}
-
 /// Build `ProviderSummary` list honouring the persisted `provider_order`.
 pub(crate) fn build_provider_summaries(settings: &Settings) -> Vec<ProviderSummary> {
-    let order = if settings.provider_order.is_empty() {
-        apply_provider_order(&[])
-    } else {
-        apply_provider_order(&settings.provider_order)
-    };
+    let order = settings.provider_display_order_names();
 
     let by_id: std::collections::HashMap<String, &ProviderId> = ProviderId::all()
         .iter()
@@ -67,10 +36,14 @@ pub(crate) fn build_provider_summaries(settings: &Settings) -> Vec<ProviderSumma
 }
 
 #[tauri::command]
-pub fn reorder_providers(ids: Vec<String>) -> Result<Vec<ProviderSummary>, String> {
+pub fn reorder_providers(
+    app: tauri::AppHandle,
+    ids: Vec<String>,
+) -> Result<Vec<ProviderSummary>, String> {
     let mut settings = Settings::load();
-    settings.provider_order = apply_provider_order(&ids);
+    settings.provider_order = codexbar::settings::normalize_provider_order(&ids);
     settings.save().map_err(|e| e.to_string())?;
+    crate::tray_bridge::refresh_tray_presentation(&app);
     Ok(build_provider_summaries(&settings))
 }
 

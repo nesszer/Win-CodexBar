@@ -596,6 +596,8 @@ impl LocaleKey {
             LocaleKey::ProviderSidebarClearSearch => "Clear provider search",
             LocaleKey::ProviderSidebarNoMatches => "No matching providers",
             LocaleKey::ProviderSidebarReorderHint => "Drag to reorder",
+            LocaleKey::ProviderSidebarMoveUp => "Move up",
+            LocaleKey::ProviderSidebarMoveDown => "Move down",
             LocaleKey::ProviderStatusOk => "Up to date",
             LocaleKey::ProviderStatusStale => "Stale",
             LocaleKey::ProviderStatusError => "Error",
