@@ -61,9 +61,6 @@ sha2 = "0.10"
 # Secure credential storage
 keyring = "3"
 
-# Directory paths
-directories = "6"
-
 # URL handling
 url = "2"
 

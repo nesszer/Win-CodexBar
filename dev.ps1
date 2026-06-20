@@ -73,26 +73,6 @@ function Get-DesktopBinaryCandidates {
     return $candidates | Select-Object -Unique
 }
 
-function Write-PrerequisiteHelp {
-    param(
-        [string[]]$Missing
-    )
-
-    Write-Host "Missing prerequisites: $($Missing -join ', ')" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Install the required tools, restart your terminal, then rerun .\dev.ps1." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Required:" -ForegroundColor Cyan
-    Write-Host "  - Rust/Cargo: https://rustup.rs/ or 'mise install rust@stable'" -ForegroundColor Cyan
-    Write-Host "  - Node.js + pnpm: https://nodejs.org/ and 'corepack enable pnpm', or mise-managed node/pnpm" -ForegroundColor Cyan
-    Write-Host "  - Microsoft Visual Studio Build Tools with the Desktop development with C++ workload" -ForegroundColor Cyan
-    if ($Missing -contains "dlltool (MinGW-w64)") {
-        Write-Host ""
-        Write-Host "This shell is using a GNU Rust target, which also needs MinGW-w64 dlltool." -ForegroundColor Yellow
-        Write-Host "Install MinGW-w64 or switch Rust to the MSVC target: rustup default stable-x86_64-pc-windows-msvc" -ForegroundColor Yellow
-    }
-}
-
 # ── Ensure known tool paths are in current session PATH ─────────────────────
 
 $knownPaths = @("$env:USERPROFILE\.cargo\bin", "C:\mingw64\bin")
@@ -113,7 +93,19 @@ if (-not $hasCargo -or ($needsDlltool -and -not $hasDlltool)) {
     $missing = @()
     if (-not $hasCargo)   { $missing += "cargo (Rust)" }
     if ($needsDlltool -and -not $hasDlltool) { $missing += "dlltool (MinGW-w64)" }
-    Write-PrerequisiteHelp -Missing $missing
+    Write-Host "Missing prerequisites: $($missing -join ', ')" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Install the required tools, restart your terminal, then rerun .\dev.ps1." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Required:" -ForegroundColor Cyan
+    Write-Host "  - Rust/Cargo: https://rustup.rs/ or 'mise install rust@stable'" -ForegroundColor Cyan
+    Write-Host "  - Node.js + pnpm: https://nodejs.org/ and 'corepack enable pnpm', or mise-managed node/pnpm" -ForegroundColor Cyan
+    Write-Host "  - Microsoft Visual Studio Build Tools with the Desktop development with C++ workload" -ForegroundColor Cyan
+    if ($needsDlltool) {
+        Write-Host ""
+        Write-Host "This shell is using a GNU Rust target, which also needs MinGW-w64 dlltool." -ForegroundColor Yellow
+        Write-Host "Install MinGW-w64 or switch Rust to the MSVC target: rustup default stable-x86_64-pc-windows-msvc" -ForegroundColor Yellow
+    }
     exit 1
 }
 

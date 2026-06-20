@@ -468,8 +468,8 @@ impl TokenAccountStore {
 
     /// Get the default storage path
     pub fn default_path() -> PathBuf {
-        directories::ProjectDirs::from("", "", "CodexBar")
-            .map(|dirs| dirs.config_dir().to_path_buf())
+        dirs::config_dir()
+            .map(|dir| dir.join("CodexBar"))
             .unwrap_or_else(|| {
                 dirs::home_dir()
                     .unwrap_or_else(|| PathBuf::from("."))
