@@ -172,6 +172,11 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   stepfun:     { id: "stepfun",     brandColor: "#999999", fallbackLetter: "S", svgPath: RAW.stepfun },
   venice:      { id: "venice",      brandColor: "#111827", fallbackLetter: "V", svgPath: RAW.venice },
   openaiapi:   { id: "openaiapi",   brandColor: "#10a37f", fallbackLetter: "O" },
+  chutes:      { id: "chutes",      brandColor: "#ff5c35", fallbackLetter: "C" },
+  litellm:     { id: "litellm",     brandColor: "#0ea5e9", fallbackLetter: "L" },
+  poe:         { id: "poe",         brandColor: "#5d5fef", fallbackLetter: "P" },
+  devin:       { id: "devin",       brandColor: "#111827", fallbackLetter: "D" },
+  zed:         { id: "zed",         brandColor: "#084ccf", fallbackLetter: "Z" },
 };
 
 const ALIASES: Record<string, string> = {
@@ -222,6 +227,12 @@ const ALIASES: Record<string, string> = {
   "groq-cloud": "groq",
   "llm proxy": "llmproxy",
   "llm-proxy": "llmproxy",
+  "chutes ai": "chutes",
+  "chutes-ai": "chutes",
+  "lite llm": "litellm",
+  "lite-llm": "litellm",
+  "zed ai": "zed",
+  "zed-ai": "zed",
 };
 
 function normalize(id: string): string {

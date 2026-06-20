@@ -8,15 +8,16 @@
 use super::{Provider, ProviderId};
 use crate::providers::{
     AbacusProvider, AlibabaProvider, AlibabaTokenPlanProvider, AmpProvider, AntigravityProvider,
-    AugmentProvider, AzureOpenAIProvider, BedrockProvider, ClaudeProvider, CodebuffProvider,
-    CodexProvider, CommandCodeProvider, CopilotProvider, CrofProvider, CursorProvider,
-    DeepSeekProvider, DeepgramProvider, DoubaoProvider, ElevenLabsProvider, FactoryProvider,
-    GeminiProvider, GrokProvider, GroqProvider, InfiniProvider, JetBrainsProvider, KiloProvider,
-    KimiK2Provider, KimiProvider, KiroProvider, LLMProxyProvider, ManusProvider, MiMoProvider,
-    MiniMaxProvider, MistralProvider, NanoGPTProvider, OllamaProvider, OpenAIApiProvider,
-    OpenCodeGoProvider, OpenCodeProvider, OpenRouterProvider, PerplexityProvider, StepFunProvider,
+    AugmentProvider, AzureOpenAIProvider, BedrockProvider, ChutesProvider, ClaudeProvider,
+    CodebuffProvider, CodexProvider, CommandCodeProvider, CopilotProvider, CrofProvider,
+    CursorProvider, DeepSeekProvider, DeepgramProvider, DevinProvider, DoubaoProvider,
+    ElevenLabsProvider, FactoryProvider, GeminiProvider, GrokProvider, GroqProvider,
+    InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider, KimiProvider, KiroProvider,
+    LLMProxyProvider, LiteLLMProvider, ManusProvider, MiMoProvider, MiniMaxProvider,
+    MistralProvider, NanoGPTProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider,
+    OpenCodeProvider, OpenRouterProvider, PerplexityProvider, PoeProvider, StepFunProvider,
     SyntheticProvider, T3ChatProvider, VeniceProvider, VertexAIProvider, WarpProvider,
-    WindsurfProvider, ZaiProvider,
+    WindsurfProvider, ZaiProvider, ZedProvider,
 };
 
 /// Instantiate the concrete [`Provider`] implementation for a given [`ProviderId`].
@@ -74,6 +75,11 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Deepgram => Box::new(DeepgramProvider::new()),
         ProviderId::Groq => Box::new(GroqProvider::new()),
         ProviderId::LLMProxy => Box::new(LLMProxyProvider::new()),
+        ProviderId::Chutes => Box::new(ChutesProvider::new()),
+        ProviderId::LiteLLM => Box::new(LiteLLMProvider::new()),
+        ProviderId::Poe => Box::new(PoeProvider::new()),
+        ProviderId::Devin => Box::new(DevinProvider::new()),
+        ProviderId::Zed => Box::new(ZedProvider::new()),
     }
 }
 

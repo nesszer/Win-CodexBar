@@ -174,6 +174,9 @@ fn workspace_provider(provider_id: &str) -> Option<codexbar::core::ProviderId> {
     use codexbar::core::ProviderId;
     Some(match provider_id {
         "openaiapi" => ProviderId::OpenAIApi,
+        "litellm" => ProviderId::LiteLLM,
+        "devin" => ProviderId::Devin,
+        "zed" => ProviderId::Zed,
         _ => return None,
     })
 }

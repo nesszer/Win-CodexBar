@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api";
 const USAGE_PATH: &str = "/wham/usage";
+const RESET_CREDITS_PATH: &str = "/wham/rate-limit-reset-credits";
 const CREDENTIAL_CACHE_TTL: Duration = Duration::from_secs(5);
 
 static CREDENTIAL_CACHE: OnceLock<Mutex<Option<CachedCodexCredentials>>> = OnceLock::new();
@@ -82,7 +83,49 @@ impl CodexApi {
             .await
             .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
-        self.build_result_from_json(&json)
+        let (mut usage, cost) = self.build_result_from_json(&json)?;
+        if let Ok(reset_credits) = self.fetch_rate_limit_reset_credits(&creds, &base_url).await
+            && reset_credits.available_count > 0
+        {
+            let mut window = RateWindow::new(0.0);
+            window.reset_description = Some(format!(
+                "{} reset credit{} available",
+                reset_credits.available_count,
+                if reset_credits.available_count == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+            usage = usage.with_extra_rate_window("reset-credits", "Reset credits", window);
+        }
+        Ok((usage, cost))
+    }
+
+    async fn fetch_rate_limit_reset_credits(
+        &self,
+        creds: &CodexCredentials,
+        base_url: &str,
+    ) -> Result<ResetCredits, ProviderError> {
+        let mut request = self
+            .client
+            .get(format!("{}{}", base_url, RESET_CREDITS_PATH))
+            .header("Authorization", format!("Bearer {}", creds.access_token))
+            .header("User-Agent", "CodexBar")
+            .header("Accept", "application/json");
+        if let Some(account_id) = &creds.account_id
+            && !account_id.is_empty()
+        {
+            request = request.header("ChatGPT-Account-Id", account_id);
+        }
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            return Err(ProviderError::Other(format!(
+                "Codex reset credits returned {}",
+                response.status()
+            )));
+        }
+        decode_reset_credits(&response.bytes().await?)
     }
 
     fn load_credentials(&self) -> Result<CodexCredentials, ProviderError> {
@@ -594,6 +637,19 @@ struct CreditDetails {
     balance: Option<f64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ResetCredits {
+    #[serde(default)]
+    credits: Vec<serde_json::Value>,
+    #[serde(default)]
+    available_count: u32,
+}
+
+fn decode_reset_credits(data: &[u8]) -> Result<ResetCredits, ProviderError> {
+    serde_json::from_slice(data)
+        .map_err(|e| ProviderError::Parse(format!("Failed to parse Codex reset credits: {e}")))
+}
+
 impl CreditDetails {
     // Helper to safely check has_credits
     fn has_credits(&self) -> bool {
@@ -776,6 +832,14 @@ mod tests {
 
         assert_eq!(credentials.access_token, "access");
         assert_eq!(credentials.account_id.as_deref(), Some("acct_123"));
+    }
+
+    #[test]
+    fn decodes_reset_credits() {
+        let credits = decode_reset_credits(br#"{"available_count":2,"credits":[{"id":"a"}]}"#)
+            .expect("reset credits");
+        assert_eq!(credits.available_count, 2);
+        assert_eq!(credits.credits.len(), 1);
     }
 
     #[test]

@@ -28,7 +28,7 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (providerId !== "openaiapi") return;
+    if (!extraConfig(providerId)) return;
     let cancelled = false;
     void getProviderWorkspaceId(providerId)
       .then((value) => {
@@ -59,24 +59,25 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
     }
   };
 
-  if (providerId === "openaiapi") {
+  const config = extraConfig(providerId);
+  if (config) {
     return (
       <section className="provider-detail-section">
-        <h4>OpenAI Admin API</h4>
+        <h4>{config.title}</h4>
         <label className="provider-detail-field">
           <span className="provider-detail-field__label">
-            Project ID
+            {config.label}
           </span>
           <input
             className="provider-detail-field__input"
             value={projectId}
-            placeholder="proj_..."
+            placeholder={config.placeholder}
             spellCheck={false}
             onChange={(event) => setProjectId(event.target.value)}
           />
         </label>
         <div className="provider-detail-helper">
-          Leave blank for organization-wide usage. Set a project ID to scope OpenAI usage and cost requests with the Admin API.
+          {config.help}
         </div>
         <div className="provider-detail-actions">
           <button
@@ -91,6 +92,41 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
         {error && <div className="provider-detail-error">{error}</div>}
       </section>
     );
+  }
+
+  function extraConfig(providerId: string) {
+    switch (providerId) {
+      case "openaiapi":
+        return {
+          title: "OpenAI Admin API",
+          label: "Project ID",
+          placeholder: "proj_...",
+          help: "Leave blank for organization-wide usage. Set a project ID to scope OpenAI usage and cost requests with the Admin API.",
+        };
+      case "litellm":
+        return {
+          title: "LiteLLM API",
+          label: "Base URL",
+          placeholder: "https://litellm.example.com",
+          help: "Used with the saved API key for LiteLLM /key/info.",
+        };
+      case "devin":
+        return {
+          title: "Devin API",
+          label: "Organization",
+          placeholder: "org/acme",
+          help: "Used with the saved bearer token for Devin billing quota usage.",
+        };
+      case "zed":
+        return {
+          title: "Zed API",
+          label: "API URL",
+          placeholder: "https://cloud.zed.dev/client/users/me",
+          help: "Optional. Leave blank for the default Zed Cloud API URL.",
+        };
+      default:
+        return null;
+    }
   }
 
   return (

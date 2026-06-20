@@ -17,12 +17,86 @@ const COST_EXPLORER_URL: &str = "https://ce.us-east-1.amazonaws.com";
 const COST_EXPLORER_TARGET: &str = "AWSInsightsIndexService.GetCostAndUsage";
 const SERVICE: &str = "ce";
 const SIGNING_REGION: &str = "us-east-1";
+const CLOUDWATCH_TARGET: &str = "GraniteServiceVersion20100801.GetMetricData";
+const CLOUDWATCH_SERVICE: &str = "monitoring";
 
 #[derive(Debug, Clone)]
 struct AwsCredentials {
     access_key_id: String,
     secret_access_key: String,
     session_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct BedrockClaudeActivity {
+    input_tokens: f64,
+    output_tokens: f64,
+    request_count: f64,
+}
+
+struct AwsSigningRequest<'a> {
+    date_stamp: &'a str,
+    amz_date: &'a str,
+    body_hash: &'a str,
+    url: &'a str,
+    body: &'a [u8],
+    target: &'a str,
+    region: &'a str,
+    service: &'a str,
+}
+
+fn cloudwatch_request_body() -> Result<Vec<u8>, ProviderError> {
+    let end = Utc::now();
+    let start = end - Duration::days(14);
+    let query = |id: &str, metric: &str| {
+        json!({
+            "Id": id,
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/Bedrock",
+                    "MetricName": metric,
+                },
+                "Period": 1209600,
+                "Stat": "Sum"
+            },
+            "ReturnData": true
+        })
+    };
+    serde_json::to_vec(&json!({
+        "StartTime": start.timestamp(),
+        "EndTime": end.timestamp(),
+        "MetricDataQueries": [
+            query("input", "InputTokenCount"),
+            query("output", "OutputTokenCount"),
+            query("requests", "Invocations")
+        ],
+    }))
+    .map_err(|e| ProviderError::Other(format!("CloudWatch request build failed: {e}")))
+}
+
+fn parse_claude_activity(value: &Value) -> BedrockClaudeActivity {
+    let mut activity = BedrockClaudeActivity::default();
+    for result in value
+        .get("MetricDataResults")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let sum: f64 = result
+            .get("Values")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_f64)
+            .sum();
+        match result.get("Id").and_then(Value::as_str).unwrap_or_default() {
+            "input" => activity.input_tokens += sum,
+            "output" => activity.output_tokens += sum,
+            "requests" => activity.request_count += sum,
+            _ => {}
+        }
+    }
+    activity
 }
 
 pub struct BedrockProvider {
@@ -248,6 +322,62 @@ impl BedrockProvider {
         Ok(total)
     }
 
+    async fn fetch_claude_activity(
+        &self,
+        credentials: &AwsCredentials,
+        region: &str,
+    ) -> Result<BedrockClaudeActivity, ProviderError> {
+        let endpoint = format!("https://monitoring.{region}.amazonaws.com");
+        let body_bytes = cloudwatch_request_body()?;
+        let body_hash = sha256_hex(&body_bytes);
+        let now = Utc::now();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let date_stamp = now.format("%Y%m%d").to_string();
+        let authorization = sign_authorization_for(
+            credentials,
+            AwsSigningRequest {
+                date_stamp: &date_stamp,
+                amz_date: &amz_date,
+                body_hash: &body_hash,
+                url: &endpoint,
+                body: &body_bytes,
+                target: CLOUDWATCH_TARGET,
+                region,
+                service: CLOUDWATCH_SERVICE,
+            },
+        )?;
+        let host = url::Url::parse(&endpoint)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .unwrap_or_else(|| format!("monitoring.{region}.amazonaws.com"));
+        let mut request = self
+            .client
+            .post(endpoint)
+            .header("Content-Type", "application/x-amz-json-1.1")
+            .header("Host", host)
+            .header("X-Amz-Target", CLOUDWATCH_TARGET)
+            .header("X-Amz-Date", amz_date)
+            .header("x-amz-content-sha256", body_hash)
+            .header("Authorization", authorization);
+        if let Some(token) = &credentials.session_token {
+            request = request.header("X-Amz-Security-Token", token);
+        }
+        let response = request.body(body_bytes).send().await?;
+        let status = response.status();
+        let text = response.text().await?;
+        if !status.is_success() {
+            return Err(ProviderError::Other(format!(
+                "CloudWatch GetMetricData returned {}: {}",
+                status,
+                sanitized_body(&text)
+            )));
+        }
+        let json: Value = serde_json::from_str(&text).map_err(|e| {
+            ProviderError::Parse(format!("Failed to parse CloudWatch response: {e}"))
+        })?;
+        Ok(parse_claude_activity(&json))
+    }
+
     async fn fetch_cost_page(
         &self,
         credentials: &AwsCredentials,
@@ -342,7 +472,24 @@ impl BedrockProvider {
             login_method.push_str(&format!(" - Budget: ${limit:.2}"));
         }
 
-        let usage = UsageSnapshot::new(primary).with_login_method(login_method);
+        let mut usage = UsageSnapshot::new(primary).with_login_method(login_method);
+        let env_region = cleaned_env("AWS_REGION");
+        let region = ctx
+            .api_region
+            .as_deref()
+            .or(env_region.as_deref())
+            .unwrap_or("us-east-1")
+            .to_string();
+        if let Ok(activity) = self.fetch_claude_activity(&credentials, &region).await
+            && activity.request_count > 0.0
+        {
+            let mut window = RateWindow::new(0.0);
+            window.reset_description = Some(format!(
+                "Claude 14d: {:.0} input, {:.0} output tokens, {:.0} requests",
+                activity.input_tokens, activity.output_tokens, activity.request_count
+            ));
+            usage = usage.with_extra_rate_window("claude-14d", "Claude 14d activity", window);
+        }
         Ok(ProviderFetchResult::new(usage, "api").with_cost(cost))
     }
 }
@@ -571,7 +718,26 @@ fn sign_authorization(
     url: &str,
     body: &[u8],
 ) -> Result<String, ProviderError> {
-    let parsed = url::Url::parse(url)
+    sign_authorization_for(
+        credentials,
+        AwsSigningRequest {
+            date_stamp,
+            amz_date,
+            body_hash,
+            url,
+            body,
+            target: COST_EXPLORER_TARGET,
+            region: SIGNING_REGION,
+            service: SERVICE,
+        },
+    )
+}
+
+fn sign_authorization_for(
+    credentials: &AwsCredentials,
+    request: AwsSigningRequest<'_>,
+) -> Result<String, ProviderError> {
+    let parsed = url::Url::parse(request.url)
         .map_err(|e| ProviderError::Other(format!("Invalid AWS endpoint URL: {e}")))?;
     let host = parsed.host_str().unwrap_or("ce.us-east-1.amazonaws.com");
     let (canonical_headers, signed_headers) = if let Some(session_token) =
@@ -579,14 +745,16 @@ fn sign_authorization(
     {
         (
             format!(
-                "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{body_hash}\nx-amz-date:{amz_date}\nx-amz-security-token:{session_token}\nx-amz-target:{COST_EXPLORER_TARGET}\n"
+                "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{}\nx-amz-date:{}\nx-amz-security-token:{session_token}\nx-amz-target:{}\n",
+                request.body_hash, request.amz_date, request.target
             ),
             "content-type;host;x-amz-content-sha256;x-amz-date;x-amz-security-token;x-amz-target",
         )
     } else {
         (
             format!(
-                "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{body_hash}\nx-amz-date:{amz_date}\nx-amz-target:{COST_EXPLORER_TARGET}\n"
+                "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{}\nx-amz-date:{}\nx-amz-target:{}\n",
+                request.body_hash, request.amz_date, request.target
             ),
             "content-type;host;x-amz-content-sha256;x-amz-date;x-amz-target",
         )
@@ -597,13 +765,16 @@ fn sign_authorization(
         "",
         canonical_headers.as_str(),
         signed_headers,
-        body_hash,
+        request.body_hash,
     ]
     .join("\n");
-    let credential_scope = format!("{date_stamp}/{SIGNING_REGION}/{SERVICE}/aws4_request");
+    let credential_scope = format!(
+        "{}/{}/{}/aws4_request",
+        request.date_stamp, request.region, request.service
+    );
     let string_to_sign = [
         "AWS4-HMAC-SHA256",
-        amz_date,
+        request.amz_date,
         credential_scope.as_str(),
         sha256_hex(canonical_request.as_bytes()).as_str(),
     ]
@@ -611,15 +782,15 @@ fn sign_authorization(
 
     let k_date = hmac_sha256(
         format!("AWS4{}", credentials.secret_access_key).as_bytes(),
-        date_stamp.as_bytes(),
+        request.date_stamp.as_bytes(),
     );
-    let k_region = hmac_sha256(&k_date, SIGNING_REGION.as_bytes());
-    let k_service = hmac_sha256(&k_region, SERVICE.as_bytes());
+    let k_region = hmac_sha256(&k_date, request.region.as_bytes());
+    let k_service = hmac_sha256(&k_region, request.service.as_bytes());
     let k_signing = hmac_sha256(&k_service, b"aws4_request");
     let signature = hex(&hmac_sha256(&k_signing, string_to_sign.as_bytes()));
 
     // Keep body in the signature call path so tests catch accidental divergence.
-    debug_assert_eq!(sha256_hex(body), body_hash);
+    debug_assert_eq!(sha256_hex(request.body), request.body_hash);
 
     Ok(format!(
         "AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
@@ -695,6 +866,20 @@ mod tests {
             }]
         });
         assert_eq!(parse_bedrock_cost(&page), 12.34);
+    }
+
+    #[test]
+    fn parses_cloudwatch_claude_activity() {
+        let activity = parse_claude_activity(&json!({
+            "MetricDataResults": [
+                {"Id": "input", "Values": [10, 15]},
+                {"Id": "output", "Values": [7]},
+                {"Id": "requests", "Values": [2, 3]}
+            ]
+        }));
+        assert_eq!(activity.input_tokens, 25.0);
+        assert_eq!(activity.output_tokens, 7.0);
+        assert_eq!(activity.request_count, 5.0);
     }
 
     #[test]

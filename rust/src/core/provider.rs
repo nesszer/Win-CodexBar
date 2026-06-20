@@ -60,6 +60,11 @@ pub enum ProviderId {
     Deepgram,
     Groq,
     LLMProxy,
+    Chutes,
+    LiteLLM,
+    Poe,
+    Devin,
+    Zed,
 }
 
 impl ProviderId {
@@ -115,6 +120,11 @@ impl ProviderId {
             ProviderId::Deepgram,
             ProviderId::Groq,
             ProviderId::LLMProxy,
+            ProviderId::Chutes,
+            ProviderId::LiteLLM,
+            ProviderId::Poe,
+            ProviderId::Devin,
+            ProviderId::Zed,
         ]
     }
 
@@ -170,6 +180,11 @@ impl ProviderId {
             ProviderId::Deepgram => "deepgram",
             ProviderId::Groq => "groq",
             ProviderId::LLMProxy => "llmproxy",
+            ProviderId::Chutes => "chutes",
+            ProviderId::LiteLLM => "litellm",
+            ProviderId::Poe => "poe",
+            ProviderId::Devin => "devin",
+            ProviderId::Zed => "zed",
         }
     }
 
@@ -225,6 +240,11 @@ impl ProviderId {
             ProviderId::Deepgram => "Deepgram",
             ProviderId::Groq => "Groq",
             ProviderId::LLMProxy => "LLM Proxy",
+            ProviderId::Chutes => "Chutes",
+            ProviderId::LiteLLM => "LiteLLM",
+            ProviderId::Poe => "Poe",
+            ProviderId::Devin => "Devin",
+            ProviderId::Zed => "Zed",
         }
     }
 
@@ -285,6 +305,11 @@ impl ProviderId {
             ProviderId::Deepgram => None,
             ProviderId::Groq => None,
             ProviderId::LLMProxy => None,
+            ProviderId::Chutes => None,
+            ProviderId::LiteLLM => None,
+            ProviderId::Poe => None,
+            ProviderId::Devin => None,
+            ProviderId::Zed => None,
         }
     }
 
@@ -298,7 +323,7 @@ impl ProviderId {
             "gemini" | "google" => Some(ProviderId::Gemini),
             "antigravity" => Some(ProviderId::Antigravity),
             "copilot" | "github" => Some(ProviderId::Copilot),
-            "zai" | "z.ai" | "zed" => Some(ProviderId::Zai),
+            "zai" | "z.ai" => Some(ProviderId::Zai),
             "minimax" => Some(ProviderId::MiniMax),
             "kiro" | "aws" => Some(ProviderId::Kiro),
             "vertexai" | "vertex" | "vertex ai" => Some(ProviderId::VertexAI),
@@ -347,6 +372,11 @@ impl ProviderId {
             "deepgram" | "dg" => Some(ProviderId::Deepgram),
             "groq" | "groqcloud" | "groq-cloud" | "groq cloud" => Some(ProviderId::Groq),
             "llmproxy" | "llm-proxy" | "llm proxy" => Some(ProviderId::LLMProxy),
+            "chutes" | "chutes-ai" | "chutes ai" => Some(ProviderId::Chutes),
+            "litellm" | "lite-llm" | "lite llm" => Some(ProviderId::LiteLLM),
+            "poe" => Some(ProviderId::Poe),
+            "devin" => Some(ProviderId::Devin),
+            "zed" | "zed-ai" => Some(ProviderId::Zed),
             _ => None,
         }
     }
@@ -527,7 +557,6 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("codeium", ProviderId::Windsurf);
     map.insert("google", ProviderId::Gemini);
     map.insert("github", ProviderId::Copilot);
-    map.insert("zed", ProviderId::Zai);
     map.insert("aws", ProviderId::Kiro);
     map.insert("vertex", ProviderId::VertexAI);
     map.insert("sourcegraph", ProviderId::Amp);
@@ -559,6 +588,9 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("dg", ProviderId::Deepgram);
     map.insert("groqcloud", ProviderId::Groq);
     map.insert("groq-cloud", ProviderId::Groq);
+    map.insert("chutes-ai", ProviderId::Chutes);
+    map.insert("lite-llm", ProviderId::LiteLLM);
+    map.insert("zed-ai", ProviderId::Zed);
     map.insert("llm-proxy", ProviderId::LLMProxy);
     map
 }
@@ -570,7 +602,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 49);
+        assert_eq!(all.len(), 54);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -600,6 +632,11 @@ mod tests {
         assert!(all.contains(&ProviderId::Deepgram));
         assert!(all.contains(&ProviderId::Groq));
         assert!(all.contains(&ProviderId::LLMProxy));
+        assert!(all.contains(&ProviderId::Chutes));
+        assert!(all.contains(&ProviderId::LiteLLM));
+        assert!(all.contains(&ProviderId::Poe));
+        assert!(all.contains(&ProviderId::Devin));
+        assert!(all.contains(&ProviderId::Zed));
     }
 
     #[test]
@@ -637,7 +674,7 @@ mod tests {
             ProviderId::from_cli_name("factory"),
             Some(ProviderId::Factory)
         );
-        assert_eq!(ProviderId::from_cli_name("zed"), Some(ProviderId::Zai));
+        assert_eq!(ProviderId::from_cli_name("zed"), Some(ProviderId::Zed));
         assert_eq!(ProviderId::from_cli_name("unknown"), None);
     }
 

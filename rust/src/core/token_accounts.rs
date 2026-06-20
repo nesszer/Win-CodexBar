@@ -215,7 +215,12 @@ impl TokenAccountSupport {
             | ProviderId::ElevenLabs
             | ProviderId::Deepgram
             | ProviderId::Groq
-            | ProviderId::LLMProxy => None,
+            | ProviderId::LLMProxy
+            | ProviderId::Chutes
+            | ProviderId::LiteLLM
+            | ProviderId::Poe
+            | ProviderId::Devin
+            | ProviderId::Zed => None,
         }
     }
 

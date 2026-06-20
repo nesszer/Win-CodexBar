@@ -192,6 +192,18 @@ impl CursorApi {
                         });
 
                     (percent, secondary, model_specific, Some(cost))
+                } else if let Some(overall) = &individual.overall {
+                    let percent = Self::usage_percent(overall).unwrap_or(0.0);
+                    let cost = Self::on_demand_cost(Some(overall), billing_end);
+                    (percent, None, None, cost)
+                } else {
+                    (0.0, None, None, None)
+                }
+            } else if let Some(team) = &summary.team_usage {
+                if let Some(pooled) = &team.pooled {
+                    let percent = Self::usage_percent(pooled).unwrap_or(0.0);
+                    let cost = Self::on_demand_cost(Some(pooled), billing_end);
+                    (percent, None, None, cost)
                 } else {
                     (0.0, None, None, None)
                 }
@@ -256,6 +268,19 @@ impl CursorApi {
         }
         Some(cost)
     }
+
+    fn usage_percent(usage: &OnDemandUsage) -> Option<f64> {
+        let used = usage.used.unwrap_or(0) as f64;
+        let limit = usage
+            .limit
+            .or_else(|| {
+                usage
+                    .remaining
+                    .map(|remaining| remaining + usage.used.unwrap_or(0))
+            })
+            .unwrap_or(0) as f64;
+        (limit > 0.0).then_some(used / limit * 100.0)
+    }
 }
 
 impl Default for CursorApi {
@@ -283,6 +308,7 @@ struct UsageSummary {
 struct IndividualUsage {
     plan: Option<PlanUsage>,
     on_demand: Option<OnDemandUsage>,
+    overall: Option<OnDemandUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,6 +345,7 @@ struct OnDemandUsage {
 #[serde(rename_all = "camelCase")]
 struct TeamUsage {
     on_demand: Option<OnDemandUsage>,
+    pooled: Option<OnDemandUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -506,5 +533,22 @@ mod tests {
         assert!((cost.used - 3.5).abs() < 0.01);
         assert_eq!(cost.limit, Some(10.0));
         assert_eq!(cost.period, "Monthly");
+    }
+
+    #[test]
+    fn test_cursor_individual_overall_fallback() {
+        let summary =
+            parse_summary(r#"{"individualUsage":{"overall":{"used":2500,"limit":10000}}}"#);
+        let (primary, _, _, cost, _, _) = api().build_result(summary, None).unwrap();
+        assert!((primary.used_percent - 25.0).abs() < 0.01);
+        assert_eq!(cost.unwrap().limit, Some(100.0));
+    }
+
+    #[test]
+    fn test_cursor_team_pooled_fallback() {
+        let summary = parse_summary(r#"{"teamUsage":{"pooled":{"used":5000,"limit":10000}}}"#);
+        let (primary, _, _, cost, _, _) = api().build_result(summary, None).unwrap();
+        assert!((primary.used_percent - 50.0).abs() < 0.01);
+        assert_eq!(cost.unwrap().used, 50.0);
     }
 }

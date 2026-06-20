@@ -395,5 +395,58 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             config_file_path: None,
             dashboard_url: None,
         },
+        ProviderConfigInfo {
+            id: ProviderId::Chutes,
+            name: "Chutes",
+            requires_api_key: true,
+            api_key_env_var: Some("CHUTES_API_KEY"),
+            api_key_help: Some(
+                "Paste a Chutes API key. Optional API URL override: CHUTES_API_URL.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://chutes.ai"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::LiteLLM,
+            name: "LiteLLM",
+            requires_api_key: true,
+            api_key_env_var: Some("LITELLM_API_KEY + LITELLM_BASE_URL"),
+            api_key_help: Some(
+                "Paste a LiteLLM key and set the base URL in provider extras or LITELLM_BASE_URL.",
+            ),
+            config_file_path: None,
+            dashboard_url: None,
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Poe,
+            name: "Poe",
+            requires_api_key: true,
+            api_key_env_var: Some("POE_API_KEY"),
+            api_key_help: Some("Get your API key from Poe API settings."),
+            config_file_path: None,
+            dashboard_url: Some("https://poe.com/settings/subscription"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Devin,
+            name: "Devin",
+            requires_api_key: true,
+            api_key_env_var: Some("DEVIN_BEARER_TOKEN + DEVIN_ORG"),
+            api_key_help: Some(
+                "Paste a Devin bearer token and set the organization in provider extras or DEVIN_ORG.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://app.devin.ai/settings/billing"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Zed,
+            name: "Zed",
+            requires_api_key: true,
+            api_key_env_var: Some("ZED_CREDENTIALS"),
+            api_key_help: Some(
+                "Paste Zed credentials as `user_id access_token`; optional API URL in provider extras.",
+            ),
+            config_file_path: Some("~/.config/zed/settings.json"),
+            dashboard_url: Some("https://zed.dev/account"),
+        },
     ]
 }
