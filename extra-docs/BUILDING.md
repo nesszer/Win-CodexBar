@@ -2,14 +2,12 @@
 
 ## Prerequisites
 
-- **Rust** 1.70+ with `x86_64-pc-windows-gnu` target
-- **MinGW-w64** (for the GNU linker)
-- **Node.js** 18+ and pnpm
+- **Rust** stable with the `x86_64-pc-windows-msvc` target
+- **Microsoft Visual Studio Build Tools** with the **Desktop development with C++** workload
+- **Node.js** 20+ and pnpm
 
-Install prerequisites automatically:
-```powershell
-.\scripts\setup-windows.ps1
-```
+Install the tools manually with rustup/winget/corepack, or use a tool manager
+such as mise. There is no automatic Windows bootstrap script in this port.
 
 ## Build the Desktop App
 

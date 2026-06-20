@@ -4,9 +4,8 @@
     Build and run the CodexBar Tauri desktop shell for Windows.
 
 .DESCRIPTION
-    Checks that build prerequisites are installed (Rust, MinGW-w64),
-    installs them if missing, then builds the Tauri desktop shell through the
-    Tauri CLI and launches it.
+    Checks that build prerequisites are installed, then builds the Tauri desktop
+    shell through the Tauri CLI and launches it.
 
 .PARAMETER Release
     Build in release mode (optimised). Default is debug.
@@ -74,6 +73,26 @@ function Get-DesktopBinaryCandidates {
     return $candidates | Select-Object -Unique
 }
 
+function Write-PrerequisiteHelp {
+    param(
+        [string[]]$Missing
+    )
+
+    Write-Host "Missing prerequisites: $($Missing -join ', ')" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Install the required tools, restart your terminal, then rerun .\dev.ps1." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Required:" -ForegroundColor Cyan
+    Write-Host "  - Rust/Cargo: https://rustup.rs/ or 'mise install rust@stable'" -ForegroundColor Cyan
+    Write-Host "  - Node.js + pnpm: https://nodejs.org/ and 'corepack enable pnpm', or mise-managed node/pnpm" -ForegroundColor Cyan
+    Write-Host "  - Microsoft Visual Studio Build Tools with the Desktop development with C++ workload" -ForegroundColor Cyan
+    if ($Missing -contains "dlltool (MinGW-w64)") {
+        Write-Host ""
+        Write-Host "This shell is using a GNU Rust target, which also needs MinGW-w64 dlltool." -ForegroundColor Yellow
+        Write-Host "Install MinGW-w64 or switch Rust to the MSVC target: rustup default stable-x86_64-pc-windows-msvc" -ForegroundColor Yellow
+    }
+}
+
 # ── Ensure known tool paths are in current session PATH ─────────────────────
 
 $knownPaths = @("$env:USERPROFILE\.cargo\bin", "C:\mingw64\bin")
@@ -94,29 +113,8 @@ if (-not $hasCargo -or ($needsDlltool -and -not $hasDlltool)) {
     $missing = @()
     if (-not $hasCargo)   { $missing += "cargo (Rust)" }
     if ($needsDlltool -and -not $hasDlltool) { $missing += "dlltool (MinGW-w64)" }
-    Write-Host "Missing prerequisites: $($missing -join ', ')" -ForegroundColor Yellow
-    Write-Host "Running setup script..." -ForegroundColor Cyan
-    Write-Host ""
-
-    $setupScript = Join-Path $RepoRoot "scripts\setup-windows.ps1"
-    if (-not (Test-Path $setupScript)) {
-        Write-Host "ERROR: Setup script not found at $setupScript" -ForegroundColor Red
-        exit 1
-    }
-
-    & $setupScript
-
-    # Re-check after setup
-    $hasCargo = [bool](Get-Command cargo -ErrorAction SilentlyContinue)
-    $rustHostTriple = Get-RustHostTriple
-    $needsDlltool = $rustHostTriple -like '*-windows-gnu'
-    $hasDlltool = [bool](Get-Command dlltool -ErrorAction SilentlyContinue)
-    if (-not $hasCargo -or ($needsDlltool -and -not $hasDlltool)) {
-        Write-Host ""
-        Write-Host "ERROR: Prerequisites still missing after setup." -ForegroundColor Red
-        Write-Host "Please restart your terminal and try again." -ForegroundColor Yellow
-        exit 1
-    }
+    Write-PrerequisiteHelp -Missing $missing
+    exit 1
 }
 
 $pnpmCommand = Get-Command pnpm.cmd -ErrorAction SilentlyContinue
