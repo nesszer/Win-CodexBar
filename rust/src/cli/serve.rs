@@ -58,7 +58,10 @@ async fn route_request(request: &ServeRequest) -> String {
     }
 
     match request.path.as_str() {
-        "/health" => json_response(200, serde_json::json!({ "status": "ok" })),
+        "/health" => json_response(
+            200,
+            serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }),
+        ),
         "/usage" => usage_response(request.query.get("provider").map(String::as_str)).await,
         "/cost" => cost_response(request.query.get("provider").map(String::as_str)).await,
         _ => json_response(404, serde_json::json!({ "error": "not found" })),

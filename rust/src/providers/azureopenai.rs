@@ -180,19 +180,7 @@ impl AzureOpenAIProvider {
     fn parse_endpoint(raw: &str) -> Result<Url, ProviderError> {
         let cleaned = clean_string(raw)
             .ok_or_else(|| ProviderError::Other("Azure OpenAI endpoint not configured".into()))?;
-        let with_scheme = if cleaned.starts_with("http://") || cleaned.starts_with("https://") {
-            cleaned
-        } else {
-            format!("https://{cleaned}")
-        };
-        let url = Url::parse(&with_scheme)
-            .map_err(|_| ProviderError::Other("Azure OpenAI endpoint is invalid".into()))?;
-        if url.host_str().is_none() {
-            return Err(ProviderError::Other(
-                "Azure OpenAI endpoint is invalid".into(),
-            ));
-        }
-        Ok(url)
+        crate::providers::validated_https_url(&cleaned, "Azure OpenAI endpoint")
     }
 
     fn chat_completions_url(
@@ -367,5 +355,12 @@ mod tests {
         );
         assert_eq!(config.deployment, "chat-prod");
         assert_eq!(config.api_version, "v1");
+    }
+
+    #[test]
+    fn rejects_insecure_or_tricky_endpoint_overrides() {
+        assert!(AzureOpenAIProvider::parse_endpoint("http://example.com").is_err());
+        assert!(AzureOpenAIProvider::parse_endpoint("https://user@example.com").is_err());
+        assert!(AzureOpenAIProvider::parse_endpoint("https://example.com%2f.evil.test").is_err());
     }
 }

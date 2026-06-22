@@ -180,7 +180,7 @@ impl Provider for GroqProvider {
 fn api_base_url() -> Url {
     std::env::var("GROQ_API_URL")
         .ok()
-        .and_then(|raw| Url::parse(raw.trim()).ok())
+        .and_then(|raw| crate::providers::validated_https_url(&raw, "Groq API").ok())
         .unwrap_or_else(|| Url::parse(GROQ_API_BASE).expect("static Groq URL is valid"))
 }
 

@@ -142,3 +142,45 @@ pub(crate) fn resolve_api_key(
         env_names.join(" / ")
     )))
 }
+
+pub(crate) fn validated_https_url(
+    raw: &str,
+    label: &str,
+) -> Result<reqwest::Url, crate::core::ProviderError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(crate::core::ProviderError::Other(format!(
+            "{label} URL is empty"
+        )));
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if ["%2f", "%5c", "%3f", "%23", "%40", "%3a"]
+        .iter()
+        .any(|encoded| lower.contains(encoded))
+    {
+        return Err(crate::core::ProviderError::Other(format!(
+            "{label} URL must not contain encoded host delimiters"
+        )));
+    }
+    let candidate = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    };
+    let url = reqwest::Url::parse(&candidate)
+        .map_err(|e| crate::core::ProviderError::Other(format!("Invalid {label} URL: {e}")))?;
+    let host = url.host_str().ok_or_else(|| {
+        crate::core::ProviderError::Other(format!("{label} URL must include a host"))
+    })?;
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || host.contains('%')
+        || host.chars().any(|c| c.is_control() || c.is_whitespace())
+    {
+        return Err(crate::core::ProviderError::Other(format!(
+            "{label} URL must use HTTPS without user info or encoded host tricks"
+        )));
+    }
+    Ok(url)
+}

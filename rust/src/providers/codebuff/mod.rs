@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use reqwest::Client;
+use reqwest::{Client, Url};
 use serde_json::{Value, json};
 
 use crate::core::{
@@ -49,13 +49,12 @@ impl CodebuffProvider {
         }
     }
 
-    fn api_base() -> String {
-        std::env::var("CODEBUFF_API_URL")
+    fn api_base() -> Result<Url, ProviderError> {
+        let raw = std::env::var("CODEBUFF_API_URL")
             .ok()
             .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_API_BASE.to_string())
-            .trim_end_matches('/')
-            .to_string()
+            .unwrap_or_else(|| DEFAULT_API_BASE.to_string());
+        crate::providers::validated_https_url(&raw, "Codebuff API")
     }
 
     fn get_api_key(api_key: Option<&str>) -> Result<String, ProviderError> {
@@ -100,11 +99,14 @@ impl CodebuffProvider {
 
     async fn fetch_usage_api(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
         let api_key = Self::get_api_key(ctx.api_key.as_deref())?;
-        let base = Self::api_base();
+        let base = Self::api_base()?;
+        let usage_url = base
+            .join("api/v1/usage")
+            .map_err(|e| ProviderError::Other(format!("Invalid Codebuff API URL: {e}")))?;
 
         let usage_resp = self
             .client
-            .post(format!("{base}/api/v1/usage"))
+            .post(usage_url)
             .header("Authorization", format!("Bearer {api_key}"))
             .header("Accept", "application/json")
             .json(&json!({ "fingerprintId": "codexbar-usage" }))
@@ -129,13 +131,14 @@ impl CodebuffProvider {
         Ok(Self::snapshot_from_values(&usage, subscription.as_ref()))
     }
 
-    async fn fetch_subscription(&self, base: &str, api_key: &str) -> Option<Value> {
+    async fn fetch_subscription(&self, base: &Url, api_key: &str) -> Option<Value> {
         let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(3))
             .build()
             .ok()?;
+        let url = base.join("api/user/subscription").ok()?;
         let resp = client
-            .get(format!("{base}/api/user/subscription"))
+            .get(url)
             .header("Authorization", format!("Bearer {api_key}"))
             .header("Accept", "application/json")
             .send()

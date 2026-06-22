@@ -191,7 +191,7 @@ fn resolve_base_url() -> Result<Url, ProviderError> {
             "LLM Proxy base URL not found. Set LLM_PROXY_BASE_URL in the environment.".to_string(),
         )
     })?;
-    Url::parse(raw.trim()).map_err(|e| ProviderError::Other(format!("Invalid LLM Proxy URL: {e}")))
+    crate::providers::validated_https_url(&raw, "LLM Proxy")
 }
 
 fn quota_stats_url(base_url: Url) -> Result<Url, ProviderError> {

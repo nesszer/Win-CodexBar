@@ -107,8 +107,7 @@ impl Provider for LiteLLMProvider {
 }
 
 fn management_url(base: &str, path: &str) -> Result<Url, ProviderError> {
-    let mut url = Url::parse(base.trim())
-        .map_err(|e| ProviderError::Other(format!("Invalid LiteLLM base URL: {e}")))?;
+    let mut url = crate::providers::validated_https_url(base, "LiteLLM base")?;
     if url.path().trim_end_matches('/').ends_with("/v1") {
         let stripped = url
             .path()

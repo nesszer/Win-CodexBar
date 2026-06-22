@@ -231,14 +231,7 @@ impl KimiProvider {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| KIMI_CODE_API_BASE.to_string());
-        let url = Url::parse(&raw)
-            .map_err(|_| ProviderError::Other("Kimi Code API base URL is invalid".into()))?;
-        if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
-            return Err(ProviderError::Other(
-                "Kimi Code API base URL must use HTTPS without user info".into(),
-            ));
-        }
-        Ok(url)
+        crate::providers::validated_https_url(&raw, "Kimi Code API base")
     }
 
     fn code_api_usage_endpoint(base_url: &Url) -> Result<Url, ProviderError> {

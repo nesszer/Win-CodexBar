@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use reqwest::{Client, Url};
+use reqwest::Client;
 use serde_json::Value;
 
 use crate::core::{
@@ -63,8 +63,8 @@ impl Provider for ChutesProvider {
                 )?;
                 let base = std::env::var("CHUTES_API_URL")
                     .unwrap_or_else(|_| "https://api.chutes.ai".into());
-                let url = Url::parse(&base)
-                    .and_then(|u| u.join("users/me/subscription_usage"))
+                let url = crate::providers::validated_https_url(&base, "Chutes API")?
+                    .join("users/me/subscription_usage")
                     .map_err(|e| ProviderError::Other(format!("Invalid Chutes API URL: {e}")))?;
                 let response = self.client.get(url).bearer_auth(key).send().await?;
                 if response.status() == reqwest::StatusCode::UNAUTHORIZED
