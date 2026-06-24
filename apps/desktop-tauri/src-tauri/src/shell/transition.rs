@@ -26,6 +26,42 @@ fn os_position(_window: &WebviewWindow, x: i32, y: i32) -> tauri::PhysicalPositi
     tauri::PhysicalPosition::new(x, y)
 }
 
+pub(super) fn should_force_tray_panel_reveal(
+    current: SurfaceMode,
+    main_window_visible: bool,
+) -> bool {
+    current == SurfaceMode::TrayPanel && !main_window_visible
+}
+
+fn schedule_tray_panel_reveal_fallback(app: &AppHandle) {
+    const DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+    let app = app.clone();
+    let _ = std::thread::spawn(move || {
+        std::thread::sleep(DELAY);
+        let app_on_main = app.clone();
+        if let Err(error) = app.run_on_main_thread(move || {
+            let Some(state) = app_on_main.try_state::<Mutex<AppState>>() else {
+                return;
+            };
+            let current = state
+                .lock()
+                .map(|guard| guard.surface_machine.current())
+                .unwrap_or(SurfaceMode::Hidden);
+            let Some(window) = app_on_main.get_webview_window("main") else {
+                return;
+            };
+            let visible = window.is_visible().unwrap_or(false);
+            if should_force_tray_panel_reveal(current, visible)
+                && let Err(error) = show_window(&window)
+            {
+                tracing::debug!("shell: tray reveal fallback show failed: {error}");
+            }
+        }) {
+            tracing::debug!("shell: tray reveal fallback could not run: {error}");
+        }
+    });
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SurfaceSnapshot {
     pub mode: SurfaceMode,
@@ -461,6 +497,8 @@ pub(super) fn apply_transition(
             // the pre-measure blank/backing frame.
             if needs_show && transition.to != SurfaceMode::TrayPanel {
                 let _ = show_window(window);
+            } else if needs_show {
+                schedule_tray_panel_reveal_fallback(app);
             }
             clamp_current_window_to_work_area(window);
 

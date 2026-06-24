@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type MouseEvent,
@@ -204,20 +205,32 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return [...list].sort((a, b) => b.primary.usedPercent - a.primary.usedPercent);
   }, [providers, settings.enabledProviders, filterIds]);
 
-  // Resize the window to fit content when the visible set or orientation
-  // changes. The native `resize_float_bar` command owns both the size change
-  // and the Win32 interaction state, so the webview only reports a target size.
-  useEffect(() => {
+  // Keep the native floatbar window fitted when late data/fonts/icons change layout.
+  const lastResizeRef = useRef<{ w: number; h: number } | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
+  const resizeToContent = useCallback(() => {
     const el = document.querySelector<HTMLElement>(".floatbar");
     if (!el) return;
-    requestAnimationFrame(() => {
+    if (resizeRafRef.current !== null) {
+      cancelAnimationFrame(resizeRafRef.current);
+    }
+    resizeRafRef.current = requestAnimationFrame(() => {
+      resizeRafRef.current = null;
       const rect = el.getBoundingClientRect();
       const padding = 8;
       const w = Math.ceil(rect.width + padding);
       const h = Math.ceil(rect.height + padding);
+      const last = lastResizeRef.current;
+      if (last && Math.abs(last.w - w) <= 1 && Math.abs(last.h - h) <= 1) return;
+      lastResizeRef.current = { w, h };
       void resizeFloatBar(w, h).catch(() => {});
     });
+  }, []);
+
+  useEffect(() => {
+    resizeToContent();
   }, [
+    resizeToContent,
     visible.length,
     orientation,
     style,
@@ -225,6 +238,23 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     showResetInline,
     settings.resetTimeRelative,
   ]);
+
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(".floatbar");
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(resizeToContent);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [resizeToContent]);
+
+  useEffect(
+    () => () => {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+      }
+    },
+    [],
+  );
 
   const highRemaining = 100 - settings.highUsageThreshold;
   const critRemaining = 100 - settings.criticalUsageThreshold;
