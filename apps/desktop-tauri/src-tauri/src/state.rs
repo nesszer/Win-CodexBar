@@ -141,6 +141,11 @@ pub struct AppState {
     /// Instant when focus loss last dismissed the tray panel. The following
     /// tray click consumes this marker instead of reopening the panel.
     pub last_blur_dismissed_at: Option<std::time::Instant>,
+    /// One-shot grace for a blur event caused while revealing the tray panel
+    /// during explicit startup.
+    pub startup_tray_blur_grace_until: Option<std::time::Instant>,
+    /// Whether the explicit startup path may use its delayed shell fallback.
+    pub startup_tray_reveal_pending: bool,
 }
 
 impl Default for AppState {
@@ -181,6 +186,8 @@ impl AppState {
             notification_manager: codexbar::notifications::NotificationManager::new(),
             last_shown_at: None,
             last_blur_dismissed_at: None,
+            startup_tray_blur_grace_until: None,
+            startup_tray_reveal_pending: false,
         }
     }
 
@@ -196,6 +203,21 @@ impl AppState {
         self.last_blur_dismissed_at
             .take()
             .is_some_and(|dismissed_at| now.duration_since(dismissed_at) <= max_age)
+    }
+
+    pub fn arm_startup_tray_reveal(&mut self, grace_until: std::time::Instant) {
+        self.startup_tray_blur_grace_until = Some(grace_until);
+        self.startup_tray_reveal_pending = true;
+    }
+
+    pub fn take_startup_tray_blur_grace(&mut self, now: std::time::Instant) -> bool {
+        self.startup_tray_blur_grace_until
+            .take()
+            .is_some_and(|until| now <= until)
+    }
+
+    pub fn take_startup_tray_reveal_fallback(&mut self) -> bool {
+        std::mem::take(&mut self.startup_tray_reveal_pending)
     }
 
     pub fn transition_surface(
@@ -360,5 +382,27 @@ mod tests {
         );
 
         assert_eq!(state.current_target, SurfaceTarget::Dashboard);
+    }
+
+    #[test]
+    fn startup_tray_blur_grace_is_consumed_once() {
+        let mut state = AppState::new();
+        let now = std::time::Instant::now();
+
+        state.arm_startup_tray_reveal(now + std::time::Duration::from_secs(1));
+
+        assert!(state.take_startup_tray_blur_grace(now));
+        assert!(!state.take_startup_tray_blur_grace(now));
+    }
+
+    #[test]
+    fn startup_tray_reveal_fallback_is_consumed_once() {
+        let mut state = AppState::new();
+        let now = std::time::Instant::now();
+
+        state.arm_startup_tray_reveal(now + std::time::Duration::from_secs(1));
+
+        assert!(state.take_startup_tray_reveal_fallback());
+        assert!(!state.take_startup_tray_reveal_fallback());
     }
 }

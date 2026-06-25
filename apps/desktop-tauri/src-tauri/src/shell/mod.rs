@@ -22,7 +22,8 @@ pub use position::{
     shortcut_panel_position, tray_panel_position,
 };
 pub use transition::{
-    handle_tray_panel_click, reopen_to_target, toggle_tray_panel, transition_to_target,
+    handle_tray_panel_click, reopen_to_target, schedule_startup_tray_panel_reveal_fallback,
+    toggle_tray_panel, transition_to_target,
 };
 #[allow(unused_imports)]
 pub use window::{

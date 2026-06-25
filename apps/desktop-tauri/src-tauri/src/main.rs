@@ -26,6 +26,7 @@ use tauri::Manager;
 
 const PROOF_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
 const VISIBLE_START_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
+const STARTUP_TRAY_BLUR_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LaunchBehavior {
@@ -196,12 +197,18 @@ fn main() {
                 let app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(VISIBLE_START_ACTIVATION_DELAY).await;
+                    if let Some(state) = app.try_state::<Mutex<AppState>>() {
+                        state.lock().unwrap().arm_startup_tray_reveal(
+                            std::time::Instant::now() + STARTUP_TRAY_BLUR_GRACE,
+                        );
+                    }
                     let _ = shell::reopen_to_target(
                         &app,
                         SurfaceMode::TrayPanel,
                         SurfaceTarget::Summary,
                         None,
                     );
+                    shell::schedule_startup_tray_panel_reveal_fallback(&app);
                 });
             }
 
@@ -224,6 +231,14 @@ fn main() {
                         launch,
                         proof_harness::is_proof_mode(window.app_handle()),
                     ) {
+                        return;
+                    }
+                    if let Some(st) = window.app_handle().try_state::<Mutex<AppState>>()
+                        && st
+                            .lock()
+                            .unwrap()
+                            .take_startup_tray_blur_grace(std::time::Instant::now())
+                    {
                         return;
                     }
                     // Grace period: ignore blur within 500ms of showing the panel.

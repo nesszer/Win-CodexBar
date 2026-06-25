@@ -62,6 +62,42 @@ fn schedule_tray_panel_reveal_fallback(app: &AppHandle) {
     });
 }
 
+pub fn schedule_startup_tray_panel_reveal_fallback(app: &AppHandle) {
+    const DELAY: std::time::Duration = std::time::Duration::from_millis(750);
+    let app = app.clone();
+    let _ = std::thread::spawn(move || {
+        std::thread::sleep(DELAY);
+        let app_on_main = app.clone();
+        if let Err(error) = app.run_on_main_thread(move || {
+            let Some(state) = app_on_main.try_state::<Mutex<AppState>>() else {
+                return;
+            };
+            let should_reveal = state
+                .lock()
+                .map(|mut guard| guard.take_startup_tray_reveal_fallback())
+                .unwrap_or(false);
+            if !should_reveal {
+                return;
+            }
+            let Some(window) = app_on_main.get_webview_window("main") else {
+                return;
+            };
+            let current = state
+                .lock()
+                .map(|guard| guard.surface_machine.current())
+                .unwrap_or(SurfaceMode::Hidden);
+            let visible = window.is_visible().unwrap_or(false);
+            if should_force_tray_panel_reveal(current, visible)
+                && let Err(error) = show_window(&window)
+            {
+                tracing::debug!("shell: startup tray reveal fallback show failed: {error}");
+            }
+        }) {
+            tracing::debug!("shell: startup tray reveal fallback could not run: {error}");
+        }
+    });
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SurfaceSnapshot {
     pub mode: SurfaceMode,
