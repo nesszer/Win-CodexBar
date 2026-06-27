@@ -405,4 +405,15 @@ mod tests {
         assert!(state.take_startup_tray_reveal_fallback());
         assert!(!state.take_startup_tray_reveal_fallback());
     }
+
+    #[test]
+    fn expired_startup_tray_blur_grace_is_consumed_without_suppressing() {
+        let mut state = AppState::new();
+        let now = std::time::Instant::now();
+
+        state.arm_startup_tray_reveal(now - std::time::Duration::from_secs(1));
+
+        assert!(!state.take_startup_tray_blur_grace(now));
+        assert!(!state.take_startup_tray_blur_grace(now));
+    }
 }
