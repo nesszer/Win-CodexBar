@@ -473,6 +473,7 @@ impl LocaleKey {
             LocaleKey::LanguageEnglishOption => "English",
             LocaleKey::LanguageChineseOption => "中文",
             LocaleKey::LanguageJapaneseOption => "日本語",
+            LocaleKey::LanguageSpanishOption => "西班牙语",
 
             // Tauri desktop shell — Theme (Phase 12)
             // REVIEW-i18n: ZH translations for Phase 12 theme labels.

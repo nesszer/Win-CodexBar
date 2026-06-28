@@ -553,6 +553,7 @@ impl LocaleKey {
         (LocaleKey::LanguageEnglishOption, "LanguageEnglishOption"),
         (LocaleKey::LanguageChineseOption, "LanguageChineseOption"),
         (LocaleKey::LanguageJapaneseOption, "LanguageJapaneseOption"),
+        (LocaleKey::LanguageSpanishOption, "LanguageSpanishOption"),
         (LocaleKey::SectionTheme, "SectionTheme"),
         (LocaleKey::ThemeLabel, "ThemeLabel"),
         (LocaleKey::ThemeHelper, "ThemeHelper"),

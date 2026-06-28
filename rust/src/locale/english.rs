@@ -507,6 +507,7 @@ impl LocaleKey {
             LocaleKey::LanguageEnglishOption => "English",
             LocaleKey::LanguageChineseOption => "中文",
             LocaleKey::LanguageJapaneseOption => "日本語",
+            LocaleKey::LanguageSpanishOption => "Español",
 
             // Tauri desktop shell — Theme (Phase 12)
             LocaleKey::SectionTheme => "Appearance",
