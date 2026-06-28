@@ -21,7 +21,7 @@ export type MetricPreference =
   | "extraUsage"
   | "average";
 
-export type Language = "english" | "chinese" | "japanese";
+export type Language = "english" | "chinese" | "japanese" | "spanish";
 
 export type UpdateChannel = "stable" | "beta";
 
