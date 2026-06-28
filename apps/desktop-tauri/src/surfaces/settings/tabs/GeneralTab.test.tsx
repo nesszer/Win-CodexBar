@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../hooks/useLocale", () => ({
+vi.mock("../../../hooks/useLocale", () => ({
   useLocale: () => ({ t: (key: string) => key }),
 }));
 
