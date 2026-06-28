@@ -37,6 +37,7 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
                 { value: "english", label: t("LanguageEnglishOption") },
                 { value: "chinese", label: t("LanguageChineseOption") },
                 { value: "japanese", label: t("LanguageJapaneseOption") },
+                { value: "spanish", label: t("LanguageSpanishOption") },
               ]}
               onChange={(v) => set({ uiLanguage: v as Language })}
             />

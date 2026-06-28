@@ -368,6 +368,7 @@ export const ALL_LOCALE_KEYS = [
   "LanguageEnglishOption",
   "LanguageChineseOption",
   "LanguageJapaneseOption",
+  "LanguageSpanishOption",
   "SectionTheme",
   "ThemeLabel",
   "ThemeHelper",
