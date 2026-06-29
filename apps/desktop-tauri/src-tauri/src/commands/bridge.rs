@@ -522,6 +522,7 @@ pub(super) fn language_label(language: Language) -> &'static str {
         Language::English => "english",
         Language::Chinese => "chinese",
         Language::Japanese => "japanese",
+        Language::Spanish => "spanish",
     }
 }
 
