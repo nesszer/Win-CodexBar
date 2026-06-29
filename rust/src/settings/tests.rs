@@ -293,7 +293,7 @@ fn test_language_defaults_to_english() {
 #[test]
 fn test_language_all_variants_available() {
     let languages = Language::all();
-    assert_eq!(languages.len(), 3);
+    assert_eq!(languages.len(), 4);
     assert!(languages.contains(&Language::English));
     assert!(languages.contains(&Language::Chinese));
     assert!(languages.contains(&Language::Japanese));

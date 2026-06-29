@@ -45,6 +45,7 @@ fn parse_locale_language(raw: &str) -> Option<Language> {
         "en" | "en-us" | "english" => Some(Language::English),
         "zh" | "zh-cn" | "zh-hans" | "chinese" | "中文" => Some(Language::Chinese),
         "ja" | "ja-jp" | "japanese" | "日本語" => Some(Language::Japanese),
+        "es" | "es-mx" | "spanish" | "español" => Some(Language::Spanish),
         _ => None,
     }
 }
