@@ -765,12 +765,8 @@ fn remembered_popout_position_clamps_using_stored_size() {
         height: Some(500),
     };
 
-    let position = remembered_surface_position_with_monitors(
-        SurfaceMode::PopOut,
-        stored,
-        &[monitor],
-        None,
-    );
+    let position =
+        remembered_surface_position_with_monitors(SurfaceMode::PopOut, stored, &[monitor], None);
 
     assert_eq!(position, Some((392, 292)));
 }

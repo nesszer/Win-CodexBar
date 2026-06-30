@@ -62,6 +62,8 @@ fn schedule_tray_panel_reveal_fallback(app: &AppHandle) {
     });
 }
 
+#[allow(dead_code)]
+// Retained for the legacy TrayPanel surface mode; current default launches PopOut.
 pub fn schedule_startup_tray_panel_reveal_fallback(app: &AppHandle) {
     const DELAY: std::time::Duration = std::time::Duration::from_millis(750);
     let app = app.clone();
@@ -601,6 +603,8 @@ pub(super) fn apply_transition(
     }
 }
 
+#[allow(dead_code)]
+// Retained for callers that still explicitly target the legacy TrayPanel mode.
 pub fn handle_tray_panel_click(app: &AppHandle, position: Option<(i32, i32)>) {
     const BLUR_DISMISS_CLICK_WINDOW: std::time::Duration = std::time::Duration::from_millis(250);
 
@@ -619,6 +623,7 @@ pub fn handle_tray_panel_click(app: &AppHandle, position: Option<(i32, i32)>) {
 }
 
 /// Toggle the tray panel: hide if currently showing, show at `position` otherwise.
+#[allow(dead_code)]
 pub fn toggle_tray_panel(app: &AppHandle, position: Option<(i32, i32)>) {
     let current = {
         let st = app.state::<Mutex<AppState>>();

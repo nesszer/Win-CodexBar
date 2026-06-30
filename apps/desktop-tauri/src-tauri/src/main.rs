@@ -127,12 +127,8 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if should_reopen_primary_window_from_instance_args(args.iter().skip(1)) {
                 let request = primary_window_request();
-                let _ = shell::reopen_to_target(
-                    app,
-                    request.mode,
-                    request.target,
-                    request.position,
-                );
+                let _ =
+                    shell::reopen_to_target(app, request.mode, request.target, request.position);
             }
         }))
         .invoke_handler(tauri::generate_handler![
@@ -355,7 +351,9 @@ mod tests {
 
     #[test]
     fn unrelated_launch_args_do_not_open_primary_window() {
-        assert!(!should_open_primary_window_from_args(["usage", "-p", "claude"]));
+        assert!(!should_open_primary_window_from_args([
+            "usage", "-p", "claude"
+        ]));
         assert!(!should_reopen_primary_window_from_instance_args([
             "usage", "-p", "claude"
         ]));
