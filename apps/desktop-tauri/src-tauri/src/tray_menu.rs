@@ -110,7 +110,7 @@ pub(crate) fn build_tray_menu_with(
 
     menu.push(TrayMenuEntry::item("refresh", "Refresh All"));
     menu.push(TrayMenuEntry::item("pop_out", "Pop Out Dashboard"));
-    menu.push(TrayMenuEntry::item("show_panel", "Show Panel"));
+    menu.push(TrayMenuEntry::item("show_panel", "Show Window"));
     menu.push(TrayMenuEntry::check_item(
         "toggle_float_bar",
         "Show Float Bar",
@@ -262,7 +262,7 @@ mod tests {
             vec![
                 "Refresh All",
                 "Pop Out Dashboard",
-                "Show Panel",
+                "Show Window",
                 "Show Float Bar",
                 "Providers",
                 "Settings",

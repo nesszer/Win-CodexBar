@@ -1,5 +1,5 @@
 //! Public position API: default placement, tray/shortcut/inferred panel
-//! positions, and remembered Settings geometry.
+//! positions, and remembered detached-surface geometry.
 
 use std::sync::Mutex;
 
@@ -11,8 +11,8 @@ use crate::window_positioner;
 
 use super::geometry::{
     MonitorPlacement, monitor_for_anchor, monitor_placement, monitor_placement_containing_point,
-    monitor_placement_for_anchor, monitor_work_area_rect, popout_position, surface_panel_size,
-    tray_anchor_rect, tray_panel_size,
+    monitor_placement_for_anchor, monitor_work_area_rect, point_in_rect, popout_position,
+    surface_panel_size, tray_anchor_rect, tray_panel_size,
 };
 
 pub fn inferred_tray_panel_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -111,9 +111,10 @@ pub fn default_surface_position(app: &AppHandle, mode: SurfaceMode) -> Option<(i
         SurfaceMode::TrayPanel => tray_panel_position(app)
             .or_else(|| inferred_tray_panel_position(app))
             .or_else(|| shortcut_panel_position(app)),
-        SurfaceMode::PopOut => visible_surface_position_for_mode(app, mode),
+        SurfaceMode::PopOut => remembered_surface_position(app, mode)
+            .or_else(|| visible_surface_position_for_mode(app, mode)),
         SurfaceMode::Settings => {
-            remembered_settings_position(app).or_else(|| centered_settings_position(app))
+            remembered_surface_position(app, mode).or_else(|| centered_settings_position(app))
         }
     }
 }
@@ -139,33 +140,39 @@ fn centered_settings_position(app: &AppHandle) -> Option<(i32, i32)> {
     Some(super::geometry::centered_position(&placement, &panel_size))
 }
 
-/// Load persisted Settings geometry and clamp it into the current monitor's
-/// work area so a monitor layout change can't leave the window off-screen.
-fn remembered_settings_position(app: &AppHandle) -> Option<(i32, i32)> {
-    let stored = crate::geometry_store::load(SurfaceMode::Settings)?;
+/// Load persisted geometry and clamp it into the current monitor's work area so
+/// a monitor layout change can't leave the window off-screen.
+fn remembered_surface_position(app: &AppHandle, mode: SurfaceMode) -> Option<(i32, i32)> {
+    let stored = crate::geometry_store::load(mode)?;
     let window = app.get_webview_window("main")?;
-    let monitors = window.available_monitors().ok()?;
+    let monitors = window
+        .available_monitors()
+        .ok()?
+        .iter()
+        .map(monitor_placement)
+        .collect::<Vec<_>>();
+    let primary_monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| monitor_placement(&monitor));
 
+    remembered_surface_position_with_monitors(mode, stored, &monitors, primary_monitor)
+}
+
+pub(super) fn remembered_surface_position_with_monitors(
+    mode: SurfaceMode,
+    stored: crate::geometry_store::StoredGeometry,
+    monitors: &[MonitorPlacement],
+    primary_monitor: Option<MonitorPlacement>,
+) -> Option<(i32, i32)> {
     let placement = monitors
         .iter()
-        .find(|m| {
-            let wa = m.work_area();
-            let x = wa.position.x;
-            let y = wa.position.y;
-            let w = wa.size.width as i32;
-            let h = wa.size.height as i32;
-            stored.x >= x && stored.x < x + w && stored.y >= y && stored.y < y + h
-        })
-        .map(monitor_placement)
-        .or_else(|| {
-            window
-                .primary_monitor()
-                .ok()
-                .flatten()
-                .map(|m| monitor_placement(&m))
-        })?;
+        .copied()
+        .find(|monitor| point_in_rect(&monitor.work_area, stored.x, stored.y))
+        .or(primary_monitor)?;
+    let panel_size = remembered_panel_size(mode, stored);
 
-    let panel_size = surface_panel_size(SurfaceMode::Settings);
     Some(window_positioner::clamp_position_to_work_area(
         stored.x,
         stored.y,
@@ -175,8 +182,19 @@ fn remembered_settings_position(app: &AppHandle) -> Option<(i32, i32)> {
     ))
 }
 
+pub(super) fn remembered_panel_size(
+    mode: SurfaceMode,
+    stored: crate::geometry_store::StoredGeometry,
+) -> window_positioner::PanelSize {
+    let default_size = surface_panel_size(mode);
+    window_positioner::PanelSize {
+        width: stored.width.unwrap_or(default_size.width).max(1),
+        height: stored.height.unwrap_or(default_size.height).max(1),
+    }
+}
+
 /// Persist the current position (and size, when resizable) of the main window
-/// when it is hosting the Settings surface. Called from the Tauri window-event
+/// when it is hosting a remembered surface. Called from the Tauri window-event
 /// pump so user drags are captured even without an explicit close.
 pub fn remember_current_geometry_if_settings(window: &tauri::Window) {
     let app = window.app_handle();
@@ -194,14 +212,20 @@ pub fn remember_current_geometry_if_settings(window: &tauri::Window) {
     let Ok(pos) = window.outer_position() else {
         return;
     };
-    let size = window.outer_size().ok();
+    let scale_factor = window.scale_factor().unwrap_or(1.0).max(1.0);
+    let logical_size = window.outer_size().ok().map(|size| {
+        (
+            (size.width as f64 / scale_factor).round().max(1.0) as u32,
+            (size.height as f64 / scale_factor).round().max(1.0) as u32,
+        )
+    });
     crate::geometry_store::save(
         current_mode,
         crate::geometry_store::StoredGeometry {
             x: pos.x,
             y: pos.y,
-            width: size.map(|s| s.width),
-            height: size.map(|s| s.height),
+            width: logical_size.map(|size| size.0),
+            height: logical_size.map(|size| size.1),
         },
     );
 }

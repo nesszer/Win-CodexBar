@@ -1,11 +1,10 @@
 //! Persistent window-geometry store for the Tauri desktop shell.
 //!
-//! Remembers position (and size where applicable) for non-popup surfaces —
-//! currently only the Settings window, which is the sole surface that benefits
-//! from parity with egui's "open where you left it" behaviour.
+//! Remembers position (and size where applicable) for detached user surfaces:
+//! PopOut and Settings.
 //!
-//! Tray panel and shortcut-triggered popout keep computed placement because
-//! they are anchored to the tray / work-area, not user drag.
+//! TrayPanel stays computed from the tray anchor/work-area because it is a
+//! temporary anchored panel, not a user-resizable standalone window.
 
 use std::fs;
 use std::path::PathBuf;
@@ -45,10 +44,9 @@ fn geometry_path() -> Option<PathBuf> {
 /// Surface modes eligible for geometry persistence.
 ///
 /// - `Hidden` / `TrayPanel`: anchored to tray, never remembered.
-/// - `PopOut`: anchored to tray anchor, parity with egui — not remembered.
-/// - `Settings`: user-movable, remembered across restarts.
+/// - `PopOut` / `Settings`: user-movable, remembered across restarts.
 pub fn should_remember(mode: SurfaceMode) -> bool {
-    matches!(mode, SurfaceMode::Settings)
+    matches!(mode, SurfaceMode::PopOut | SurfaceMode::Settings)
 }
 
 fn load_file() -> GeometryFile {
@@ -110,17 +108,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tray_panel_is_not_remembered() {
-        assert!(!should_remember(SurfaceMode::TrayPanel));
-        assert!(!should_remember(SurfaceMode::PopOut));
-        assert!(!should_remember(SurfaceMode::Hidden));
-    }
-
-    #[test]
-    fn settings_is_remembered() {
+    fn pop_out_and_settings_are_remembered() {
+        assert!(should_remember(SurfaceMode::PopOut));
         assert!(should_remember(SurfaceMode::Settings));
     }
 
+    #[test]
+    fn tray_panel_and_hidden_are_not_remembered() {
+        assert!(!should_remember(SurfaceMode::TrayPanel));
+        assert!(!should_remember(SurfaceMode::Hidden));
+    }
     #[test]
     fn non_remembered_mode_save_is_noop() {
         // Call should not panic or error for ineligible modes.

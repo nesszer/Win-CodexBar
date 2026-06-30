@@ -49,7 +49,10 @@ pub fn apply_window_layout(
         .map_err(map_err)?;
 
     if props.visible {
-        let (width, height) = capped_logical_size(window, props.width, props.height);
+        let (width, height) = remembered_mode_for_properties(props)
+            .map(|mode| logical_size_from_geometry(mode, props, crate::geometry_store::load(mode)))
+            .unwrap_or((props.width, props.height));
+        let (width, height) = capped_logical_size(window, width, height);
         let size = tauri::LogicalSize::new(width, height);
         window.set_size(size).map_err(map_err)?;
 
@@ -68,6 +71,47 @@ pub fn apply_window_layout(
         window.hide().map_err(map_err)?;
         Ok(false)
     }
+}
+
+fn remembered_mode_for_properties(props: &WindowProperties) -> Option<SurfaceMode> {
+    [SurfaceMode::PopOut, SurfaceMode::Settings]
+        .into_iter()
+        .find(|mode| {
+            let mode_props = mode.window_properties();
+            props.visible == mode_props.visible
+                && props.decorations == mode_props.decorations
+                && props.resizable == mode_props.resizable
+                && props.width == mode_props.width
+                && props.height == mode_props.height
+                && props.min_width == mode_props.min_width
+                && props.min_height == mode_props.min_height
+                && props.always_on_top == mode_props.always_on_top
+                && props.blur_dismiss == mode_props.blur_dismiss
+        })
+}
+
+pub(super) fn logical_size_from_geometry(
+    mode: SurfaceMode,
+    props: &WindowProperties,
+    stored: Option<crate::geometry_store::StoredGeometry>,
+) -> (f64, f64) {
+    if !crate::geometry_store::should_remember(mode) {
+        return (props.width, props.height);
+    }
+
+    let width = stored
+        .and_then(|geometry| geometry.width)
+        .map(|width| width.max(1) as f64)
+        .unwrap_or(props.width);
+    let height = stored
+        .and_then(|geometry| geometry.height)
+        .map(|height| height.max(1) as f64)
+        .unwrap_or(props.height);
+
+    (
+        props.min_width.map_or(width, |min| width.max(min)),
+        props.min_height.map_or(height, |min| height.max(min)),
+    )
 }
 
 fn capped_logical_size(window: &WebviewWindow, width: f64, height: f64) -> (f64, f64) {
