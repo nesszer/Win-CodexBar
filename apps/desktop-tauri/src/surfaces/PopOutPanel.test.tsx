@@ -111,6 +111,7 @@ function settings(): SettingsSnapshot {
     globalShortcut: "Ctrl+Shift+U",
     uiLanguage: "english",
     theme: "dark",
+    windowScalePercent: 125,
     claudeAvoidKeychainPrompts: false,
     disableKeychainAccess: false,
     providerMetrics: {},
