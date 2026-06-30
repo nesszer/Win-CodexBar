@@ -600,4 +600,3 @@ git commit -m "Verify window mode defaults"
 ```
 
 If no files changed, do not create an empty commit.
-

@@ -43,4 +43,3 @@ Settings remain owned by the shared Rust `Settings` type. The bridge snapshot/up
 - Rust geometry tests cover PopOut eligibility for persistence.
 - React tests cover PopOut scale propagation and the removal of forced PopOut resize-on-mount.
 - Final verification should run focused Rust tests, focused Vitest tests, TypeScript build, and the desktop Tauri Rust crate tests when feasible.
-
