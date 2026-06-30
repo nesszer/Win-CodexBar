@@ -107,6 +107,8 @@ pub(super) struct RawSettings {
     install_updates_on_quit: bool,
     ui_language: Language,
     theme: ThemePreference,
+    #[serde(default = "default_window_scale_percent")]
+    window_scale_percent: u16,
 
     #[serde(default)]
     float_bar_enabled: bool,
@@ -190,6 +192,7 @@ impl Default for RawSettings {
             install_updates_on_quit: s.install_updates_on_quit,
             ui_language: s.ui_language,
             theme: s.theme,
+            window_scale_percent: s.window_scale_percent,
             float_bar_enabled: s.float_bar_enabled,
             float_bar_opacity: s.float_bar_opacity,
             float_bar_scale: s.float_bar_scale,
@@ -444,6 +447,7 @@ impl From<RawSettings> for Settings {
             install_updates_on_quit: raw.install_updates_on_quit,
             ui_language: raw.ui_language,
             theme: raw.theme,
+            window_scale_percent: clamp_window_scale_percent(raw.window_scale_percent),
             float_bar_enabled: raw.float_bar_enabled,
             float_bar_opacity: clamp_float_bar_opacity(raw.float_bar_opacity),
             float_bar_scale: clamp_float_bar_scale(raw.float_bar_scale),

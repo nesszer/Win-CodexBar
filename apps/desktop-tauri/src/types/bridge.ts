@@ -169,6 +169,8 @@ export interface SettingsSnapshot {
   globalShortcut: string;
   uiLanguage: Language;
   theme: ThemePreference;
+  /** 125..=250 — clamped server-side. */
+  windowScalePercent: number;
   claudeAvoidKeychainPrompts: boolean;
   disableKeychainAccess: boolean;
   providerMetrics: Record<string, MetricPreference>;
@@ -215,6 +217,7 @@ export interface SettingsUpdate {
   globalShortcut?: string;
   uiLanguage?: Language;
   theme?: ThemePreference;
+  windowScalePercent?: number;
   claudeAvoidKeychainPrompts?: boolean;
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */

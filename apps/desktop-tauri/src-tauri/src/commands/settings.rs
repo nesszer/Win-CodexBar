@@ -32,6 +32,7 @@ pub struct SettingsUpdate {
     pub global_shortcut: Option<String>,
     pub ui_language: Option<String>,
     pub theme: Option<String>,
+    pub window_scale_percent: Option<u16>,
     pub claude_avoid_keychain_prompts: Option<bool>,
     pub disable_keychain_access: Option<bool>,
     /// Map of provider CLI name → metric preference label.
@@ -137,6 +138,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.menu_bar_display_mode.clone() {
             settings.menu_bar_display_mode = v;
+        }
+        if let Some(v) = self.window_scale_percent {
+            settings.window_scale_percent = codexbar::settings::clamp_window_scale_percent(v);
         }
         if let Some(v) = self.switcher_shows_icons {
             settings.switcher_shows_icons = v;
