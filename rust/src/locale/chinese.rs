@@ -451,6 +451,11 @@ impl LocaleKey {
             LocaleKey::DisplayModeDetailed => "详细",
             LocaleKey::DisplayModeCompact => "紧凑",
             LocaleKey::DisplayModeMinimal => "最简",
+            LocaleKey::WindowScaleLabel => "窗口缩放",
+            LocaleKey::WindowScaleHelper => {
+                "缩放弹出仪表盘内容，窗口本身仍可自由调整大小。"
+            }
+            LocaleKey::WindowScaleAriaLabel => "窗口缩放",
             LocaleKey::ShowAsUsedLabel => "显示为已用",
             LocaleKey::ShowAsUsedHelper => "以已使用百分比而非剩余显示用量条。",
             LocaleKey::ShowAllTokenAccountsLabel => "显示所有令牌账户",

@@ -485,6 +485,11 @@ impl LocaleKey {
             LocaleKey::DisplayModeDetailed => "Detailed",
             LocaleKey::DisplayModeCompact => "Compact",
             LocaleKey::DisplayModeMinimal => "Minimal",
+            LocaleKey::WindowScaleLabel => "ウィンドウ倍率",
+            LocaleKey::WindowScaleHelper => {
+                "ポップアウトダッシュボードの内容を拡大縮小します。ウィンドウ自体は自由にサイズ変更できます。"
+            }
+            LocaleKey::WindowScaleAriaLabel => "ウィンドウ倍率",
             LocaleKey::ShowAsUsedLabel => "Show as used",
             LocaleKey::ShowAsUsedHelper => "Display usage bars as consumed rather than remaining.",
             LocaleKey::ShowAllTokenAccountsLabel => "Show all token accounts",

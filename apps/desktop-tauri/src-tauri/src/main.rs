@@ -301,7 +301,7 @@ fn main() {
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
                     // Capture geometry for surfaces eligible for persistence.
                     // The helper is a no-op when the current surface is not eligible.
-                    shell::remember_current_geometry_if_settings(window);
+                    shell::remember_current_geometry_if_eligible(window);
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     // Close visible shell surfaces → hide instead of quitting.

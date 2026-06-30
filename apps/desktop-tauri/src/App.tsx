@@ -81,8 +81,8 @@ function AppInner() {
 
     // Listen for user-registered global shortcut events from the
     // `register_global_shortcut` command. The persistent shortcut (bound via
-    // shortcut_bridge::plugin) already toggles the tray panel natively, so
-    // this listener is a no-op fallback for ad-hoc capture-mode registrations.
+    // shortcut_bridge::plugin) already opens the PopOut dashboard natively;
+    // this listener is the fallback for ad-hoc capture-mode registrations.
     const unlistenPromise = listen<string>("global-shortcut-triggered", () => {
       void setSurfaceMode("popOut", { kind: "dashboard" }).catch(() => {});
     });

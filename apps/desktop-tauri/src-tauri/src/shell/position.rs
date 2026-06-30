@@ -196,7 +196,7 @@ pub(super) fn remembered_panel_size(
 /// Persist the current position (and size, when resizable) of the main window
 /// when it is hosting a remembered surface. Called from the Tauri window-event
 /// pump so user drags are captured even without an explicit close.
-pub fn remember_current_geometry_if_settings(window: &tauri::Window) {
+pub fn remember_current_geometry_if_eligible(window: &tauri::Window) {
     let app = window.app_handle();
     let Some(st) = app.try_state::<Mutex<AppState>>() else {
         return;

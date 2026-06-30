@@ -18,7 +18,7 @@ mod tests;
 
 #[allow(unused_imports)]
 pub use position::{
-    default_surface_position, inferred_tray_panel_position, remember_current_geometry_if_settings,
+    default_surface_position, inferred_tray_panel_position, remember_current_geometry_if_eligible,
     shortcut_panel_position, tray_panel_position,
 };
 pub use transition::{

@@ -103,8 +103,8 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
         <h3 className="settings-section__title">Menu Content</h3>
         <div className="settings-section__group">
           <Field
-            label={`Window scale (${windowScaleDraft}%)`}
-            description="Pop-out content size."
+            label={`${t("WindowScaleLabel")} (${windowScaleDraft}%)`}
+            description={t("WindowScaleHelper")}
           >
             <input
               type="range"
@@ -122,7 +122,7 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
               onTouchEnd={commitWindowScale}
               onBlur={commitWindowScale}
               onKeyUp={commitWindowScale}
-              aria-label="Window scale"
+              aria-label={t("WindowScaleAriaLabel")}
             />
           </Field>
           <Field

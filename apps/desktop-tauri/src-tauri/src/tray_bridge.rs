@@ -286,10 +286,8 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     match resolve_menu_action(id) {
         Some(MenuAction::Transition(request)) => {
             match resolve_menu_transition_dispatch(id, request) {
-                // Pass None so default_surface_position resolves the full chain:
-                // tray_panel_position → inferred_tray_panel_position → shortcut_panel_position.
-                // This mirrors the CODEXBAR_START_VISIBLE path and ensures the panel
-                // opens near the taskbar tray corner even without a prior anchor click.
+                // Pass None so default_surface_position can use remembered PopOut
+                // geometry first, then fall back to tray/current-monitor placement.
                 MenuTransitionDispatch::Reopen(request) => {
                     let _ = shell::reopen_to_target(
                         app,
