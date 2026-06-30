@@ -11,11 +11,11 @@ mod sec_token;
 
 use async_trait::async_trait;
 
-use crate::browser::cookies::get_cookie_header;
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     SourceMode, UsageSnapshot,
 };
+use crate::providers::browser_cookie_header;
 
 use self::parser::parse_response;
 pub use self::region::AlibabaRegion;
@@ -73,13 +73,7 @@ impl AlibabaProvider {
         }
 
         let region = AlibabaRegion::from_settings_value(ctx.api_region.as_deref());
-        for domain in region.cookie_domains() {
-            match get_cookie_header(domain) {
-                Ok(cookies) if !cookies.is_empty() => return Ok(cookies),
-                _ => {}
-            }
-        }
-        Err(ProviderError::AuthRequired)
+        browser_cookie_header(region.cookie_domains())
     }
 
     async fn resolve_sec_token(

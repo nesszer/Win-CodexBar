@@ -9,11 +9,11 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use regex_lite::Regex;
 use serde_json::Value;
 
-use crate::browser::cookies::get_cookie_header;
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::browser_cookie_header;
 
 const GATEWAY_BASE_URL: &str = "https://bailian.console.aliyun.com";
 const DASHBOARD_URL: &str =
@@ -135,14 +135,8 @@ impl AlibabaTokenPlanProvider {
                 return Ok(header);
             }
         }
-        for domain in COOKIE_DOMAINS {
-            if let Ok(header) = get_cookie_header(domain)
-                && let Some(header) = normalize_cookie_header(&header)
-            {
-                return Ok(header);
-            }
-        }
-        Err(ProviderError::NoCookies)
+        browser_cookie_header(COOKIE_DOMAINS)
+            .and_then(|header| normalize_cookie_header(&header).ok_or(ProviderError::NoCookies))
     }
 
     async fn resolve_sec_token(

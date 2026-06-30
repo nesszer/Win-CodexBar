@@ -360,29 +360,14 @@ impl Provider for OpenCodeGoProvider {
                     return self.fetch_with_cookies(cookie_header).await;
                 }
 
-                #[cfg(windows)]
-                {
-                    use crate::browser::cookies::{Cookie, CookieExtractor};
-                    use crate::browser::detection::BrowserDetector;
-
-                    for browser in BrowserDetector::detect_all() {
-                        if let Ok(cookies) =
-                            CookieExtractor::extract_for_domain(&browser, "opencode.ai")
-                        {
-                            let cookie_header: String = cookies
-                                .iter()
-                                .map(|c: &Cookie| format!("{}={}", c.name, c.value))
-                                .collect::<Vec<_>>()
-                                .join("; ");
-                            if !cookie_header.is_empty() {
-                                match self.fetch_with_cookies(&cookie_header).await {
-                                    Ok(result) => return Ok(result),
-                                    Err(ProviderError::AuthRequired) => continue,
-                                    Err(e) => return Err(e),
-                                }
-                            }
-                        }
-                    }
+                match crate::providers::browser_cookie_header(&["opencode.ai"]) {
+                    Ok(cookie_header) => match self.fetch_with_cookies(&cookie_header).await {
+                        Ok(result) => return Ok(result),
+                        Err(ProviderError::AuthRequired) => {}
+                        Err(e) => return Err(e),
+                    },
+                    Err(ProviderError::NoCookies) => {}
+                    Err(e) => return Err(e),
                 }
 
                 Err(ProviderError::AuthRequired)

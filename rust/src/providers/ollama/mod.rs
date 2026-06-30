@@ -249,8 +249,7 @@ impl OllamaProvider {
         }
 
         // Try browser cookie extraction
-        use crate::browser::cookies::get_cookie_header;
-        match get_cookie_header(OLLAMA_COOKIE_DOMAIN) {
+        match crate::providers::browser_cookie_header(&[OLLAMA_COOKIE_DOMAIN]) {
             Ok(header) if !header.is_empty() => {
                 // Validate that we have a recognized session cookie
                 const SESSION_COOKIE_NAMES: &[&str] = &[
@@ -270,7 +269,8 @@ impl OllamaProvider {
                     Err(ProviderError::NoCookies)
                 }
             }
-            _ => Err(ProviderError::NoCookies),
+            Ok(_) | Err(ProviderError::NoCookies) => Err(ProviderError::NoCookies),
+            Err(err) => Err(err),
         }
     }
 
