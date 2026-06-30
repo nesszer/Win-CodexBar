@@ -58,7 +58,13 @@ export default function PopOutPanel({
     );
   }, [settings.windowScalePercent]);
   const scaleStyle = useMemo(
-    () => ({ "--window-scale": String(windowScale) } as CSSProperties),
+    () =>
+      ({
+        "--window-scale": String(windowScale),
+        width: `${100 / windowScale}%`,
+        height: `${100 / windowScale}vh`,
+        zoom: windowScale,
+      }) as CSSProperties & { "--window-scale": string; zoom: number },
     [windowScale],
   );
 

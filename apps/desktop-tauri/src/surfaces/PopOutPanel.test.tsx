@@ -148,6 +148,10 @@ function renderPopOut(
   settingsOverride: Partial<SettingsSnapshot> = {},
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
+  tauriMocks.getSettingsSnapshot.mockResolvedValue({
+    ...settings(),
+    ...settingsOverride,
+  });
   return render(
     <LocaleProvider>
       <PopOutPanel
