@@ -84,7 +84,7 @@ function AppInner() {
     // shortcut_bridge::plugin) already toggles the tray panel natively, so
     // this listener is a no-op fallback for ad-hoc capture-mode registrations.
     const unlistenPromise = listen<string>("global-shortcut-triggered", () => {
-      void setSurfaceMode("trayPanel", { kind: "summary" }).catch(() => {});
+      void setSurfaceMode("popOut", { kind: "dashboard" }).catch(() => {});
     });
 
     const unlistenSettingsChangePromise = isSettingsWindow()

@@ -2942,6 +2942,24 @@ body:has(.tray-panel-reveal) {
   -webkit-font-smoothing: antialiased;
 }
 
+.popout-scale-shell {
+  --window-scale: 1;
+  width: calc(100% / var(--window-scale));
+  height: calc(100vh / var(--window-scale));
+  min-height: 0;
+  zoom: var(--window-scale);
+}
+
+.settings-field input[type="range"] {
+  width: 150px;
+  accent-color: var(--accent);
+}
+
+.settings-field input[type="range"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .menu-surface--popout {
   width: 100%;
   padding: 6px 10px;

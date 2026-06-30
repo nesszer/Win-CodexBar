@@ -24,14 +24,17 @@ const eventMocks = vi.hoisted(() => ({
   listen: vi.fn(),
 }));
 
-const windowMocks = vi.hoisted(() => ({
-  getCurrentWindow: vi.fn(() => ({
-    setSize: vi.fn().mockResolvedValue(undefined),
-    setPosition: vi.fn().mockResolvedValue(undefined),
-  })),
-  LogicalSize: vi.fn((width: number, height: number) => ({ width, height })),
-  LogicalPosition: vi.fn((x: number, y: number) => ({ x, y })),
-}));
+const windowMocks = vi.hoisted(() => {
+  const setSize = vi.fn().mockResolvedValue(undefined);
+  const setPosition = vi.fn().mockResolvedValue(undefined);
+  return {
+    setSize,
+    setPosition,
+    getCurrentWindow: vi.fn(() => ({ setSize, setPosition })),
+    LogicalSize: vi.fn((width: number, height: number) => ({ width, height })),
+    LogicalPosition: vi.fn((x: number, y: number) => ({ x, y })),
+  };
+});
 
 vi.mock("../lib/tauri", () => tauriMocks);
 vi.mock("@tauri-apps/api/event", () => eventMocks);
@@ -127,11 +130,14 @@ function settings(): SettingsSnapshot {
   };
 }
 
-function bootstrap(catalog: ProviderCatalogEntry[] = []): BootstrapState {
+function bootstrap(
+  catalog: ProviderCatalogEntry[] = [],
+  settingsOverride: Partial<SettingsSnapshot> = {},
+): BootstrapState {
   return {
     contractVersion: "v1",
     providers: catalog,
-    settings: settings(),
+    settings: { ...settings(), ...settingsOverride },
   };
 }
 
@@ -139,11 +145,15 @@ function renderPopOut(
   providers: ProviderUsageSnapshot[],
   providerId?: string,
   catalog: ProviderCatalogEntry[] = [],
+  settingsOverride: Partial<SettingsSnapshot> = {},
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
   return render(
     <LocaleProvider>
-      <PopOutPanel state={bootstrap(catalog)} providerId={providerId} />
+      <PopOutPanel
+        state={bootstrap(catalog, settingsOverride)}
+        providerId={providerId}
+      />
     </LocaleProvider>,
   );
 }
@@ -190,6 +200,37 @@ describe("PopOutPanel", () => {
     expect(container.querySelector(".provider-grid__item--active")?.getAttribute("aria-label")).toBe("Claude");
     expect(screen.getAllByText("Claude").length).toBeGreaterThanOrEqual(2);
     expect(container.querySelectorAll(".menu-stack__item")).toHaveLength(1);
+  });
+
+  it("applies the persisted PopOut display scale", async () => {
+    const { container } = renderPopOut(
+      [provider("codex", "Codex", 80)],
+      undefined,
+      [],
+      { windowScalePercent: 175 },
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".popout-scale-shell")).not.toBeNull();
+    });
+
+    expect(
+      container
+        .querySelector<HTMLElement>(".popout-scale-shell")
+        ?.style.getPropertyValue("--window-scale"),
+    ).toBe("1.75");
+  });
+
+  it("does not resize or reposition the native window on mount", async () => {
+    renderPopOut([provider("codex", "Codex", 80)]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
+    });
+
+    expect(windowMocks.getCurrentWindow).not.toHaveBeenCalled();
+    expect(windowMocks.setSize).not.toHaveBeenCalled();
+    expect(windowMocks.setPosition).not.toHaveBeenCalled();
   });
 
   it("renders overview cards in settings catalog order instead of fetch order", async () => {
