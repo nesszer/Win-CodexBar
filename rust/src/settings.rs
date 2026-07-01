@@ -143,7 +143,8 @@ pub struct Settings {
     #[serde(default)]
     pub theme: ThemePreference,
 
-    /// Main PopOut window display scale, in the inclusive range 125..=250.
+    /// Main PopOut window display scale, in the inclusive range 100..=250.
+    /// 100 % is normal size; higher values enlarge the window content.
     #[serde(default = "default_window_scale_percent")]
     pub window_scale_percent: u16,
 
@@ -188,11 +189,11 @@ pub struct Settings {
 }
 
 fn default_window_scale_percent() -> u16 {
-    125
+    100
 }
 
 pub fn clamp_window_scale_percent(value: u16) -> u16 {
-    value.clamp(125, 250)
+    value.clamp(100, 250)
 }
 
 fn default_float_bar_opacity() -> u8 {

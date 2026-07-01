@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
 import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
@@ -54,19 +54,21 @@ export default function PopOutPanel({
   const windowScale = useMemo(() => {
     const scalePercent = Number(settings.windowScalePercent);
     return (
-      Math.min(250, Math.max(125, Number.isFinite(scalePercent) ? scalePercent : 125)) / 100
+      Math.min(250, Math.max(100, Number.isFinite(scalePercent) ? scalePercent : 100)) / 100
     );
   }, [settings.windowScalePercent]);
-  const scaleStyle = useMemo(
-    () =>
-      ({
-        "--window-scale": String(windowScale),
-        width: `${100 / windowScale}%`,
-        height: `${100 / windowScale}vh`,
-        zoom: windowScale,
-      }) as CSSProperties & { "--window-scale": string; zoom: number },
-    [windowScale],
-  );
+
+  // Scale the dashboard via the webview's native zoom (like a browser's Ctrl-+):
+  // it reflows content at the real window width, so the side-by-side cards keep
+  // filling the window at any scale — unlike CSS `zoom`, which overflows. The
+  // main window is shared with the tray surface, so reset zoom to 1 on unmount.
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    void webview.setZoom(windowScale).catch(() => {});
+    return () => {
+      void webview.setZoom(1).catch(() => {});
+    };
+  }, [windowScale]);
 
   useEffect(() => {
     setSelectedProviderId(providerId ?? null);
@@ -251,7 +253,7 @@ export default function PopOutPanel({
   );
 
   return (
-    <div className="popout-scale-shell" style={scaleStyle}>
+    <div className="popout-scale-shell">
       {surface}
     </div>
   );

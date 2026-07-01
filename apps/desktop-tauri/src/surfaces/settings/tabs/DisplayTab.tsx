@@ -6,7 +6,7 @@ import type { TabProps } from "../../Settings";
 import { FloatBarSettingsSection } from "../../../floatbar";
 
 function clampWindowScalePercent(value: number): number {
-  return Math.min(250, Math.max(125, Number.isFinite(value) ? value : 125));
+  return Math.min(250, Math.max(100, Number.isFinite(value) ? value : 100));
 }
 
 export default function DisplayTab({ settings, set, saving }: TabProps) {
@@ -108,7 +108,7 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
           >
             <input
               type="range"
-              min={125}
+              min={100}
               max={250}
               step={5}
               value={windowScaleDraft}

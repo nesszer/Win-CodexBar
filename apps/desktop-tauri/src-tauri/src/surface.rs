@@ -44,6 +44,7 @@ impl SurfaceMode {
                 min_height: None,
                 always_on_top: false,
                 blur_dismiss: false,
+                skip_taskbar: true,
             },
             Self::TrayPanel => WindowProperties {
                 visible: true,
@@ -55,10 +56,17 @@ impl SurfaceMode {
                 min_height: None,
                 always_on_top: true,
                 blur_dismiss: true,
+                skip_taskbar: true,
             },
+            // PopOut is the default "window mode": a normal, draggable,
+            // resizable window that shows in the taskbar. This app draws its
+            // own chrome (borderless + DWM dark caption + frontend drag
+            // region), so PopOut must use `decorations: false` like the
+            // working Settings window — native decorations are cancelled by
+            // the WM_NCCALCSIZE subclass and produce no usable title bar.
             Self::PopOut => WindowProperties {
                 visible: true,
-                decorations: true,
+                decorations: false,
                 resizable: true,
                 width: 420.0,
                 height: 680.0,
@@ -66,6 +74,7 @@ impl SurfaceMode {
                 min_height: Some(240.0),
                 always_on_top: false,
                 blur_dismiss: false,
+                skip_taskbar: false,
             },
             Self::Settings => WindowProperties {
                 visible: true,
@@ -77,6 +86,7 @@ impl SurfaceMode {
                 min_height: None,
                 always_on_top: false,
                 blur_dismiss: false,
+                skip_taskbar: false,
             },
         }
     }
@@ -96,6 +106,9 @@ pub struct WindowProperties {
     /// Whether the window should auto-hide when it loses focus.
     #[allow(dead_code)]
     pub blur_dismiss: bool,
+    /// Whether the window should be hidden from the Windows taskbar. Widget
+    /// surfaces (TrayPanel) stay hidden; the PopOut window mode shows there.
+    pub skip_taskbar: bool,
 }
 
 /// Returned by the state machine when a transition succeeds.
@@ -187,9 +200,12 @@ mod tests {
         sm.transition(SurfaceMode::TrayPanel);
         let t = sm.transition(SurfaceMode::PopOut).unwrap();
         assert_eq!(t.from, SurfaceMode::TrayPanel);
-        assert!(t.properties.decorations);
+        // PopOut is borderless (custom DWM chrome), resizable, shows in the
+        // taskbar, and never blur-dismisses.
+        assert!(!t.properties.decorations);
         assert!(t.properties.resizable);
         assert!(!t.properties.blur_dismiss);
+        assert!(!t.properties.skip_taskbar);
     }
 
     #[test]

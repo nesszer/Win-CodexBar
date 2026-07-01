@@ -2955,6 +2955,77 @@ body:has(.tray-panel-reveal) {
   max-height: 100%;
 }
 
+/* Draggable title bar for the PopOut window mode (borderless window has no
+   native caption). Bleeds past the surface's 6px/10px padding so it sits
+   flush to the window edges, mirroring `.settings-titlebar`. */
+.popout-titlebar {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  margin: -6px -10px 0;
+  padding: 0 4px 0 12px;
+  background: #1e1e1e;
+  -webkit-app-region: drag;
+  user-select: none;
+  flex-shrink: 0;
+}
+.popout-titlebar__title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.02em;
+}
+.popout-titlebar__controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-self: stretch;
+  margin-right: -4px;
+}
+.popout-titlebar__control {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.popout-titlebar__control svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.popout-titlebar__control--minimize::before {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+  border-radius: 1px;
+}
+.popout-titlebar__control:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.popout-titlebar__control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.popout-titlebar__control--close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
 .settings-field input[type="range"] {
   width: 150px;
   accent-color: var(--accent);
@@ -3110,6 +3181,46 @@ body:has(.tray-panel-reveal) {
   flex: 0 0 auto;
   max-height: none;
   overflow: visible;
+  /* Window mode is wide, so lay the provider cards side by side instead of in
+     one tall scrolling column. The base `.menu-stack` is `flex-direction:
+     column`, so we MUST switch to `row` here; `flex: 1 1 0` on each card then
+     makes them grow to an EQUAL share of the row and fill the full width (no
+     leftover blank on the right). The row wraps to a single column when the
+     window is too narrow to fit two ~300px cards. */
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 12px 16px;
+  align-items: flex-start;
+  /* The stack is a flex item of a column flex parent; without an explicit
+     width it shrink-wraps to the cards' content instead of filling the body,
+     leaving blank space on the right. Force it to the full body width. */
+  width: 100%;
+}
+
+.menu-surface--popout .menu-stack__item {
+  flex: 1 1 0;
+  min-width: min(300px, 100%);
+}
+
+/* Window mode must fill the resizable window. The tray widget relies on
+   shrink-to-fit (content-width) sizing all the way up the html → #root → shell
+   chain so its window can auto-size to content; the PopOut is a normal
+   resizable window, so every level must instead stretch to full width — without
+   this the side-by-side provider cards sit at content width and leave a large
+   blank area on the right of a wide window. */
+body:has(.menu-surface--popout) #root,
+body:has(.menu-surface--popout) .popout-scale-shell,
+.menu-surface--popout,
+.menu-surface--popout .menu-surface__body,
+.menu-surface--popout .menu-stack {
+  width: 100% !important;
+}
+
+/* The horizontal rules between stacked cards make no sense side by side. */
+.menu-surface--popout .menu-stack__sep {
+  display: none;
 }
 
 .menu-surface--popout .menu-stack__item,

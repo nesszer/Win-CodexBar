@@ -36,9 +36,18 @@ const windowMocks = vi.hoisted(() => {
   };
 });
 
+const webviewWindowMocks = vi.hoisted(() => {
+  const setZoom = vi.fn().mockResolvedValue(undefined);
+  return {
+    setZoom,
+    getCurrentWebviewWindow: vi.fn(() => ({ setZoom })),
+  };
+});
+
 vi.mock("../lib/tauri", () => tauriMocks);
 vi.mock("@tauri-apps/api/event", () => eventMocks);
 vi.mock("@tauri-apps/api/window", () => windowMocks);
+vi.mock("@tauri-apps/api/webviewWindow", () => webviewWindowMocks);
 
 import PopOutPanel from "./PopOutPanel";
 import { LocaleProvider } from "../i18n/LocaleProvider";
@@ -218,11 +227,11 @@ describe("PopOutPanel", () => {
       expect(container.querySelector(".popout-scale-shell")).not.toBeNull();
     });
 
-    expect(
-      container
-        .querySelector<HTMLElement>(".popout-scale-shell")
-        ?.style.getPropertyValue("--window-scale"),
-    ).toBe("1.75");
+    // Scaling is applied via the webview's native zoom, not an inline
+    // `--window-scale` style (which the earlier CSS-zoom approach used).
+    await waitFor(() => {
+      expect(webviewWindowMocks.setZoom).toHaveBeenCalledWith(1.75);
+    });
   });
 
   it("does not resize or reposition the native window on mount", async () => {

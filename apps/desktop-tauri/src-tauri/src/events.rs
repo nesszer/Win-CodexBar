@@ -20,6 +20,7 @@ pub const UPDATE_STATE_CHANGED: &str = "update-state-changed";
 pub const LOGIN_PHASE_CHANGED: &str = "login-phase-changed";
 pub const PROOF_STATE_CHANGED: &str = "proof-state-changed";
 pub const LOCALE_CHANGED: &str = "locale-changed";
+pub const SETTINGS_CHANGED: &str = "settings-changed";
 
 // ── Payloads ─────────────────────────────────────────────────────────
 
@@ -84,4 +85,12 @@ pub fn emit_login_phase_changed(app: &AppHandle) {
 
 pub fn emit_proof_state_changed(app: &AppHandle, payload: &ProofStatePayload) {
     let _ = app.emit(PROOF_STATE_CHANGED, payload);
+}
+
+/// Broadcast to every window that persisted settings changed, so surfaces in
+/// other windows (e.g. the PopOut dashboard) re-read settings and re-render —
+/// the detached Settings window and the main window are separate webviews and
+/// do not share React state. Payload-less; listeners re-fetch the snapshot.
+pub fn emit_settings_changed(app: &AppHandle) {
+    let _ = app.emit(SETTINGS_CHANGED, ());
 }

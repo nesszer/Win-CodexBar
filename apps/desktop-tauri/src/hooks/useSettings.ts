@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type { SettingsSnapshot, SettingsUpdate } from "../types/bridge";
 import { getSettingsSnapshot, updateSettings } from "../lib/tauri";
 
@@ -37,6 +38,40 @@ export function useSettings(initial: SettingsSnapshot): UseSettingsReturn {
       cancelled = true;
     };
   }, [initial]);
+
+  // Live-sync when settings change in ANOTHER window. The detached Settings
+  // window and the main/PopOut window are separate webviews with separate
+  // React state, so the in-window CustomEvent below never reaches them. Rust
+  // broadcasts "settings-changed" after every persisted update; re-fetch the
+  // snapshot so this surface (e.g. the PopOut window scale) re-renders live.
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    // `Promise.resolve` tolerates test mocks that return a bare unlisten fn (or
+    // undefined) instead of a promise; the `active` flag handles unmounting
+    // before the listener finishes registering.
+    Promise.resolve(
+      listen("settings-changed", () => {
+        getSettingsSnapshot()
+          .then((fresh) => setSettings(fresh))
+          .catch(() => {
+            // Keep the current copy if the refresh fails.
+          });
+      }),
+    )
+      .then((fn) => {
+        if (active) {
+          unlisten = fn;
+        } else {
+          fn?.();
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
 
   const update = useCallback(async (patch: SettingsUpdate) => {
     setSaving(true);

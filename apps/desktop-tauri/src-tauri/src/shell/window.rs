@@ -40,13 +40,25 @@ pub fn apply_window_layout(
     let map_err = |e: tauri::Error| e.to_string();
 
     window.set_decorations(props.decorations).map_err(map_err)?;
-    if !props.decorations {
-        super::dwm::force_dark_caption(window);
-    }
     window.set_resizable(props.resizable).map_err(map_err)?;
     window
         .set_always_on_top(props.always_on_top)
         .map_err(map_err)?;
+    window
+        .set_skip_taskbar(props.skip_taskbar)
+        .map_err(map_err)?;
+    // Borderless surfaces draw their own chrome via a DWM subclass that zeros
+    // the native non-client area. Apply it AFTER `set_resizable` so the
+    // resizable variant sees WS_THICKFRAME present and preserves it (keeping
+    // the native resize affordance). Native decorations are incompatible with
+    // this subclass, so decorated surfaces skip it.
+    if !props.decorations {
+        if props.resizable {
+            super::dwm::force_dark_caption_resizable(window);
+        } else {
+            super::dwm::force_dark_caption(window);
+        }
+    }
 
     if props.visible {
         let (width, height) = remembered_mode_for_properties(props)
@@ -87,6 +99,7 @@ fn remembered_mode_for_properties(props: &WindowProperties) -> Option<SurfaceMod
                 && props.min_height == mode_props.min_height
                 && props.always_on_top == mode_props.always_on_top
                 && props.blur_dismiss == mode_props.blur_dismiss
+                && props.skip_taskbar == mode_props.skip_taskbar
         })
 }
 

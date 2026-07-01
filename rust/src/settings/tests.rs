@@ -26,15 +26,16 @@ fn float_bar_defaults_are_safe() {
 }
 
 #[test]
-fn main_window_scale_defaults_to_125_percent() {
+fn main_window_scale_defaults_to_100_percent() {
     let settings = Settings::default();
-    assert_eq!(settings.window_scale_percent, 125);
+    assert_eq!(settings.window_scale_percent, 100);
 }
 
 #[test]
 fn main_window_scale_clamp_pins_to_supported_range() {
-    assert_eq!(clamp_window_scale_percent(0), 125);
-    assert_eq!(clamp_window_scale_percent(124), 125);
+    assert_eq!(clamp_window_scale_percent(0), 100);
+    assert_eq!(clamp_window_scale_percent(99), 100);
+    assert_eq!(clamp_window_scale_percent(100), 100);
     assert_eq!(clamp_window_scale_percent(125), 125);
     assert_eq!(clamp_window_scale_percent(180), 180);
     assert_eq!(clamp_window_scale_percent(250), 250);
