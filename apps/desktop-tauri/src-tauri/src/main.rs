@@ -196,6 +196,7 @@ fn main() {
             commands::get_provider_detail,
             commands::trigger_provider_login,
             commands::revoke_provider_credentials,
+            commands::get_available_languages,
             commands::get_locale_strings,
             commands::set_ui_language,
             commands::open_path,

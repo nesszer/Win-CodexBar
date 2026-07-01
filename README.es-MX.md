@@ -53,7 +53,7 @@ Para Claude, se prefieren las cookies del navegador/sessionKey porque coinciden 
 
 ## Última versión
 
-**v0.33.2** corrige el cierre del panel de bandeja para que el panel emergente se cierre al perder el foco o al presionar Escape, sin reabrirse inmediatamente por el mismo clic en la bandeja.
+**v0.37.5** corrige las rutas de inicio del escritorio de Windows que podían dejar CodexBar ejecutándose solo con la ventana interna del shell Tauri. Reabre el panel de bandeja en inicios normales o sin argumentos, a menos que **Inicio minimizado** esté activado. Recupera aperturas de bandeja que quedaban ocultas o atascadas en tamaño mínimo.
 
 Consulta el historial completo en [CHANGELOG.md](CHANGELOG.md).
 
@@ -147,7 +147,7 @@ Las compilaciones con instalador incluyen `codexbar.exe` como la CLI de consola 
 Para compilaciones de versión locales en Windows, usa el constructor de versiones en caché:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.33.2 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.37.5 -SmokeInstall
 ```
 
 El script compila el binario real de versión de Tauri más la CLI de consola, verifica las dependencias firmadas del instalador, empaqueta con Inno Setup, genera los archivos de instalador/portable, genera los archivos SHA-256 complementarios y puede ejecutar una prueba de instalación/desinstalación silenciosa.

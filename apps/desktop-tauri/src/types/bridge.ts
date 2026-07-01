@@ -23,6 +23,14 @@ export type MetricPreference =
 
 export type Language = "english" | "chinese" | "japanese" | "spanish";
 
+/** Language catalog entry from the Rust backend. */
+export type LanguageOption = {
+  /** Stable bridge/settings value (e.g. "english") */
+  value: Language;
+  /** Native display name (e.g. "English", "中文", "Español") */
+  display: string;
+};
+
 export type UpdateChannel = "stable" | "beta";
 
 export type ThemePreference = "auto" | "light" | "dark";

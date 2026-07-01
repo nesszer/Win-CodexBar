@@ -2,6 +2,27 @@ use super::*;
 
 // ── Locale / i18n commands ───────────────────────────────────────────
 
+/// Language catalog entry exposed to the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageOption {
+    /// Stable bridge/settings value (e.g. "english")
+    pub value: &'static str,
+    /// Native display name (e.g. "English", "中文", "Español")
+    pub display: &'static str,
+}
+
+/// Return the canonical language catalog.
+/// The frontend uses this to build a language picker without
+/// hardcoding language lists or i18n keys.
+#[tauri::command]
+pub fn get_available_languages() -> Vec<LanguageOption> {
+    Language::all().iter().map(|l| LanguageOption {
+        value: l.label(),
+        display: l.display_name(),
+    }).collect()
+}
+
 /// Snapshot of every localized UI string in a given language.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,13 +62,7 @@ pub fn get_locale_strings(language: Option<String>) -> Result<LocaleStrings, Str
 }
 
 fn parse_locale_language(raw: &str) -> Option<Language> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "en" | "en-us" | "english" => Some(Language::English),
-        "zh" | "zh-cn" | "zh-hans" | "chinese" | "中文" => Some(Language::Chinese),
-        "ja" | "ja-jp" | "japanese" | "日本語" => Some(Language::Japanese),
-        "es" | "es-mx" | "spanish" | "español" => Some(Language::Spanish),
-        _ => None,
-    }
+    Language::resolve(raw)
 }
 
 /// Persist the UI language and emit a `locale-changed` event so the
@@ -147,6 +162,22 @@ mod locale_tests {
         assert!(matches!(
             parse_locale_language("日本語"),
             Some(Language::Japanese)
+        ));
+        assert!(matches!(
+            parse_locale_language("es"),
+            Some(Language::Spanish)
+        ));
+        assert!(matches!(
+            parse_locale_language("es-mx"),
+            Some(Language::Spanish)
+        ));
+        assert!(matches!(
+            parse_locale_language("spanish"),
+            Some(Language::Spanish)
+        ));
+        assert!(matches!(
+            parse_locale_language("español"),
+            Some(Language::Spanish)
         ));
         assert!(parse_locale_language("klingon").is_none());
     }

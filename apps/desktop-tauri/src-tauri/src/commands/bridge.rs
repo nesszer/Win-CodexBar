@@ -518,12 +518,7 @@ pub(super) fn update_channel_label(channel: UpdateChannel) -> &'static str {
 }
 
 pub(super) fn language_label(language: Language) -> &'static str {
-    match language {
-        Language::English => "english",
-        Language::Chinese => "chinese",
-        Language::Japanese => "japanese",
-        Language::Spanish => "spanish",
-    }
+    language.label()
 }
 
 fn theme_label(theme: ThemePreference) -> &'static str {

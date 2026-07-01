@@ -5,6 +5,16 @@ vi.mock("../../../hooks/useLocale", () => ({
   useLocale: () => ({ t: (key: string) => key }),
 }));
 
+// Mock Tauri invoke for get_available_languages
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn().mockResolvedValue([
+    { value: "english", display: "English" },
+    { value: "chinese", display: "中文" },
+    { value: "japanese", display: "日本語" },
+    { value: "spanish", display: "Español" },
+  ]),
+}));
+
 import GeneralTab from "./GeneralTab";
 import type { SettingsSnapshot } from "../../../types/bridge";
 
@@ -52,7 +62,7 @@ describe("GeneralTab language picker", () => {
   it("renders 4 language options when spanish is wired", () => {
     render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
 
-    const select = screen.getByDisplayValue("LanguageEnglishOption");
+    const select = screen.getByDisplayValue("English");
     expect(select).toBeInTheDocument();
 
     const options = select.querySelectorAll("option");
@@ -63,7 +73,7 @@ describe("GeneralTab language picker", () => {
     render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
 
     expect(
-      screen.getByText("LanguageSpanishOption"),
+      screen.getByText("Español"),
     ).toBeInTheDocument();
   });
 });
