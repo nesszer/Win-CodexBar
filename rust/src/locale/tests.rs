@@ -196,10 +196,6 @@ fn test_all_locale_keys_have_all_languages() {
 
         // Spanish should not be empty
         let spanish = key.spanish();
-        assert!(
-            !spanish.is_empty(),
-            "Spanish string for {:?} is empty",
-            key
-        );
+        assert!(!spanish.is_empty(), "Spanish string for {:?} is empty", key);
     }
 }

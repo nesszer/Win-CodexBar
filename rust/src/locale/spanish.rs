@@ -18,7 +18,9 @@ impl LocaleKey {
             LocaleKey::StartupSettings => "Sistema",
             LocaleKey::StartAtLogin => "Iniciar al arrancar",
             LocaleKey::StartMinimized => "Iniciar minimizado",
-            LocaleKey::StartAtLoginHelper => "Iniciar sesión automáticamente al arrancar el sistema",
+            LocaleKey::StartAtLoginHelper => {
+                "Iniciar sesión automáticamente al arrancar el sistema"
+            }
             LocaleKey::StartMinimizedHelper => "Iniciar minimizado en la bandeja del sistema",
 
             // Notification settings
@@ -37,12 +39,16 @@ impl LocaleKey {
             // Display settings
             LocaleKey::UsageDisplay => "Visualización de uso",
             LocaleKey::ShowUsageAsUsed => "Mostrar como usado",
-            LocaleKey::ShowUsageAsUsedHelper => "Mostrar como porcentaje usado en lugar de restante",
+            LocaleKey::ShowUsageAsUsedHelper => {
+                "Mostrar como porcentaje usado en lugar de restante"
+            }
             LocaleKey::ResetTimeRelative => "Tiempo relativo de reinicio",
             LocaleKey::ResetTimeRelativeHelper => "Mostrar \"2h 30m\" en lugar de \"3:00 PM\"",
             LocaleKey::TrayIcon => "Ícono de bandeja",
             LocaleKey::MergeTrayIcons => "Combinar íconos de bandeja",
-            LocaleKey::MergeTrayIconsHelper => "Mostrar todos los proveedores en un solo ícono de bandeja",
+            LocaleKey::MergeTrayIconsHelper => {
+                "Mostrar todos los proveedores en un solo ícono de bandeja"
+            }
             LocaleKey::PerProviderTrayIcons => "Íconos por proveedor",
             LocaleKey::PerProviderTrayIconsHelper => {
                 "Mostrar un ícono de bandeja separado por cada proveedor habilitado"
@@ -76,7 +82,9 @@ impl LocaleKey {
             // Browser cookie import
             LocaleKey::BrowserCookieImport => "Importación de cookies del navegador",
             LocaleKey::ImportFromBrowser => "Importar cookies de {} desde el navegador",
-            LocaleKey::NoCookiesFoundInBrowser => "No se encontraron cookies en {}. Inicie sesión primero.",
+            LocaleKey::NoCookiesFoundInBrowser => {
+                "No se encontraron cookies en {}. Inicie sesión primero."
+            }
             LocaleKey::SelectBrowser => "Seleccionar navegador...",
             LocaleKey::ImportCookies => "Importar cookies",
             LocaleKey::ImportSuccess => "Cookies importadas para {}",
@@ -160,7 +168,9 @@ impl LocaleKey {
             LocaleKey::StateLoadingProviders => "Cargando proveedores...",
             LocaleKey::StateNoProviderData => "Sin datos de proveedores.",
             LocaleKey::StateNoProviderSelected => "Ningún proveedor seleccionado.",
-            LocaleKey::StateSummaryRefreshPending => "Actualizando después de que terminen todas las consultas",
+            LocaleKey::StateSummaryRefreshPending => {
+                "Actualizando después de que terminen todas las consultas"
+            }
             LocaleKey::StateError => "Error",
             LocaleKey::StateRetry => "Reintentar",
             LocaleKey::StateDownload => "Descargar",
@@ -293,7 +303,9 @@ impl LocaleKey {
             LocaleKey::ProviderAccountsTitle => "Cuentas",
             LocaleKey::ProviderOptionsTitle => "Opciones",
             LocaleKey::MenuBarMetric => "Métrica de barra de menú",
-            LocaleKey::MenuBarMetricHelper => "Elegir qué ventana controla el porcentaje de la barra de menú.",
+            LocaleKey::MenuBarMetricHelper => {
+                "Elegir qué ventana controla el porcentaje de la barra de menú."
+            }
             LocaleKey::UsageSource => "Fuente de uso",
             LocaleKey::ProviderNoCodexAccountsDetected => "Aún no se detectaron cuentas de Codex.",
             LocaleKey::ProviderCodexAutoImportHelp => {
@@ -329,7 +341,9 @@ impl LocaleKey {
             LocaleKey::ProviderCursorCookieSourceHelp => {
                 "Importa automáticamente cookies del navegador o sesiones almacenadas."
             }
-            LocaleKey::ProviderCursorCreditsHelp => "Uso bajo demanda más allá de los límites del plan incluido.",
+            LocaleKey::ProviderCursorCreditsHelp => {
+                "Uso bajo demanda más allá de los límites del plan incluido."
+            }
             LocaleKey::AutoFallbackHelp => {
                 "Auto recurre a la siguiente fuente si la preferida falla."
             }
@@ -364,7 +378,9 @@ impl LocaleKey {
             // Keyboard shortcuts
             LocaleKey::KeyboardShortcutsTitle => "Atajos de teclado",
             LocaleKey::GlobalShortcutLabel => "Atajo global",
-            LocaleKey::GlobalShortcutHelper => "Presione este atajo para abrir CodexBar desde cualquier lugar",
+            LocaleKey::GlobalShortcutHelper => {
+                "Presione este atajo para abrir CodexBar desde cualquier lugar"
+            }
             LocaleKey::ShortcutFormatHint => {
                 "Formato: Ctrl+Shift+Tecla, Alt+Ctrl+Tecla, etc. Se requiere reiniciar para aplicar cambios."
             }
@@ -389,8 +405,12 @@ impl LocaleKey {
             LocaleKey::AutoRefreshInterval => "Intervalo de actualización automática",
 
             // About tab
-            LocaleKey::AboutDescription => "Una adaptación para Windows de la versión original de macOS.",
-            LocaleKey::AboutDescriptionLine2 => "Rastree el uso de proveedores de IA en su bandeja del sistema.",
+            LocaleKey::AboutDescription => {
+                "Una adaptación para Windows de la versión original de macOS."
+            }
+            LocaleKey::AboutDescriptionLine2 => {
+                "Rastree el uso de proveedores de IA en su bandeja del sistema."
+            }
             LocaleKey::ViewOnGitHub => "→ Ver en GitHub",
             LocaleKey::SubmitIssue => "→ Reportar un problema",
             LocaleKey::MaintainedBy => "Mantenido por colaboradores de CodexBar",
@@ -451,7 +471,9 @@ impl LocaleKey {
                 "Mostrar una alerta crítica cuando el uso exceda este porcentaje."
             }
             LocaleKey::GlobalShortcutFieldLabel => "Atajo global",
-            LocaleKey::GlobalShortcutToggleHelper => "Combinación de teclas para alternar el panel de bandeja.",
+            LocaleKey::GlobalShortcutToggleHelper => {
+                "Combinación de teclas para alternar el panel de bandeja."
+            }
             LocaleKey::ShortcutRecordButton => "Grabar",
             LocaleKey::ShortcutRecordingLabel => "Grabando…",
             LocaleKey::ShortcutRecordingHint => {
@@ -470,7 +492,9 @@ impl LocaleKey {
             LocaleKey::TrayIconModeSingle => "Único",
             LocaleKey::TrayIconModePerProvider => "Por proveedor",
             LocaleKey::ShowProviderIcons => "Mostrar íconos de proveedores",
-            LocaleKey::ShowProviderIconsHelper => "Mostrar íconos de proveedores en el selector de bandeja.",
+            LocaleKey::ShowProviderIconsHelper => {
+                "Mostrar íconos de proveedores en el selector de bandeja."
+            }
             LocaleKey::PreferHighestUsage => "Preferir uso más alto",
             LocaleKey::PreferHighestUsageHelper => {
                 "Mostrar el proveedor más cercano a su límite en la pantalla de bandeja combinada."
@@ -480,18 +504,33 @@ impl LocaleKey {
                 "Reemplazar barra de uso con marca de proveedor + texto de porcentaje."
             }
             LocaleKey::DisplayModeLabel => "Modo de visualización",
-            LocaleKey::DisplayModeHelper => "Nivel de detalle mostrado en la etiqueta de barra de menú.",
+            LocaleKey::DisplayModeHelper => {
+                "Nivel de detalle mostrado en la etiqueta de barra de menú."
+            }
             LocaleKey::DisplayModeDetailed => "Detallado",
             LocaleKey::DisplayModeCompact => "Compacto",
             LocaleKey::DisplayModeMinimal => "Mínimo",
+            LocaleKey::WindowScaleLabel => "Escala de ventana",
+            LocaleKey::WindowScaleHelper => {
+                "Escala el contenido del panel emergente. La ventana sigue pudiendo redimensionarse libremente."
+            }
+            LocaleKey::WindowScaleAriaLabel => "Escala de ventana",
+            LocaleKey::WindowMinimize => "Minimizar",
+            LocaleKey::WindowMaximize => "Maximizar",
+            LocaleKey::WindowRestore => "Restaurar",
+            LocaleKey::WindowClose => "Cerrar",
             LocaleKey::ShowAsUsedLabel => "Mostrar como usado",
-            LocaleKey::ShowAsUsedHelper => "Mostrar barras de uso como consumido en lugar de restante.",
+            LocaleKey::ShowAsUsedHelper => {
+                "Mostrar barras de uso como consumido en lugar de restante."
+            }
             LocaleKey::ShowAllTokenAccountsLabel => "Mostrar todas las cuentas de token",
             LocaleKey::ShowAllTokenAccountsHelper => {
                 "Listar todas las cuentas de token en los menús de proveedores en lugar de colapsarlas."
             }
             LocaleKey::EnableAnimationsLabel => "Habilitar animaciones",
-            LocaleKey::EnableAnimationsHelper => "Transiciones suaves y barras de progreso animadas.",
+            LocaleKey::EnableAnimationsHelper => {
+                "Transiciones suaves y barras de progreso animadas."
+            }
             // Tauri desktop shell — Advanced tab fields
             LocaleKey::UpdateChannelStableOption => "Estable",
             LocaleKey::UpdateChannelBetaOption => "Beta",
@@ -527,7 +566,9 @@ impl LocaleKey {
             // Tauri desktop shell — tray / popout
             LocaleKey::FetchingProviderData => "Obteniendo datos del proveedor…",
             LocaleKey::NoProvidersConfigured => "No hay proveedores configurados.",
-            LocaleKey::EnableProvidersHint => "Habilite proveedores en Configuración para ver datos de uso.",
+            LocaleKey::EnableProvidersHint => {
+                "Habilite proveedores en Configuración para ver datos de uso."
+            }
             LocaleKey::OpenSettingsButton => "Abrir configuración",
             LocaleKey::TooltipRefresh => "Actualizar",
             LocaleKey::TooltipSettings => "Configuración",
@@ -619,7 +660,9 @@ impl LocaleKey {
                 "Ejecute `gcloud auth application-default login` para crear credenciales."
             }
             LocaleKey::CredsJetBrainsLabel => "JetBrains IDE",
-            LocaleKey::CredsJetBrainsHelperDetectedPrefix => "Usando configuración de IDE detectada en",
+            LocaleKey::CredsJetBrainsHelperDetectedPrefix => {
+                "Usando configuración de IDE detectada en"
+            }
             LocaleKey::CredsJetBrainsHelperCustomPrefix => "Usando ruta base de IDE personalizada",
             LocaleKey::CredsJetBrainsHelperMissing => {
                 "Instale un IDE de JetBrains con AI Assistant habilitado, luego actualice CodexBar."
@@ -652,7 +695,9 @@ impl LocaleKey {
             LocaleKey::TokenAccountTabHint => {
                 "Administrar múltiples tokens de sesión o tokens API por proveedor. La cuenta activa se usa para todas las consultas. Solo los proveedores que requieren tokens manuales aparecen aquí."
             }
-            LocaleKey::TokenAccountNoSupported => "Actualmente ningún proveedor admite cuentas de token.",
+            LocaleKey::TokenAccountNoSupported => {
+                "Actualmente ningún proveedor admite cuentas de token."
+            }
             LocaleKey::TokenAccountInlineSummary => "Cuentas de token",
 
             // Phase 9 - Tray / pop-out pace badges + countdowns

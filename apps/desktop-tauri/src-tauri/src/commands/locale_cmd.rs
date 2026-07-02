@@ -17,10 +17,13 @@ pub struct LanguageOption {
 /// hardcoding language lists or i18n keys.
 #[tauri::command]
 pub fn get_available_languages() -> Vec<LanguageOption> {
-    Language::all().iter().map(|l| LanguageOption {
-        value: l.label(),
-        display: l.display_name(),
-    }).collect()
+    Language::all()
+        .iter()
+        .map(|l| LanguageOption {
+            value: l.label(),
+            display: l.display_name(),
+        })
+        .collect()
 }
 
 /// Snapshot of every localized UI string in a given language.

@@ -28,7 +28,12 @@ impl Language {
 
     /// Get all available languages
     pub fn all() -> &'static [Language] {
-        &[Language::English, Language::Chinese, Language::Japanese, Language::Spanish]
+        &[
+            Language::English,
+            Language::Chinese,
+            Language::Japanese,
+            Language::Spanish,
+        ]
     }
 
     /// Stable label used in bridge JSON and persisted settings

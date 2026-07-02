@@ -692,8 +692,8 @@ pub enum LocaleKey {
 mod chinese;
 mod english;
 mod japanese;
-mod spanish;
 mod keys;
+mod spanish;
 
 #[cfg(test)]
 mod tests;

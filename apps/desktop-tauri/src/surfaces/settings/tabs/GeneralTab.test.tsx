@@ -37,6 +37,7 @@ const settings: SettingsSnapshot = {
   enableAnimations: true,
   resetTimeRelative: true,
   menuBarDisplayMode: "compact",
+  windowScalePercent: 125,
   hidePersonalInfo: false,
   autoDownloadUpdates: false,
   installUpdatesOnQuit: false,

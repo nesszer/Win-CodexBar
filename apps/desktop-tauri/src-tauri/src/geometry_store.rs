@@ -198,7 +198,8 @@ mod tests {
 
     #[test]
     fn current_version_file_keeps_sizes() {
-        let json = r#"{"version":1,"entries":{"settings":{"x":10,"y":20,"width":520,"height":600}}}"#;
+        let json =
+            r#"{"version":1,"entries":{"settings":{"x":10,"y":20,"width":520,"height":600}}}"#;
         let mut file: GeometryFile = serde_json::from_str(json).unwrap();
         migrate(&mut file);
         let entry = file.entries.get("settings").unwrap();

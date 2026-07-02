@@ -59,8 +59,11 @@ fn schedule_tray_panel_reveal_fallback(app: &AppHandle) {
                 .ok()
                 .map(|size| (size.width, size.height));
             if should_force_tray_panel_reveal(current, visible, size) {
-                let layout_result =
-                    apply_window_layout(&window, SurfaceMode::TrayPanel, &SurfaceMode::TrayPanel.window_properties());
+                let layout_result = apply_window_layout(
+                    &window,
+                    SurfaceMode::TrayPanel,
+                    &SurfaceMode::TrayPanel.window_properties(),
+                );
                 match layout_result.and_then(|_| show_window(&window)) {
                     Ok(()) => mark_tray_panel_shown(&app_on_main),
                     Err(error) => {
@@ -114,8 +117,11 @@ pub fn schedule_startup_tray_panel_reveal_fallback(app: &AppHandle) {
                 .ok()
                 .map(|size| (size.width, size.height));
             if should_force_tray_panel_reveal(current, visible, size) {
-                let layout_result =
-                    apply_window_layout(&window, SurfaceMode::TrayPanel, &SurfaceMode::TrayPanel.window_properties());
+                let layout_result = apply_window_layout(
+                    &window,
+                    SurfaceMode::TrayPanel,
+                    &SurfaceMode::TrayPanel.window_properties(),
+                );
                 match layout_result.and_then(|_| show_window(&window)) {
                     Ok(()) => mark_tray_panel_shown(&app_on_main),
                     Err(error) => {

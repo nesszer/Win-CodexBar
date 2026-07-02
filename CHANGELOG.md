@@ -1,5 +1,25 @@
 # Changelog
 
+## [Windows] 0.37.6 - 2026-07-02
+
+### Added
+- Add window mode with a taskbar-visible PopOut window, custom title bar controls, maximize/restore behavior, and display scaling.
+- Add Mexican Spanish (`es-MX`) locale support with a centralized backend language catalog.
+
+### Fixed
+- Ship the installed console CLI as `codexbar-cli.exe` and verify it is a real console-subsystem binary with redirected stdout.
+- Keep browser cookie imports scoped to exact provider domains and validate imported cookie header length before saving.
+- Validate provider workspace/base URL extras in Rust before persistence so saved credentials cannot be retargeted to unsafe endpoints.
+- Allow clearing the global shortcut setting without attempting to register an empty shortcut.
+- Mask Unicode API keys without slicing through UTF-8 boundaries.
+- Resolve automatic theme mode from the current OS light/dark preference.
+- Fix the cost scanner token-count regression test so it does not age out of the 30-day scan window.
+
+### Changed
+- Harden CI and release workflows with pinned GitHub Action SHAs, read-only build permissions, and separate release publishing jobs.
+- Package `codexbar.exe` as the desktop app, `codexbar-cli.exe` as the console CLI, and `codexbar-desktop.exe` as a compatibility alias.
+
+---
 ## [Windows] 0.37.5 - 2026-06-27
 
 ### Fixed

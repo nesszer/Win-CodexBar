@@ -39,6 +39,7 @@ describe("Language type", () => {
       enableAnimations: true,
       resetTimeRelative: true,
       menuBarDisplayMode: "compact",
+      windowScalePercent: 125,
       hidePersonalInfo: false,
       autoDownloadUpdates: false,
       installUpdatesOnQuit: false,
