@@ -667,6 +667,27 @@ pub fn get_cookie_header(domain: &str) -> Result<String, CookieError> {
     Ok(CookieExtractor::build_cookie_header(&cookies))
 }
 
+/// Get a cookie header string from the first domain that has readable cookies.
+pub fn get_cookie_header_for_domains(domains: &[&str]) -> Result<String, CookieError> {
+    let mut app_bound_encryption_seen = false;
+    let mut last_error = None;
+
+    for domain in domains {
+        match get_cookie_header(domain) {
+            Ok(header) if !header.trim().is_empty() => return Ok(header),
+            Ok(_) => {}
+            Err(CookieError::AppBoundEncryption) => app_bound_encryption_seen = true,
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    if app_bound_encryption_seen {
+        Err(CookieError::AppBoundEncryption)
+    } else {
+        Err(last_error.unwrap_or_else(|| CookieError::NotFound(domains.join(", "))))
+    }
+}
+
 /// Get a cookie header string for a domain from a specific browser
 pub fn get_cookie_header_from_browser(
     domain: &str,

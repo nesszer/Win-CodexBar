@@ -80,13 +80,45 @@ fn tray_toggle_hides_only_when_panel_window_is_visible() {
 fn tray_reveal_fallback_only_for_hidden_tray_panel() {
     assert!(should_force_tray_panel_reveal(
         SurfaceMode::TrayPanel,
-        false
+        false,
+        Some((328, 776)),
     ));
     assert!(!should_force_tray_panel_reveal(
         SurfaceMode::TrayPanel,
-        true
+        true,
+        Some((328, 776)),
     ));
-    assert!(!should_force_tray_panel_reveal(SurfaceMode::Hidden, false));
+    assert!(!should_force_tray_panel_reveal(
+        SurfaceMode::Hidden,
+        false,
+        Some((16, 16)),
+    ));
+}
+
+#[test]
+fn tray_reveal_fallback_recovers_tiny_shell_window() {
+    assert!(should_force_tray_panel_reveal(
+        SurfaceMode::TrayPanel,
+        true,
+        Some((16, 16)),
+    ));
+}
+
+#[test]
+fn tray_show_grace_is_based_on_actual_show_time() {
+    let mut state = AppState::new();
+    let shown_at = std::time::Instant::now();
+
+    state.mark_tray_panel_shown(shown_at);
+
+    assert!(state.was_tray_panel_recently_shown(
+        shown_at + std::time::Duration::from_millis(20),
+        std::time::Duration::from_millis(500),
+    ));
+    assert!(!state.was_tray_panel_recently_shown(
+        shown_at + std::time::Duration::from_millis(500),
+        std::time::Duration::from_millis(500),
+    ));
 }
 
 #[test]

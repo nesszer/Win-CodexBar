@@ -2,8 +2,8 @@
 //!
 //! Uses browser cookies to authenticate with cursor.com API
 
-use crate::browser::cookies::get_cookie_header;
 use crate::core::{CostSnapshot, ProviderError, RateWindow};
+use crate::providers::browser_cookie_header;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
@@ -57,22 +57,7 @@ impl CursorApi {
     }
 
     fn get_cookie_header(&self) -> Result<String, ProviderError> {
-        for domain in COOKIE_DOMAINS {
-            match get_cookie_header(domain) {
-                Ok(header) if !header.is_empty() => {
-                    tracing::debug!("Found Cursor cookies for {}", domain);
-                    return Ok(header);
-                }
-                Ok(_) => {
-                    tracing::debug!("No cookies for {}", domain);
-                }
-                Err(e) => {
-                    tracing::debug!("Cookie error for {}: {}", domain, e);
-                }
-            }
-        }
-
-        Err(ProviderError::NoCookies)
+        browser_cookie_header(&COOKIE_DOMAINS)
     }
 
     async fn fetch_usage_summary(

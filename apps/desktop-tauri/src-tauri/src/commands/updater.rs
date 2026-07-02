@@ -197,6 +197,10 @@ fn finish_download(
 
 #[tauri::command]
 pub fn apply_update(state: tauri::State<'_, Mutex<AppState>>) -> Result<(), String> {
+    apply_ready_update(&state)
+}
+
+pub(crate) fn apply_ready_update(state: &Mutex<AppState>) -> Result<(), String> {
     let (path, expected_sha256) = {
         let guard = state.lock().map_err(|e| e.to_string())?;
         let path = guard

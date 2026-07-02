@@ -51,6 +51,10 @@ pub fn reveal_tray_panel_window(
         .get_webview_window("main")
         .ok_or_else(|| "main window unavailable".to_string())?;
     window.show().map_err(|e| e.to_string())?;
+    state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .mark_tray_panel_shown(std::time::Instant::now());
     window.set_focus().map_err(|e| e.to_string())?;
     Ok(())
 }

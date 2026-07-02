@@ -195,6 +195,19 @@ impl AppState {
         self.last_blur_dismissed_at = Some(dismissed_at);
     }
 
+    pub fn mark_tray_panel_shown(&mut self, shown_at: std::time::Instant) {
+        self.last_shown_at = Some(shown_at);
+    }
+
+    pub fn was_tray_panel_recently_shown(
+        &self,
+        now: std::time::Instant,
+        max_age: std::time::Duration,
+    ) -> bool {
+        self.last_shown_at
+            .is_some_and(|shown_at| now.saturating_duration_since(shown_at) < max_age)
+    }
+
     pub fn take_recent_blur_dismissal(
         &mut self,
         now: std::time::Instant,

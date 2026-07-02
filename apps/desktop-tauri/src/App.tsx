@@ -1,7 +1,13 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { checkForUpdates, getBootstrapState, getSettingsSnapshot, setSurfaceMode } from "./lib/tauri";
+import {
+  checkForUpdates,
+  downloadUpdate,
+  getBootstrapState,
+  getSettingsSnapshot,
+  setSurfaceMode,
+} from "./lib/tauri";
 import { useSurfaceSnapshot } from "./hooks/useSurfaceSnapshot";
 import { useTheme } from "./hooks/useTheme";
 import TrayPanel from "./surfaces/TrayPanel";
@@ -76,7 +82,13 @@ function AppInner() {
     // Fire-and-forget update checks after the first paint so startup/tray open
     // is not competing with network work.
     const updateTimer = window.setTimeout(() => {
-      checkForUpdates().catch(() => {});
+      Promise.all([checkForUpdates(), getSettingsSnapshot()])
+        .then(([update, settings]) => {
+          if (settings.autoDownloadUpdates && update.canDownload) {
+            void downloadUpdate().catch(() => {});
+          }
+        })
+        .catch(() => {});
     }, 2_000);
 
     // Listen for user-registered global shortcut events from the

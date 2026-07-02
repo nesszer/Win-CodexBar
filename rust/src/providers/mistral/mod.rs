@@ -353,17 +353,14 @@ impl Provider for MistralProvider {
                     return self.fetch_with_cookies(cookie_header).await;
                 }
 
-                for domain in COOKIE_DOMAINS {
-                    match crate::browser::cookies::get_cookie_header(domain) {
-                        Ok(header) if !header.is_empty() => {
-                            match self.fetch_with_cookies(&header).await {
-                                Ok(result) => return Ok(result),
-                                Err(ProviderError::AuthRequired) => continue,
-                                Err(err) => return Err(err),
-                            }
-                        }
-                        _ => {}
-                    }
+                match crate::providers::browser_cookie_header(&COOKIE_DOMAINS) {
+                    Ok(header) => match self.fetch_with_cookies(&header).await {
+                        Ok(result) => return Ok(result),
+                        Err(ProviderError::AuthRequired) => {}
+                        Err(err) => return Err(err),
+                    },
+                    Err(ProviderError::NoCookies) => {}
+                    Err(err) => return Err(err),
                 }
 
                 Err(ProviderError::NoCookies)

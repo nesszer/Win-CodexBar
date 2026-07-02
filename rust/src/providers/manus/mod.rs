@@ -220,12 +220,12 @@ impl Provider for ManusProvider {
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::Web => {
-                let cookie = ctx
-                    .manual_cookie_header
-                    .as_deref()
-                    .ok_or(ProviderError::NoCookies)?;
+                let cookie = match ctx.manual_cookie_header.as_deref() {
+                    Some(cookie) => cookie.to_string(),
+                    None => crate::providers::browser_cookie_header(&["manus.im"])?,
+                };
                 Ok(ProviderFetchResult::new(
-                    self.fetch_web(cookie).await?,
+                    self.fetch_web(&cookie).await?,
                     "web",
                 ))
             }

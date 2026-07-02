@@ -112,6 +112,18 @@ pub use windsurf::WindsurfProvider;
 pub use zai::ZaiProvider;
 pub use zed::ZedProvider;
 
+pub(crate) fn browser_cookie_header(
+    domains: &[&str],
+) -> Result<String, crate::core::ProviderError> {
+    crate::browser::cookies::get_cookie_header_for_domains(domains).map_err(|error| match error {
+        crate::browser::cookies::CookieError::BrowserNotInstalled
+        | crate::browser::cookies::CookieError::NotFound(_) => {
+            crate::core::ProviderError::NoCookies
+        }
+        _ => crate::core::ProviderError::Other(format!("Failed to read browser cookies: {error}")),
+    })
+}
+
 pub(crate) fn resolve_api_key(
     explicit: Option<&str>,
     credential_target: &str,

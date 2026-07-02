@@ -6,12 +6,11 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use crate::browser::cookies::CookieExtractor;
-use crate::browser::detection::BrowserDetector;
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::browser_cookie_header;
 
 /// Factory.ai API endpoints
 const FACTORY_AUTH_URL: &str = "https://app.factory.ai/api/app/auth/me";
@@ -99,28 +98,7 @@ impl FactoryProvider {
 
     /// Get cookies for Factory.ai from browser
     fn get_cookies(&self) -> Result<String, ProviderError> {
-        let browsers = BrowserDetector::detect_all();
-
-        if browsers.is_empty() {
-            return Err(ProviderError::NoCookies);
-        }
-
-        // Try each browser to find Factory cookies
-        for browser in &browsers {
-            if let Ok(cookies) = CookieExtractor::extract_for_domain(browser, "app.factory.ai")
-                && !cookies.is_empty()
-            {
-                // Convert to cookie header string
-                let cookie_str = cookies
-                    .iter()
-                    .map(|c| c.to_header_value())
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                return Ok(cookie_str);
-            }
-        }
-
-        Err(ProviderError::NoCookies)
+        browser_cookie_header(&["app.factory.ai"])
     }
 
     /// Fetch auth info from Factory API

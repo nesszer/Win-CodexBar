@@ -8,11 +8,11 @@ use chrono::{DateTime, TimeZone, Utc};
 use regex_lite::Regex;
 use serde::Deserialize;
 
-use crate::browser::cookies::get_cookie_header;
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::browser_cookie_header;
 
 const BASE_URL: &str = "https://t3.chat";
 const CUSTOMER_DATA_URL: &str = "https://t3.chat/api/trpc/getCustomerData";
@@ -140,18 +140,11 @@ impl T3ChatProvider {
             return Ok(context);
         }
 
-        for domain in COOKIE_DOMAINS {
-            if let Ok(cookie_header) = get_cookie_header(domain)
-                && !cookie_header.trim().is_empty()
-            {
-                return Ok(T3RequestContext {
-                    cookie_header,
-                    headers: Vec::new(),
-                });
-            }
-        }
-
-        Err(ProviderError::NoCookies)
+        let cookie_header = browser_cookie_header(&COOKIE_DOMAINS)?;
+        Ok(T3RequestContext {
+            cookie_header,
+            headers: Vec::new(),
+        })
     }
 
     fn request_context_from_raw(raw: &str) -> Option<T3RequestContext> {
