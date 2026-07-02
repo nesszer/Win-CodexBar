@@ -378,16 +378,16 @@ impl ClaudeOAuthFetcher {
 
         #[cfg(not(windows))]
         {
-            if let Ok(output) = std::process::Command::new("whoami").output() {
-                if output.status.success() {
-                    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    Self::push_keyring_candidate(&mut candidates, value.clone());
-                    if let Some((_, username)) = value.rsplit_once('\\') {
-                        Self::push_keyring_candidate(&mut candidates, username.to_string());
-                    }
-                    if let Some((_, username)) = value.rsplit_once('/') {
-                        Self::push_keyring_candidate(&mut candidates, username.to_string());
-                    }
+            if let Ok(output) = std::process::Command::new("whoami").output()
+                && output.status.success()
+            {
+                let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                Self::push_keyring_candidate(&mut candidates, value.clone());
+                if let Some((_, username)) = value.rsplit_once('\\') {
+                    Self::push_keyring_candidate(&mut candidates, username.to_string());
+                }
+                if let Some((_, username)) = value.rsplit_once('/') {
+                    Self::push_keyring_candidate(&mut candidates, username.to_string());
                 }
             }
         }

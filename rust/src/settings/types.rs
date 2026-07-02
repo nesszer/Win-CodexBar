@@ -11,6 +11,8 @@ pub enum Language {
     Chinese,
     /// Japanese
     Japanese,
+    /// Spanish (Mexican)
+    Spanish,
 }
 
 impl Language {
@@ -20,12 +22,53 @@ impl Language {
             Language::English => "English",
             Language::Chinese => "中文",
             Language::Japanese => "日本語",
+            Language::Spanish => "Español",
         }
     }
 
     /// Get all available languages
     pub fn all() -> &'static [Language] {
-        &[Language::English, Language::Chinese, Language::Japanese]
+        &[Language::English, Language::Chinese, Language::Japanese, Language::Spanish]
+    }
+
+    /// Stable label used in bridge JSON and persisted settings
+    /// (e.g. "english", "spanish").
+    pub fn label(&self) -> &'static str {
+        match self {
+            Language::English => "english",
+            Language::Chinese => "chinese",
+            Language::Japanese => "japanese",
+            Language::Spanish => "spanish",
+        }
+    }
+
+    /// Accepted input aliases — short codes and native names (all lowercase).
+    /// Used by resolve() for flexible language parsing.
+    pub fn accepted_aliases(&self) -> &'static [&'static str] {
+        match self {
+            Language::English => &["en", "en-us"],
+            Language::Chinese => &["zh", "zh-cn", "zh-hans", "中文"],
+            Language::Japanese => &["ja", "ja-jp", "日本語"],
+            Language::Spanish => &["es", "es-mx", "español"],
+        }
+    }
+
+    /// Resolve a language from any recognized input string.
+    /// Matches against label() and all accepted_aliases().
+    /// Case-insensitive via Unicode-aware to_lowercase().
+    pub fn resolve(raw: &str) -> Option<Language> {
+        let normalized = raw.trim().to_lowercase();
+        for lang in Self::all() {
+            if normalized == lang.label() {
+                return Some(*lang);
+            }
+            for alias in lang.accepted_aliases() {
+                if normalized == *alias {
+                    return Some(*lang);
+                }
+            }
+        }
+        None
     }
 }
 

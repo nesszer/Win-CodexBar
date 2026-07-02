@@ -1,9 +1,17 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
+import { invoke } from "@tauri-apps/api/core";
 import { playNotificationSound } from "../../../lib/tauri";
 import { Field, NumberInput, Select, Toggle } from "../../../components/FormControls";
-import type { Language } from "../../../types/bridge";
+import type { Language, LanguageOption } from "../../../types/bridge";
 import type { TabProps } from "../../Settings";
+
+const FALLBACK_LANGUAGE_OPTIONS: LanguageOption[] = [
+  { value: "english", display: "English" },
+  { value: "chinese", display: "中文" },
+  { value: "japanese", display: "日本語" },
+  { value: "spanish", display: "Español" },
+];
 
 const REFRESH_CADENCE_OPTIONS: { value: string; label: string }[] = [
   { value: "0", label: "Manual" },
@@ -17,6 +25,15 @@ const REFRESH_CADENCE_OPTIONS: { value: string; label: string }[] = [
 export default function GeneralTab({ settings, set, saving }: TabProps) {
   const { t } = useLocale();
   const [playingSound, setPlayingSound] = useState(false);
+  const [languageOptions, setLanguageOptions] = useState<LanguageOption[]>(
+    FALLBACK_LANGUAGE_OPTIONS,
+  );
+
+  useEffect(() => {
+    invoke<LanguageOption[]>("get_available_languages")
+      .then(setLanguageOptions)
+      .catch(() => {}); // graceful fallback to static default
+  }, []);
 
   const handleTestSound = useCallback(() => {
     setPlayingSound(true);
@@ -33,11 +50,10 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
             <Select
               value={settings.uiLanguage}
               disabled={saving}
-              options={[
-                { value: "english", label: t("LanguageEnglishOption") },
-                { value: "chinese", label: t("LanguageChineseOption") },
-                { value: "japanese", label: t("LanguageJapaneseOption") },
-              ]}
+              options={languageOptions.map((opt) => ({
+                value: opt.value,
+                label: opt.display,
+              }))}
               onChange={(v) => set({ uiLanguage: v as Language })}
             />
           </Field>

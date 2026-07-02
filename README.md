@@ -1,6 +1,6 @@
 # Win-CodexBar
 
-[Simplified Chinese](./README.zh-CN.md)
+[Español mexicano](./README.es-MX.md) | [Simplified Chinese](./README.zh-CN.md)
 
 Win-CodexBar is a Windows system-tray app for keeping AI coding-tool usage visible without opening a dozen dashboards. It ports the spirit of [CodexBar](https://github.com/steipete/CodexBar) to a Tauri + React desktop shell backed by shared Rust provider logic.
 

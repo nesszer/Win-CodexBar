@@ -44,6 +44,22 @@ fn test_locale_key_japanese() {
 }
 
 #[test]
+fn test_locale_key_spanish() {
+    assert_eq!(
+        get_text(Language::Spanish, LocaleKey::TabGeneral),
+        "General"
+    );
+    assert_eq!(
+        get_text(Language::Spanish, LocaleKey::InterfaceLanguage),
+        "Idioma de la interfaz"
+    );
+    assert_eq!(
+        get_text(Language::Spanish, LocaleKey::StartAtLogin),
+        "Iniciar al arrancar"
+    );
+}
+
+#[test]
 fn test_locale_respects_language_setting() {
     // Test that English language returns English strings
     let lang = Language::English;
@@ -56,11 +72,15 @@ fn test_locale_respects_language_setting() {
     // Test that Japanese language returns Japanese strings
     let lang = Language::Japanese;
     assert_eq!(get_text(lang, LocaleKey::TabAbout), "情報");
+
+    // Test that Spanish language returns Spanish strings
+    let lang = Language::Spanish;
+    assert_eq!(get_text(lang, LocaleKey::TabAbout), "Acerca de");
 }
 
 #[test]
-fn test_all_locale_keys_have_both_languages() {
-    // Verify all sampled variants have English, Chinese, and Japanese coverage.
+fn test_all_locale_keys_have_all_languages() {
+    // Verify all sampled variants have English, Chinese, Japanese, and Spanish coverage.
     let keys = [
         // Tab names
         LocaleKey::TabGeneral,
@@ -171,6 +191,14 @@ fn test_all_locale_keys_have_both_languages() {
         assert!(
             !japanese.is_empty(),
             "Japanese string for {:?} is empty",
+            key
+        );
+
+        // Spanish should not be empty
+        let spanish = key.spanish();
+        assert!(
+            !spanish.is_empty(),
+            "Spanish string for {:?} is empty",
             key
         );
     }

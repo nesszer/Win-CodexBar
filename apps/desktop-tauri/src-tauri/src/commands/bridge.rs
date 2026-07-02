@@ -397,6 +397,7 @@ pub struct SettingsSnapshot {
     global_shortcut: String,
     ui_language: &'static str,
     theme: &'static str,
+    window_scale_percent: u16,
     claude_avoid_keychain_prompts: bool,
     disable_keychain_access: bool,
     provider_metrics: std::collections::HashMap<String, &'static str>,
@@ -475,6 +476,7 @@ impl From<Settings> for SettingsSnapshot {
             global_shortcut: settings.global_shortcut,
             ui_language: language_label(settings.ui_language),
             theme: theme_label(settings.theme),
+            window_scale_percent: settings.window_scale_percent,
             claude_avoid_keychain_prompts: avoid_keychain_prompts,
             disable_keychain_access: settings.disable_keychain_access,
             provider_metrics,
@@ -518,11 +520,7 @@ pub(super) fn update_channel_label(channel: UpdateChannel) -> &'static str {
 }
 
 pub(super) fn language_label(language: Language) -> &'static str {
-    match language {
-        Language::English => "english",
-        Language::Chinese => "chinese",
-        Language::Japanese => "japanese",
-    }
+    language.label()
 }
 
 fn theme_label(theme: ThemePreference) -> &'static str {

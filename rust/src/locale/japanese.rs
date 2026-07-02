@@ -485,6 +485,15 @@ impl LocaleKey {
             LocaleKey::DisplayModeDetailed => "Detailed",
             LocaleKey::DisplayModeCompact => "Compact",
             LocaleKey::DisplayModeMinimal => "Minimal",
+            LocaleKey::WindowScaleLabel => "ウィンドウ倍率",
+            LocaleKey::WindowScaleHelper => {
+                "ポップアウトダッシュボードの内容を拡大縮小します。ウィンドウ自体は自由にサイズ変更できます。"
+            }
+            LocaleKey::WindowScaleAriaLabel => "ウィンドウ倍率",
+            LocaleKey::WindowMinimize => "最小化",
+            LocaleKey::WindowMaximize => "最大化",
+            LocaleKey::WindowRestore => "元に戻す",
+            LocaleKey::WindowClose => "閉じる",
             LocaleKey::ShowAsUsedLabel => "Show as used",
             LocaleKey::ShowAsUsedHelper => "Display usage bars as consumed rather than remaining.",
             LocaleKey::ShowAllTokenAccountsLabel => "Show all token accounts",
@@ -507,6 +516,7 @@ impl LocaleKey {
             LocaleKey::LanguageEnglishOption => "English",
             LocaleKey::LanguageChineseOption => "中文",
             LocaleKey::LanguageJapaneseOption => "日本語",
+            LocaleKey::LanguageSpanishOption => "スペイン語",
 
             // Tauri desktop shell — Theme (Phase 12)
             LocaleKey::SectionTheme => "Appearance",

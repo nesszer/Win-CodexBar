@@ -16,6 +16,9 @@ export interface MenuFooterRow {
 
 interface MenuSurfaceProps {
   variant: "tray" | "popout";
+  /** Optional window chrome (e.g. the PopOut title bar) rendered flush at the
+   *  top. A slot keeps this shared content container free of window APIs. */
+  titleBar?: ReactNode;
   onRefresh: () => void;
   isRefreshing: boolean;
   actions: MenuSurfaceAction[];
@@ -35,6 +38,7 @@ interface MenuSurfaceProps {
  */
 export default function MenuSurface({
   variant,
+  titleBar,
   onRefresh,
   isRefreshing,
   actions,
@@ -45,6 +49,7 @@ export default function MenuSurface({
 }: MenuSurfaceProps) {
   return (
     <div className={`menu-surface menu-surface--${variant}`}>
+      {titleBar}
       {banner}
       {summary}
       <div className="menu-surface__body">{children}</div>

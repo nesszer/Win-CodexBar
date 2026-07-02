@@ -485,6 +485,15 @@ impl LocaleKey {
             LocaleKey::DisplayModeDetailed => "Detailed",
             LocaleKey::DisplayModeCompact => "Compact",
             LocaleKey::DisplayModeMinimal => "Minimal",
+            LocaleKey::WindowScaleLabel => "Window scale",
+            LocaleKey::WindowScaleHelper => {
+                "Scales the PopOut dashboard contents. The window remains freely resizable."
+            }
+            LocaleKey::WindowScaleAriaLabel => "Window scale",
+            LocaleKey::WindowMinimize => "Minimize",
+            LocaleKey::WindowMaximize => "Maximize",
+            LocaleKey::WindowRestore => "Restore",
+            LocaleKey::WindowClose => "Close",
             LocaleKey::ShowAsUsedLabel => "Show as used",
             LocaleKey::ShowAsUsedHelper => "Display usage bars as consumed rather than remaining.",
             LocaleKey::ShowAllTokenAccountsLabel => "Show all token accounts",
@@ -507,6 +516,7 @@ impl LocaleKey {
             LocaleKey::LanguageEnglishOption => "English",
             LocaleKey::LanguageChineseOption => "中文",
             LocaleKey::LanguageJapaneseOption => "日本語",
+            LocaleKey::LanguageSpanishOption => "Español",
 
             // Tauri desktop shell — Theme (Phase 12)
             LocaleKey::SectionTheme => "Appearance",

@@ -145,6 +145,11 @@ pub struct Settings {
     #[serde(default)]
     pub theme: ThemePreference,
 
+    /// Main PopOut window display scale, in the inclusive range 100..=250.
+    /// 100 % is normal size; higher values enlarge the window content.
+    #[serde(default = "default_window_scale_percent")]
+    pub window_scale_percent: u16,
+
     /// Show the always-on-top floating capacity bar.
     #[serde(default)]
     pub float_bar_enabled: bool,
@@ -183,6 +188,14 @@ pub struct Settings {
     /// When true, show the primary window's next reset inline in each pill.
     #[serde(default)]
     pub float_bar_show_reset_inline: bool,
+}
+
+fn default_window_scale_percent() -> u16 {
+    100
+}
+
+pub fn clamp_window_scale_percent(value: u16) -> u16 {
+    value.clamp(100, 250)
 }
 
 fn default_float_bar_opacity() -> u8 {
@@ -330,6 +343,7 @@ impl Default for Settings {
             install_updates_on_quit: false, // Don't auto-install on quit by default
             ui_language: Language::default(), // English by default
             theme: ThemePreference::default(), // Auto (follows prefers-color-scheme)
+            window_scale_percent: default_window_scale_percent(),
             float_bar_enabled: false,
             float_bar_opacity: default_float_bar_opacity(),
             float_bar_scale: default_float_bar_scale(),

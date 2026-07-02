@@ -63,6 +63,7 @@ const settings: SettingsSnapshot = {
   updateChannel: "stable",
   uiLanguage: "english",
   theme: "dark",
+  windowScalePercent: 125,
   claudeAvoidKeychainPrompts: true,
   disableKeychainAccess: false,
   providerMetrics: {},

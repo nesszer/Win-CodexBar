@@ -102,3 +102,4 @@ codexbar-desktop-tauri.exe
 
 # Local git worktrees
 .worktrees/
+.atl/

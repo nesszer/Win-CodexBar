@@ -32,6 +32,7 @@ pub struct SettingsUpdate {
     pub global_shortcut: Option<String>,
     pub ui_language: Option<String>,
     pub theme: Option<String>,
+    pub window_scale_percent: Option<u16>,
     pub claude_avoid_keychain_prompts: Option<bool>,
     pub disable_keychain_access: Option<bool>,
     /// Map of provider CLI name → metric preference label.
@@ -139,6 +140,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.menu_bar_display_mode.clone() {
             settings.menu_bar_display_mode = v;
+        }
+        if let Some(v) = self.window_scale_percent {
+            settings.window_scale_percent = codexbar::settings::clamp_window_scale_percent(v);
         }
         if let Some(v) = self.switcher_shows_icons {
             settings.switcher_shows_icons = v;
@@ -260,12 +264,7 @@ fn parse_update_channel(s: &str) -> Option<UpdateChannel> {
 }
 
 fn parse_language(s: &str) -> Option<Language> {
-    match s {
-        "english" => Some(Language::English),
-        "chinese" => Some(Language::Chinese),
-        "japanese" => Some(Language::Japanese),
-        _ => None,
-    }
+    Language::resolve(s)
 }
 
 #[tauri::command]
@@ -296,6 +295,11 @@ pub async fn update_settings(
         crate::tray_bridge::refresh_tray_presentation(&app);
     }
 
+    // Notify other windows (PopOut dashboard, tray, float bar) so they re-read
+    // settings live — e.g. the Display tab's window-scale slider takes effect
+    // immediately instead of only after the PopOut is reopened.
+    events::emit_settings_changed(&app);
+
     Ok(SettingsSnapshot::from(settings))
 }
 
@@ -319,5 +323,24 @@ mod tests {
             }
             .refreshes_tray_presentation()
         );
+    }
+
+    #[test]
+    fn apply_display_settings_clamps_window_scale_percent() {
+        let mut settings = Settings::default();
+
+        SettingsUpdate {
+            window_scale_percent: Some(300),
+            ..Default::default()
+        }
+        .apply_display_settings(&mut settings);
+        assert_eq!(settings.window_scale_percent, 250);
+
+        SettingsUpdate {
+            window_scale_percent: Some(50),
+            ..Default::default()
+        }
+        .apply_display_settings(&mut settings);
+        assert_eq!(settings.window_scale_percent, 100);
     }
 }

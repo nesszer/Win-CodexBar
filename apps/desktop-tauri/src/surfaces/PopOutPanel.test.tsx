@@ -24,18 +24,48 @@ const eventMocks = vi.hoisted(() => ({
   listen: vi.fn(),
 }));
 
-const windowMocks = vi.hoisted(() => ({
-  getCurrentWindow: vi.fn(() => ({
-    setSize: vi.fn().mockResolvedValue(undefined),
-    setPosition: vi.fn().mockResolvedValue(undefined),
-  })),
-  LogicalSize: vi.fn((width: number, height: number) => ({ width, height })),
-  LogicalPosition: vi.fn((x: number, y: number) => ({ x, y })),
-}));
+const windowMocks = vi.hoisted(() => {
+  const setSize = vi.fn().mockResolvedValue(undefined);
+  const setPosition = vi.fn().mockResolvedValue(undefined);
+  const minimize = vi.fn().mockResolvedValue(undefined);
+  const toggleMaximize = vi.fn().mockResolvedValue(undefined);
+  const close = vi.fn().mockResolvedValue(undefined);
+  const isMaximized = vi.fn().mockResolvedValue(false);
+  const onResized = vi.fn().mockResolvedValue(() => {});
+  return {
+    setSize,
+    setPosition,
+    minimize,
+    toggleMaximize,
+    close,
+    isMaximized,
+    onResized,
+    getCurrentWindow: vi.fn(() => ({
+      setSize,
+      setPosition,
+      minimize,
+      toggleMaximize,
+      close,
+      isMaximized,
+      onResized,
+    })),
+    LogicalSize: vi.fn((width: number, height: number) => ({ width, height })),
+    LogicalPosition: vi.fn((x: number, y: number) => ({ x, y })),
+  };
+});
+
+const webviewWindowMocks = vi.hoisted(() => {
+  const setZoom = vi.fn().mockResolvedValue(undefined);
+  return {
+    setZoom,
+    getCurrentWebviewWindow: vi.fn(() => ({ setZoom })),
+  };
+});
 
 vi.mock("../lib/tauri", () => tauriMocks);
 vi.mock("@tauri-apps/api/event", () => eventMocks);
 vi.mock("@tauri-apps/api/window", () => windowMocks);
+vi.mock("@tauri-apps/api/webviewWindow", () => webviewWindowMocks);
 
 import PopOutPanel from "./PopOutPanel";
 import { LocaleProvider } from "../i18n/LocaleProvider";
@@ -111,6 +141,7 @@ function settings(): SettingsSnapshot {
     globalShortcut: "Ctrl+Shift+U",
     uiLanguage: "english",
     theme: "dark",
+    windowScalePercent: 125,
     claudeAvoidKeychainPrompts: false,
     disableKeychainAccess: false,
     providerMetrics: {},
@@ -126,11 +157,14 @@ function settings(): SettingsSnapshot {
   };
 }
 
-function bootstrap(catalog: ProviderCatalogEntry[] = []): BootstrapState {
+function bootstrap(
+  catalog: ProviderCatalogEntry[] = [],
+  settingsOverride: Partial<SettingsSnapshot> = {},
+): BootstrapState {
   return {
     contractVersion: "v1",
     providers: catalog,
-    settings: settings(),
+    settings: { ...settings(), ...settingsOverride },
   };
 }
 
@@ -138,11 +172,19 @@ function renderPopOut(
   providers: ProviderUsageSnapshot[],
   providerId?: string,
   catalog: ProviderCatalogEntry[] = [],
+  settingsOverride: Partial<SettingsSnapshot> = {},
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
+  tauriMocks.getSettingsSnapshot.mockResolvedValue({
+    ...settings(),
+    ...settingsOverride,
+  });
   return render(
     <LocaleProvider>
-      <PopOutPanel state={bootstrap(catalog)} providerId={providerId} />
+      <PopOutPanel
+        state={bootstrap(catalog, settingsOverride)}
+        providerId={providerId}
+      />
     </LocaleProvider>,
   );
 }
@@ -189,6 +231,39 @@ describe("PopOutPanel", () => {
     expect(container.querySelector(".provider-grid__item--active")?.getAttribute("aria-label")).toBe("Claude");
     expect(screen.getAllByText("Claude").length).toBeGreaterThanOrEqual(2);
     expect(container.querySelectorAll(".menu-stack__item")).toHaveLength(1);
+  });
+
+  it("applies the persisted PopOut display scale", async () => {
+    const { container } = renderPopOut(
+      [provider("codex", "Codex", 80)],
+      undefined,
+      [],
+      { windowScalePercent: 175 },
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".popout-scale-shell")).not.toBeNull();
+    });
+
+    // Scaling is applied via the webview's native zoom, not an inline
+    // `--window-scale` style (which the earlier CSS-zoom approach used).
+    await waitFor(() => {
+      expect(webviewWindowMocks.setZoom).toHaveBeenCalledWith(1.75);
+    });
+  });
+
+  it("does not resize or reposition the native window on mount", async () => {
+    renderPopOut([provider("codex", "Codex", 80)]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
+    });
+
+    // The PopOut title bar reads window state (isMaximized) on mount, so
+    // getCurrentWindow is legitimately called; assert only that the surface
+    // itself never resizes or repositions the native window.
+    expect(windowMocks.setSize).not.toHaveBeenCalled();
+    expect(windowMocks.setPosition).not.toHaveBeenCalled();
   });
 
   it("renders overview cards in settings catalog order instead of fetch order", async () => {

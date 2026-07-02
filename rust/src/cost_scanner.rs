@@ -694,10 +694,18 @@ mod tests {
             "codexbar-current-codex-token-count-{}.jsonl",
             std::process::id()
         ));
+        // Use a recent timestamp so the event stays inside the scanner's
+        // 30-day window no matter when the test runs. A hardcoded date
+        // silently ages out of the window and makes this test fail with 0
+        // sessions once it is more than 30 days in the past.
+        let recent = (Utc::now() - Duration::hours(1))
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
         let mut file = File::create(&path).unwrap();
         writeln!(
             file,
-            r#"{{"timestamp":"2026-05-27T17:12:48.000Z","type":"event_msg","payload":{{"type":"token_count","info":{{"model":"gpt-5","total_token_usage":{{"input_tokens":125,"cached_input_tokens":30,"output_tokens":15}}}}}}}}"#
+            r#"{{"timestamp":"{ts}","type":"event_msg","payload":{{"type":"token_count","info":{{"model":"gpt-5","total_token_usage":{{"input_tokens":125,"cached_input_tokens":30,"output_tokens":15}}}}}}}}"#,
+            ts = recent
         )
         .unwrap();
         drop(file);

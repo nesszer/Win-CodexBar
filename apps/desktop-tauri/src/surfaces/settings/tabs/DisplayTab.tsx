@@ -1,11 +1,30 @@
+import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
 import { Field, Select, Toggle } from "../../../components/FormControls";
 import type { MenuBarDisplayMode, TrayIconMode } from "../../../types/bridge";
 import type { TabProps } from "../../Settings";
 import { FloatBarSettingsSection } from "../../../floatbar";
 
+function clampWindowScalePercent(value: number): number {
+  return Math.min(250, Math.max(100, Number.isFinite(value) ? value : 100));
+}
+
 export default function DisplayTab({ settings, set, saving }: TabProps) {
   const { t } = useLocale();
+  const [windowScaleDraft, setWindowScaleDraft] = useState(() =>
+    clampWindowScalePercent(settings.windowScalePercent),
+  );
+
+  useEffect(() => {
+    setWindowScaleDraft(clampWindowScalePercent(settings.windowScalePercent));
+  }, [settings.windowScalePercent]);
+
+  const commitWindowScale = useCallback(() => {
+    const next = clampWindowScalePercent(windowScaleDraft);
+    if (next !== settings.windowScalePercent) {
+      set({ windowScalePercent: next });
+    }
+  }, [set, settings.windowScalePercent, windowScaleDraft]);
   return (
     <>
       {/* ── Menu bar ─────────────────────────────────────────────── */}
@@ -83,6 +102,29 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
       <section className="settings-section">
         <h3 className="settings-section__title">Menu Content</h3>
         <div className="settings-section__group">
+          <Field
+            label={`${t("WindowScaleLabel")} (${windowScaleDraft}%)`}
+            description={t("WindowScaleHelper")}
+          >
+            <input
+              type="range"
+              min={100}
+              max={250}
+              step={5}
+              value={windowScaleDraft}
+              disabled={saving}
+              onChange={(e) =>
+                setWindowScaleDraft(
+                  clampWindowScalePercent(Number(e.target.value)),
+                )
+              }
+              onPointerUp={commitWindowScale}
+              onTouchEnd={commitWindowScale}
+              onBlur={commitWindowScale}
+              onKeyUp={commitWindowScale}
+              aria-label={t("WindowScaleAriaLabel")}
+            />
+          </Field>
           <Field
             label={t("ShowAsUsedLabel")}
             description={t("ShowAsUsedHelper")}

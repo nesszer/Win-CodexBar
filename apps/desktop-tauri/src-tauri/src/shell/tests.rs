@@ -3,7 +3,10 @@ use super::geometry::{
     MonitorPlacement, inferred_tray_anchor_rect, inferred_tray_panel_position_for_monitor,
     surface_panel_size, tray_anchor_rect,
 };
-use super::position::visible_surface_position_for_mode_with_fallbacks;
+use super::position::{
+    remembered_panel_size, remembered_surface_position_with_monitors,
+    visible_surface_position_for_mode_with_fallbacks,
+};
 use super::transition::{
     SurfaceSnapshot, TransitionResolution, hidden_surface_snapshot,
     monitor_for_preserved_visible_position, reclamp_preserved_visible_position,
@@ -12,7 +15,9 @@ use super::transition::{
     should_force_tray_panel_reveal, should_hide_tray_panel_on_toggle,
     should_synthesize_default_position,
 };
-use super::window::{hide_to_tray_state, prepare_hide_to_tray_if_current};
+use super::window::{
+    hide_to_tray_state, logical_size_from_geometry, prepare_hide_to_tray_if_current,
+};
 
 use crate::state::AppState;
 use crate::surface::{SurfaceMode, SurfaceTransition};
@@ -734,7 +739,7 @@ fn visible_recovery_propagates_visibility_errors() {
         target: SurfaceTarget::Summary,
     };
 
-    let err = restore_recovery_surface(&recovery, |_| Err("show failed".into()))
+    let err = restore_recovery_surface(&recovery, |_, _| Err("show failed".into()))
         .expect_err("visible recovery should fail when properties are not restored");
 
     assert_eq!(err, "show failed");
@@ -748,7 +753,8 @@ fn hidden_recovery_reapplies_hidden_properties() {
     };
 
     let mut applied_hidden = false;
-    let restored = restore_recovery_surface(&recovery, |properties| {
+    let restored = restore_recovery_surface(&recovery, |mode, properties| {
+        assert_eq!(mode, SurfaceMode::Hidden);
         applied_hidden = !properties.visible;
         Ok(())
     });
@@ -766,4 +772,79 @@ fn hidden_surface_snapshot_matches_non_visible_shell_state() {
             target: SurfaceTarget::Summary,
         }
     );
+}
+
+#[test]
+fn remembered_popout_position_clamps_using_stored_size() {
+    let monitor = MonitorPlacement {
+        bounds: Rect {
+            x: 0,
+            y: 0,
+            width: 1000,
+            height: 800,
+        },
+        work_area: Rect {
+            x: 0,
+            y: 0,
+            width: 1000,
+            height: 800,
+        },
+        scale_factor: 1.0,
+    };
+    let stored = crate::geometry_store::StoredGeometry {
+        x: 900,
+        y: 700,
+        width: Some(600),
+        height: Some(500),
+    };
+
+    let position =
+        remembered_surface_position_with_monitors(SurfaceMode::PopOut, stored, &[monitor], None);
+
+    assert_eq!(position, Some((392, 292)));
+}
+
+#[test]
+fn remembered_panel_size_uses_stored_popout_size() {
+    let stored = crate::geometry_store::StoredGeometry {
+        x: 0,
+        y: 0,
+        width: Some(640),
+        height: Some(720),
+    };
+
+    let size = remembered_panel_size(SurfaceMode::PopOut, stored);
+
+    assert_eq!(size.width, 640);
+    assert_eq!(size.height, 720);
+}
+
+#[test]
+fn popout_layout_size_uses_remembered_logical_geometry() {
+    let props = SurfaceMode::PopOut.window_properties();
+    let stored = crate::geometry_store::StoredGeometry {
+        x: 0,
+        y: 0,
+        width: Some(640),
+        height: Some(720),
+    };
+
+    let size = logical_size_from_geometry(SurfaceMode::PopOut, &props, Some(stored));
+
+    assert_eq!(size, (640.0, 720.0));
+}
+
+#[test]
+fn tray_panel_layout_ignores_remembered_geometry() {
+    let props = SurfaceMode::TrayPanel.window_properties();
+    let stored = crate::geometry_store::StoredGeometry {
+        x: 0,
+        y: 0,
+        width: Some(640),
+        height: Some(720),
+    };
+
+    let size = logical_size_from_geometry(SurfaceMode::TrayPanel, &props, Some(stored));
+
+    assert_eq!(size, (props.width, props.height));
 }

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
 import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
@@ -7,6 +7,7 @@ import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
 import { useLocale } from "../hooks/useLocale";
 import MenuCard from "../components/MenuCard";
+import PopOutTitleBar from "../components/PopOutTitleBar";
 import MenuSurface, {
   MenuEmpty,
   type MenuFooterRow,
@@ -51,6 +52,24 @@ export default function PopOutPanel({
   );
   const [gridExpanded, setGridExpanded] = useState(false);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
+  const windowScale = useMemo(() => {
+    const scalePercent = Number(settings.windowScalePercent);
+    return (
+      Math.min(250, Math.max(100, Number.isFinite(scalePercent) ? scalePercent : 100)) / 100
+    );
+  }, [settings.windowScalePercent]);
+
+  // Scale the dashboard via the webview's native zoom (like a browser's Ctrl-+):
+  // it reflows content at the real window width, so the side-by-side cards keep
+  // filling the window at any scale — unlike CSS `zoom`, which overflows. The
+  // main window is shared with the tray surface, so reset zoom to 1 on unmount.
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    void webview.setZoom(windowScale).catch(() => {});
+    return () => {
+      void webview.setZoom(1).catch(() => {});
+    };
+  }, [windowScale]);
 
   useEffect(() => {
     setSelectedProviderId(providerId ?? null);
@@ -76,30 +95,6 @@ export default function PopOutPanel({
 
   const handleGridClick = useCallback((nextProviderId: string | null) => {
     setSelectedProviderId(nextProviderId);
-  }, []);
-
-  useEffect(() => {
-    const win = getCurrentWindow();
-    const screenWidth = window.screen.availWidth || window.innerWidth || 420;
-    const screenHeight = window.screen.availHeight || window.innerHeight || 680;
-    const width = Math.max(320, Math.min(420, screenWidth - 16));
-    // Leave room for native borders/title bars on Windows; the body scrolls.
-    const height = Math.max(320, Math.min(680, screenHeight - 88));
-    const screenOrigin = window.screen as Screen & {
-      availLeft?: number;
-      availTop?: number;
-    };
-    const left = screenOrigin.availLeft ?? 0;
-    const top = screenOrigin.availTop ?? 0;
-
-    void win.setSize(new LogicalSize(width, height)).then(() =>
-      win.setPosition(
-        new LogicalPosition(
-          left + Math.max(8, screenWidth - width - 8),
-          top + 8,
-        ),
-      ),
-    ).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -197,27 +192,25 @@ export default function PopOutPanel({
     />
   );
 
-  if (sorted.length === 0) {
-    return (
-      <MenuSurface
-        variant="popout"
-        onRefresh={refresh}
-        isRefreshing={isRefreshing}
-        actions={headerActions}
-        banner={banner}
-        footerRows={footerRows}
-      >
-        <MenuEmpty
-          isLoading={isRefreshing && !hasCachedData}
-          onSettings={openSettings}
-        />
-      </MenuSurface>
-    );
-  }
-
-  return (
+  const surface = sorted.length === 0 ? (
     <MenuSurface
       variant="popout"
+      titleBar={<PopOutTitleBar />}
+      onRefresh={refresh}
+      isRefreshing={isRefreshing}
+      actions={headerActions}
+      banner={banner}
+      footerRows={footerRows}
+    >
+      <MenuEmpty
+        isLoading={isRefreshing && !hasCachedData}
+        onSettings={openSettings}
+      />
+    </MenuSurface>
+  ) : (
+    <MenuSurface
+      variant="popout"
+      titleBar={<PopOutTitleBar />}
       onRefresh={refresh}
       isRefreshing={isRefreshing}
       actions={headerActions}
@@ -260,5 +253,11 @@ export default function PopOutPanel({
         ))}
       </div>
     </MenuSurface>
+  );
+
+  return (
+    <div className="popout-scale-shell">
+      {surface}
+    </div>
   );
 }

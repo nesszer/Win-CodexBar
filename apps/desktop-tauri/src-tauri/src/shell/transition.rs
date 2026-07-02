@@ -60,7 +60,7 @@ fn schedule_tray_panel_reveal_fallback(app: &AppHandle) {
                 .map(|size| (size.width, size.height));
             if should_force_tray_panel_reveal(current, visible, size) {
                 let layout_result =
-                    apply_window_layout(&window, &SurfaceMode::TrayPanel.window_properties());
+                    apply_window_layout(&window, SurfaceMode::TrayPanel, &SurfaceMode::TrayPanel.window_properties());
                 match layout_result.and_then(|_| show_window(&window)) {
                     Ok(()) => mark_tray_panel_shown(&app_on_main),
                     Err(error) => {
@@ -82,6 +82,8 @@ fn mark_tray_panel_shown(app: &AppHandle) {
     }
 }
 
+#[allow(dead_code)]
+// Retained for the legacy TrayPanel surface mode; current default launches PopOut.
 pub fn schedule_startup_tray_panel_reveal_fallback(app: &AppHandle) {
     const DELAY: std::time::Duration = std::time::Duration::from_millis(750);
     let app = app.clone();
@@ -113,7 +115,7 @@ pub fn schedule_startup_tray_panel_reveal_fallback(app: &AppHandle) {
                 .map(|size| (size.width, size.height));
             if should_force_tray_panel_reveal(current, visible, size) {
                 let layout_result =
-                    apply_window_layout(&window, &SurfaceMode::TrayPanel.window_properties());
+                    apply_window_layout(&window, SurfaceMode::TrayPanel, &SurfaceMode::TrayPanel.window_properties());
                 match layout_result.and_then(|_| show_window(&window)) {
                     Ok(()) => mark_tray_panel_shown(&app_on_main),
                     Err(error) => {
@@ -480,9 +482,9 @@ pub(super) fn restore_recovery_surface<F>(
     mut apply_properties: F,
 ) -> Result<(), String>
 where
-    F: FnMut(&WindowProperties) -> Result<(), String>,
+    F: FnMut(SurfaceMode, &WindowProperties) -> Result<(), String>,
 {
-    apply_properties(&recovery.mode.window_properties())
+    apply_properties(recovery.mode, &recovery.mode.window_properties())
 }
 
 pub(super) fn recovery_snapshot_for_failed_transition(
@@ -542,7 +544,7 @@ pub(super) fn apply_transition(
 
     // Phase 1: apply layout properties (size, decorations, etc.) WITHOUT
     // making the window visible yet.
-    match apply_window_layout(window, &transition.properties) {
+    match apply_window_layout(window, transition.to, &transition.properties) {
         Ok(needs_show) => {
             // Phase 2: commit state + emit event so the React frontend can
             // start rendering the correct surface BEFORE the window appears.
@@ -571,8 +573,8 @@ pub(super) fn apply_transition(
         Err(err) => {
             let recovery =
                 recovery_snapshot_for_failed_transition(transition, previous, &current_target);
-            if let Err(recovery_err) = restore_recovery_surface(&recovery, |properties| {
-                apply_window_properties(window, properties)
+            if let Err(recovery_err) = restore_recovery_surface(&recovery, |mode, properties| {
+                apply_window_properties(window, mode, properties)
             }) {
                 let hidden = hidden_surface_snapshot();
                 if let Err(hide_err) = window.hide().map_err(|e| e.to_string()) {
@@ -628,6 +630,8 @@ pub(super) fn apply_transition(
     }
 }
 
+#[allow(dead_code)]
+// Retained for callers that still explicitly target the legacy TrayPanel mode.
 pub fn handle_tray_panel_click(app: &AppHandle, position: Option<(i32, i32)>) {
     const BLUR_DISMISS_CLICK_WINDOW: std::time::Duration = std::time::Duration::from_millis(250);
 
@@ -646,6 +650,7 @@ pub fn handle_tray_panel_click(app: &AppHandle, position: Option<(i32, i32)>) {
 }
 
 /// Toggle the tray panel: hide if currently showing, show at `position` otherwise.
+#[allow(dead_code)]
 pub fn toggle_tray_panel(app: &AppHandle, position: Option<(i32, i32)>) {
     let current = {
         let st = app.state::<Mutex<AppState>>();

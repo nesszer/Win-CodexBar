@@ -218,6 +218,8 @@ impl AppState {
             .is_some_and(|dismissed_at| now.duration_since(dismissed_at) <= max_age)
     }
 
+    #[allow(dead_code)]
+    // Retained for the legacy startup TrayPanel reveal fallback.
     pub fn arm_startup_tray_reveal(&mut self, grace_until: std::time::Instant) {
         self.startup_tray_blur_grace_until = Some(grace_until);
         self.startup_tray_reveal_pending = true;

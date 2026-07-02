@@ -25,6 +25,45 @@ struct Margins {
 }
 
 #[cfg(windows)]
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct WinPoint {
+    x: i32,
+    y: i32,
+}
+
+#[cfg(windows)]
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct WinRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+/// Win32 `MINMAXINFO`. `lparam` of `WM_GETMINMAXINFO` points at one of these.
+#[cfg(windows)]
+#[repr(C)]
+struct MinMaxInfo {
+    reserved: WinPoint,
+    max_size: WinPoint,
+    max_position: WinPoint,
+    min_track_size: WinPoint,
+    max_track_size: WinPoint,
+}
+
+/// Win32 `MONITORINFO` (40 bytes). `cb_size` must be set before the call.
+#[cfg(windows)]
+#[repr(C)]
+struct MonitorInfo {
+    cb_size: u32,
+    rc_monitor: WinRect,
+    rc_work: WinRect,
+    dw_flags: u32,
+}
+
+#[cfg(windows)]
 #[link(name = "user32")]
 unsafe extern "system" {
     fn GetAncestor(hwnd: isize, flags: u32) -> isize;
@@ -32,6 +71,8 @@ unsafe extern "system" {
     fn GetWindowLongPtrW(hwnd: isize, index: i32) -> isize;
     fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, w: i32, h: i32, flags: u32) -> i32;
     fn DefSubclassProc(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
+    fn MonitorFromWindow(hwnd: isize, flags: u32) -> isize;
+    fn GetMonitorInfoW(hmonitor: isize, info: *mut MonitorInfo) -> i32;
 }
 
 #[cfg(windows)]
@@ -61,6 +102,8 @@ const WM_NCPAINT: u32 = 0x0085;
 #[cfg(windows)]
 const WM_NCACTIVATE: u32 = 0x0086;
 #[cfg(windows)]
+const WM_GETMINMAXINFO: u32 = 0x0024;
+#[cfg(windows)]
 const BORDERLESS_SUBCLASS_ID: usize = 0xC0DE_BA12;
 
 #[cfg(windows)]
@@ -88,6 +131,36 @@ unsafe extern "system" fn borderless_subclass_proc(
         WM_NCACTIVATE => {
             // Return TRUE to accept activation but skip DWM painting.
             1
+        }
+        WM_GETMINMAXINFO => {
+            // A borderless window whose non-client area is zeroed maximizes to
+            // cover the entire monitor, including the taskbar. Constrain the
+            // maximized position/size to the monitor work area instead.
+            const MONITOR_DEFAULTTONEAREST: u32 = 2;
+            unsafe {
+                let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                if hmon != 0 && lparam != 0 {
+                    let mut mi = MonitorInfo {
+                        cb_size: std::mem::size_of::<MonitorInfo>() as u32,
+                        rc_monitor: WinRect::default(),
+                        rc_work: WinRect::default(),
+                        dw_flags: 0,
+                    };
+                    if GetMonitorInfoW(hmon, &mut mi) != 0 {
+                        let mmi = lparam as *mut MinMaxInfo;
+                        (*mmi).max_position = WinPoint {
+                            x: mi.rc_work.left - mi.rc_monitor.left,
+                            y: mi.rc_work.top - mi.rc_monitor.top,
+                        };
+                        (*mmi).max_size = WinPoint {
+                            x: mi.rc_work.right - mi.rc_work.left,
+                            y: mi.rc_work.bottom - mi.rc_work.top,
+                        };
+                        (*mmi).max_track_size = (*mmi).max_size;
+                    }
+                }
+            }
+            0
         }
         _ => unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) },
     }

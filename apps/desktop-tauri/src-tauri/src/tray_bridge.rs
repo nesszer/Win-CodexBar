@@ -1,4 +1,4 @@
-//! System tray icon setup: left-click toggle, right-click native menu.
+//! System tray icon setup: left-click opens the dashboard, right-click native menu.
 
 use std::sync::Mutex;
 
@@ -149,8 +149,8 @@ fn build_native_tray_menu(
 fn resolve_menu_target(id: &str) -> Option<shell::ShellTransitionRequest> {
     match id {
         "show_panel" => Some(shell::ShellTransitionRequest {
-            mode: SurfaceMode::TrayPanel,
-            target: SurfaceTarget::Summary,
+            mode: SurfaceMode::PopOut,
+            target: SurfaceTarget::Dashboard,
             position: None,
         }),
         "pop_out" => Some(shell::ShellTransitionRequest {
@@ -264,8 +264,12 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let app = tray.app_handle();
                 if button == MouseButton::Left && button_state == MouseButtonState::Up {
                     store_anchor(app, &rect, position);
-                    let position = shell::tray_panel_position(app);
-                    shell::handle_tray_panel_click(app, position);
+                    let _ = shell::reopen_to_target(
+                        app,
+                        SurfaceMode::PopOut,
+                        SurfaceTarget::Dashboard,
+                        None,
+                    );
                 }
             }
         })
@@ -282,10 +286,8 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     match resolve_menu_action(id) {
         Some(MenuAction::Transition(request)) => {
             match resolve_menu_transition_dispatch(id, request) {
-                // Pass None so default_surface_position resolves the full chain:
-                // tray_panel_position → inferred_tray_panel_position → shortcut_panel_position.
-                // This mirrors the CODEXBAR_START_VISIBLE path and ensures the panel
-                // opens near the taskbar tray corner even without a prior anchor click.
+                // Pass None so default_surface_position can use remembered PopOut
+                // geometry first, then fall back to tray/current-monitor placement.
                 MenuTransitionDispatch::Reopen(request) => {
                     let _ = shell::reopen_to_target(
                         app,
@@ -830,24 +832,28 @@ mod tests {
     }
 
     #[test]
-    fn show_panel_menu_reopens_with_default_position_chain() {
+    fn show_panel_menu_reopens_popout_dashboard_with_default_position_chain() {
+        let request = resolve_menu_target("show_panel").expect("show_panel target");
+        assert_eq!(request.mode, SurfaceMode::PopOut);
+        assert_eq!(request.target, SurfaceTarget::Dashboard);
+
         let dispatch = resolve_menu_transition_dispatch(
             "show_panel",
             shell::ShellTransitionRequest {
-                mode: SurfaceMode::TrayPanel,
-                target: SurfaceTarget::Summary,
+                mode: SurfaceMode::PopOut,
+                target: SurfaceTarget::Dashboard,
                 position: Some((320, 240)),
             },
         );
 
         match dispatch {
             MenuTransitionDispatch::Reopen(request) => {
-                assert_eq!(request.mode, SurfaceMode::TrayPanel);
-                assert_eq!(request.target, SurfaceTarget::Summary);
+                assert_eq!(request.mode, SurfaceMode::PopOut);
+                assert_eq!(request.target, SurfaceTarget::Dashboard);
                 assert_eq!(request.position, None);
             }
             MenuTransitionDispatch::Transition(_) => {
-                panic!("show_panel should reopen via default tray positioning")
+                panic!("show_panel should reopen via default PopOut positioning")
             }
         }
     }

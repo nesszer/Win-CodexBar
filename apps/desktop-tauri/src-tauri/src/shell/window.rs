@@ -20,9 +20,10 @@ pub(super) struct HideToTrayPlan {
 /// Apply the window properties dictated by a surface mode.
 pub fn apply_window_properties(
     window: &WebviewWindow,
+    mode: SurfaceMode,
     props: &WindowProperties,
 ) -> Result<(), String> {
-    let needs_show = apply_window_layout(window, props)?;
+    let needs_show = apply_window_layout(window, mode, props)?;
     if needs_show {
         show_window(window)?;
     }
@@ -35,21 +36,39 @@ pub fn apply_window_properties(
 /// the window (already handled internally).
 pub fn apply_window_layout(
     window: &WebviewWindow,
+    mode: SurfaceMode,
     props: &WindowProperties,
 ) -> Result<bool, String> {
     let map_err = |e: tauri::Error| e.to_string();
 
     window.set_decorations(props.decorations).map_err(map_err)?;
-    if !props.decorations {
-        super::dwm::force_dark_caption(window);
-    }
     window.set_resizable(props.resizable).map_err(map_err)?;
     window
         .set_always_on_top(props.always_on_top)
         .map_err(map_err)?;
+    window
+        .set_skip_taskbar(props.skip_taskbar)
+        .map_err(map_err)?;
+    // Borderless surfaces draw their own chrome via a DWM subclass that zeros
+    // the native non-client area. Apply it AFTER `set_resizable` so the
+    // resizable variant sees WS_THICKFRAME present and preserves it (keeping
+    // the native resize affordance). Native decorations are incompatible with
+    // this subclass, so decorated surfaces skip it.
+    if !props.decorations {
+        if props.resizable {
+            super::dwm::force_dark_caption_resizable(window);
+        } else {
+            super::dwm::force_dark_caption(window);
+        }
+    }
 
     if props.visible {
-        let (width, height) = capped_logical_size(window, props.width, props.height);
+        // The canonical surface mode drives geometry restore — no brittle
+        // shape-matching of WindowProperties. logical_size_from_geometry falls
+        // back to the mode's default size for non-remembered modes.
+        let (width, height) =
+            logical_size_from_geometry(mode, props, crate::geometry_store::load(mode));
+        let (width, height) = capped_logical_size(window, width, height);
         let size = tauri::LogicalSize::new(width, height);
         window.set_size(size).map_err(map_err)?;
 
@@ -68,6 +87,30 @@ pub fn apply_window_layout(
         window.hide().map_err(map_err)?;
         Ok(false)
     }
+}
+
+pub(super) fn logical_size_from_geometry(
+    mode: SurfaceMode,
+    props: &WindowProperties,
+    stored: Option<crate::geometry_store::StoredGeometry>,
+) -> (f64, f64) {
+    if !crate::geometry_store::should_remember(mode) {
+        return (props.width, props.height);
+    }
+
+    let width = stored
+        .and_then(|geometry| geometry.width)
+        .map(|width| width.max(1) as f64)
+        .unwrap_or(props.width);
+    let height = stored
+        .and_then(|geometry| geometry.height)
+        .map(|height| height.max(1) as f64)
+        .unwrap_or(props.height);
+
+    (
+        props.min_width.map_or(width, |min| width.max(min)),
+        props.min_height.map_or(height, |min| height.max(min)),
+    )
 }
 
 fn capped_logical_size(window: &WebviewWindow, width: f64, height: f64) -> (f64, f64) {

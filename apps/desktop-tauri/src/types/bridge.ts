@@ -21,7 +21,15 @@ export type MetricPreference =
   | "extraUsage"
   | "average";
 
-export type Language = "english" | "chinese" | "japanese";
+export type Language = "english" | "chinese" | "japanese" | "spanish";
+
+/** Language catalog entry from the Rust backend. */
+export type LanguageOption = {
+  /** Stable bridge/settings value (e.g. "english") */
+  value: Language;
+  /** Native display name (e.g. "English", "中文", "Español") */
+  display: string;
+};
 
 export type UpdateChannel = "stable" | "beta";
 
@@ -169,6 +177,8 @@ export interface SettingsSnapshot {
   globalShortcut: string;
   uiLanguage: Language;
   theme: ThemePreference;
+  /** 100..=250 — clamped server-side. */
+  windowScalePercent: number;
   claudeAvoidKeychainPrompts: boolean;
   disableKeychainAccess: boolean;
   providerMetrics: Record<string, MetricPreference>;
@@ -215,6 +225,7 @@ export interface SettingsUpdate {
   globalShortcut?: string;
   uiLanguage?: Language;
   theme?: ThemePreference;
+  windowScalePercent?: number;
   claudeAvoidKeychainPrompts?: boolean;
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */

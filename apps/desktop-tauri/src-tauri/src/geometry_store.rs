@@ -1,11 +1,10 @@
 //! Persistent window-geometry store for the Tauri desktop shell.
 //!
-//! Remembers position (and size where applicable) for non-popup surfaces —
-//! currently only the Settings window, which is the sole surface that benefits
-//! from parity with egui's "open where you left it" behaviour.
+//! Remembers position (and size where applicable) for detached user surfaces:
+//! PopOut and Settings.
 //!
-//! Tray panel and shortcut-triggered popout keep computed placement because
-//! they are anchored to the tray / work-area, not user drag.
+//! TrayPanel stays computed from the tray anchor/work-area because it is a
+//! temporary anchored panel, not a user-resizable standalone window.
 
 use std::fs;
 use std::path::PathBuf;
@@ -15,6 +14,11 @@ use serde::{Deserialize, Serialize};
 use crate::surface::SurfaceMode;
 
 const GEOMETRY_FILENAME: &str = "window_geometry.json";
+
+/// Bumped when the meaning of stored fields changes. v1 switched the stored
+/// window SIZE from physical to logical pixels, so legacy (versionless) files
+/// hold physical sizes that must be discarded on load.
+const GEOMETRY_VERSION: u32 = 1;
 
 /// Persisted window geometry entry. Size is optional because not every surface
 /// is resizable; we always persist position when available.
@@ -32,6 +36,8 @@ pub struct StoredGeometry {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GeometryFile {
     #[serde(default)]
+    pub version: u32,
+    #[serde(default)]
     pub entries: std::collections::BTreeMap<String, StoredGeometry>,
 }
 
@@ -45,10 +51,9 @@ fn geometry_path() -> Option<PathBuf> {
 /// Surface modes eligible for geometry persistence.
 ///
 /// - `Hidden` / `TrayPanel`: anchored to tray, never remembered.
-/// - `PopOut`: anchored to tray anchor, parity with egui — not remembered.
-/// - `Settings`: user-movable, remembered across restarts.
+/// - `PopOut` / `Settings`: user-movable, remembered across restarts.
 pub fn should_remember(mode: SurfaceMode) -> bool {
-    matches!(mode, SurfaceMode::Settings)
+    matches!(mode, SurfaceMode::PopOut | SurfaceMode::Settings)
 }
 
 fn load_file() -> GeometryFile {
@@ -58,7 +63,24 @@ fn load_file() -> GeometryFile {
     let Ok(raw) = fs::read_to_string(&path) else {
         return GeometryFile::default();
     };
-    serde_json::from_str(&raw).unwrap_or_default()
+    let mut file: GeometryFile = serde_json::from_str(&raw).unwrap_or_default();
+    migrate(&mut file);
+    file
+}
+
+/// Bring an on-disk file up to `GEOMETRY_VERSION`. Legacy (versionless) files
+/// stored window SIZE in physical pixels, but the restore path now treats
+/// stored size as logical; drop those sizes so windows reopen at their default
+/// (logical) size and re-persist correct dimensions on the first user move,
+/// instead of opening ~scale_factor too large on HiDPI displays.
+fn migrate(file: &mut GeometryFile) {
+    if file.version < GEOMETRY_VERSION {
+        for geometry in file.entries.values_mut() {
+            geometry.width = None;
+            geometry.height = None;
+        }
+        file.version = GEOMETRY_VERSION;
+    }
 }
 
 fn save_file(file: &GeometryFile) -> Result<(), String> {
@@ -99,6 +121,7 @@ pub fn load_entry(key: &str) -> Option<StoredGeometry> {
 /// Persist geometry under an arbitrary key.
 pub fn save_entry(key: &str, geometry: StoredGeometry) {
     let mut file = load_file();
+    file.version = GEOMETRY_VERSION;
     file.entries.insert(key.to_string(), geometry);
     if let Err(err) = save_file(&file) {
         tracing::warn!(target: "codexbar::geometry", %err, "failed to persist geometry");
@@ -110,17 +133,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tray_panel_is_not_remembered() {
-        assert!(!should_remember(SurfaceMode::TrayPanel));
-        assert!(!should_remember(SurfaceMode::PopOut));
-        assert!(!should_remember(SurfaceMode::Hidden));
-    }
-
-    #[test]
-    fn settings_is_remembered() {
+    fn pop_out_and_settings_are_remembered() {
+        assert!(should_remember(SurfaceMode::PopOut));
         assert!(should_remember(SurfaceMode::Settings));
     }
 
+    #[test]
+    fn tray_panel_and_hidden_are_not_remembered() {
+        assert!(!should_remember(SurfaceMode::TrayPanel));
+        assert!(!should_remember(SurfaceMode::Hidden));
+    }
     #[test]
     fn non_remembered_mode_save_is_noop() {
         // Call should not panic or error for ineligible modes.
@@ -153,6 +175,33 @@ mod tests {
         let entry = parsed.entries.get("settings").unwrap();
         assert_eq!(entry.x, 100);
         assert_eq!(entry.y, 200);
+        assert_eq!(entry.width, Some(520));
+        assert_eq!(entry.height, Some(600));
+    }
+
+    #[test]
+    fn legacy_versionless_file_drops_physical_sizes_on_load() {
+        // Pre-v1 files stored SIZE in physical pixels and had no `version`.
+        // Migration must drop those sizes (keeping position) so a HiDPI upgrade
+        // doesn't reopen the window scale_factor-too-large.
+        let json = r#"{"entries":{"settings":{"x":10,"y":20,"width":744,"height":1116}}}"#;
+        let mut file: GeometryFile = serde_json::from_str(json).unwrap();
+        assert_eq!(file.version, 0);
+        migrate(&mut file);
+        assert_eq!(file.version, GEOMETRY_VERSION);
+        let entry = file.entries.get("settings").unwrap();
+        assert_eq!(entry.x, 10);
+        assert_eq!(entry.y, 20);
+        assert_eq!(entry.width, None);
+        assert_eq!(entry.height, None);
+    }
+
+    #[test]
+    fn current_version_file_keeps_sizes() {
+        let json = r#"{"version":1,"entries":{"settings":{"x":10,"y":20,"width":520,"height":600}}}"#;
+        let mut file: GeometryFile = serde_json::from_str(json).unwrap();
+        migrate(&mut file);
+        let entry = file.entries.get("settings").unwrap();
         assert_eq!(entry.width, Some(520));
         assert_eq!(entry.height, Some(600));
     }

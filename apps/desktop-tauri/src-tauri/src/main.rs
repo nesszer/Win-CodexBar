@@ -30,7 +30,7 @@ const STARTUP_TRAY_BLUR_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LaunchBehavior {
-    open_tray_panel_at_start: bool,
+    open_primary_window_at_start: bool,
     suppress_blur_dismiss: bool,
 }
 
@@ -41,7 +41,15 @@ fn should_hide_close_request(mode: SurfaceMode) -> bool {
     )
 }
 
-fn should_open_tray_panel_from_args<I, S>(args: I) -> bool
+fn primary_window_request() -> shell::ShellTransitionRequest {
+    shell::ShellTransitionRequest {
+        mode: SurfaceMode::PopOut,
+        target: SurfaceTarget::Dashboard,
+        position: None,
+    }
+}
+
+fn should_open_primary_window_from_args<I, S>(args: I) -> bool
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -68,13 +76,13 @@ where
         .collect()
 }
 
-fn should_reopen_tray_panel_from_instance_args<I, S>(args: I) -> bool
+fn should_reopen_primary_window_from_instance_args<I, S>(args: I) -> bool
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
     let args = nonblank_launch_args(args);
-    args.is_empty() || should_open_tray_panel_from_args(&args)
+    args.is_empty() || should_open_primary_window_from_args(&args)
 }
 
 fn launch_behavior<I, S>(force_visible: bool, start_minimized: bool, args: I) -> LaunchBehavior
@@ -83,12 +91,12 @@ where
     S: AsRef<str>,
 {
     let args = nonblank_launch_args(args);
-    let explicit_tray_launch = should_open_tray_panel_from_args(&args);
+    let explicit_primary_launch = should_open_primary_window_from_args(&args);
     let plain_desktop_launch = args.is_empty();
 
     LaunchBehavior {
-        open_tray_panel_at_start: force_visible
-            || explicit_tray_launch
+        open_primary_window_at_start: force_visible
+            || explicit_primary_launch
             || (plain_desktop_launch && !start_minimized),
         suppress_blur_dismiss: force_visible,
     }
@@ -118,13 +126,10 @@ fn main() {
         .manage(Mutex::new(initial_state))
         .plugin(shortcut_bridge::plugin())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if should_reopen_tray_panel_from_instance_args(args.iter().skip(1)) {
-                let _ = shell::reopen_to_target(
-                    app,
-                    SurfaceMode::TrayPanel,
-                    SurfaceTarget::Summary,
-                    None,
-                );
+            if should_reopen_primary_window_from_instance_args(args.iter().skip(1)) {
+                let request = primary_window_request();
+                let _ =
+                    shell::reopen_to_target(app, request.mode, request.target, request.position);
             }
         }))
         .invoke_handler(tauri::generate_handler![
@@ -196,6 +201,7 @@ fn main() {
             commands::get_provider_detail,
             commands::trigger_provider_login,
             commands::revoke_provider_credentials,
+            commands::get_available_languages,
             commands::get_locale_strings,
             commands::set_ui_language,
             commands::open_path,
@@ -225,22 +231,17 @@ fn main() {
                     tokio::time::sleep(PROOF_ACTIVATION_DELAY).await;
                     proof_harness::activate(&app_handle);
                 });
-            } else if launch.open_tray_panel_at_start {
+            } else if launch.open_primary_window_at_start {
                 let app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(VISIBLE_START_ACTIVATION_DELAY).await;
-                    if let Some(state) = app.try_state::<Mutex<AppState>>() {
-                        state.lock().unwrap().arm_startup_tray_reveal(
-                            std::time::Instant::now() + STARTUP_TRAY_BLUR_GRACE,
-                        );
-                    }
+                    let request = primary_window_request();
                     let _ = shell::reopen_to_target(
                         &app,
-                        SurfaceMode::TrayPanel,
-                        SurfaceTarget::Summary,
-                        None,
+                        request.mode,
+                        request.target,
+                        request.position,
                     );
-                    shell::schedule_startup_tray_panel_reveal_fallback(&app);
                 });
             }
 
@@ -299,10 +300,9 @@ fn main() {
                     }
                 }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-                    // Capture geometry for surfaces eligible for persistence
-                    // (currently only Settings). The helper is a no-op when the
-                    // current surface is not eligible.
-                    shell::remember_current_geometry_if_settings(window);
+                    // Capture geometry for surfaces eligible for persistence.
+                    // The helper is a no-op when the current surface is not eligible.
+                    shell::remember_current_geometry_if_eligible(window);
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     // Close visible shell surfaces → hide instead of quitting.
@@ -340,22 +340,32 @@ mod tests {
     }
 
     #[test]
-    fn menubar_launch_arg_opens_tray_panel() {
-        assert!(should_open_tray_panel_from_args(["menubar"]));
-        assert!(should_open_tray_panel_from_args(["--tray-panel"]));
-        assert!(should_open_tray_panel_from_args(["/tray_panel"]));
+    fn primary_window_request_targets_popout_dashboard() {
+        let request = primary_window_request();
+        assert_eq!(request.mode, SurfaceMode::PopOut);
+        assert_eq!(request.target, SurfaceTarget::Dashboard);
+        assert_eq!(request.position, None);
     }
 
     #[test]
-    fn unrelated_launch_args_do_not_open_tray_panel() {
-        assert!(!should_open_tray_panel_from_args(["usage", "-p", "claude"]));
-        assert!(!should_reopen_tray_panel_from_instance_args([
+    fn menubar_launch_arg_opens_primary_window() {
+        assert!(should_open_primary_window_from_args(["menubar"]));
+        assert!(should_open_primary_window_from_args(["--tray-panel"]));
+        assert!(should_open_primary_window_from_args(["/tray_panel"]));
+    }
+
+    #[test]
+    fn unrelated_launch_args_do_not_open_primary_window() {
+        assert!(!should_open_primary_window_from_args([
+            "usage", "-p", "claude"
+        ]));
+        assert!(!should_reopen_primary_window_from_instance_args([
             "usage", "-p", "claude"
         ]));
         assert_eq!(
             launch_behavior(false, false, ["usage", "-p", "claude"]),
             LaunchBehavior {
-                open_tray_panel_at_start: false,
+                open_primary_window_at_start: false,
                 suppress_blur_dismiss: false,
             }
         );
@@ -366,41 +376,41 @@ mod tests {
         assert_eq!(
             launch_behavior(false, false, std::iter::empty::<&str>()),
             LaunchBehavior {
-                open_tray_panel_at_start: true,
+                open_primary_window_at_start: true,
                 suppress_blur_dismiss: false,
             }
         );
         assert_eq!(
             launch_behavior(false, false, [""]),
             LaunchBehavior {
-                open_tray_panel_at_start: true,
+                open_primary_window_at_start: true,
                 suppress_blur_dismiss: false,
             }
         );
         assert_eq!(
             launch_behavior(false, false, ["  "]),
             LaunchBehavior {
-                open_tray_panel_at_start: true,
+                open_primary_window_at_start: true,
                 suppress_blur_dismiss: false,
             }
         );
         assert_eq!(
             launch_behavior(false, true, std::iter::empty::<&str>()),
             LaunchBehavior {
-                open_tray_panel_at_start: false,
+                open_primary_window_at_start: false,
                 suppress_blur_dismiss: false,
             }
         );
     }
 
     #[test]
-    fn single_instance_plain_launch_reopens_tray_panel() {
-        assert!(should_reopen_tray_panel_from_instance_args(
+    fn single_instance_plain_launch_reopens_primary_window() {
+        assert!(should_reopen_primary_window_from_instance_args(
             std::iter::empty::<&str>()
         ));
-        assert!(should_reopen_tray_panel_from_instance_args([""]));
-        assert!(should_reopen_tray_panel_from_instance_args(["  "]));
-        assert!(should_reopen_tray_panel_from_instance_args(["menubar"]));
+        assert!(should_reopen_primary_window_from_instance_args([""]));
+        assert!(should_reopen_primary_window_from_instance_args(["  "]));
+        assert!(should_reopen_primary_window_from_instance_args(["menubar"]));
     }
 
     #[test]
@@ -408,7 +418,7 @@ mod tests {
         assert_eq!(
             launch_behavior(false, true, ["menubar"]),
             LaunchBehavior {
-                open_tray_panel_at_start: true,
+                open_primary_window_at_start: true,
                 suppress_blur_dismiss: false,
             }
         );
@@ -420,7 +430,7 @@ mod tests {
         assert_eq!(
             launch,
             LaunchBehavior {
-                open_tray_panel_at_start: true,
+                open_primary_window_at_start: true,
                 suppress_blur_dismiss: true,
             }
         );
