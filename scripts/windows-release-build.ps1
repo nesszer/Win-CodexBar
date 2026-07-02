@@ -132,6 +132,27 @@ function Assert-MicrosoftSignature {
     }
 }
 
+function Get-InnoSetupCompiler {
+    $candidates = @(
+        (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+        (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe")
+    )
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate)) {
+            return $candidate
+        }
+    }
+
+    $command = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    throw "Inno Setup compiler not found. Install JRSoftware.InnoSetup with winget or Inno Setup 6 from jrsoftware.org."
+}
+
 function Invoke-DownloadWithRetry {
     param(
         [string]$Uri,
@@ -365,10 +386,7 @@ try {
     Assert-MicrosoftSignature -Path $vcRedistPath
     Assert-MicrosoftSignature -Path $webView2BootstrapperPath
 
-    $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
-    if (-not (Test-Path $iscc)) {
-        throw "Inno Setup compiler not found at $iscc"
-    }
+    $iscc = Get-InnoSetupCompiler
 
     $installerOut = Join-Path $CacheDir "installer"
     New-Item -ItemType Directory -Force $installerOut | Out-Null
