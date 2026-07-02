@@ -1,26 +1,24 @@
 name: Release Windows App
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows-app:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@v6
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        uses: pnpm/action-setup@v4
         with:
           version: 10.18.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
@@ -38,7 +36,7 @@ jobs:
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch (2026-06)
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
@@ -50,14 +48,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --manifest-path rust/Cargo.toml --release --bin codexbar
-          cp "target/release/codexbar.exe" "target/release/codexbar-cli.exe"
-
           pnpm --dir apps/desktop-tauri exec tauri build --no-bundle
 
           SOURCE_EXE="target/release/codexbar-desktop-tauri.exe"
           DEST_EXE="target/release/codexbar.exe"
-          LEGACY_DESKTOP_EXE="target/release/codexbar-desktop.exe"
 
           if [[ ! -f "$SOURCE_EXE" ]]; then
             echo "Missing expected Tauri binary: $SOURCE_EXE" >&2
@@ -65,7 +59,6 @@ jobs:
           fi
 
           cp "$SOURCE_EXE" "$DEST_EXE"
-          cp "$SOURCE_EXE" "$LEGACY_DESKTOP_EXE"
 
           if command -v objdump >/dev/null 2>&1; then
             if objdump -p "$DEST_EXE" | grep -qi 'DLL Name: WebView2Loader.dll'; then
@@ -73,15 +66,6 @@ jobs:
               exit 1
             fi
           fi
-
-      - name: Verify executable layout
-        shell: pwsh
-        run: |
-          .\scripts\verify-windows-executables.ps1 `
-            -DesktopExe "target\release\codexbar.exe" `
-            -CliExe "target\release\codexbar-cli.exe" `
-            -LegacyDesktopExe "target\release\codexbar-desktop.exe" `
-            -CheckCliStdout
 
       - name: Install Inno Setup
         shell: pwsh
@@ -146,7 +130,7 @@ jobs:
           $installer = "rust\target\installer\CodexBar-$env:APP_VERSION-Setup.exe"
           $portableExe = Join-Path $assetDir "CodexBar-$env:APP_VERSION-portable.exe"
 
-          foreach ($path in @("target\release\codexbar.exe", "target\release\codexbar-cli.exe", "target\release\codexbar-desktop.exe", $installer)) {
+          foreach ($path in @("target\release\codexbar.exe", $installer)) {
             if (-not (Test-Path $path)) {
               throw "Missing expected asset: $path"
             }
@@ -165,8 +149,23 @@ jobs:
             "$hash  $fileName" | Set-Content -Encoding ascii "$destPath.sha256"
           }
 
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" \
+            "rust/target/release-assets/CodexBar-$APP_VERSION-Setup.exe" \
+            "rust/target/release-assets/CodexBar-$APP_VERSION-Setup.exe.sha256" \
+            "rust/target/release-assets/CodexBar-$APP_VERSION-portable.exe" \
+            "rust/target/release-assets/CodexBar-$APP_VERSION-portable.exe.sha256" \
+            --clobber
+
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v6
         with:
           name: codexbar-windows-release-assets
           path: |
@@ -174,25 +173,3 @@ jobs:
             rust/target/release-assets/CodexBar-${{ env.APP_VERSION }}-Setup.exe.sha256
             rust/target/release-assets/CodexBar-${{ env.APP_VERSION }}-portable.exe
             rust/target/release-assets/CodexBar-${{ env.APP_VERSION }}-portable.exe.sha256
-
-  publish-windows-release:
-    if: github.event_name == 'release'
-    needs: build-windows-app
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Download release assets
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
-        with:
-          name: codexbar-windows-release-assets
-          path: release-assets
-
-      - name: Upload release assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber

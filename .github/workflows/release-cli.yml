@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-linux-cli:
@@ -24,7 +24,7 @@ jobs:
             arch: aarch64
     runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@v6
 
       - name: Install Linux system dependencies
         run: |
@@ -44,7 +44,7 @@ jobs:
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch (2026-06)
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -94,33 +94,23 @@ jobs:
           echo "out_dir=$OUT_DIR" >> "$GITHUB_OUTPUT"
           echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
 
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" \
+            "${{ steps.package.outputs.out_dir }}/${{ steps.package.outputs.asset }}" \
+            "${{ steps.package.outputs.out_dir }}/${{ steps.package.outputs.asset }}.sha256" \
+            --clobber
+
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v6
         with:
           name: codexbar-linux-cli-${{ matrix.name }}
           path: |
             ${{ steps.package.outputs.out_dir }}/${{ steps.package.outputs.asset }}
             ${{ steps.package.outputs.out_dir }}/${{ steps.package.outputs.asset }}.sha256
-
-  publish-linux-cli-release:
-    if: github.event_name == 'release'
-    needs: build-linux-cli
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Download release assets
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
-        with:
-          pattern: codexbar-linux-cli-*
-          path: release-assets
-          merge-multiple: true
-
-      - name: Upload release assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
