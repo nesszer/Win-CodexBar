@@ -69,35 +69,49 @@ if ($install.ExitCode -notin @(0, 3010)) {
     throw "Installer exited with $($install.ExitCode). Log: $installLog"
 }
 
-$exe = Join-Path $InstallDir "codexbar.exe"
-$desktopExe = Join-Path $InstallDir "codexbar-desktop.exe"
+$desktopExe = Join-Path $InstallDir "codexbar.exe"
+$cliExe = Join-Path $InstallDir "codexbar-cli.exe"
+$legacyDesktopExe = Join-Path $InstallDir "codexbar-desktop.exe"
 $icon = Join-Path $InstallDir "icon.ico"
-Assert-Path -Path $exe -Label "installed CLI executable"
 Assert-Path -Path $desktopExe -Label "installed desktop executable"
+Assert-Path -Path $cliExe -Label "installed CLI executable"
+Assert-Path -Path $legacyDesktopExe -Label "installed desktop compatibility executable"
 Assert-Path -Path $icon -Label "icon"
 
-$installedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
-Write-Step "installed codexbar.exe sha256: $installedHash"
 $desktopHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $desktopExe).Hash.ToLowerInvariant()
-Write-Step "installed codexbar-desktop.exe sha256: $desktopHash"
+Write-Step "installed codexbar.exe sha256: $desktopHash"
+$cliHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $cliExe).Hash.ToLowerInvariant()
+Write-Step "installed codexbar-cli.exe sha256: $cliHash"
+$legacyDesktopHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $legacyDesktopExe).Hash.ToLowerInvariant()
+Write-Step "installed codexbar-desktop.exe sha256: $legacyDesktopHash"
+
+$verifyExecutablesScript = Join-Path (Split-Path -Parent $PSScriptRoot) "scripts\verify-windows-executables.ps1"
+if (-not (Test-Path -LiteralPath $verifyExecutablesScript)) {
+    throw "Executable verification script not found: $verifyExecutablesScript"
+}
+& $verifyExecutablesScript `
+    -DesktopExe $desktopExe `
+    -CliExe $cliExe `
+    -LegacyDesktopExe $legacyDesktopExe `
+    -CheckCliStdout
 
 if ($ExpectedVersion) {
-    $versionOutput = (& $exe --version) -join "`n"
+    $versionOutput = (& $cliExe --version) -join "`n"
     if ($LASTEXITCODE -ne 0) {
-        throw "codexbar.exe --version exited with $LASTEXITCODE"
+        throw "codexbar-cli.exe --version exited with $LASTEXITCODE"
     }
     if ($versionOutput -notmatch [regex]::Escape($ExpectedVersion)) {
-        throw "Expected codexbar.exe --version to mention $ExpectedVersion, got: $versionOutput"
+        throw "Expected codexbar-cli.exe --version to mention $ExpectedVersion, got: $versionOutput"
     }
     Write-Step "CLI version output: $versionOutput"
 }
 
-$helpOutput = (& $exe --help) -join "`n"
+$helpOutput = (& $cliExe --help) -join "`n"
 if ($LASTEXITCODE -ne 0) {
-    throw "codexbar.exe --help exited with $LASTEXITCODE"
+    throw "codexbar-cli.exe --help exited with $LASTEXITCODE"
 }
 if ($helpOutput -notmatch "Usage:" -or $helpOutput -notmatch "diagnose") {
-    throw "codexbar.exe --help did not print CLI help."
+    throw "codexbar-cli.exe --help did not print CLI help."
 }
 Write-Step "CLI help output: ok"
 
@@ -152,7 +166,7 @@ if (-not $LeaveInstalled) {
     if ($uninstall.ExitCode -notin @(0, 3010)) {
         throw "Uninstaller exited with $($uninstall.ExitCode). Log: $uninstallLog"
     }
-    foreach ($leftover in @($exe, $desktopExe)) {
+    foreach ($leftover in @($desktopExe, $cliExe, $legacyDesktopExe)) {
         if (Test-Path -LiteralPath $leftover) {
             throw "Executable still exists after uninstall: $leftover"
         }

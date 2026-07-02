@@ -165,6 +165,16 @@ pub fn reregister_shortcut(app: &AppHandle, old: &str, new: &str) -> Result<(), 
     Ok(())
 }
 
+pub fn unregister_shortcut(app: &AppHandle, old: &str) -> Result<(), String> {
+    if let Some(old_shortcut) = parse_shortcut(old) {
+        app.global_shortcut()
+            .unregister(old_shortcut)
+            .map_err(|e| format!("Failed to unregister shortcut \"{old}\": {e}"))?;
+        tracing::info!("Unregistered global shortcut: {old}");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

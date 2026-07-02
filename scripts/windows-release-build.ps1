@@ -298,15 +298,17 @@ try {
         throw "pnpm tauri build exited with code $tauriExitCode"
     }
 
-    $desktopExe = Join-Path $releaseBinDir "codexbar-desktop.exe"
-    $releaseExe = Join-Path $releaseBinDir "codexbar.exe"
+    $desktopExe = Join-Path $releaseBinDir "codexbar.exe"
+    $legacyDesktopExe = Join-Path $releaseBinDir "codexbar-desktop.exe"
+    $releaseExe = Join-Path $releaseBinDir "codexbar-cli.exe"
     if (-not (Test-Path $sourceExe)) {
         throw "Missing expected Tauri binary: $sourceExe"
     }
 
     Copy-Item $sourceExe $desktopExe -Force
+    Copy-Item $sourceExe $legacyDesktopExe -Force
     if (Get-ObjdumpImportsWebView2Loader -ExePath $desktopExe) {
-        throw "codexbar-desktop.exe imports WebView2Loader.dll, but release builds are expected to statically link the loader."
+        throw "codexbar.exe imports WebView2Loader.dll, but release builds are expected to statically link the loader."
     }
 
     $env:CARGO_TARGET_DIR = $CliCargoTargetDir
@@ -330,6 +332,16 @@ try {
         throw "Missing expected CLI binary: $sourceCliExe"
     }
     Copy-Item $sourceCliExe $releaseExe -Force
+
+    $verifyExecutablesScript = Join-Path $SourceDir "scripts\verify-windows-executables.ps1"
+    if (-not (Test-Path $verifyExecutablesScript)) {
+        throw "Executable verification script not found: $verifyExecutablesScript"
+    }
+    & $verifyExecutablesScript `
+        -DesktopExe $desktopExe `
+        -CliExe $releaseExe `
+        -LegacyDesktopExe $legacyDesktopExe `
+        -CheckCliStdout
 
     if ($WarmCacheOnly) {
         $warmExe = Join-Path $AssetsDir "CodexBar-$version-warm.exe"

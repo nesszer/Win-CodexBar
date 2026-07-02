@@ -19,7 +19,7 @@ WEBVIEW2_BOOTSTRAPPER_URL="${WEBVIEW2_BOOTSTRAPPER_URL:-https://go.microsoft.com
 WEBVIEW2_BOOTSTRAPPER_PATH="$INSTALLER_DEPS_DIR/MicrosoftEdgeWebview2Setup.exe"
 WEBVIEW2_BOOTSTRAPPER_SHA256="${WEBVIEW2_BOOTSTRAPPER_SHA256:-}"
 
-for required_file in "$TARGET_BIN_DIR/codexbar.exe" "$RUST_DIR/icons/icon.ico"; do
+for required_file in "$TARGET_BIN_DIR/codexbar.exe" "$TARGET_BIN_DIR/codexbar-cli.exe" "$TARGET_BIN_DIR/codexbar-desktop.exe" "$RUST_DIR/icons/icon.ico"; do
   if [[ ! -f "$required_file" ]]; then
     echo "Missing required build artifact: $required_file" >&2
     echo "Build the Windows target first, then rerun this script." >&2

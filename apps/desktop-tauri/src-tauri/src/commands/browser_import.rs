@@ -79,6 +79,7 @@ pub fn import_browser_cookies(
     }
 
     let cookie_header = CookieExtractor::build_cookie_header(&cookies);
+    validate_single_line_secret(&cookie_header, "Cookie header", MAX_COOKIE_HEADER_LEN)?;
 
     // Persist as manual cookie.
     let mut manual = ManualCookies::load();

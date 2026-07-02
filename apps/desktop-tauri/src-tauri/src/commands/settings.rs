@@ -82,7 +82,9 @@ impl SettingsUpdate {
             return Ok(());
         };
 
-        if new_shortcut != current_shortcut {
+        if new_shortcut.trim().is_empty() {
+            crate::shortcut_bridge::unregister_shortcut(app, current_shortcut)?;
+        } else if new_shortcut != current_shortcut {
             crate::shortcut_bridge::reregister_shortcut(app, current_shortcut, new_shortcut)?;
         }
 

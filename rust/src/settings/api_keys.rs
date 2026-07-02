@@ -89,18 +89,7 @@ impl ApiKeys {
                     .map(|p| p.display_name().to_string())
                     .unwrap_or_else(|| id.clone());
 
-                // Mask the key for display (show first 4 and last 4 chars)
-                let masked = if entry.api_key.len() > 12 {
-                    format!(
-                        "{}...{}",
-                        &entry.api_key[..4],
-                        &entry.api_key[entry.api_key.len() - 4..]
-                    )
-                } else if entry.api_key.len() > 4 {
-                    format!("{}...", &entry.api_key[..4])
-                } else {
-                    "****".to_string()
-                };
+                let masked = mask_api_key(&entry.api_key);
 
                 SavedApiKeyInfo {
                     provider_id: id.clone(),
@@ -111,6 +100,20 @@ impl ApiKeys {
                 }
             })
             .collect()
+    }
+}
+
+fn mask_api_key(api_key: &str) -> String {
+    let chars: Vec<char> = api_key.chars().collect();
+    if chars.len() > 12 {
+        let prefix: String = chars.iter().take(4).collect();
+        let suffix: String = chars.iter().skip(chars.len() - 4).collect();
+        format!("{prefix}...{suffix}")
+    } else if chars.len() > 4 {
+        let prefix: String = chars.iter().take(4).collect();
+        format!("{prefix}...")
+    } else {
+        "****".to_string()
     }
 }
 

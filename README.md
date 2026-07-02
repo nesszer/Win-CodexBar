@@ -133,14 +133,14 @@ Useful dev flags:
 CLI examples:
 
 ```bash
-codexbar --help
-codexbar diagnose --pretty
-codexbar usage -p claude
-codexbar usage -p all
-codexbar cost -p codex
+codexbar-cli --help
+codexbar-cli diagnose --pretty
+codexbar-cli usage -p claude
+codexbar-cli usage -p all
+codexbar-cli cost -p codex
 ```
 
-Installer builds include `codexbar.exe` as the console CLI and `codexbar-desktop.exe` as the tray app. Start Menu shortcuts launch the desktop app; terminal commands use `codexbar.exe`.
+Installer builds include `codexbar.exe` as the tray app and `codexbar-cli.exe` as the console CLI. Start Menu shortcuts launch the desktop app; terminal commands use `codexbar-cli.exe`. `codexbar-desktop.exe` is still installed as a compatibility alias for older shortcuts and autostart entries.
 
 ## Release Builds
 

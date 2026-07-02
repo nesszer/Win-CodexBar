@@ -40,7 +40,7 @@ SolidCompression=yes
 OutputDir={#OutputDir}
 OutputBaseFilename={#OutputBaseFilename}
 SetupIconFile=..\icons\icon.ico
-UninstallDisplayIcon={app}\codexbar-desktop.exe
+UninstallDisplayIcon={app}\codexbar.exe
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -49,17 +49,18 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
 Source: "{#TargetBinDir}\codexbar.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#TargetBinDir}\codexbar-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#TargetBinDir}\codexbar-desktop.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#VCRedistPath}"; Flags: dontcopy
 Source: "{#WebView2BootstrapperPath}"; Flags: dontcopy
 
 [Icons]
-Name: "{autoprograms}\CodexBar"; Filename: "{app}\codexbar-desktop.exe"; Parameters: "menubar"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
-Name: "{autodesktop}\CodexBar"; Filename: "{app}\codexbar-desktop.exe"; Parameters: "menubar"; WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"
+Name: "{autoprograms}\CodexBar"; Filename: "{app}\codexbar.exe"; Parameters: "menubar"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
+Name: "{autodesktop}\CodexBar"; Filename: "{app}\codexbar.exe"; Parameters: "menubar"; WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"
 
 [Run]
-Filename: "{app}\codexbar-desktop.exe"; Parameters: "menubar"; Description: "Launch CodexBar"; Flags: nowait postinstall skipifsilent; Check: CanLaunchCodexBar
+Filename: "{app}\codexbar.exe"; Parameters: "menubar"; Description: "Launch CodexBar"; Flags: nowait postinstall skipifsilent; Check: CanLaunchCodexBar
 
 [Code]
 var

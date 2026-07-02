@@ -15,8 +15,7 @@ function prefersLight(): boolean {
 export function resolveTheme(preference: ThemePreference): ResolvedTheme {
   if (preference === "light") return "light";
   if (preference === "dark") return "dark";
-  // Default to dark — the natural state of a menu-bar utility app.
-  return "dark";
+  return prefersLight() ? "light" : "dark";
 }
 
 function apply(theme: ResolvedTheme) {
@@ -41,7 +40,7 @@ export function useTheme(preference: ThemePreference): void {
     }
 
     const mq = window.matchMedia(MEDIA_QUERY);
-    const handle = () => apply(resolveTheme("auto"));
+    const handle = (event: MediaQueryListEvent) => apply(event.matches ? "light" : "dark");
 
     if (typeof mq.addEventListener === "function") {
       mq.addEventListener("change", handle);

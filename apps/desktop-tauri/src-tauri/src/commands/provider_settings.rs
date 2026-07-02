@@ -186,9 +186,93 @@ pub fn set_provider_workspace_id(provider_id: String, workspace_id: String) -> R
     let id = workspace_provider(&provider_id).ok_or_else(|| {
         format!("Provider '{provider_id}' does not expose a workspace/project id")
     })?;
+    let workspace_id = codexbar::settings::validate_provider_workspace_value(id, &workspace_id)?;
     let mut settings = Settings::load();
-    settings.set_workspace_id(id, workspace_id.trim().to_string());
+    prevent_litellm_key_retargeting(id, settings.workspace_id(id), &workspace_id)?;
+    settings.set_workspace_id(id, workspace_id);
     settings.save().map_err(|e| e.to_string())
+}
+
+fn prevent_litellm_key_retargeting(
+    id: codexbar::core::ProviderId,
+    current_workspace_id: &str,
+    next_workspace_id: &str,
+) -> Result<(), String> {
+    litellm_workspace_change_allowed(
+        id,
+        current_workspace_id,
+        next_workspace_id,
+        ApiKeys::load().has_key(id.cli_name()),
+    )
+}
+
+fn litellm_workspace_change_allowed(
+    id: codexbar::core::ProviderId,
+    current_workspace_id: &str,
+    next_workspace_id: &str,
+    has_saved_api_key: bool,
+) -> Result<(), String> {
+    if id != codexbar::core::ProviderId::LiteLLM || next_workspace_id.trim().is_empty() {
+        return Ok(());
+    }
+
+    let current = current_workspace_id.trim().trim_end_matches('/');
+    let next = next_workspace_id.trim().trim_end_matches('/');
+    if current.eq_ignore_ascii_case(next) || !has_saved_api_key {
+        return Ok(());
+    }
+
+    Err(
+        "Remove the saved LiteLLM API key before changing the LiteLLM base URL, then save the key again for the new endpoint."
+            .to_string(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use codexbar::core::ProviderId;
+
+    use super::litellm_workspace_change_allowed;
+
+    #[test]
+    fn litellm_endpoint_change_requires_reentering_saved_key() {
+        assert!(
+            litellm_workspace_change_allowed(
+                ProviderId::LiteLLM,
+                "https://old.example.com",
+                "https://new.example.com",
+                true,
+            )
+            .is_err()
+        );
+        assert!(
+            litellm_workspace_change_allowed(
+                ProviderId::LiteLLM,
+                "https://old.example.com",
+                "https://old.example.com/",
+                true,
+            )
+            .is_ok()
+        );
+        assert!(
+            litellm_workspace_change_allowed(
+                ProviderId::LiteLLM,
+                "https://old.example.com",
+                "",
+                true,
+            )
+            .is_ok()
+        );
+        assert!(
+            litellm_workspace_change_allowed(
+                ProviderId::LiteLLM,
+                "https://old.example.com",
+                "https://new.example.com",
+                false,
+            )
+            .is_ok()
+        );
+    }
 }
 
 #[tauri::command]

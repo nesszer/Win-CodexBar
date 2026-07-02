@@ -16,12 +16,14 @@ use crate::core::ProviderId;
 
 mod api_keys;
 mod manual_cookies;
+mod provider_workspace;
 mod raw;
 mod status;
 mod types;
 
 pub use api_keys::*;
 pub use manual_cookies::*;
+pub use provider_workspace::*;
 use raw::RawSettings;
 pub use status::*;
 pub use types::*;
@@ -386,14 +388,14 @@ impl Settings {
     }
 
     fn start_at_login_exe_path(current_exe: &std::path::Path) -> std::path::PathBuf {
-        if current_exe
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.eq_ignore_ascii_case("codexbar.exe"))
-            && let Some(desktop_exe) = current_exe
-                .parent()
-                .map(|dir| dir.join("codexbar-desktop.exe"))
-                .filter(|path| path.exists())
+        let file_name = current_exe.file_name().and_then(|name| name.to_str());
+        if file_name.is_some_and(|name| {
+            name.eq_ignore_ascii_case("codexbar-cli.exe")
+                || name.eq_ignore_ascii_case("codexbar-desktop.exe")
+        }) && let Some(desktop_exe) = current_exe
+            .parent()
+            .map(|dir| dir.join("codexbar.exe"))
+            .filter(|path| path.exists())
         {
             return desktop_exe;
         }

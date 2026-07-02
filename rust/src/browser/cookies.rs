@@ -225,6 +225,10 @@ impl CookieExtractor {
                 let (name, encrypted_value, host_key, path, expires_utc, is_secure, is_http_only) =
                     row?;
 
+                if !domain_matches(&host_key, domain) {
+                    continue;
+                }
+
                 // Decrypt the cookie value
                 let value = match Self::decrypt_chromium_cookie(&encrypted_value, &encryption_key) {
                     Ok(v) => v,
@@ -516,7 +520,10 @@ impl CookieExtractor {
             })?;
 
             for row in rows {
-                cookies.push(row?);
+                let cookie = row?;
+                if domain_matches(&cookie.domain, domain) {
+                    cookies.push(cookie);
+                }
             }
         }
 
@@ -602,6 +609,16 @@ impl CookieExtractor {
             .collect::<Vec<_>>()
             .join("; ")
     }
+}
+
+fn domain_matches(host_key: &str, domain: &str) -> bool {
+    let host = host_key.trim().trim_end_matches('.').to_ascii_lowercase();
+    let domain = domain
+        .trim()
+        .trim_start_matches('.')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    host == domain || host == format!(".{domain}") || host.ends_with(&format!(".{domain}"))
 }
 
 /// Helper to get cookies for a specific domain from any available browser
@@ -703,6 +720,16 @@ pub fn get_cookie_header_from_browser(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn domain_matching_requires_boundary() {
+        assert!(domain_matches("chatgpt.com", "chatgpt.com"));
+        assert!(domain_matches(".chatgpt.com", "chatgpt.com"));
+        assert!(domain_matches("auth.chatgpt.com", "chatgpt.com"));
+        assert!(domain_matches("AUTH.CHATGPT.COM.", "chatgpt.com"));
+        assert!(!domain_matches("evilchatgpt.com", "chatgpt.com"));
+        assert!(!domain_matches("chatgpt.com.evil.test", "chatgpt.com"));
+    }
 
     #[test]
     fn test_cookie_extraction() {

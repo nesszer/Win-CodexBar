@@ -56,22 +56,7 @@ impl Provider for LiteLLMProvider {
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::OAuth => {
-                let key = crate::providers::resolve_api_key(
-                    ctx.api_key.as_deref(),
-                    CREDENTIAL_TARGET,
-                    &["LITELLM_API_KEY"],
-                )?;
-                let base = ctx
-                    .workspace_id
-                    .as_deref()
-                    .map(str::to_string)
-                    .or_else(|| std::env::var("LITELLM_BASE_URL").ok())
-                    .or_else(|| std::env::var("LITELLM_API_BASE").ok())
-                    .ok_or_else(|| {
-                        ProviderError::NotInstalled(
-                            "LiteLLM base URL not found. Set it in provider extras or LITELLM_BASE_URL.".into(),
-                        )
-                    })?;
+                let (base, key) = resolve_base_and_key(ctx)?;
                 let response = self
                     .client
                     .get(management_url(&base, "key/info")?)
@@ -104,6 +89,32 @@ impl Provider for LiteLLMProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::OAuth]
     }
+}
+
+fn resolve_base_and_key(ctx: &FetchContext) -> Result<(String, String), ProviderError> {
+    if let Some(base) = ctx
+        .workspace_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        let key = ctx.api_key.as_deref().ok_or(ProviderError::AuthRequired)?;
+        return Ok((base.to_string(), key.to_string()));
+    }
+
+    let key = crate::providers::resolve_api_key(
+        ctx.api_key.as_deref(),
+        CREDENTIAL_TARGET,
+        &["LITELLM_API_KEY"],
+    )?;
+    let base = std::env::var("LITELLM_BASE_URL")
+        .ok()
+        .or_else(|| std::env::var("LITELLM_API_BASE").ok())
+        .ok_or_else(|| {
+            ProviderError::NotInstalled(
+                "LiteLLM base URL not found. Set it in provider extras or LITELLM_BASE_URL.".into(),
+            )
+        })?;
+    Ok((base, key))
 }
 
 fn management_url(base: &str, path: &str) -> Result<Url, ProviderError> {
@@ -167,5 +178,22 @@ mod tests {
         let result =
             result_from_key_info(&serde_json::json!({"info":{"spend":25.0,"max_budget":100.0}}));
         assert_eq!(result.usage.primary.used_percent, 25.0);
+    }
+
+    #[test]
+    fn saved_base_url_uses_only_app_saved_key() {
+        let mut ctx = FetchContext {
+            workspace_id: Some("https://litellm.example.com".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            resolve_base_and_key(&ctx),
+            Err(ProviderError::AuthRequired)
+        ));
+
+        ctx.api_key = Some("sk-app".to_string());
+        let (base, key) = resolve_base_and_key(&ctx).unwrap();
+        assert_eq!(base, "https://litellm.example.com");
+        assert_eq!(key, "sk-app");
     }
 }

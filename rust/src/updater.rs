@@ -481,8 +481,10 @@ pub fn apply_update(installer_path: &PathBuf) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     spawn_windows_installer(
         installer_path,
-        &std::env::current_exe()
-            .map_err(|e| format!("Failed to determine current executable for restart: {e}"))?,
+        &windows_update_relaunch_path(
+            &std::env::current_exe()
+                .map_err(|e| format!("Failed to determine current executable for restart: {e}"))?,
+        ),
     )?;
 
     #[cfg(not(target_os = "windows"))]
@@ -496,6 +498,21 @@ pub fn apply_update(installer_path: &PathBuf) -> Result<(), String> {
 
     // Exit the application to allow the installer to proceed
     std::process::exit(0);
+}
+
+#[cfg(target_os = "windows")]
+fn windows_update_relaunch_path(current_exe: &Path) -> PathBuf {
+    let file_name = current_exe.file_name().and_then(|name| name.to_str());
+    if file_name.is_some_and(|name| name.eq_ignore_ascii_case("codexbar-desktop.exe"))
+        && let Some(primary_desktop_exe) = current_exe
+            .parent()
+            .map(|dir| dir.join("codexbar.exe"))
+            .filter(|path| path.exists())
+    {
+        return primary_desktop_exe;
+    }
+
+    current_exe.to_path_buf()
 }
 
 #[cfg(target_os = "windows")]
@@ -834,7 +851,7 @@ mod tests {
     #[test]
     fn windows_apply_script_waits_for_current_process_before_installing() {
         let path = PathBuf::from(r"C:\Temp\CodexBar-1.2.3-Setup.exe");
-        let relaunch_path = PathBuf::from(r"C:\Program Files\CodexBar\codexbar-desktop.exe");
+        let relaunch_path = PathBuf::from(r"C:\Program Files\CodexBar\codexbar.exe");
         let plan = windows_installer_launch_plan(&path).expect("launch plan");
 
         let script = windows_installer_apply_script(&plan, 12345, &relaunch_path);
@@ -845,7 +862,22 @@ mod tests {
             "-ArgumentList @('/SILENT','/SUPPRESSMSGBOXES','/CLOSEAPPLICATIONS','/NORESTART')"
         ));
         assert!(script.contains("-PassThru -Wait"));
-        assert!(script.contains(r"Start-Process -FilePath 'C:\Program Files\CodexBar\codexbar-desktop.exe' -ArgumentList @('menubar')"));
+        assert!(script.contains(r"Start-Process -FilePath 'C:\Program Files\CodexBar\codexbar.exe' -ArgumentList @('menubar')"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_update_relaunch_path_prefers_primary_desktop_exe_from_legacy_alias() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let desktop_path = temp.path().join("codexbar.exe");
+        let legacy_desktop_path = temp.path().join("codexbar-desktop.exe");
+        std::fs::write(&desktop_path, b"desktop").expect("write desktop");
+        std::fs::write(&legacy_desktop_path, b"legacy desktop").expect("write legacy desktop");
+
+        assert_eq!(
+            windows_update_relaunch_path(&legacy_desktop_path),
+            desktop_path
+        );
     }
 
     #[cfg(target_os = "windows")]

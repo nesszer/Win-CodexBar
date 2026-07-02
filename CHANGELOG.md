@@ -63,7 +63,7 @@
 ## [Windows] 0.32.8 - 2026-06-09
 
 ### Changed
-- Install `codexbar.exe` as the console CLI and `codexbar-desktop.exe` as the tray app so Start Menu shortcuts launch the desktop UI while terminal diagnostics print real output.
+- Install `codexbar.exe` as the tray app and `codexbar-cli.exe` as the console CLI so Start Menu shortcuts launch the desktop UI while terminal diagnostics print real output.
 - Build the console CLI during every Windows release packaging run.
 
 ### Fixed
