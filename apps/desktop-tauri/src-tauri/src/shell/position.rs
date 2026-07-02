@@ -209,6 +209,14 @@ pub fn remember_current_geometry_if_eligible(window: &tauri::Window) {
         return;
     }
 
+    // Never persist maximized/minimized bounds as the remembered geometry —
+    // only genuine restored drags/resizes. Otherwise clicking the maximize
+    // button would make the surface reopen permanently oversized with no way
+    // back to its default size.
+    if window.is_maximized().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+        return;
+    }
+
     let Ok(pos) = window.outer_position() else {
         return;
     };

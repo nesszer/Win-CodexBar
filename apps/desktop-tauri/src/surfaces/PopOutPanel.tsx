@@ -7,6 +7,7 @@ import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
 import { useLocale } from "../hooks/useLocale";
 import MenuCard from "../components/MenuCard";
+import PopOutTitleBar from "../components/PopOutTitleBar";
 import MenuSurface, {
   MenuEmpty,
   type MenuFooterRow,
@@ -194,6 +195,7 @@ export default function PopOutPanel({
   const surface = sorted.length === 0 ? (
     <MenuSurface
       variant="popout"
+      titleBar={<PopOutTitleBar />}
       onRefresh={refresh}
       isRefreshing={isRefreshing}
       actions={headerActions}
@@ -208,6 +210,7 @@ export default function PopOutPanel({
   ) : (
     <MenuSurface
       variant="popout"
+      titleBar={<PopOutTitleBar />}
       onRefresh={refresh}
       isRefreshing={isRefreshing}
       actions={headerActions}

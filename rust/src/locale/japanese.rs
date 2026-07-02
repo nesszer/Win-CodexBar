@@ -490,6 +490,10 @@ impl LocaleKey {
                 "ポップアウトダッシュボードの内容を拡大縮小します。ウィンドウ自体は自由にサイズ変更できます。"
             }
             LocaleKey::WindowScaleAriaLabel => "ウィンドウ倍率",
+            LocaleKey::WindowMinimize => "最小化",
+            LocaleKey::WindowMaximize => "最大化",
+            LocaleKey::WindowRestore => "元に戻す",
+            LocaleKey::WindowClose => "閉じる",
             LocaleKey::ShowAsUsedLabel => "Show as used",
             LocaleKey::ShowAsUsedHelper => "Display usage bars as consumed rather than remaining.",
             LocaleKey::ShowAllTokenAccountsLabel => "Show all token accounts",

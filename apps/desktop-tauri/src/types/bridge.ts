@@ -169,7 +169,7 @@ export interface SettingsSnapshot {
   globalShortcut: string;
   uiLanguage: Language;
   theme: ThemePreference;
-  /** 125..=250 — clamped server-side. */
+  /** 100..=250 — clamped server-side. */
   windowScalePercent: number;
   claudeAvoidKeychainPrompts: boolean;
   disableKeychainAccess: boolean;

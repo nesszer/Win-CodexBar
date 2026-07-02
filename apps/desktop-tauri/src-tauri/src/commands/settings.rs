@@ -327,4 +327,23 @@ mod tests {
             .refreshes_tray_presentation()
         );
     }
+
+    #[test]
+    fn apply_display_settings_clamps_window_scale_percent() {
+        let mut settings = Settings::default();
+
+        SettingsUpdate {
+            window_scale_percent: Some(300),
+            ..Default::default()
+        }
+        .apply_display_settings(&mut settings);
+        assert_eq!(settings.window_scale_percent, 250);
+
+        SettingsUpdate {
+            window_scale_percent: Some(50),
+            ..Default::default()
+        }
+        .apply_display_settings(&mut settings);
+        assert_eq!(settings.window_scale_percent, 100);
+    }
 }

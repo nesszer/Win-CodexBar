@@ -456,9 +456,9 @@ pub(super) fn restore_recovery_surface<F>(
     mut apply_properties: F,
 ) -> Result<(), String>
 where
-    F: FnMut(&WindowProperties) -> Result<(), String>,
+    F: FnMut(SurfaceMode, &WindowProperties) -> Result<(), String>,
 {
-    apply_properties(&recovery.mode.window_properties())
+    apply_properties(recovery.mode, &recovery.mode.window_properties())
 }
 
 pub(super) fn recovery_snapshot_for_failed_transition(
@@ -517,7 +517,7 @@ pub(super) fn apply_transition(
 
     // Phase 1: apply layout properties (size, decorations, etc.) WITHOUT
     // making the window visible yet.
-    match apply_window_layout(window, &transition.properties) {
+    match apply_window_layout(window, transition.to, &transition.properties) {
         Ok(needs_show) => {
             // Phase 2: commit state + emit event so the React frontend can
             // start rendering the correct surface BEFORE the window appears.
@@ -546,8 +546,8 @@ pub(super) fn apply_transition(
         Err(err) => {
             let recovery =
                 recovery_snapshot_for_failed_transition(transition, previous, &current_target);
-            if let Err(recovery_err) = restore_recovery_surface(&recovery, |properties| {
-                apply_window_properties(window, properties)
+            if let Err(recovery_err) = restore_recovery_surface(&recovery, |mode, properties| {
+                apply_window_properties(window, mode, properties)
             }) {
                 let hidden = hidden_surface_snapshot();
                 if let Err(hide_err) = window.hide().map_err(|e| e.to_string()) {

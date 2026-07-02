@@ -27,10 +27,28 @@ const eventMocks = vi.hoisted(() => ({
 const windowMocks = vi.hoisted(() => {
   const setSize = vi.fn().mockResolvedValue(undefined);
   const setPosition = vi.fn().mockResolvedValue(undefined);
+  const minimize = vi.fn().mockResolvedValue(undefined);
+  const toggleMaximize = vi.fn().mockResolvedValue(undefined);
+  const close = vi.fn().mockResolvedValue(undefined);
+  const isMaximized = vi.fn().mockResolvedValue(false);
+  const onResized = vi.fn().mockResolvedValue(() => {});
   return {
     setSize,
     setPosition,
-    getCurrentWindow: vi.fn(() => ({ setSize, setPosition })),
+    minimize,
+    toggleMaximize,
+    close,
+    isMaximized,
+    onResized,
+    getCurrentWindow: vi.fn(() => ({
+      setSize,
+      setPosition,
+      minimize,
+      toggleMaximize,
+      close,
+      isMaximized,
+      onResized,
+    })),
     LogicalSize: vi.fn((width: number, height: number) => ({ width, height })),
     LogicalPosition: vi.fn((x: number, y: number) => ({ x, y })),
   };
@@ -241,7 +259,9 @@ describe("PopOutPanel", () => {
       expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
     });
 
-    expect(windowMocks.getCurrentWindow).not.toHaveBeenCalled();
+    // The PopOut title bar reads window state (isMaximized) on mount, so
+    // getCurrentWindow is legitimately called; assert only that the surface
+    // itself never resizes or repositions the native window.
     expect(windowMocks.setSize).not.toHaveBeenCalled();
     expect(windowMocks.setPosition).not.toHaveBeenCalled();
   });

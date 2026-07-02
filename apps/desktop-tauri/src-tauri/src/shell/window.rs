@@ -20,9 +20,10 @@ pub(super) struct HideToTrayPlan {
 /// Apply the window properties dictated by a surface mode.
 pub fn apply_window_properties(
     window: &WebviewWindow,
+    mode: SurfaceMode,
     props: &WindowProperties,
 ) -> Result<(), String> {
-    let needs_show = apply_window_layout(window, props)?;
+    let needs_show = apply_window_layout(window, mode, props)?;
     if needs_show {
         show_window(window)?;
     }
@@ -35,6 +36,7 @@ pub fn apply_window_properties(
 /// the window (already handled internally).
 pub fn apply_window_layout(
     window: &WebviewWindow,
+    mode: SurfaceMode,
     props: &WindowProperties,
 ) -> Result<bool, String> {
     let map_err = |e: tauri::Error| e.to_string();
@@ -61,9 +63,11 @@ pub fn apply_window_layout(
     }
 
     if props.visible {
-        let (width, height) = remembered_mode_for_properties(props)
-            .map(|mode| logical_size_from_geometry(mode, props, crate::geometry_store::load(mode)))
-            .unwrap_or((props.width, props.height));
+        // The canonical surface mode drives geometry restore — no brittle
+        // shape-matching of WindowProperties. logical_size_from_geometry falls
+        // back to the mode's default size for non-remembered modes.
+        let (width, height) =
+            logical_size_from_geometry(mode, props, crate::geometry_store::load(mode));
         let (width, height) = capped_logical_size(window, width, height);
         let size = tauri::LogicalSize::new(width, height);
         window.set_size(size).map_err(map_err)?;
@@ -83,24 +87,6 @@ pub fn apply_window_layout(
         window.hide().map_err(map_err)?;
         Ok(false)
     }
-}
-
-fn remembered_mode_for_properties(props: &WindowProperties) -> Option<SurfaceMode> {
-    [SurfaceMode::PopOut, SurfaceMode::Settings]
-        .into_iter()
-        .find(|mode| {
-            let mode_props = mode.window_properties();
-            props.visible == mode_props.visible
-                && props.decorations == mode_props.decorations
-                && props.resizable == mode_props.resizable
-                && props.width == mode_props.width
-                && props.height == mode_props.height
-                && props.min_width == mode_props.min_width
-                && props.min_height == mode_props.min_height
-                && props.always_on_top == mode_props.always_on_top
-                && props.blur_dismiss == mode_props.blur_dismiss
-                && props.skip_taskbar == mode_props.skip_taskbar
-        })
 }
 
 pub(super) fn logical_size_from_geometry(

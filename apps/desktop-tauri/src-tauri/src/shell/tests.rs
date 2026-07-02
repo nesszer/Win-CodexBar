@@ -707,7 +707,7 @@ fn visible_recovery_propagates_visibility_errors() {
         target: SurfaceTarget::Summary,
     };
 
-    let err = restore_recovery_surface(&recovery, |_| Err("show failed".into()))
+    let err = restore_recovery_surface(&recovery, |_, _| Err("show failed".into()))
         .expect_err("visible recovery should fail when properties are not restored");
 
     assert_eq!(err, "show failed");
@@ -721,7 +721,8 @@ fn hidden_recovery_reapplies_hidden_properties() {
     };
 
     let mut applied_hidden = false;
-    let restored = restore_recovery_surface(&recovery, |properties| {
+    let restored = restore_recovery_surface(&recovery, |mode, properties| {
+        assert_eq!(mode, SurfaceMode::Hidden);
         applied_hidden = !properties.visible;
         Ok(())
     });
