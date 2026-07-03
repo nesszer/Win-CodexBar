@@ -1,4 +1,4 @@
-//! System tray icon setup: left-click opens the dashboard, right-click native menu.
+//! System tray icon setup: left-click opens the tray panel, right-click native menu.
 
 use std::sync::Mutex;
 
@@ -27,6 +27,14 @@ struct MonitorScaleInfo {
     physical_width: u32,
     physical_height: u32,
     scale_factor: f64,
+}
+
+fn tray_left_click_target() -> shell::ShellTransitionRequest {
+    shell::ShellTransitionRequest {
+        mode: SurfaceMode::TrayPanel,
+        target: SurfaceTarget::Summary,
+        position: None,
+    }
 }
 
 impl MonitorScaleInfo {
@@ -264,11 +272,12 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let app = tray.app_handle();
                 if button == MouseButton::Left && button_state == MouseButtonState::Up {
                     store_anchor(app, &rect, position);
+                    let request = tray_left_click_target();
                     let _ = shell::reopen_to_target(
                         app,
-                        SurfaceMode::PopOut,
-                        SurfaceTarget::Dashboard,
-                        None,
+                        request.mode,
+                        request.target,
+                        request.position,
                     );
                 }
             }
@@ -802,6 +811,14 @@ mod tests {
     fn toggle_float_bar_routes_to_toggle_action() {
         let action = resolve_menu_action("toggle_float_bar").expect("float bar action");
         assert!(matches!(action, MenuAction::ToggleFloatBar));
+    }
+
+    #[test]
+    fn left_click_opens_anchored_tray_panel() {
+        let target = tray_left_click_target();
+
+        assert_eq!(target.mode, SurfaceMode::TrayPanel);
+        assert_eq!(target.target, SurfaceTarget::Summary);
     }
 
     #[test]

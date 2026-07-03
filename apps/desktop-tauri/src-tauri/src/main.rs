@@ -26,7 +26,6 @@ use tauri::Manager;
 
 const PROOF_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
 const VISIBLE_START_ACTIVATION_DELAY: Duration = Duration::from_millis(500);
-const STARTUP_TRAY_BLUR_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LaunchBehavior {
