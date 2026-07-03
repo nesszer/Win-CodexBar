@@ -4,7 +4,7 @@
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -205,6 +205,18 @@ struct ClaudeUsage {
     cache_read_input_tokens: Option<u64>,
 }
 
+#[derive(Debug)]
+struct ClaudeUsageRecord {
+    model: String,
+    timestamp: Option<DateTime<Utc>>,
+    dedup_key: Option<String>,
+    input: u64,
+    output: u64,
+    cache_create: u64,
+    cache_read: u64,
+    cost: f64,
+}
+
 /// Cost usage scanner
 pub struct CostScanner {
     days: u32,
@@ -286,8 +298,13 @@ impl CostScanner {
         summary.period_start = Some(start_date);
         summary.period_end = Some(today);
 
-        // Walk through projects directory
-        self.scan_claude_dir(&projects_dir, &cutoff, &mut summary, cancel);
+        // Walk through projects directory, de-duplicating usage records
+        // that appear across multiple files.
+        let mut seen = HashSet::new();
+        let mut handle_file = |path: &Path| {
+            self.parse_claude_file(path, &cutoff, &mut summary, &mut seen, cancel);
+        };
+        self.walk_claude_files(&projects_dir, &cutoff, cancel, &mut handle_file);
 
         summary
     }
@@ -350,13 +367,15 @@ impl CostScanner {
         }
     }
 
-    fn scan_claude_dir(
+    fn walk_claude_files<F>(
         &self,
-        dir: &PathBuf,
+        dir: &Path,
         cutoff: &DateTime<Utc>,
-        summary: &mut CostSummary,
         cancel: Option<&AtomicBool>,
-    ) {
+        on_file: &mut F,
+    ) where
+        F: FnMut(&Path),
+    {
         if is_cancelled(cancel) {
             return;
         }
@@ -371,7 +390,7 @@ impl CostScanner {
             }
             let path = entry.path();
             if path.is_dir() {
-                self.scan_claude_dir(&path, cutoff, summary, cancel);
+                self.walk_claude_files(&path, cutoff, cancel, on_file);
             } else if path.extension().is_some_and(|e| e == "jsonl") {
                 // Check file modification time
                 if let Ok(metadata) = fs::metadata(&path)
@@ -379,7 +398,7 @@ impl CostScanner {
                 {
                     let modified_dt: DateTime<Utc> = modified.into();
                     if modified_dt >= *cutoff {
-                        self.parse_claude_file(&path, summary, cancel);
+                        on_file(&path);
                     }
                 }
             }
@@ -388,8 +407,10 @@ impl CostScanner {
 
     fn parse_claude_file(
         &self,
-        path: &PathBuf,
+        path: &Path,
+        cutoff: &DateTime<Utc>,
         summary: &mut CostSummary,
+        seen: &mut HashSet<String>,
         cancel: Option<&AtomicBool>,
     ) {
         let file = match File::open(path) {
@@ -398,77 +419,142 @@ impl CostScanner {
         };
 
         let reader = BufReader::new(file);
-        let mut session_cost = 0.0;
         let mut has_tokens = false;
 
         for line in reader.lines().map_while(Result::ok) {
             if is_cancelled(cancel) {
                 return;
             }
-            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
-                // Look for assistant messages with usage
-                if event.get("type").and_then(|t| t.as_str()) == Some("assistant")
-                    && let Some(message) = event.get("message")
-                {
-                    let model = message
-                        .get("model")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("claude-3-5-sonnet");
-
-                    if let Some(usage) = message.get("usage") {
-                        let input = usage
-                            .get("input_tokens")
-                            .and_then(|t| t.as_u64())
-                            .unwrap_or(0);
-                        let output = usage
-                            .get("output_tokens")
-                            .and_then(|t| t.as_u64())
-                            .unwrap_or(0);
-                        let cache_create = usage
-                            .get("cache_creation_input_tokens")
-                            .and_then(|t| t.as_u64())
-                            .unwrap_or(0);
-                        let cache_create_1h =
-                            claude_one_hour_cache_creation_tokens(usage, cache_create);
-                        let cache_read = usage
-                            .get("cache_read_input_tokens")
-                            .and_then(|t| t.as_u64())
-                            .unwrap_or(0);
-
-                        summary.input_tokens += input;
-                        summary.output_tokens += output;
-                        summary.cached_tokens += cache_create + cache_read;
-
-                        let cost = ClaudePricing::cost_usd_with_cache_ttl(
-                            model,
-                            input,
-                            cache_create,
-                            cache_create_1h,
-                            cache_read,
-                            output,
-                        );
-                        session_cost += cost;
-                        has_tokens = true;
-
-                        *summary.by_model.entry(model.to_string()).or_insert(0.0) += cost;
-
-                        let model_tokens = summary
-                            .by_model_tokens
-                            .entry(model.to_string())
-                            .or_default();
-                        model_tokens.input_tokens += input;
-                        model_tokens.output_tokens += output;
-                        model_tokens.cached_tokens += cache_create + cache_read;
-                    }
-                }
+            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line)
+                && let Some(record) = claude_usage_record_from_event(&event)
+                && should_count_claude_record(&record, cutoff, seen)
+            {
+                add_claude_record_to_summary(summary, &record);
+                has_tokens = true;
             }
         }
 
         if has_tokens {
-            summary.total_cost_usd += session_cost;
             summary.sessions_count += 1;
         }
     }
+}
+
+fn claude_usage_record_from_event(event: &serde_json::Value) -> Option<ClaudeUsageRecord> {
+    if event.get("type").and_then(|t| t.as_str()) != Some("assistant") {
+        return None;
+    }
+
+    let message = event.get("message")?;
+    let usage = message.get("usage")?;
+    let model = message
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("claude-3-5-sonnet");
+
+    let input = usage
+        .get("input_tokens")
+        .and_then(|t| t.as_u64())
+        .unwrap_or(0);
+    let output = usage
+        .get("output_tokens")
+        .and_then(|t| t.as_u64())
+        .unwrap_or(0);
+    let cache_create = usage
+        .get("cache_creation_input_tokens")
+        .and_then(|t| t.as_u64())
+        .unwrap_or(0);
+    let cache_read = usage
+        .get("cache_read_input_tokens")
+        .and_then(|t| t.as_u64())
+        .unwrap_or(0);
+
+    if input == 0 && output == 0 && cache_create == 0 && cache_read == 0 {
+        return None;
+    }
+
+    let cache_create_1h = claude_one_hour_cache_creation_tokens(usage, cache_create);
+    let cost = ClaudePricing::cost_usd_with_cache_ttl(
+        model,
+        input,
+        cache_create,
+        cache_create_1h,
+        cache_read,
+        output,
+    );
+
+    Some(ClaudeUsageRecord {
+        model: model.to_string(),
+        timestamp: claude_event_timestamp(event),
+        dedup_key: claude_usage_dedup_key(event, message),
+        input,
+        output,
+        cache_create,
+        cache_read,
+        cost,
+    })
+}
+
+fn claude_event_timestamp(event: &serde_json::Value) -> Option<DateTime<Utc>> {
+    let timestamp = event.get("timestamp").and_then(|t| t.as_str())?;
+    DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|ts| ts.with_timezone(&Utc))
+}
+
+fn claude_usage_dedup_key(
+    event: &serde_json::Value,
+    message: &serde_json::Value,
+) -> Option<String> {
+    let message_id = message.get("id").and_then(|id| id.as_str());
+    let request_id = event
+        .get("requestId")
+        .or_else(|| event.get("request_id"))
+        .and_then(|id| id.as_str());
+
+    match (message_id, request_id) {
+        (Some(message_id), Some(request_id)) => Some(format!("{message_id}:{request_id}")),
+        (Some(message_id), None) => Some(format!("message:{message_id}")),
+        (None, Some(request_id)) => Some(format!("request:{request_id}")),
+        (None, None) => None,
+    }
+}
+
+fn should_count_claude_record(
+    record: &ClaudeUsageRecord,
+    cutoff: &DateTime<Utc>,
+    seen: &mut HashSet<String>,
+) -> bool {
+    if let Some(timestamp) = record.timestamp
+        && timestamp < *cutoff
+    {
+        return false;
+    }
+
+    if let Some(key) = &record.dedup_key
+        && !seen.insert(key.clone())
+    {
+        return false;
+    }
+
+    true
+}
+
+fn add_claude_record_to_summary(summary: &mut CostSummary, record: &ClaudeUsageRecord) {
+    summary.input_tokens += record.input;
+    summary.output_tokens += record.output;
+    summary.cached_tokens += record.cache_create + record.cache_read;
+    summary.total_cost_usd += record.cost;
+
+    *summary.by_model.entry(record.model.clone()).or_insert(0.0) += record.cost;
+
+    let model_tokens = summary
+        .by_model_tokens
+        .entry(record.model.clone())
+        .or_default();
+    model_tokens.input_tokens += record.input;
+    model_tokens.output_tokens += record.output;
+    model_tokens.cached_tokens += record.cache_create + record.cache_read;
 }
 
 fn claude_one_hour_cache_creation_tokens(usage: &serde_json::Value, total: u64) -> u64 {
@@ -797,5 +883,85 @@ mod tests {
         );
         assert!(scan_codex_file_cost(&path) > 0.0);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn derives_claude_dedup_key_from_message_and_request_ids() {
+        let cases = [
+            (
+                r#"{"requestId":"req_1","message":{"id":"msg_1"}}"#,
+                Some("msg_1:req_1"),
+            ),
+            (r#"{"message":{"id":"msg_1"}}"#, Some("message:msg_1")),
+            (
+                r#"{"request_id":"req_1","message":{}}"#,
+                Some("request:req_1"),
+            ),
+            (r#"{"message":{}}"#, None),
+        ];
+        for (json, expected) in cases {
+            let event: serde_json::Value = serde_json::from_str(json).unwrap();
+            let message = event.get("message").unwrap();
+            assert_eq!(
+                claude_usage_dedup_key(&event, message).as_deref(),
+                expected,
+                "unexpected dedup key for {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn counts_claude_usage_once_across_duplicate_records() {
+        // The same API response can be replayed into several transcript files
+        // (session resume, observer sessions); it must only be counted once.
+        let event: serde_json::Value = serde_json::from_str(
+            r#"{"type":"assistant","timestamp":"2026-01-15T10:00:00Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}"#,
+        )
+        .unwrap();
+
+        let record = claude_usage_record_from_event(&event).expect("usage record");
+        assert_eq!(record.model, "claude-sonnet-4-6");
+        assert_eq!(record.input, 100);
+        assert_eq!(record.output, 50);
+        assert_eq!(record.cache_create, 10);
+        assert_eq!(record.cache_read, 20);
+        assert!(record.cost > 0.0);
+
+        let cutoff = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut seen = HashSet::new();
+        assert!(should_count_claude_record(&record, &cutoff, &mut seen));
+        assert!(!should_count_claude_record(&record, &cutoff, &mut seen));
+    }
+
+    #[test]
+    fn rejects_claude_records_before_cutoff() {
+        let event: serde_json::Value = serde_json::from_str(
+            r#"{"type":"assistant","timestamp":"2025-12-01T10:00:00Z","requestId":"req_old","message":{"id":"msg_old","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":1}}}"#,
+        )
+        .unwrap();
+        let record = claude_usage_record_from_event(&event).expect("usage record");
+        let cutoff = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut seen = HashSet::new();
+        assert!(!should_count_claude_record(&record, &cutoff, &mut seen));
+    }
+
+    #[test]
+    fn ignores_claude_events_without_countable_usage() {
+        // Non-assistant events carry no billable usage.
+        let event: serde_json::Value =
+            serde_json::from_str(r#"{"type":"user","message":{"usage":{"input_tokens":5}}}"#)
+                .unwrap();
+        assert!(claude_usage_record_from_event(&event).is_none());
+
+        // Zero-token usage blocks (e.g. synthetic messages) are not sessions.
+        let event: serde_json::Value = serde_json::from_str(
+            r#"{"type":"assistant","message":{"id":"msg_zero","model":"claude-sonnet-4-6","usage":{"input_tokens":0,"output_tokens":0}}}"#,
+        )
+        .unwrap();
+        assert!(claude_usage_record_from_event(&event).is_none());
     }
 }
