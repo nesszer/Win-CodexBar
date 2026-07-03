@@ -63,20 +63,25 @@ pub fn apply_window_layout(
     }
 
     if props.visible {
-        // The TrayPanel flyout is sized entirely by the frontend (content
-        // auto-fit, or the user's remembered size applied on open). A backend
-        // size here would race the frontend and be indistinguishable from a user
-        // drag-resize, so skip it for TrayPanel and only enforce the min size.
-        if mode != SurfaceMode::TrayPanel {
-            // The canonical surface mode drives geometry restore — no brittle
-            // shape-matching of WindowProperties. logical_size_from_geometry
-            // falls back to the mode's default size for non-remembered modes.
-            let (width, height) =
-                logical_size_from_geometry(mode, props, crate::geometry_store::load(mode));
-            let (width, height) = capped_logical_size(window, width, height);
-            let size = tauri::LogicalSize::new(width, height);
-            window.set_size(size).map_err(map_err)?;
-        }
+        // The flyout ("Pop Out Dashboard") window is sized entirely by the
+        // frontend (content auto-fit, or the user's remembered size applied
+        // on open via `flyout_window::open_or_focus` + `set_flyout_size`) —
+        // it is its own dedicated window now, never `main`, so this function
+        // (which only ever runs against `main`'s window; see callers in
+        // `shell/transition.rs`) needs no special-case for it. `main`'s
+        // surface machine only ever holds Hidden/PopOut/Settings, none of
+        // which race a frontend-owned size the way the old shared-window
+        // TrayPanel mode did — so the backend is the sole size-setter here,
+        // unconditionally, for every mode this function can be called with.
+        //
+        // The canonical surface mode drives geometry restore — no brittle
+        // shape-matching of WindowProperties. logical_size_from_geometry
+        // falls back to the mode's default size for non-remembered modes.
+        let (width, height) =
+            logical_size_from_geometry(mode, props, crate::geometry_store::load(mode));
+        let (width, height) = capped_logical_size(window, width, height);
+        let size = tauri::LogicalSize::new(width, height);
+        window.set_size(size).map_err(map_err)?;
 
         if let (Some(min_w), Some(min_h)) = (props.min_width, props.min_height) {
             window

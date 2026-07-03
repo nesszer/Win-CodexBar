@@ -225,6 +225,27 @@ describe("TrayPanel provider grid", () => {
     );
   });
 
+  it("reveals regardless of the shared surface-mode snapshot (TrayPanel now runs in its own dedicated window)", async () => {
+    // TrayPanel is now hosted exclusively in the dedicated `flyout` OS
+    // window (see App.tsx's isFlyoutWindow() routing), so it must not depend
+    // on `main`'s surface-mode machine to know it's "open" — that machine
+    // can never report "trayPanel" anymore (main only holds
+    // Hidden/PopOut/Settings post-refactor). Overriding the snapshot mock to
+    // something else confirms the fixed-size restore + reveal gate
+    // (isFlyoutOpen, hardcoded true in TrayPanel.tsx) is no longer wired to
+    // useSurfaceMode() at all.
+    tauriMocks.getCurrentSurfaceState.mockResolvedValue({
+      mode: "popOut",
+      target: { kind: "dashboard" },
+    });
+
+    const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
+
+    await waitFor(() => {
+      expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
+    });
+  });
+
   it("dismisses the tray panel on unmodified Escape", async () => {
     const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
 

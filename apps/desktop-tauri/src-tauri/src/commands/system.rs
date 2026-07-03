@@ -188,73 +188,17 @@ pub fn play_notification_sound() -> Result<(), String> {
     Ok(())
 }
 
-/// Reposition the tray panel so its bottom-right corner stays anchored to
+/// Reposition the flyout window so its bottom-right corner stays anchored to
 /// the system-tray area. Called from the frontend after dynamic resize.
+///
+/// Retargeted from `main` to the dedicated `flyout` window — the flyout is no
+/// longer a state of `main`'s surface-mode machine, so `reanchor_tray_panel`
+/// (still exported under its historical name — the frontend command name is
+/// unchanged) now anchors the flyout window directly. The anchor math itself
+/// lives in `shell::flyout_window::reanchor`, which this delegates to.
 #[tauri::command]
 pub fn reanchor_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
-    use crate::window_positioner::{PanelSize, Rect};
-    use tauri::Manager;
-
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "main window unavailable".to_string())?;
-    let scale = window.scale_factor().unwrap_or(1.0).max(1.0);
-
-    // Use the window's current logical size (after JS resize).
-    let outer = window.outer_size().map_err(|e| e.to_string())?;
-    let panel_size = PanelSize {
-        width: (outer.width as f64 / scale).round() as u32,
-        height: (outer.height as f64 / scale).round() as u32,
-    };
-
-    // Prefer the saved tray anchor from a real click; otherwise infer one from
-    // the taskbar side.
-    let monitor = window
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.current_monitor().ok().flatten())
-        .ok_or_else(|| "no monitor".to_string())?;
-
-    let work_area = Rect {
-        x: monitor.work_area().position.x,
-        y: monitor.work_area().position.y,
-        width: monitor.work_area().size.width,
-        height: monitor.work_area().size.height,
-    };
-
-    let (x, y) = {
-        let st = app.try_state::<std::sync::Mutex<crate::state::AppState>>();
-        let anchor = st.and_then(|s| s.lock().ok()?.tray_anchor);
-        if let Some(a) = anchor {
-            crate::window_positioner::calculate_panel_position(
-                &Rect {
-                    x: a.x,
-                    y: a.y,
-                    width: a.width,
-                    height: a.height,
-                },
-                &work_area,
-                &panel_size,
-                scale,
-            )
-        } else {
-            crate::shell::inferred_tray_panel_position_for_monitor_size(&monitor, &panel_size)
-        }
-    };
-
-    // Pass physical coordinates directly — tao converts PhysicalPosition
-    // to OS logical internally by dividing by the window's scale factor.
-    let pos = tauri::PhysicalPosition::new(x, y);
-    tracing::debug!(
-        "reanchor_tray_panel: panel={}x{} => ({},{})",
-        panel_size.width,
-        panel_size.height,
-        pos.x,
-        pos.y
-    );
-    let _ = window.set_position(pos);
-    Ok(())
+    crate::shell::flyout_window::reanchor(&app)
 }
 
 #[tauri::command]

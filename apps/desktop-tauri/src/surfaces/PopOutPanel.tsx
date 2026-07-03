@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
-import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication, reorderProviders } from "../lib/tauri";
+import { openFlyoutWindow, openSettingsWindow, quitApp as quitApplication, reorderProviders } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
@@ -142,7 +142,11 @@ export default function PopOutPanel({
     openSettingsWindow("general");
   }, []);
   const goTray = useCallback(() => {
-    setSurfaceMode("trayPanel", { kind: "summary" });
+    // The flyout ("Pop Out Dashboard") is now its own dedicated OS window
+    // rather than a state of the shared `main` window's surface-mode
+    // machine, so "back to tray" opens it directly instead of switching
+    // `main`'s mode.
+    void openFlyoutWindow().catch(() => {});
   }, []);
   const openAbout = useCallback(() => {
     openSettingsWindow("about");

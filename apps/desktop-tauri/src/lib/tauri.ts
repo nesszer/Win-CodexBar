@@ -76,6 +76,11 @@ export function openSettingsWindow(tab: string): Promise<void> {
   return invoke<void>("open_settings_window", { tab });
 }
 
+/** Open (or focus) the detached flyout ("Pop Out Dashboard") window. */
+export function openFlyoutWindow(): Promise<void> {
+  return invoke<void>("open_flyout_window");
+}
+
 export function closeSettingsWindow(): Promise<void> {
   return invoke<void>("close_settings_window");
 }

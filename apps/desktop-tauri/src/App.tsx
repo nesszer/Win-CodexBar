@@ -34,6 +34,11 @@ function isFloatBarWindow(): boolean {
   return getCurrentWebviewWindow().label === FLOATBAR_WINDOW_LABEL;
 }
 
+/** True when running inside the detached flyout ("Pop Out Dashboard") window. */
+function isFlyoutWindow(): boolean {
+  return getCurrentWebviewWindow().label === "flyout";
+}
+
 /** Parse the initial Settings tab from the URL query string. */
 function initialSettingsTab(): string {
   const params = new URLSearchParams(window.location.search);
@@ -171,6 +176,13 @@ function AppInner() {
         <FloatBar state={state} />
       </Suspense>
     );
+  }
+
+  // Detached flyout ("Pop Out Dashboard") window — render TrayPanel directly.
+  // TrayPanel is statically imported (not lazy), so no Suspense boundary is
+  // needed here, unlike the other detached-window branches above.
+  if (isFlyoutWindow()) {
+    return <TrayPanel state={state} />;
   }
 
   return <SurfaceRouter surface={surface} state={state} />;

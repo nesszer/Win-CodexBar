@@ -3,8 +3,11 @@
 //! Remembers position (and size where applicable) for detached user surfaces:
 //! PopOut and Settings.
 //!
-//! TrayPanel stays computed from the tray anchor/work-area because it is a
-//! temporary anchored panel, not a user-resizable standalone window.
+//! The flyout window stays computed from the tray anchor/work-area because it
+//! is a temporary anchored panel, not a user-movable standalone window — but
+//! its SIZE is remembered via the size-only [`StoredSize`] entries below, kept
+//! separate from [`StoredGeometry`] so the flyout's persisted size can never
+//! carry fabricated `x`/`y` coordinates.
 
 use std::fs;
 use std::path::PathBuf;
@@ -32,6 +35,16 @@ pub struct StoredGeometry {
     pub height: Option<u32>,
 }
 
+/// A size-only persisted entry, for windows that are always re-anchored (never
+/// remember position) so storing `x`/`y` would be fabricated data. Used by the
+/// detached flyout window, which is anchored above the tray on every open —
+/// only its user-chosen width/height is meaningful to remember.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredSize {
+    pub width: u32,
+    pub height: u32,
+}
+
 /// All persisted geometries keyed by surface mode string (`settings`, ...).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GeometryFile {
@@ -39,6 +52,12 @@ pub struct GeometryFile {
     pub version: u32,
     #[serde(default)]
     pub entries: std::collections::BTreeMap<String, StoredGeometry>,
+    /// Size-only entries (no position), keyed by an arbitrary label (e.g. the
+    /// `"flyout"` window). Kept in a separate map — rather than reusing
+    /// `entries` with a fabricated `x: 0, y: 0` — so the on-disk shape can't
+    /// be misread as a remembered position.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub size_entries: std::collections::BTreeMap<String, StoredSize>,
 }
 
 fn geometry_path() -> Option<PathBuf> {
@@ -132,6 +151,54 @@ pub fn save_entry(key: &str, geometry: StoredGeometry) {
     file.entries.insert(key.to_string(), geometry);
     if let Err(err) = save_file(&file) {
         tracing::warn!(target: "codexbar::geometry", %err, "failed to persist geometry");
+    }
+}
+
+/// Legacy key the flyout size was stored under before it became a dedicated
+/// window: the old `SurfaceMode::TrayPanel` shared-window geometry entry.
+const LEGACY_FLYOUT_SIZE_KEY: &str = "trayPanel";
+
+/// Resolve a size-only entry from an in-memory [`GeometryFile`]: prefer the
+/// new `size_entries` map, falling back to migrating a pre-existing
+/// `"trayPanel"` [`StoredGeometry`] width/height (from before the flyout was
+/// split into its own window) so upgrading users keep their remembered size
+/// instead of it silently resetting to the default. Pure/side-effect-free so
+/// it can be unit-tested without touching disk; [`load_size`] is the
+/// disk-backed wrapper that also persists the migrated value.
+fn resolve_size(file: &GeometryFile, key: &str) -> Option<StoredSize> {
+    if let Some(size) = file.size_entries.get(key).copied() {
+        return Some(size);
+    }
+    if key != LEGACY_FLYOUT_SIZE_KEY {
+        let legacy = file.entries.get(LEGACY_FLYOUT_SIZE_KEY)?;
+        let (width, height) = (legacy.width?, legacy.height?);
+        return Some(StoredSize { width, height });
+    }
+    None
+}
+
+/// Look up a remembered size-only entry (e.g. the flyout window's
+/// user-chosen width/height). See [`resolve_size`] for the migration
+/// fallback; a migrated value is re-persisted under the new key so this
+/// lookup path is only taken once (the legacy entry is left in place —
+/// harmless, since nothing reads `entries["trayPanel"]` as a position
+/// anymore).
+pub fn load_size(key: &str) -> Option<StoredSize> {
+    let file = load_file();
+    let size = resolve_size(&file, key)?;
+    if !file.size_entries.contains_key(key) {
+        save_size(key, size);
+    }
+    Some(size)
+}
+
+/// Persist a size-only entry under an arbitrary key.
+pub fn save_size(key: &str, size: StoredSize) {
+    let mut file = load_file();
+    file.version = GEOMETRY_VERSION;
+    file.size_entries.insert(key.to_string(), size);
+    if let Err(err) = save_file(&file) {
+        tracing::warn!(target: "codexbar::geometry", %err, "failed to persist size");
     }
 }
 
@@ -229,5 +296,102 @@ mod tests {
         assert_eq!(entry.y, 20);
         assert_eq!(entry.width, None);
         assert_eq!(entry.height, None);
+    }
+
+    #[test]
+    fn stored_size_round_trips_without_position_fields() {
+        let mut f = GeometryFile::default();
+        f.size_entries.insert(
+            "flyout".into(),
+            StoredSize {
+                width: 400,
+                height: 820,
+            },
+        );
+        let json = serde_json::to_string(&f).unwrap();
+        // The size-only entry must never carry x/y — that's the whole point
+        // of keeping it out of `entries: BTreeMap<String, StoredGeometry>`.
+        assert!(!json.contains("\"x\""));
+        assert!(!json.contains("\"y\""));
+        let parsed: GeometryFile = serde_json::from_str(&json).unwrap();
+        let entry = parsed.size_entries.get("flyout").unwrap();
+        assert_eq!(entry.width, 400);
+        assert_eq!(entry.height, 820);
+    }
+
+    #[test]
+    fn resolve_size_prefers_new_key_over_legacy() {
+        let mut file = GeometryFile::default();
+        file.size_entries.insert(
+            "flyout".into(),
+            StoredSize {
+                width: 500,
+                height: 900,
+            },
+        );
+        file.entries.insert(
+            LEGACY_FLYOUT_SIZE_KEY.into(),
+            StoredGeometry {
+                x: 0,
+                y: 0,
+                width: Some(640),
+                height: Some(720),
+            },
+        );
+
+        let resolved = resolve_size(&file, "flyout").expect("size present");
+        assert_eq!(resolved.width, 500);
+        assert_eq!(resolved.height, 900);
+    }
+
+    #[test]
+    fn resolve_size_migrates_legacy_tray_panel_geometry_when_no_new_entry() {
+        // Simulates an upgrading user: pre-refactor size lived under the
+        // `SurfaceMode::TrayPanel` shared-window geometry key.
+        let mut file = GeometryFile::default();
+        file.entries.insert(
+            LEGACY_FLYOUT_SIZE_KEY.into(),
+            StoredGeometry {
+                x: 0,
+                y: 0,
+                width: Some(640),
+                height: Some(720),
+            },
+        );
+
+        let resolved = resolve_size(&file, "flyout").expect("legacy size migrates");
+        assert_eq!(resolved.width, 640);
+        assert_eq!(resolved.height, 720);
+    }
+
+    #[test]
+    fn resolve_size_ignores_legacy_entry_missing_width_or_height() {
+        let mut file = GeometryFile::default();
+        file.entries.insert(
+            LEGACY_FLYOUT_SIZE_KEY.into(),
+            StoredGeometry {
+                x: 0,
+                y: 0,
+                width: Some(640),
+                height: None,
+            },
+        );
+
+        assert!(resolve_size(&file, "flyout").is_none());
+    }
+
+    #[test]
+    fn resolve_size_returns_none_when_nothing_stored() {
+        let file = GeometryFile::default();
+        assert!(resolve_size(&file, "flyout").is_none());
+    }
+
+    #[test]
+    fn resolve_size_for_legacy_key_itself_does_not_self_migrate() {
+        // Looking up the legacy key directly should only consult
+        // `size_entries` (the `key != LEGACY_FLYOUT_SIZE_KEY` guard) — no
+        // infinite fallback to itself.
+        let file = GeometryFile::default();
+        assert!(resolve_size(&file, LEGACY_FLYOUT_SIZE_KEY).is_none());
     }
 }

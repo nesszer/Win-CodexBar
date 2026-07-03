@@ -17,7 +17,7 @@ pub fn set_surface_mode(
 
 #[tauri::command]
 pub fn dismiss_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
-    crate::shell::hide_to_tray_if_current(&app, |mode| mode == SurfaceMode::TrayPanel).map(|_| ())
+    crate::shell::flyout_window::hide(&app)
 }
 
 /// Arm the gesture blur guard before a resize-grip drag or drag-reorder
@@ -59,6 +59,27 @@ pub async fn open_settings_window(app: tauri::AppHandle, tab: String) -> Result<
     crate::shell::settings_window::open_or_focus(&app, &tab)
 }
 
+/// Open (or focus) the detached flyout ("Pop Out Dashboard") window.
+///
+/// Used by `PopOutPanel`'s "back to tray" action, which previously called
+/// `set_surface_mode("trayPanel", ...)` on the shared window — now that the
+/// flyout is its own window, that action opens it directly instead.  Same
+/// `async` requirement as `open_settings_window`: `WebviewWindowBuilder::build`
+/// deadlocks inside synchronous Tauri commands on Windows.
+#[tauri::command]
+pub async fn open_flyout_window(app: tauri::AppHandle) -> Result<(), String> {
+    crate::shell::flyout_window::open_or_focus(&app, None)
+}
+
+/// Reveal the flyout window after the frontend's first layout pass. Called by
+/// `useTrayPanelLayout` once content has been measured/auto-fit (or the
+/// remembered fixed size re-applied), so Windows never shows a pre-measure
+/// blank/backing frame.
+///
+/// No-ops when the flyout window doesn't exist — the `== TrayPanel` gate this
+/// replaced was checking "is the flyout the thing we're currently showing?";
+/// now that the flyout is its own window (not a state of `main`'s surface
+/// machine), window-existence is the equivalent check.
 #[tauri::command]
 pub fn reveal_tray_panel_window(
     app: tauri::AppHandle,
@@ -66,19 +87,9 @@ pub fn reveal_tray_panel_window(
 ) -> Result<(), String> {
     use tauri::Manager;
 
-    if state
-        .lock()
-        .map_err(|e| e.to_string())?
-        .surface_machine
-        .current()
-        != SurfaceMode::TrayPanel
-    {
+    let Some(window) = app.get_webview_window(crate::shell::flyout_window::FLYOUT_LABEL) else {
         return Ok(());
-    }
-
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "main window unavailable".to_string())?;
+    };
     window.show().map_err(|e| e.to_string())?;
     state
         .lock()
@@ -96,33 +107,28 @@ pub fn close_settings_window(
     crate::shell::settings_window::dismiss(&app, &window)
 }
 
-/// Persist a user-chosen size for the "Pop Out Dashboard" flyout (TrayPanel).
-/// Only the size is stored; the flyout is always re-anchored above the tray.
-/// The frontend calls this on genuine user drag-resizes, not on its own
+/// Persist a user-chosen size for the "Pop Out Dashboard" flyout window.
+/// Only the size is stored (via a size-only `StoredSize` entry — no
+/// fabricated `x`/`y`); the flyout is always re-anchored above the tray on
+/// open. The frontend calls this on genuine user drag-resizes, not on its own
 /// auto-fit resizes, so auto-fit sizes never freeze the panel.
 #[tauri::command]
 pub fn set_flyout_size(width: f64, height: f64) -> Result<(), String> {
     let width = (width.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
     let height = (height.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
-    crate::geometry_store::save(
-        SurfaceMode::TrayPanel,
-        crate::geometry_store::StoredGeometry {
-            x: 0,
-            y: 0,
-            width: Some(width),
-            height: Some(height),
-        },
-    );
+    crate::shell::flyout_window::save_stored_size(width, height);
     Ok(())
 }
 
 /// Return the remembered flyout size, if the user has manually resized it.
 /// The frontend uses this to decide whether to auto-fit (no stored size) or
-/// honor the user's size (stored) on open.
+/// honor the user's size (stored) on open. Transparently migrates a
+/// pre-existing size stored under the legacy `SurfaceMode::TrayPanel`
+/// shared-window geometry key (from before the flyout became its own
+/// window), so upgrading users don't lose their remembered size.
 #[tauri::command]
 pub fn flyout_stored_size() -> Result<Option<(u32, u32)>, String> {
-    Ok(crate::geometry_store::load(SurfaceMode::TrayPanel)
-        .and_then(|geometry| geometry.width.zip(geometry.height)))
+    Ok(crate::shell::flyout_window::stored_size())
 }
 
 #[tauri::command]

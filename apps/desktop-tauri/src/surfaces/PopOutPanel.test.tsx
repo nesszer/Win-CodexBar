@@ -12,7 +12,7 @@ const tauriMocks = vi.hoisted(() => ({
   applyUpdate: vi.fn(),
   dismissUpdate: vi.fn(),
   openReleasePage: vi.fn(),
-  setSurfaceMode: vi.fn(),
+  openFlyoutWindow: vi.fn(),
   openSettingsWindow: vi.fn(),
   quitApp: vi.fn(),
   getProviderChartData: vi.fn(),
@@ -217,6 +217,7 @@ describe("PopOutPanel", () => {
     tauriMocks.getLocaleStrings.mockResolvedValue(
       buildBundle({ SummaryProvidersLabel: "providers" }),
     );
+    tauriMocks.openFlyoutWindow.mockResolvedValue(undefined);
     eventMocks.listen.mockResolvedValue(() => {});
   });
 
@@ -233,6 +234,28 @@ describe("PopOutPanel", () => {
     expect(container.querySelector(".provider-grid__item--active")?.getAttribute("aria-label")).toBe("Claude");
     expect(screen.getAllByText("Claude").length).toBeGreaterThanOrEqual(2);
     expect(container.querySelectorAll(".menu-stack__item")).toHaveLength(1);
+  });
+
+  it("renders cleanly with the flyout-window rewiring for goTray's onClick", async () => {
+    // goTray's onClick now calls openFlyoutWindow() (formerly
+    // setSurfaceMode("trayPanel", ...)) — asserted directly against the mock
+    // import rather than via a click because `headerActions` (the array
+    // goTray's handler lives in) is currently never rendered by
+    // MenuSurface: `actions` is destructured in MenuSurfaceProps but not
+    // consumed in its JSX (components/MenuSurface.tsx), so there is no
+    // "back to tray" button in the DOM to click today. That's a pre-existing
+    // gap tracked separately, not introduced by this rewiring. This test
+    // instead pins down that the component still renders without error and
+    // that openFlyoutWindow is never called on mount (only on the — for now
+    // unreachable — click), so the rewiring doesn't regress anything that
+    // currently DOES work.
+    renderPopOut([provider("codex", "Codex", 80)]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
+    });
+
+    expect(tauriMocks.openFlyoutWindow).not.toHaveBeenCalled();
   });
 
   it("applies the persisted PopOut display scale", async () => {

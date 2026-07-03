@@ -17,7 +17,7 @@ import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
 import { useLocale } from "../hooks/useLocale";
-import { useSurfaceMode, useSurfaceTarget } from "../hooks/useSurfaceMode";
+import { useSurfaceTarget } from "../hooks/useSurfaceMode";
 import { useTrayPanelLayout } from "../hooks/useTrayPanelLayout";
 import MenuCard from "../components/MenuCard";
 import MenuSurface, {
@@ -299,7 +299,15 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     [],
   );
 
-  const isFlyoutOpen = useSurfaceMode() === "trayPanel";
+  // TrayPanel now renders exclusively inside its own dedicated "flyout" OS
+  // window (see App.tsx's isFlyoutWindow() routing) — it is no longer a
+  // state of the shared `main` window's surface-mode machine. The old
+  // `useSurfaceMode() === "trayPanel"` check would be permanently false
+  // here (that machine now only tracks Hidden/PopOut/Settings on `main`),
+  // which would silently gate off the fixed-size restore + reveal below
+  // (useTrayPanelLayout's `isOpen` gate) — a user-resized flyout would never
+  // reveal itself. Hardcoded true: being mounted IS "the flyout is open".
+  const isFlyoutOpen = true;
   const fixedFlyoutSize = Array.isArray(flyoutSize) ? flyoutSize : null;
   const { layoutReady, requestLayout } = useTrayPanelLayout({
     canMeasure: hasLoadedCache || sorted.length > 0,

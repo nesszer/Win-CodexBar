@@ -142,6 +142,7 @@ fn main() {
             commands::end_flyout_gesture,
             commands::reveal_tray_panel_window,
             commands::open_settings_window,
+            commands::open_flyout_window,
             commands::close_settings_window,
             commands::set_flyout_size,
             commands::flyout_stored_size,
@@ -252,6 +253,9 @@ fn main() {
         })
         .on_window_event(move |window, event| {
             if floatbar::handle_window_event(window, event) {
+                return;
+            }
+            if shell::flyout_window::handle_window_event(window, event) {
                 return;
             }
             // Only the main window participates in blur-dismiss and close-to-hide.

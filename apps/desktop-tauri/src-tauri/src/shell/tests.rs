@@ -12,8 +12,7 @@ use super::transition::{
     monitor_for_preserved_visible_position, reclamp_preserved_visible_position,
     recovery_snapshot_for_failed_transition, resolve_transition_position,
     resolve_transition_request, restore_recovery_surface, restore_surface_snapshot,
-    should_force_tray_panel_reveal, should_hide_tray_panel_on_toggle,
-    should_synthesize_default_position,
+    should_force_tray_panel_reveal, should_synthesize_default_position,
 };
 use super::window::{
     hide_to_tray_state, logical_size_from_geometry, prepare_hide_to_tray_if_current,
@@ -63,18 +62,12 @@ fn conditional_hide_to_tray_leaves_non_matching_surface_alone() {
     assert_eq!(state.current_target, SurfaceTarget::Dashboard);
 }
 
-#[test]
-fn tray_toggle_hides_only_when_panel_window_is_visible() {
-    assert!(should_hide_tray_panel_on_toggle(
-        SurfaceMode::TrayPanel,
-        true
-    ));
-    assert!(!should_hide_tray_panel_on_toggle(
-        SurfaceMode::TrayPanel,
-        false
-    ));
-    assert!(!should_hide_tray_panel_on_toggle(SurfaceMode::Hidden, true));
-}
+// The old `tray_toggle_hides_only_when_panel_window_is_visible` test (which
+// exercised `should_hide_tray_panel_on_toggle`) was removed here along with
+// its subject function: the tray-icon left-click toggle for the shared
+// `main` window's TrayPanel state no longer exists — the flyout is its own
+// dedicated window now (see `shell::flyout_window::toggle_with_blur_consume`
+// and its own test module in flyout_window.rs).
 
 #[test]
 fn tray_reveal_fallback_only_for_hidden_tray_panel() {

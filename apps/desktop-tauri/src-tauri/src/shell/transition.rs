@@ -26,6 +26,19 @@ fn os_position(_window: &WebviewWindow, x: i32, y: i32) -> tauri::PhysicalPositi
     tauri::PhysicalPosition::new(x, y)
 }
 
+// `should_force_tray_panel_reveal` is retained below purely because the
+// already-dead (pre-existing, `#[allow(dead_code)]`-marked)
+// `schedule_startup_tray_panel_reveal_fallback` still references it — see
+// that function's own doc comment. The ACTIVE reveal-fallback path
+// (`schedule_tray_panel_reveal_fallback`, formerly called from
+// `apply_transition` below) was removed here: `main` can no longer transition
+// into `SurfaceMode::TrayPanel` (that mode now only opens as the dedicated
+// `flyout` window — see `shell::flyout_window`), so `apply_transition`'s
+// `transition.to != SurfaceMode::TrayPanel` branch always took the `if`
+// side in practice; the check itself was removed as unreachable dead weight
+// once `main`'s transitions were audited for TrayPanel producers (none
+// remain — see `tray_bridge.rs`'s `MenuAction::OpenFlyout` and
+// `flyout_window::toggle_with_blur_consume`).
 pub(super) fn should_force_tray_panel_reveal(
     current: SurfaceMode,
     main_window_visible: bool,
@@ -34,47 +47,6 @@ pub(super) fn should_force_tray_panel_reveal(
     current == SurfaceMode::TrayPanel
         && (!main_window_visible
             || main_window_size.is_some_and(|(width, height)| width < 100 || height < 100))
-}
-
-fn schedule_tray_panel_reveal_fallback(app: &AppHandle) {
-    const DELAY: std::time::Duration = std::time::Duration::from_millis(500);
-    let app = app.clone();
-    let _ = std::thread::spawn(move || {
-        std::thread::sleep(DELAY);
-        let app_on_main = app.clone();
-        if let Err(error) = app.run_on_main_thread(move || {
-            let Some(state) = app_on_main.try_state::<Mutex<AppState>>() else {
-                return;
-            };
-            let current = state
-                .lock()
-                .map(|guard| guard.surface_machine.current())
-                .unwrap_or(SurfaceMode::Hidden);
-            let Some(window) = app_on_main.get_webview_window("main") else {
-                return;
-            };
-            let visible = window.is_visible().unwrap_or(false);
-            let size = window
-                .outer_size()
-                .ok()
-                .map(|size| (size.width, size.height));
-            if should_force_tray_panel_reveal(current, visible, size) {
-                let layout_result = apply_window_layout(
-                    &window,
-                    SurfaceMode::TrayPanel,
-                    &SurfaceMode::TrayPanel.window_properties(),
-                );
-                match layout_result.and_then(|_| show_window(&window)) {
-                    Ok(()) => mark_tray_panel_shown(&app_on_main),
-                    Err(error) => {
-                        tracing::debug!("shell: tray reveal fallback show failed: {error}")
-                    }
-                }
-            }
-        }) {
-            tracing::debug!("shell: tray reveal fallback could not run: {error}");
-        }
-    });
 }
 
 fn mark_tray_panel_shown(app: &AppHandle) {
@@ -563,13 +535,14 @@ pub(super) fn apply_transition(
             )?;
             events::emit_surface_mode_changed(app, transition.from, transition.to, current_target);
 
-            // Phase 3: now make the window visible. TrayPanel is revealed by
-            // the frontend after its first layout pass so Windows never shows
-            // the pre-measure blank/backing frame.
-            if needs_show && transition.to != SurfaceMode::TrayPanel {
+            // Phase 3: now make the window visible. (The flyout's own
+            // "revealed by the frontend after first layout" behavior lives
+            // entirely in `shell::flyout_window` + the frontend's
+            // `useTrayPanelLayout` now — `main`'s transitions here can only
+            // ever target Hidden/PopOut/Settings, none of which defer their
+            // own reveal.)
+            if needs_show {
                 let _ = show_window(window);
-            } else if needs_show {
-                schedule_tray_panel_reveal_fallback(app);
             }
             clamp_current_window_to_work_area(window);
 
@@ -636,51 +609,9 @@ pub(super) fn apply_transition(
     }
 }
 
-/// Handle a tray-icon left-click: cleanly close the flyout when this same click
-/// already blur-dismissed it; otherwise toggle it open/closed.
-pub fn handle_tray_panel_click(app: &AppHandle, position: Option<(i32, i32)>) {
-    const BLUR_DISMISS_CLICK_WINDOW: std::time::Duration = std::time::Duration::from_millis(250);
-
-    let consumed_blur_dismissal = {
-        let st = app.state::<Mutex<AppState>>();
-        st.lock()
-            .unwrap()
-            .take_recent_blur_dismissal(std::time::Instant::now(), BLUR_DISMISS_CLICK_WINDOW)
-    };
-
-    if consumed_blur_dismissal {
-        return;
-    }
-
-    toggle_tray_panel(app, position);
-}
-
-/// Toggle the tray panel: hide if currently showing, show at `position` otherwise.
-pub fn toggle_tray_panel(app: &AppHandle, position: Option<(i32, i32)>) {
-    let current = {
-        let st = app.state::<Mutex<AppState>>();
-        st.lock().unwrap().surface_machine.current()
-    };
-    let main_window_visible = app
-        .get_webview_window("main")
-        .and_then(|window| window.is_visible().ok())
-        .unwrap_or(false);
-
-    if should_hide_tray_panel_on_toggle(current, main_window_visible) {
-        let _ = super::window::hide_to_tray(app);
-    } else {
-        let _ = reopen_to_target(
-            app,
-            SurfaceMode::TrayPanel,
-            SurfaceTarget::Summary,
-            position,
-        );
-    }
-}
-
-pub(super) fn should_hide_tray_panel_on_toggle(
-    current: SurfaceMode,
-    main_window_visible: bool,
-) -> bool {
-    current == SurfaceMode::TrayPanel && main_window_visible
-}
+// The old `handle_tray_panel_click` / `toggle_tray_panel` /
+// `should_hide_tray_panel_on_toggle` trio (tray-icon left-click handling for
+// the shared `main` window's TrayPanel state) was removed here: the flyout is
+// now its own dedicated window, and the tray-icon left-click handler in
+// `tray_bridge.rs` calls `shell::flyout_window::toggle_with_blur_consume`
+// directly instead of going through the `main`-window surface machine.
