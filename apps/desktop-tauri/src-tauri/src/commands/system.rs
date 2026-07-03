@@ -239,12 +239,18 @@ pub fn reanchor_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
                 scale,
             )
         } else {
-            // Bottom-right fallback
-            crate::window_positioner::calculate_popout_position(
-                None,
-                &work_area,
+            crate::shell::geometry::inferred_tray_panel_position_for_monitor_size(
+                &crate::shell::geometry::MonitorPlacement {
+                    bounds: Rect {
+                        x: monitor.position().x,
+                        y: monitor.position().y,
+                        width: monitor.size().width,
+                        height: monitor.size().height,
+                    },
+                    work_area,
+                    scale_factor: scale,
+                },
                 &panel_size,
-                scale,
             )
         }
     };

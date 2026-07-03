@@ -5,7 +5,7 @@ use crate::surface::SurfaceMode;
 use crate::window_positioner::{self, PanelSize, Rect};
 
 #[derive(Clone, Copy)]
-pub(super) struct MonitorPlacement {
+pub(crate) struct MonitorPlacement {
     pub bounds: Rect,
     pub work_area: Rect,
     pub scale_factor: f64,
@@ -34,7 +34,7 @@ pub(super) fn monitor_work_area_rect(monitor: &tauri::Monitor) -> Rect {
     }
 }
 
-pub(super) fn monitor_placement(monitor: &tauri::Monitor) -> MonitorPlacement {
+pub(crate) fn monitor_placement(monitor: &tauri::Monitor) -> MonitorPlacement {
     let position = monitor.position();
     let size = monitor.size();
 
@@ -81,16 +81,28 @@ pub(super) fn inferred_tray_anchor_rect(monitor: &MonitorPlacement) -> Rect {
 
     let work_right = monitor.work_area.x + monitor.work_area.width as i32;
     let work_bottom = monitor.work_area.y + monitor.work_area.height as i32;
+    let bounds_left = monitor.bounds.x;
+    let bounds_right = monitor.bounds.x + monitor.bounds.width as i32;
     let bounds_top = monitor.bounds.y;
     let bounds_bottom = monitor.bounds.y + monitor.bounds.height as i32;
+    let left_gap = monitor.work_area.x - bounds_left;
+    let right_gap = bounds_right - work_right;
     let top_gap = monitor.work_area.y - bounds_top;
     let bottom_gap = bounds_bottom - work_bottom;
 
-    let x = work_right - SYNTHETIC_TRAY_ICON_SIZE as i32 - SYNTHETIC_TRAY_EDGE_PADDING;
+    let x = if left_gap > right_gap {
+        monitor.work_area.x - SYNTHETIC_TRAY_ICON_SIZE as i32 - SYNTHETIC_TRAY_EDGE_PADDING
+    } else if right_gap > left_gap {
+        work_right + SYNTHETIC_TRAY_EDGE_PADDING
+    } else {
+        work_right - SYNTHETIC_TRAY_ICON_SIZE as i32 - SYNTHETIC_TRAY_EDGE_PADDING
+    };
     let y = if top_gap > bottom_gap {
         monitor.work_area.y - SYNTHETIC_TRAY_ICON_SIZE as i32 - SYNTHETIC_TRAY_EDGE_PADDING
-    } else {
+    } else if bottom_gap > top_gap {
         work_bottom + SYNTHETIC_TRAY_EDGE_PADDING
+    } else {
+        bounds_bottom - SYNTHETIC_TRAY_ICON_SIZE as i32 - SYNTHETIC_TRAY_EDGE_PADDING
     };
 
     Rect {
@@ -102,12 +114,17 @@ pub(super) fn inferred_tray_anchor_rect(monitor: &MonitorPlacement) -> Rect {
 }
 
 pub(super) fn inferred_tray_panel_position_for_monitor(monitor: &MonitorPlacement) -> (i32, i32) {
-    // Place panel at bottom-right of the work area, above the taskbar.
-    // Using calculate_popout_position with no anchor gives bottom-right placement.
-    window_positioner::calculate_popout_position(
-        None,
+    inferred_tray_panel_position_for_monitor_size(monitor, &tray_panel_size())
+}
+
+pub(crate) fn inferred_tray_panel_position_for_monitor_size(
+    monitor: &MonitorPlacement,
+    panel_size: &PanelSize,
+) -> (i32, i32) {
+    window_positioner::calculate_panel_position(
+        &inferred_tray_anchor_rect(monitor),
         &monitor.work_area,
-        &tray_panel_size(),
+        panel_size,
         monitor.scale_factor,
     )
 }
