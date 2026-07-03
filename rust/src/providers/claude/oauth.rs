@@ -60,6 +60,18 @@ struct OAuthData {
     rate_limit_tier: Option<String>,
 }
 
+/// Response from the OAuth token refresh endpoint (`grant_type=refresh_token`).
+#[derive(Debug, Deserialize)]
+struct RefreshTokenResponse {
+    access_token: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    expires_in: Option<i64>,
+    #[serde(default)]
+    scope: Option<String>,
+}
+
 /// OAuth usage response from Claude API
 #[derive(Debug, Deserialize)]
 pub struct OAuthUsageResponse {
@@ -124,9 +136,26 @@ pub struct ClaudeOAuthFetcher {
 
 static RATE_LIMIT_BACKOFF_UNTIL: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
+/// In-memory cache of the most recently refreshed credentials. Consulted when a
+/// disk persist fails, so we don't hit the refresh endpoint (and rotate the
+/// refresh token) on every poll.
+static REFRESHED_CREDENTIALS: OnceLock<Mutex<Option<ClaudeOAuthCredentials>>> = OnceLock::new();
+
+/// Monotonic counter to make the persist temp-file name unique per write, so
+/// concurrent refreshes (multiple instances / overlapping polls) never share a
+/// temp path.
+static PERSIST_TMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl ClaudeOAuthFetcher {
     const USAGE_URL: &'static str = "https://api.anthropic.com/api/oauth/usage";
     const CREDENTIALS_PATH: &'static str = ".claude/.credentials.json";
+    /// OAuth token endpoint + client id used to refresh an expired access token.
+    /// Mirrors the Claude CLI's own prod `TOKEN_URL` / `CLIENT_ID`.
+    const TOKEN_REFRESH_URL: &'static str = "https://platform.claude.com/v1/oauth/token";
+    const OAUTH_CLIENT_ID: &'static str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+    const OAUTH_BETA_HEADER: &'static str = "oauth-2025-04-20";
+    /// Fallback access-token lifetime if a refresh response omits `expires_in`.
+    const DEFAULT_ACCESS_TTL_SECS: i64 = 3600;
     const KEYRING_SERVICE: &'static str = "Claude Code-credentials";
     const ENV_TOKEN_KEY: &'static str = "CODEXBAR_CLAUDE_OAUTH_TOKEN";
     const ENV_SCOPES_KEY: &'static str = "CODEXBAR_CLAUDE_OAUTH_SCOPES";
@@ -138,9 +167,12 @@ impl ClaudeOAuthFetcher {
         }
     }
 
-    /// Load credentials and fetch usage
+    /// Load credentials and fetch usage, transparently refreshing an expired
+    /// OAuth token first (like the Claude CLI does) so the panel stays green
+    /// without the user having to re-run `claude`.
     pub async fn fetch(&self) -> Result<ProviderFetchResult, ProviderError> {
         let credentials = self.load_credentials()?;
+        let credentials = self.ensure_fresh_credentials(credentials).await;
         self.fetch_with_credentials(credentials).await
     }
 
@@ -174,6 +206,239 @@ impl ClaudeOAuthFetcher {
         let usage_response = self.fetch_usage(&credentials).await?;
         let usage = self.build_usage_snapshot(&usage_response, &credentials);
         Ok(ProviderFetchResult::new(usage, "oauth"))
+    }
+
+    /// If the token is expired (or about to expire), refresh it using the
+    /// refresh token and persist the new token back to `.credentials.json`.
+    /// Best-effort: on any failure the original credentials are returned so the
+    /// caller falls back to the existing "expired" handling.
+    async fn ensure_fresh_credentials(
+        &self,
+        mut credentials: ClaudeOAuthCredentials,
+    ) -> ClaudeOAuthCredentials {
+        // Prefer an in-memory refreshed token if it is fresher than what we just
+        // read from disk (covers a prior persist that failed to write).
+        if let Some(cached) = Self::cached_refreshed_if_fresher(&credentials) {
+            credentials = cached;
+        }
+
+        if !credentials.is_expired() {
+            return credentials;
+        }
+
+        // The credentials file is shared with the Claude Code CLI, which also
+        // refreshes it. Re-read right before hitting the network: if the CLI (or
+        // a concurrent poll) already refreshed the on-disk token, adopt it rather
+        // than rotating a second refresh token against the same account.
+        if let Ok(disk) = self.load_credentials() {
+            if !disk.is_expired() {
+                Self::store_refreshed(&disk);
+                return disk;
+            }
+            credentials = disk;
+        }
+
+        let Some(refresh_token) = credentials.refresh_token.clone() else {
+            // Environment-provided tokens have no refresh token; nothing to do.
+            return credentials;
+        };
+
+        match self.refresh_access_token(&refresh_token, &credentials).await {
+            Ok(refreshed) => {
+                Self::store_refreshed(&refreshed);
+                if let Err(err) = self.persist_refreshed_credentials(&refreshed) {
+                    tracing::debug!("Claude OAuth token refreshed but could not persist: {err}");
+                }
+                tracing::debug!("Refreshed expired Claude OAuth token");
+                refreshed
+            }
+            Err(err) => {
+                tracing::debug!("Claude OAuth token refresh failed: {err}");
+                credentials
+            }
+        }
+    }
+
+    fn refreshed_cache() -> &'static Mutex<Option<ClaudeOAuthCredentials>> {
+        REFRESHED_CREDENTIALS.get_or_init(|| Mutex::new(None))
+    }
+
+    fn cached_refreshed_if_fresher(
+        file_creds: &ClaudeOAuthCredentials,
+    ) -> Option<ClaudeOAuthCredentials> {
+        let guard = Self::refreshed_cache().lock().ok()?;
+        let cached = guard.as_ref()?;
+        let fresher = match (cached.expires_at, file_creds.expires_at) {
+            (Some(cached_at), Some(file_at)) => cached_at > file_at,
+            (Some(_), None) => true,
+            _ => false,
+        };
+        fresher.then(|| cached.clone())
+    }
+
+    fn store_refreshed(credentials: &ClaudeOAuthCredentials) {
+        if let Ok(mut guard) = Self::refreshed_cache().lock() {
+            *guard = Some(credentials.clone());
+        }
+    }
+
+    /// POST `grant_type=refresh_token` to the OAuth token endpoint, mirroring the
+    /// Claude CLI's own refresh call, and build the new credentials.
+    async fn refresh_access_token(
+        &self,
+        refresh_token: &str,
+        current: &ClaudeOAuthCredentials,
+    ) -> Result<ClaudeOAuthCredentials, ProviderError> {
+        let mut body = serde_json::json!({
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": Self::OAUTH_CLIENT_ID,
+        });
+        if !current.scopes.is_empty() {
+            body["scope"] = serde_json::Value::String(current.scopes.join(" "));
+        }
+
+        let response = self
+            .client
+            .post(Self::TOKEN_REFRESH_URL)
+            .header("anthropic-beta", Self::OAUTH_BETA_HEADER)
+            .header("Accept", "application/json")
+            .json(&body)
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(ProviderError::OAuth(format!(
+                "Token refresh failed ({}): {}",
+                status,
+                text.chars().take(200).collect::<String>()
+            )));
+        }
+
+        let refreshed: RefreshTokenResponse = response
+            .json()
+            .await
+            .map_err(|e| ProviderError::Parse(format!("Failed to parse refresh response: {e}")))?;
+
+        let access_token = refreshed.access_token.trim().to_string();
+        if access_token.is_empty() {
+            return Err(ProviderError::OAuth(
+                "Token refresh returned an empty access token".to_string(),
+            ));
+        }
+
+        // The endpoint returns `expires_in`; if it is ever omitted, fall back to
+        // a conservative TTL so the token is still treated as fresh for a bounded
+        // window (and cached) instead of triggering a per-poll refresh storm.
+        let ttl_secs = refreshed.expires_in.unwrap_or(Self::DEFAULT_ACCESS_TTL_SECS);
+        let expires_at = Some(Utc::now() + chrono::Duration::seconds(ttl_secs));
+
+        let refresh_token = refreshed
+            .refresh_token
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .or_else(|| current.refresh_token.clone());
+
+        let scopes = refreshed
+            .scope
+            .map(|s| s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+            .filter(|scopes| !scopes.is_empty())
+            .unwrap_or_else(|| current.scopes.clone());
+
+        Ok(ClaudeOAuthCredentials {
+            access_token,
+            refresh_token,
+            expires_at,
+            scopes,
+            rate_limit_tier: current.rate_limit_tier.clone(),
+        })
+    }
+
+    /// Persist refreshed tokens back to `~/.claude/.credentials.json`, updating
+    /// only the `claudeAiOauth` token fields and leaving everything else (e.g.
+    /// `mcpOAuth`) untouched. Written atomically via a temp file + rename.
+    fn persist_refreshed_credentials(
+        &self,
+        credentials: &ClaudeOAuthCredentials,
+    ) -> Result<(), ProviderError> {
+        let path = self.credentials_path()?;
+        if !path.exists() {
+            // Loaded from keyring/env; there is no file to update.
+            return Ok(());
+        }
+
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| ProviderError::OAuth(format!("Failed to read credentials file: {e}")))?;
+        let mut root: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| ProviderError::OAuth(format!("Failed to parse credentials file: {e}")))?;
+
+        Self::apply_refresh_to_credentials_json(&mut root, credentials)?;
+
+        let serialized = serde_json::to_string_pretty(&root)
+            .map_err(|e| ProviderError::OAuth(format!("Failed to serialize credentials: {e}")))?;
+
+        let parent = path
+            .parent()
+            .ok_or_else(|| ProviderError::OAuth("Credentials path has no parent".to_string()))?;
+        let tmp = parent.join(format!(
+            ".credentials.json.codexbar-tmp.{}.{}",
+            std::process::id(),
+            PERSIST_TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::write(&tmp, serialized.as_bytes()).map_err(|e| {
+            ProviderError::OAuth(format!("Failed to write credentials temp file: {e}"))
+        })?;
+        std::fs::rename(&tmp, &path).map_err(|e| {
+            ProviderError::OAuth(format!("Failed to replace credentials file: {e}"))
+        })?;
+        Ok(())
+    }
+
+    /// Pure JSON merge used by [`Self::persist_refreshed_credentials`]. Updates
+    /// only the token fields inside `claudeAiOauth`.
+    fn apply_refresh_to_credentials_json(
+        root: &mut serde_json::Value,
+        credentials: &ClaudeOAuthCredentials,
+    ) -> Result<(), ProviderError> {
+        let oauth = root
+            .get_mut("claudeAiOauth")
+            .and_then(|v| v.as_object_mut())
+            .ok_or_else(|| {
+                ProviderError::OAuth("credentials file missing claudeAiOauth object".to_string())
+            })?;
+
+        oauth.insert(
+            "accessToken".to_string(),
+            serde_json::Value::String(credentials.access_token.clone()),
+        );
+        if let Some(refresh_token) = &credentials.refresh_token {
+            oauth.insert(
+                "refreshToken".to_string(),
+                serde_json::Value::String(refresh_token.clone()),
+            );
+        }
+        if let Some(expires_at) = credentials.expires_at {
+            oauth.insert(
+                "expiresAt".to_string(),
+                serde_json::Value::Number(expires_at.timestamp_millis().into()),
+            );
+        }
+        if !credentials.scopes.is_empty() {
+            oauth.insert(
+                "scopes".to_string(),
+                serde_json::Value::Array(
+                    credentials
+                        .scopes
+                        .iter()
+                        .map(|s| serde_json::Value::String(s.clone()))
+                        .collect(),
+                ),
+            );
+        }
+        Ok(())
     }
 
     /// Load OAuth credentials from environment, file, or Claude Code's OS credential store.
@@ -661,7 +926,10 @@ fn format_reset_date(date: DateTime<Utc>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClaudeOAuthCredentials, ClaudeOAuthFetcher, OAuthUsageResponse, UsageWindow};
+    use super::{
+        ClaudeOAuthCredentials, ClaudeOAuthFetcher, OAuthUsageResponse, RefreshTokenResponse,
+        UsageWindow,
+    };
     use reqwest::header::HeaderValue;
     use std::time::Duration;
 
@@ -807,5 +1075,64 @@ mod tests {
 
         assert!(message.contains("rate limited"));
         assert!(message.contains("credentials were preserved"));
+    }
+
+    #[test]
+    fn parses_refresh_token_response() {
+        let resp: RefreshTokenResponse = serde_json::from_str(
+            r#"{
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "expires_in": 28800,
+                "scope": "user:inference user:profile",
+                "token_type": "Bearer"
+            }"#,
+        )
+        .expect("refresh response should parse");
+
+        assert_eq!(resp.access_token, "new-access");
+        assert_eq!(resp.refresh_token.as_deref(), Some("new-refresh"));
+        assert_eq!(resp.expires_in, Some(28800));
+        assert_eq!(resp.scope.as_deref(), Some("user:inference user:profile"));
+    }
+
+    #[test]
+    fn apply_refresh_updates_only_oauth_block_and_preserves_others() {
+        let mut root: serde_json::Value = serde_json::from_str(
+            r#"{
+                "mcpOAuth": {"some-server": {"accessToken": "keepme"}},
+                "claudeAiOauth": {
+                    "accessToken": "old",
+                    "refreshToken": "old-refresh",
+                    "expiresAt": 1000,
+                    "scopes": ["user:profile"],
+                    "subscriptionType": "max"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let creds = ClaudeOAuthCredentials {
+            access_token: "fresh-access".to_string(),
+            refresh_token: Some("fresh-refresh".to_string()),
+            expires_at: chrono::DateTime::from_timestamp(2_000, 0),
+            scopes: vec!["user:profile".to_string(), "user:inference".to_string()],
+            rate_limit_tier: None,
+        };
+
+        ClaudeOAuthFetcher::apply_refresh_to_credentials_json(&mut root, &creds).unwrap();
+
+        // Unrelated top-level blocks are preserved untouched.
+        assert_eq!(root["mcpOAuth"]["some-server"]["accessToken"], "keepme");
+        // Non-token fields inside claudeAiOauth are preserved.
+        assert_eq!(root["claudeAiOauth"]["subscriptionType"], "max");
+        // Token fields are updated.
+        assert_eq!(root["claudeAiOauth"]["accessToken"], "fresh-access");
+        assert_eq!(root["claudeAiOauth"]["refreshToken"], "fresh-refresh");
+        assert_eq!(root["claudeAiOauth"]["expiresAt"], 2_000_000i64);
+        assert_eq!(
+            root["claudeAiOauth"]["scopes"],
+            serde_json::json!(["user:profile", "user:inference"])
+        );
     }
 }
