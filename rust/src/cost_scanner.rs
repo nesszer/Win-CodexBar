@@ -2,7 +2,7 @@
 //!
 //! Scans local JSONL log files to aggregate token usage and calculate costs
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -438,6 +438,41 @@ impl CostScanner {
             summary.sessions_count += 1;
         }
     }
+
+    fn add_claude_file_daily_costs(
+        &self,
+        path: &Path,
+        cutoff: &DateTime<Utc>,
+        daily_costs: &mut HashMap<String, f64>,
+        seen: &mut HashSet<String>,
+        cancel: Option<&AtomicBool>,
+    ) {
+        let file = match File::open(path) {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+
+        let reader = BufReader::new(file);
+        for line in reader.lines().map_while(Result::ok) {
+            if is_cancelled(cancel) {
+                return;
+            }
+            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line)
+                && let Some(record) = claude_usage_record_from_event(&event)
+                && should_count_claude_record(&record, cutoff, seen)
+                && let Some(timestamp) = record.timestamp
+            {
+                let date_str = timestamp
+                    .with_timezone(&Local)
+                    .date_naive()
+                    .format("%Y-%m-%d")
+                    .to_string();
+                if let Some(cost) = daily_costs.get_mut(&date_str) {
+                    *cost += record.cost;
+                }
+            }
+        }
+    }
 }
 
 fn claude_usage_record_from_event(event: &serde_json::Value) -> Option<ClaudeUsageRecord> {
@@ -646,7 +681,7 @@ pub fn has_cost_usage_sources() -> bool {
 /// Returns Vec of (date_string, cost_usd) sorted by date
 pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
     let scanner = CostScanner::new(days);
-    let today = Utc::now().date_naive();
+    let today = Local::now().date_naive();
     let mut daily_costs: HashMap<String, f64> = HashMap::new();
 
     // Initialize all days with 0
@@ -686,15 +721,22 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
             }
         }
         "claude" => {
-            // For Claude, we need to check file modification times
-            // This is more complex, so we'll approximate using the summary for now
-            let summary = scanner.scan_claude();
-            if summary.total_cost_usd > 0.0 && days > 0 {
-                // Distribute evenly for now (TODO: actual daily breakdown)
-                let daily = summary.total_cost_usd / days as f64;
-                for (_, cost) in daily_costs.iter_mut() {
-                    *cost = daily;
-                }
+            // Real per-day breakdown: walk the project logs once,
+            // de-duplicating records across files.
+            let projects_dir = scanner.get_claude_projects_dir();
+            if projects_dir.exists() {
+                let cutoff = Utc::now() - Duration::days(days as i64);
+                let mut seen = HashSet::new();
+                let mut handle_file = |path: &Path| {
+                    scanner.add_claude_file_daily_costs(
+                        path,
+                        &cutoff,
+                        &mut daily_costs,
+                        &mut seen,
+                        None,
+                    );
+                };
+                scanner.walk_claude_files(&projects_dir, &cutoff, None, &mut handle_file);
             }
         }
         _ => {}
