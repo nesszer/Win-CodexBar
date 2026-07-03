@@ -1,6 +1,6 @@
 # Win-CodexBar
 
-[English README](./README.md) | [简体中文](./README.zh-CN.md)
+[English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja-JP.md) | [한국어](./README.ko-KR.md) | [Español mexicano](./README.es-MX.md)
 
 Win-CodexBar es una aplicación de bandeja del sistema para Windows que mantiene visible el uso de herramientas de codificación con IA sin necesidad de abrir una docena de paneles. Traslada el espíritu de [CodexBar](https://github.com/steipete/CodexBar) a un entorno de escritorio Tauri + React respaldado por lógica compartida de proveedores en Rust.
 
