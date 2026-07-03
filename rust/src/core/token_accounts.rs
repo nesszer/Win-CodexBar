@@ -167,8 +167,8 @@ impl TokenAccountSupport {
             }),
             ProviderId::CommandCode => Some(TokenAccountSupport {
                 title: "Session tokens",
-                subtitle: "Store multiple Command Code better-auth session tokens.",
-                placeholder: "better-auth.session_token value or Cookie: ...",
+                subtitle: "Store multiple Command Code Cookie headers or Better Auth values.",
+                placeholder: "Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value",
                 injection: TokenInjection::CookieHeader,
                 requires_manual_cookie_source: true,
                 cookie_name: Some("__Secure-better-auth.session_token"),
