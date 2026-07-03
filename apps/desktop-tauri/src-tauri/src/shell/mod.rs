@@ -7,7 +7,7 @@ use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
 
 pub(crate) mod dwm;
-pub(crate) mod geometry;
+mod geometry;
 mod position;
 pub mod settings_window;
 mod transition;
@@ -16,6 +16,7 @@ mod window;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use position::inferred_tray_panel_position_for_monitor_size;
 #[allow(unused_imports)]
 pub use position::{
     default_surface_position, inferred_tray_panel_position, remember_current_geometry_if_eligible,

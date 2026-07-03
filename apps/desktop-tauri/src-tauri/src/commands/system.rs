@@ -207,8 +207,8 @@ pub fn reanchor_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
         height: (outer.height as f64 / scale).round() as u32,
     };
 
-    // Prefer the saved tray anchor from a real click; fall back to
-    // bottom-right of the primary work area.
+    // Prefer the saved tray anchor from a real click; otherwise infer one from
+    // the taskbar side.
     let monitor = window
         .primary_monitor()
         .ok()
@@ -239,19 +239,7 @@ pub fn reanchor_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
                 scale,
             )
         } else {
-            crate::shell::geometry::inferred_tray_panel_position_for_monitor_size(
-                &crate::shell::geometry::MonitorPlacement {
-                    bounds: Rect {
-                        x: monitor.position().x,
-                        y: monitor.position().y,
-                        width: monitor.size().width,
-                        height: monitor.size().height,
-                    },
-                    work_area,
-                    scale_factor: scale,
-                },
-                &panel_size,
-            )
+            crate::shell::inferred_tray_panel_position_for_monitor_size(&monitor, &panel_size)
         }
     };
 

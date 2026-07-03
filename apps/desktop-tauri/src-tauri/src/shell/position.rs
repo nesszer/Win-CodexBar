@@ -29,6 +29,16 @@ pub fn inferred_tray_panel_position(app: &AppHandle) -> Option<(i32, i32)> {
     ))
 }
 
+pub(crate) fn inferred_tray_panel_position_for_monitor_size(
+    monitor: &tauri::Monitor,
+    panel_size: &window_positioner::PanelSize,
+) -> (i32, i32) {
+    super::geometry::inferred_tray_panel_position_for_monitor_size(
+        &monitor_placement(monitor),
+        panel_size,
+    )
+}
+
 fn current_tray_anchor(app: &AppHandle) -> Option<crate::state::TrayAnchor> {
     let st = app.try_state::<Mutex<AppState>>()?;
     st.lock().ok()?.tray_anchor

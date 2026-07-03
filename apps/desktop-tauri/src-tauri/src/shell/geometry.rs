@@ -5,7 +5,7 @@ use crate::surface::SurfaceMode;
 use crate::window_positioner::{self, PanelSize, Rect};
 
 #[derive(Clone, Copy)]
-pub(crate) struct MonitorPlacement {
+pub(super) struct MonitorPlacement {
     pub bounds: Rect,
     pub work_area: Rect,
     pub scale_factor: f64,
@@ -34,7 +34,7 @@ pub(super) fn monitor_work_area_rect(monitor: &tauri::Monitor) -> Rect {
     }
 }
 
-pub(crate) fn monitor_placement(monitor: &tauri::Monitor) -> MonitorPlacement {
+pub(super) fn monitor_placement(monitor: &tauri::Monitor) -> MonitorPlacement {
     let position = monitor.position();
     let size = monitor.size();
 
@@ -117,7 +117,7 @@ pub(super) fn inferred_tray_panel_position_for_monitor(monitor: &MonitorPlacemen
     inferred_tray_panel_position_for_monitor_size(monitor, &tray_panel_size())
 }
 
-pub(crate) fn inferred_tray_panel_position_for_monitor_size(
+pub(super) fn inferred_tray_panel_position_for_monitor_size(
     monitor: &MonitorPlacement,
     panel_size: &PanelSize,
 ) -> (i32, i32) {
