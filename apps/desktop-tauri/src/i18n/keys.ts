@@ -326,6 +326,8 @@ export const ALL_LOCALE_KEYS = [
   "SectionAddAccount",
   "RefreshIntervalLabel",
   "RefreshIntervalHelper",
+  "RefreshAllProvidersOnMenuOpen",
+  "RefreshAllProvidersOnMenuOpenHelper",
   "SoundVolumeHelper",
   "HighUsageWarningHelper",
   "CriticalUsageWarningHelper",

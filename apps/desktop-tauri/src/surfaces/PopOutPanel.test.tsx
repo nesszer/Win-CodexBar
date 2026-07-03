@@ -118,6 +118,7 @@ function settings(): SettingsSnapshot {
   return {
     enabledProviders: ["codex", "claude"],
     refreshIntervalSecs: 300,
+    refreshAllProvidersOnMenuOpen: false,
     startAtLogin: false,
     startMinimized: false,
     showNotifications: true,

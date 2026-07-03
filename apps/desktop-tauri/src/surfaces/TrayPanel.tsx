@@ -31,11 +31,11 @@ import {
 const HAS_DASHBOARD = new Set([
   "abacus", "alibaba", "alibabatokenplan", "amp", "augment",
   "azureopenai", "bedrock", "claude", "codex", "codebuff",
-  "commandcode", "copilot", "crof", "cursor", "deepgram", "deepseek",
+  "commandcode", "copilot", "crof", "crossmodel", "cursor", "deepgram", "deepseek",
   "doubao", "elevenlabs", "factory", "gemini", "grok", "groq",
   "infini", "jetbrains", "kilo", "kimi", "kimik2", "kiro", "manus",
   "mimo", "minimax", "mistral", "nanogpt", "ollama", "openaiapi",
-  "opencode", "opencodego", "openrouter", "perplexity", "stepfun",
+  "opencode", "opencodego", "openrouter", "perplexity", "qoder", "sakana", "stepfun",
   "t3chat", "venice", "vertexai", "warp", "windsurf",
   "zai",
 ]);
@@ -66,14 +66,17 @@ void getProviderStatus;
  * 2. Detail: click a provider in grid → show only that provider's card
  */
 export default function TrayPanel({ state }: { state: BootstrapState }) {
+  const { settings } = useSettings(state.settings);
   const {
     providers,
     isRefreshing,
     refresh,
     hasCachedData,
     hasLoadedCache,
-  } = useProviders({ initialRefreshDelayMs: TRAY_INITIAL_REFRESH_DELAY_MS });
-  const { settings } = useSettings(state.settings);
+  } = useProviders({
+    initialRefreshDelayMs: TRAY_INITIAL_REFRESH_DELAY_MS,
+    forceRefreshOnMount: settings.refreshAllProvidersOnMenuOpen,
+  });
   const { updateState, checkNow, download, apply, dismiss, openRelease } =
     useUpdateState();
   const { t } = useLocale();

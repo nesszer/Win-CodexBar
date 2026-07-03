@@ -23,6 +23,11 @@ export interface UseProvidersOptions {
    * freshness, while still receiving cached data and live provider events.
    */
   refreshOnMount?: boolean;
+  /**
+   * When true, the mount refresh bypasses stale-cache checks and refreshes all
+   * enabled providers. Used by the tray/menu "refresh on open" setting.
+   */
+  forceRefreshOnMount?: boolean;
 }
 
 export interface UseProvidersResult {
@@ -60,6 +65,7 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
   const refreshingRef = useRef(false);
   const pendingSnapshotsRef = useRef<Map<string, ProviderUsageSnapshot>>(new Map());
   const flushTimerRef = useRef<number | undefined>(undefined);
+  const resetRefreshTimerRef = useRef<number | undefined>(undefined);
 
   const mergeSnapshots = useCallback((snapshots: ProviderUsageSnapshot[]) => {
     if (snapshots.length === 0) return;
@@ -151,7 +157,10 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     let initialRefreshTimer: number | undefined;
 
     const runInitialRefresh = () => {
-      refreshProvidersIfStale().catch(() => {
+      const refreshPromise = options.forceRefreshOnMount
+        ? refreshProviders()
+        : refreshProvidersIfStale();
+      refreshPromise.catch(() => {
         if (!cancelled) {
           refreshingRef.current = false;
           setIsRefreshing(false);
@@ -178,12 +187,17 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
         window.clearTimeout(flushTimerRef.current);
         flushTimerRef.current = undefined;
       }
+      if (resetRefreshTimerRef.current !== undefined) {
+        window.clearTimeout(resetRefreshTimerRef.current);
+        resetRefreshTimerRef.current = undefined;
+      }
       pendingSnapshotsRef.current.clear();
       unlistenUpdated.then((fn) => fn());
       unlistenStarted.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
     };
   }, [
+    options.forceRefreshOnMount,
     options.initialRefreshDelayMs,
     options.refreshOnMount,
     flushPendingSnapshots,
@@ -191,6 +205,43 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     queueSnapshot,
     refresh,
   ]);
+
+  useEffect(() => {
+    if (resetRefreshTimerRef.current !== undefined) {
+      window.clearTimeout(resetRefreshTimerRef.current);
+      resetRefreshTimerRef.current = undefined;
+    }
+
+    const now = Date.now();
+    const nextReset = providers
+      .flatMap((provider) => [
+        provider.primary.resetsAt,
+        provider.secondary?.resetsAt,
+        provider.modelSpecific?.resetsAt,
+        provider.tertiary?.resetsAt,
+        ...(provider.extraRateWindows ?? []).map((extra) => extra.window.resetsAt),
+        provider.cost?.resetsAt,
+      ])
+      .filter((value): value is string => Boolean(value))
+      .map((value) => Date.parse(value))
+      .filter((time) => Number.isFinite(time) && time > now)
+      .sort((a, b) => a - b)[0];
+
+    if (nextReset === undefined) return;
+
+    const delay = Math.max(5_000, nextReset - now + 1_000);
+    resetRefreshTimerRef.current = window.setTimeout(() => {
+      resetRefreshTimerRef.current = undefined;
+      refresh();
+    }, delay);
+
+    return () => {
+      if (resetRefreshTimerRef.current !== undefined) {
+        window.clearTimeout(resetRefreshTimerRef.current);
+        resetRefreshTimerRef.current = undefined;
+      }
+    };
+  }, [providers, refresh]);
 
   return {
     providers,

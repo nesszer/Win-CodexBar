@@ -53,10 +53,10 @@ impl TokenAccountSupport {
             }),
             ProviderId::Zai => Some(TokenAccountSupport {
                 title: "API tokens",
-                subtitle: "Stored locally in token-accounts.json.",
+                subtitle: "Stored locally in token-accounts.json. Team usage can use workspace_id as organization|project.",
                 placeholder: "Paste token...",
                 injection: TokenInjection::Environment {
-                    key: "ZED_API_TOKEN".to_string(),
+                    key: "Z_AI_API_KEY".to_string(),
                 },
                 requires_manual_cookie_source: false,
                 cookie_name: None,
@@ -173,6 +173,22 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: true,
                 cookie_name: Some("__Secure-better-auth.session_token"),
             }),
+            ProviderId::Qoder => Some(TokenAccountSupport {
+                title: "Session tokens",
+                subtitle: "Store multiple Qoder Cookie headers.",
+                placeholder: "Cookie: ...",
+                injection: TokenInjection::CookieHeader,
+                requires_manual_cookie_source: true,
+                cookie_name: None,
+            }),
+            ProviderId::Sakana => Some(TokenAccountSupport {
+                title: "Session tokens",
+                subtitle: "Store multiple Sakana Console Cookie headers.",
+                placeholder: "Cookie: ...",
+                injection: TokenInjection::CookieHeader,
+                requires_manual_cookie_source: true,
+                cookie_name: None,
+            }),
             ProviderId::Copilot => Some(TokenAccountSupport {
                 title: "GitHub accounts",
                 subtitle: "Store GitHub OAuth tokens for Copilot plan usage.",
@@ -219,7 +235,8 @@ impl TokenAccountSupport {
             | ProviderId::LiteLLM
             | ProviderId::Poe
             | ProviderId::Devin
-            | ProviderId::Zed => None,
+            | ProviderId::Zed
+            | ProviderId::CrossModel => None,
         }
     }
 

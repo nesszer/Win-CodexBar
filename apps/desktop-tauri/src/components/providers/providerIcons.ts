@@ -14,6 +14,7 @@ import codex from "./icons/ProviderIcon-codex.svg?raw";
 import commandcode from "./icons/ProviderIcon-commandcode.svg?raw";
 import copilot from "./icons/ProviderIcon-copilot.svg?raw";
 import crof from "./icons/ProviderIcon-crof.svg?raw";
+import crossmodel from "./icons/ProviderIcon-crossmodel.svg?raw";
 import cursor from "./icons/ProviderIcon-cursor.svg?raw";
 import deepgram from "./icons/ProviderIcon-deepgram.svg?raw";
 import deepseek from "./icons/ProviderIcon-deepseek.svg?raw";
@@ -37,6 +38,8 @@ import opencode from "./icons/ProviderIcon-opencode.svg?raw";
 import opencodego from "./icons/ProviderIcon-opencodego.svg?raw";
 import openrouter from "./icons/ProviderIcon-openrouter.svg?raw";
 import perplexity from "./icons/ProviderIcon-perplexity.svg?raw";
+import qoder from "./icons/ProviderIcon-qoder.svg?raw";
+import sakana from "./icons/ProviderIcon-sakana.svg?raw";
 import stepfun from "./icons/ProviderIcon-stepfun.svg?raw";
 import t3chat from "./icons/ProviderIcon-t3chat.svg?raw";
 import venice from "./icons/ProviderIcon-venice.svg?raw";
@@ -82,6 +85,7 @@ const RAW: Record<string, string> = {
   commandcode: tint(commandcode),
   copilot: tint(copilot),
   crof: tint(crof),
+  crossmodel: tint(crossmodel),
   cursor: tint(cursor),
   deepgram: tint(deepgram),
   deepseek: tint(deepseek),
@@ -105,6 +109,8 @@ const RAW: Record<string, string> = {
   opencodego: tint(opencodego),
   openrouter: tint(openrouter),
   perplexity: tint(perplexity),
+  qoder: tint(qoder),
+  sakana: tint(sakana),
   stepfun: tint(stepfun),
   t3chat: tint(t3chat),
   venice: tint(venice),
@@ -166,6 +172,9 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   doubao:      { id: "doubao",      brandColor: "#2563eb", fallbackLetter: "D", svgPath: RAW.doubao },
   commandcode: { id: "commandcode", brandColor: "#44ff00", fallbackLetter: "C", svgPath: RAW.commandcode },
   crof:        { id: "crof",        brandColor: "#7c3aed", fallbackLetter: "C", svgPath: RAW.crof },
+  crossmodel:  { id: "crossmodel",  brandColor: "#c084fc", fallbackLetter: "X", svgPath: RAW.crossmodel },
+  qoder:       { id: "qoder",       brandColor: "#2563eb", fallbackLetter: "Q", svgPath: RAW.qoder },
+  sakana:      { id: "sakana",      brandColor: "#0ea5e9", fallbackLetter: "S", svgPath: RAW.sakana },
   stepfun:     { id: "stepfun",     brandColor: "#999999", fallbackLetter: "S", svgPath: RAW.stepfun },
   venice:      { id: "venice",      brandColor: "#111827", fallbackLetter: "V", svgPath: RAW.venice },
   openaiapi:   { id: "openaiapi",   brandColor: "#10a37f", fallbackLetter: "O" },
@@ -203,6 +212,10 @@ const ALIASES: Record<string, string> = {
   xiaomimimo: "mimo",
   "command code": "commandcode",
   "command-code": "commandcode",
+  "cross model": "crossmodel",
+  "cross-model": "crossmodel",
+  "sakana ai": "sakana",
+  "sakana-ai": "sakana",
   "step fun": "stepfun",
   "step-fun": "stepfun",
   "openai api": "openaiapi",

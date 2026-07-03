@@ -32,6 +32,7 @@ describe("Language type", () => {
     const snap: SettingsSnapshot = {
       enabledProviders: [],
       refreshIntervalSecs: 300,
+      refreshAllProvidersOnMenuOpen: false,
       startAtLogin: false,
       startMinimized: false,
       showNotifications: true,

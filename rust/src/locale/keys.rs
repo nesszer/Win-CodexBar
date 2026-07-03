@@ -460,6 +460,14 @@ impl LocaleKey {
         (LocaleKey::SectionAddAccount, "SectionAddAccount"),
         (LocaleKey::RefreshIntervalLabel, "RefreshIntervalLabel"),
         (LocaleKey::RefreshIntervalHelper, "RefreshIntervalHelper"),
+        (
+            LocaleKey::RefreshAllProvidersOnMenuOpen,
+            "RefreshAllProvidersOnMenuOpen",
+        ),
+        (
+            LocaleKey::RefreshAllProvidersOnMenuOpenHelper,
+            "RefreshAllProvidersOnMenuOpenHelper",
+        ),
         (LocaleKey::SoundVolumeHelper, "SoundVolumeHelper"),
         (LocaleKey::HighUsageWarningHelper, "HighUsageWarningHelper"),
         (

@@ -421,6 +421,10 @@ impl LocaleKey {
             // Tauri desktop shell — General tab fields
             LocaleKey::RefreshIntervalLabel => "刷新间隔",
             LocaleKey::RefreshIntervalHelper => "两次自动刷新之间的秒数（0 = 手动）。",
+            LocaleKey::RefreshAllProvidersOnMenuOpen => "打开菜单时刷新",
+            LocaleKey::RefreshAllProvidersOnMenuOpenHelper => {
+                "每次打开托盘菜单时强制刷新已启用的提供商。"
+            }
             LocaleKey::SoundVolumeHelper => "阈值告警音量（0–100）。",
             LocaleKey::HighUsageWarningHelper => "当用量超过该百分比时显示预警。",
             LocaleKey::CriticalUsageWarningHelper => "当用量超过该百分比时显示严重告警。",

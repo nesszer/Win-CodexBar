@@ -64,6 +64,9 @@ pub enum ProviderId {
     Poe,
     Devin,
     Zed,
+    CrossModel,
+    Qoder,
+    Sakana,
 }
 
 impl ProviderId {
@@ -123,6 +126,9 @@ impl ProviderId {
             ProviderId::Poe,
             ProviderId::Devin,
             ProviderId::Zed,
+            ProviderId::CrossModel,
+            ProviderId::Qoder,
+            ProviderId::Sakana,
         ]
     }
 
@@ -182,6 +188,9 @@ impl ProviderId {
             ProviderId::Poe => "poe",
             ProviderId::Devin => "devin",
             ProviderId::Zed => "zed",
+            ProviderId::CrossModel => "crossmodel",
+            ProviderId::Qoder => "qoder",
+            ProviderId::Sakana => "sakana",
         }
     }
 
@@ -241,6 +250,9 @@ impl ProviderId {
             ProviderId::Poe => "Poe",
             ProviderId::Devin => "Devin",
             ProviderId::Zed => "Zed",
+            ProviderId::CrossModel => "CrossModel",
+            ProviderId::Qoder => "Qoder",
+            ProviderId::Sakana => "Sakana AI",
         }
     }
 
@@ -276,6 +288,8 @@ impl ProviderId {
             ProviderId::MiMo => Some("platform.xiaomimimo.com"),
             ProviderId::CommandCode => Some("commandcode.ai"),
             ProviderId::Grok => Some("grok.com"),
+            ProviderId::Qoder => Some("qoder.com"),
+            ProviderId::Sakana => Some("console.sakana.ai"),
             // Token-based providers (don't use cookies)
             ProviderId::Copilot => None,
             ProviderId::Zai => None,
@@ -305,6 +319,7 @@ impl ProviderId {
             ProviderId::Poe => None,
             ProviderId::Devin => None,
             ProviderId::Zed => None,
+            ProviderId::CrossModel => None,
         }
     }
 
@@ -371,6 +386,9 @@ impl ProviderId {
             "poe" => Some(ProviderId::Poe),
             "devin" => Some(ProviderId::Devin),
             "zed" | "zed-ai" => Some(ProviderId::Zed),
+            "crossmodel" | "cross-model" | "cross model" => Some(ProviderId::CrossModel),
+            "qoder" => Some(ProviderId::Qoder),
+            "sakana" | "sakana-ai" | "sakana ai" => Some(ProviderId::Sakana),
             _ => None,
         }
     }
@@ -586,6 +604,8 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("lite-llm", ProviderId::LiteLLM);
     map.insert("zed-ai", ProviderId::Zed);
     map.insert("llm-proxy", ProviderId::LLMProxy);
+    map.insert("cross-model", ProviderId::CrossModel);
+    map.insert("sakana-ai", ProviderId::Sakana);
     map
 }
 
@@ -596,7 +616,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 53);
+        assert_eq!(all.len(), 56);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -630,6 +650,9 @@ mod tests {
         assert!(all.contains(&ProviderId::Poe));
         assert!(all.contains(&ProviderId::Devin));
         assert!(all.contains(&ProviderId::Zed));
+        assert!(all.contains(&ProviderId::CrossModel));
+        assert!(all.contains(&ProviderId::Qoder));
+        assert!(all.contains(&ProviderId::Sakana));
     }
 
     #[test]

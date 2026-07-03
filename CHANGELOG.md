@@ -1,5 +1,16 @@
 # Changelog
 
+## [Windows] 0.38.0 - 2026-07-03
+
+### Added
+- Port upstream v0.38.0 provider support for CrossModel, Qoder, and Sakana AI into the Windows/Tauri app.
+- Add Tauri provider icons, provider catalog metadata, manual cookie support for Qoder/Sakana, and saved API-key settings for CrossModel.
+
+### Fixed
+- Accept current Command Code `commandcode_prod` manual cookie headers.
+
+---
+
 ## [Windows] 0.37.6 - 2026-07-02
 
 ### Added

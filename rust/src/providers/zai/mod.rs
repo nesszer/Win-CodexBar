@@ -12,6 +12,7 @@ pub use mcp_details::{
 };
 
 use async_trait::async_trait;
+use reqwest::Url;
 use serde::Deserialize;
 
 use crate::core::{
@@ -21,6 +22,14 @@ use crate::core::{
 
 /// z.ai API endpoint for quota/usage
 const ZAI_API_URL: &str = "https://api.z.ai/api/monitor/usage/quota/limit";
+const ZAI_BIGMODEL_CN_API_URL: &str = "https://open.bigmodel.cn/api/monitor/usage/quota/limit";
+const ZAI_QUOTA_URL_ENV: &str = "Z_AI_QUOTA_URL";
+const ZAI_API_HOST_ENV: &str = "Z_AI_API_HOST";
+const ZAI_API_KEY_ENV: &str = "Z_AI_API_KEY";
+const ZAI_LEGACY_API_KEY_ENV: &str = "ZAI_API_TOKEN";
+const ZAI_USAGE_SCOPE_ENV: &str = "Z_AI_USAGE_SCOPE";
+const ZAI_BIGMODEL_ORG_ENV: &str = "Z_AI_BIGMODEL_ORGANIZATION";
+const ZAI_BIGMODEL_PROJECT_ENV: &str = "Z_AI_BIGMODEL_PROJECT";
 
 /// Windows Credential Manager target for z.ai API token
 const ZAI_CREDENTIAL_TARGET: &str = "codexbar-zai";
@@ -73,6 +82,12 @@ pub struct ZaiProvider {
     metadata: ProviderMetadata,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ZaiTeamContext {
+    organization_id: String,
+    project_id: String,
+}
+
 impl ZaiProvider {
     pub fn new() -> Self {
         Self {
@@ -85,7 +100,7 @@ impl ZaiProvider {
                 supports_credits: true,
                 default_enabled: false,
                 is_primary: false,
-                dashboard_url: Some("https://z.ai/dashboard"),
+                dashboard_url: Some("https://z.ai/manage-apikey/coding-plan/personal/my-plan"),
                 status_page_url: None,
             },
         }
@@ -95,33 +110,88 @@ impl ZaiProvider {
     fn get_api_token(api_key: Option<&str>) -> Result<String, ProviderError> {
         // Check ctx.api_key first (from settings)
         if let Some(key) = api_key
-            && !key.is_empty()
+            && let Some(cleaned) = clean_string(key)
         {
-            return Ok(key.to_string());
+            return Ok(cleaned);
         }
 
         // Try Windows Credential Manager
         match keyring::Entry::new(ZAI_CREDENTIAL_TARGET, "api_token") {
             Ok(entry) => match entry.get_password() {
                 Ok(token) => Ok(token),
-                Err(_) => {
-                    // Try environment variable as fallback
-                    std::env::var("ZAI_API_TOKEN").map_err(|_| {
-                        ProviderError::NotInstalled(
-                            "z.ai API token not found. Set in Preferences → Providers or ZAI_API_TOKEN environment variable.".to_string()
-                        )
-                    })
-                }
+                Err(_) => Self::api_token_from_env(),
             },
-            Err(_) => {
-                // Try environment variable as fallback
-                std::env::var("ZAI_API_TOKEN").map_err(|_| {
-                    ProviderError::NotInstalled(
-                        "z.ai API token not found. Set in Preferences → Providers or ZAI_API_TOKEN environment variable.".to_string()
-                    )
-                })
-            }
+            Err(_) => Self::api_token_from_env(),
         }
+    }
+
+    fn api_token_from_env() -> Result<String, ProviderError> {
+        [ZAI_API_KEY_ENV, ZAI_LEGACY_API_KEY_ENV]
+            .iter()
+            .find_map(|key| std::env::var(key).ok().and_then(|value| clean_string(&value)))
+            .ok_or_else(|| {
+                ProviderError::NotInstalled(
+                    "z.ai API token not found. Set in Preferences → Providers, Z_AI_API_KEY, or ZAI_API_TOKEN."
+                        .to_string(),
+                )
+            })
+    }
+
+    fn quota_url(ctx: &FetchContext) -> Result<Url, ProviderError> {
+        if let Ok(raw) = std::env::var(ZAI_QUOTA_URL_ENV)
+            && let Some(value) = clean_string(&raw)
+        {
+            return parse_https_url(&value);
+        }
+        if let Ok(raw) = std::env::var(ZAI_API_HOST_ENV)
+            && let Some(value) = clean_string(&raw)
+        {
+            return quota_url_from_host(&value);
+        }
+
+        let base = match ctx
+            .api_region
+            .as_deref()
+            .map(|region| region.trim().to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("cn") | Some("bigmodel") | Some("bigmodel-cn") | Some("bigmodel_cn") => {
+                ZAI_BIGMODEL_CN_API_URL
+            }
+            _ => ZAI_API_URL,
+        };
+        Url::parse(base).map_err(|e| ProviderError::Other(e.to_string()))
+    }
+
+    fn request_url(
+        ctx: &FetchContext,
+        team_context: Option<&ZaiTeamContext>,
+    ) -> Result<Url, ProviderError> {
+        let mut url = Self::quota_url(ctx)?;
+        if team_context.is_some() {
+            url.query_pairs_mut().append_pair("type", "2");
+        }
+        Ok(url)
+    }
+
+    fn team_context(ctx: &FetchContext) -> Result<Option<ZaiTeamContext>, ProviderError> {
+        let explicit_scope = std::env::var(ZAI_USAGE_SCOPE_ENV)
+            .ok()
+            .and_then(|value| clean_string(&value))
+            .is_some_and(|value| value.eq_ignore_ascii_case("team"));
+        let context = ctx
+            .workspace_id
+            .as_deref()
+            .and_then(parse_team_context_pair)
+            .or_else(ZaiTeamContext::from_env);
+
+        if explicit_scope && context.is_none() {
+            return Err(ProviderError::Other(
+                "z.ai team usage requires Z_AI_BIGMODEL_ORGANIZATION and Z_AI_BIGMODEL_PROJECT, or workspace_id as organization|project."
+                    .to_string(),
+            ));
+        }
+        Ok(context)
     }
 
     /// Fetch usage from z.ai API
@@ -133,12 +203,18 @@ impl ZaiProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        let resp = client
-            .get(ZAI_API_URL)
-            .header("Authorization", format!("Bearer {}", api_token))
-            .header("Accept", "application/json")
-            .send()
-            .await?;
+        let team_context = Self::team_context(ctx)?;
+        let request_url = Self::request_url(ctx, team_context.as_ref())?;
+        let mut request = client
+            .get(request_url)
+            .header("Authorization", authorization_header(&api_token))
+            .header("Accept", "application/json");
+        if let Some(team) = &team_context {
+            request = request
+                .header("Bigmodel-Organization", team.organization_id.as_str())
+                .header("Bigmodel-Project", team.project_id.as_str());
+        }
+        let resp = request.send().await?;
 
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
             return Err(ProviderError::AuthRequired);
@@ -282,6 +358,75 @@ impl ZaiProvider {
     }
 }
 
+impl ZaiTeamContext {
+    fn from_env() -> Option<Self> {
+        let organization_id = std::env::var(ZAI_BIGMODEL_ORG_ENV)
+            .ok()
+            .and_then(|value| clean_string(&value))?;
+        let project_id = std::env::var(ZAI_BIGMODEL_PROJECT_ENV)
+            .ok()
+            .and_then(|value| clean_string(&value))?;
+        Some(Self {
+            organization_id,
+            project_id,
+        })
+    }
+}
+
+fn clean_string(raw: &str) -> Option<String> {
+    let mut value = raw.trim();
+    if value.len() >= 2
+        && ((value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\'')))
+    {
+        value = &value[1..value.len() - 1];
+    }
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+fn parse_https_url(raw: &str) -> Result<Url, ProviderError> {
+    let value = if raw.starts_with("http://") || raw.starts_with("https://") {
+        raw.to_string()
+    } else {
+        format!("https://{raw}")
+    };
+    let url = Url::parse(&value).map_err(|e| ProviderError::Other(e.to_string()))?;
+    if url.scheme() != "https" {
+        return Err(ProviderError::Other(
+            "z.ai endpoint overrides must use HTTPS.".to_string(),
+        ));
+    }
+    Ok(url)
+}
+
+fn quota_url_from_host(raw: &str) -> Result<Url, ProviderError> {
+    let mut url = parse_https_url(raw)?;
+    url.set_path("api/monitor/usage/quota/limit");
+    url.set_query(None);
+    Ok(url)
+}
+
+fn parse_team_context_pair(raw: &str) -> Option<ZaiTeamContext> {
+    let (organization_id, project_id) = raw
+        .split_once('|')
+        .or_else(|| raw.split_once(','))
+        .or_else(|| raw.split_once(';'))?;
+    Some(ZaiTeamContext {
+        organization_id: clean_string(organization_id)?,
+        project_id: clean_string(project_id)?,
+    })
+}
+
+fn authorization_header(token: &str) -> String {
+    let trimmed = token.trim();
+    if trimmed.to_ascii_lowercase().starts_with("bearer ") {
+        trimmed.to_string()
+    } else {
+        format!("Bearer {trimmed}")
+    }
+}
+
 impl Default for ZaiProvider {
     fn default() -> Self {
         Self::new()
@@ -324,5 +469,49 @@ impl Provider for ZaiProvider {
 
     fn supports_cli(&self) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_url_adds_team_type_query_for_team_context() {
+        let ctx = FetchContext::default();
+        let team = ZaiTeamContext {
+            organization_id: "org".to_string(),
+            project_id: "project".to_string(),
+        };
+
+        let url = ZaiProvider::request_url(&ctx, Some(&team)).expect("url");
+
+        assert_eq!(
+            url.as_str(),
+            "https://api.z.ai/api/monitor/usage/quota/limit?type=2"
+        );
+    }
+
+    #[test]
+    fn quota_url_uses_bigmodel_cn_region_aliases() {
+        let ctx = FetchContext {
+            api_region: Some("bigmodel-cn".to_string()),
+            ..FetchContext::default()
+        };
+
+        let url = ZaiProvider::quota_url(&ctx).expect("url");
+
+        assert_eq!(
+            url.as_str(),
+            "https://open.bigmodel.cn/api/monitor/usage/quota/limit"
+        );
+    }
+
+    #[test]
+    fn parses_workspace_pair_as_team_context() {
+        let parsed = parse_team_context_pair(" org-team | project-team ").expect("team context");
+
+        assert_eq!(parsed.organization_id, "org-team");
+        assert_eq!(parsed.project_id, "project-team");
     }
 }

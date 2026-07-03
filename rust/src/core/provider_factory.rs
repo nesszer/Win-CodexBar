@@ -10,14 +10,14 @@ use crate::providers::{
     AbacusProvider, AlibabaProvider, AlibabaTokenPlanProvider, AmpProvider, AntigravityProvider,
     AugmentProvider, AzureOpenAIProvider, BedrockProvider, ChutesProvider, ClaudeProvider,
     CodebuffProvider, CodexProvider, CommandCodeProvider, CopilotProvider, CrofProvider,
-    CursorProvider, DeepSeekProvider, DeepgramProvider, DevinProvider, DoubaoProvider,
-    ElevenLabsProvider, FactoryProvider, GeminiProvider, GrokProvider, GroqProvider,
-    InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider, KimiProvider, KiroProvider,
-    LLMProxyProvider, LiteLLMProvider, ManusProvider, MiMoProvider, MiniMaxProvider,
+    CrossModelProvider, CursorProvider, DeepSeekProvider, DeepgramProvider, DevinProvider,
+    DoubaoProvider, ElevenLabsProvider, FactoryProvider, GeminiProvider, GrokProvider,
+    GroqProvider, InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider, KimiProvider,
+    KiroProvider, LLMProxyProvider, LiteLLMProvider, ManusProvider, MiMoProvider, MiniMaxProvider,
     MistralProvider, NanoGPTProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider,
-    OpenCodeProvider, OpenRouterProvider, PerplexityProvider, PoeProvider, StepFunProvider,
-    T3ChatProvider, VeniceProvider, VertexAIProvider, WarpProvider, WindsurfProvider, ZaiProvider,
-    ZedProvider,
+    OpenCodeProvider, OpenRouterProvider, PerplexityProvider, PoeProvider, QoderProvider,
+    SakanaProvider, StepFunProvider, T3ChatProvider, VeniceProvider, VertexAIProvider,
+    WarpProvider, WindsurfProvider, ZaiProvider, ZedProvider,
 };
 
 /// Instantiate the concrete [`Provider`] implementation for a given [`ProviderId`].
@@ -79,6 +79,9 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Poe => Box::new(PoeProvider::new()),
         ProviderId::Devin => Box::new(DevinProvider::new()),
         ProviderId::Zed => Box::new(ZedProvider::new()),
+        ProviderId::CrossModel => Box::new(CrossModelProvider::new()),
+        ProviderId::Qoder => Box::new(QoderProvider::new()),
+        ProviderId::Sakana => Box::new(SakanaProvider::new()),
     }
 }
 

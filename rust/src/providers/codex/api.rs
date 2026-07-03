@@ -571,11 +571,21 @@ impl CodexApi {
         }
 
         // Build cost snapshot if credits are present
+        let credit_limit = response.individual_limit.as_ref().or_else(|| {
+            response
+                .rate_limit
+                .as_ref()
+                .and_then(|rate_limit| rate_limit.individual_limit.as_ref())
+        });
         let cost = response.credits.as_ref().and_then(|credits| {
             if credits.has_credits() {
                 let balance = credits.balance.unwrap_or(0.0);
                 if credits.unlimited() {
                     None // Unlimited credits, no need to show
+                } else if let Some(limit) =
+                    credit_limit.and_then(|limit| limit.to_cost_snapshot(balance))
+                {
+                    Some(limit)
                 } else {
                     Some(CostSnapshot::new(balance, "USD", "Credits"))
                 }
@@ -614,6 +624,8 @@ struct UsageResponse {
     plan_type: Option<String>,
     rate_limit: Option<RateLimitDetails>,
     credits: Option<CreditDetails>,
+    #[serde(default, alias = "individualLimit")]
+    individual_limit: Option<SpendControlLimitSnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -621,6 +633,8 @@ struct RateLimitDetails {
     primary_window: Option<WindowSnapshot>,
     secondary_window: Option<WindowSnapshot>,
     code_review_window: Option<WindowSnapshot>,
+    #[serde(default, alias = "individualLimit")]
+    individual_limit: Option<SpendControlLimitSnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -635,6 +649,16 @@ struct CreditDetails {
     has_credits: Option<bool>,
     unlimited: Option<bool>,
     balance: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SpendControlLimitSnapshot {
+    limit: Option<f64>,
+    used: Option<f64>,
+    #[serde(default, alias = "remainingPercent")]
+    remaining_percent: Option<f64>,
+    #[serde(default, alias = "resetsAt")]
+    resets_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -658,6 +682,29 @@ impl CreditDetails {
 
     fn unlimited(&self) -> bool {
         self.unlimited.unwrap_or(false)
+    }
+}
+
+impl SpendControlLimitSnapshot {
+    fn to_cost_snapshot(&self, balance: f64) -> Option<CostSnapshot> {
+        let limit = self
+            .limit
+            .filter(|limit| limit.is_finite() && *limit >= 0.0)?;
+        let used = self
+            .used
+            .filter(|used| used.is_finite() && *used >= 0.0)
+            .or_else(|| {
+                self.remaining_percent
+                    .filter(|pct| pct.is_finite() && *pct >= 0.0)
+                    .map(|remaining| limit * (1.0 - (remaining / 100.0)))
+            })
+            .unwrap_or_else(|| (limit - balance).max(0.0));
+        let mut cost =
+            CostSnapshot::new(used.clamp(0.0, limit), "USD", "Monthly credits").with_limit(limit);
+        if let Some(resets_at) = timestamp_to_datetime(self.resets_at) {
+            cost = cost.with_resets_at(resets_at);
+        }
+        Some(cost)
     }
 }
 
@@ -899,5 +946,61 @@ mod tests {
             .expect("codex usage");
 
         assert!(usage.extra_rate_windows.is_empty());
+    }
+
+    #[test]
+    fn maps_top_level_individual_credit_limit_to_cost_snapshot() {
+        let api = CodexApi::new();
+        let (_, cost) = api
+            .build_result(UsageResponse {
+                plan_type: None,
+                rate_limit: None,
+                credits: Some(CreditDetails {
+                    has_credits: Some(true),
+                    unlimited: Some(false),
+                    balance: Some(7.5),
+                }),
+                individual_limit: Some(SpendControlLimitSnapshot {
+                    limit: Some(20.0),
+                    used: Some(12.5),
+                    remaining_percent: None,
+                    resets_at: Some(1783036800),
+                }),
+            })
+            .expect("codex result");
+        let cost = cost.expect("cost");
+        assert_eq!(cost.used, 12.5);
+        assert_eq!(cost.limit, Some(20.0));
+        assert!(cost.resets_at.is_some());
+    }
+
+    #[test]
+    fn maps_nested_individual_credit_limit_to_cost_snapshot() {
+        let api = CodexApi::new();
+        let (_, cost) = api
+            .build_result(UsageResponse {
+                plan_type: None,
+                rate_limit: Some(RateLimitDetails {
+                    primary_window: None,
+                    secondary_window: None,
+                    code_review_window: None,
+                    individual_limit: Some(SpendControlLimitSnapshot {
+                        limit: Some(100.0),
+                        used: None,
+                        remaining_percent: Some(60.0),
+                        resets_at: None,
+                    }),
+                }),
+                credits: Some(CreditDetails {
+                    has_credits: Some(true),
+                    unlimited: Some(false),
+                    balance: Some(60.0),
+                }),
+                individual_limit: None,
+            })
+            .expect("codex result");
+        let cost = cost.expect("cost");
+        assert_eq!(cost.used, 40.0);
+        assert_eq!(cost.limit, Some(100.0));
     }
 }

@@ -5,7 +5,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 use reqwest::Client;
+use serde::Deserialize;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
@@ -13,6 +15,8 @@ use crate::core::{
 };
 
 const DOUBAO_API_URL: &str = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions";
+const DOUBAO_CODING_PLAN_URL: &str =
+    "https://open.volcengineapi.com/?Action=GetCodingPlanUsage&Version=2024-01-01";
 const DOUBAO_CREDENTIAL_TARGET: &str = "codexbar-doubao";
 const PROBE_MODELS: &[&str] = &[
     "doubao-seed-2.0-code",
@@ -57,6 +61,12 @@ impl DoubaoProvider {
         )
     }
 
+    fn coding_plan_credentials(api_key: Option<&str>) -> Option<DoubaoCodingPlanCredentials> {
+        api_key
+            .and_then(DoubaoCodingPlanCredentials::parse)
+            .or_else(DoubaoCodingPlanCredentials::from_env)
+    }
+
     async fn fetch_api(&self, api_key: &str) -> Result<UsageSnapshot, ProviderError> {
         let mut last_error = None;
         for model in PROBE_MODELS {
@@ -74,6 +84,40 @@ impl DoubaoProvider {
         }
         Err(last_error
             .unwrap_or_else(|| ProviderError::Other("All Doubao probe models failed".into())))
+    }
+
+    async fn fetch_coding_plan(
+        &self,
+        credentials: &DoubaoCodingPlanCredentials,
+    ) -> Result<UsageSnapshot, ProviderError> {
+        let body = Vec::new();
+        let signed = sign_volcengine_request(credentials, &body, Utc::now())?;
+        let response = self
+            .client
+            .post(DOUBAO_CODING_PLAN_URL)
+            .header("Accept", "application/json")
+            .header("Content-Type", signed.content_type)
+            .header("Host", signed.host)
+            .header("X-Date", signed.timestamp)
+            .header("X-Content-Sha256", signed.payload_hash)
+            .header("Authorization", signed.authorization)
+            .body(body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let bytes = response.bytes().await?;
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ProviderError::AuthRequired);
+        }
+        if !status.is_success() {
+            return Err(ProviderError::Other(format!(
+                "Doubao Coding Plan API returned {status}: {}",
+                sanitized_body(&String::from_utf8_lossy(&bytes))
+            )));
+        }
+
+        Ok(coding_plan_snapshot(decode_coding_plan_usage(&bytes)?))
     }
 
     async fn confirm_ambiguous_zero_remaining(
@@ -258,6 +302,317 @@ fn parse_reset_time(value: String) -> Option<DateTime<Utc>> {
         .map(|dt| dt.with_timezone(&Utc))
 }
 
+#[derive(Debug)]
+struct DoubaoCodingPlanCredentials {
+    access_key_id: String,
+    secret_access_key: String,
+    region: String,
+}
+
+impl DoubaoCodingPlanCredentials {
+    fn from_env() -> Option<Self> {
+        let access_key_id = cleaned_env("VOLCENGINE_ACCESS_KEY_ID")
+            .or_else(|| cleaned_env("DOUBAO_ACCESS_KEY_ID"))?;
+        let secret_access_key = cleaned_env("VOLCENGINE_SECRET_ACCESS_KEY")
+            .or_else(|| cleaned_env("DOUBAO_SECRET_ACCESS_KEY"))?;
+        let region = cleaned_env("VOLCENGINE_REGION")
+            .or_else(|| cleaned_env("DOUBAO_REGION"))
+            .unwrap_or_else(|| "cn-beijing".to_string());
+        Some(Self {
+            access_key_id,
+            secret_access_key,
+            region,
+        })
+    }
+
+    fn parse(raw: &str) -> Option<Self> {
+        let trimmed = raw.trim();
+        if trimmed.starts_with('{') {
+            let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+            let access_key_id = string_key(
+                &value,
+                &["accessKeyID", "accessKeyId", "access_key_id", "ak"],
+            )?;
+            let secret_access_key = string_key(
+                &value,
+                &[
+                    "secretAccessKey",
+                    "secret_access_key",
+                    "secretKey",
+                    "secret_key",
+                    "sk",
+                ],
+            )?;
+            let region =
+                string_key(&value, &["region"]).unwrap_or_else(|| "cn-beijing".to_string());
+            return Some(Self {
+                access_key_id,
+                secret_access_key,
+                region,
+            });
+        }
+
+        let parts = trimmed.split('|').map(str::trim).collect::<Vec<_>>();
+        if parts.len() >= 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+            return Some(Self {
+                access_key_id: parts[0].to_string(),
+                secret_access_key: parts[1].to_string(),
+                region: parts
+                    .get(2)
+                    .copied()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("cn-beijing")
+                    .to_string(),
+            });
+        }
+        None
+    }
+}
+
+fn cleaned_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn string_key(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct CodingPlanUsageResponse {
+    #[serde(rename = "Result")]
+    result: CodingPlanResult,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodingPlanResult {
+    #[serde(rename = "Status")]
+    status: Option<String>,
+    #[serde(rename = "UpdateTimestamp")]
+    update_timestamp: Option<f64>,
+    #[serde(rename = "QuotaUsage", default)]
+    quota_usage: Vec<CodingPlanQuota>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodingPlanQuota {
+    #[serde(rename = "Level")]
+    level: String,
+    #[serde(rename = "Percent")]
+    percent: f64,
+    #[serde(rename = "ResetTimestamp")]
+    reset_timestamp: Option<f64>,
+}
+
+fn decode_coding_plan_usage(bytes: &[u8]) -> Result<CodingPlanResult, ProviderError> {
+    let response: CodingPlanUsageResponse = serde_json::from_slice(bytes)
+        .map_err(|e| ProviderError::Parse(format!("Failed to parse Doubao Coding Plan: {e}")))?;
+    Ok(response.result)
+}
+
+fn coding_plan_snapshot(usage: CodingPlanResult) -> UsageSnapshot {
+    let primary = coding_plan_window(&usage, &["session", "5-hour", "five_hour"], Some(5 * 60))
+        .unwrap_or_else(|| RateWindow::new(0.0));
+    let mut snapshot = UsageSnapshot::new(primary);
+    if let Some(weekly) = coding_plan_window(&usage, &["weekly", "week"], Some(7 * 24 * 60)) {
+        snapshot = snapshot.with_secondary(weekly);
+    }
+    if let Some(monthly) = coding_plan_window(&usage, &["monthly", "month"], Some(30 * 24 * 60)) {
+        snapshot = snapshot.with_tertiary(monthly);
+    }
+    if let Some(status) = usage.status.filter(|s| !s.trim().is_empty()) {
+        snapshot = snapshot.with_login_method(status);
+    }
+    if let Some(update) = usage.update_timestamp.and_then(datetime_from_epoch) {
+        snapshot.updated_at = update;
+    }
+    snapshot
+}
+
+fn coding_plan_window(
+    usage: &CodingPlanResult,
+    levels: &[&str],
+    minutes: Option<u32>,
+) -> Option<RateWindow> {
+    let quota = usage.quota_usage.iter().find(|quota| {
+        let level = quota.level.to_ascii_lowercase();
+        levels.iter().any(|candidate| *candidate == level)
+    })?;
+    Some(RateWindow::with_details(
+        quota.percent,
+        minutes,
+        quota.reset_timestamp.and_then(datetime_from_epoch),
+        None,
+    ))
+}
+
+fn datetime_from_epoch(timestamp: f64) -> Option<DateTime<Utc>> {
+    if !timestamp.is_finite() || timestamp <= 0.0 {
+        return None;
+    }
+    Utc.timestamp_opt(timestamp as i64, 0).single()
+}
+
+struct SignedVolcengineRequest {
+    content_type: &'static str,
+    host: String,
+    timestamp: String,
+    payload_hash: String,
+    authorization: String,
+}
+
+fn sign_volcengine_request(
+    credentials: &DoubaoCodingPlanCredentials,
+    body: &[u8],
+    now: DateTime<Utc>,
+) -> Result<SignedVolcengineRequest, ProviderError> {
+    let parsed = url::Url::parse(DOUBAO_CODING_PLAN_URL)
+        .map_err(|e| ProviderError::Other(format!("Invalid Doubao Coding Plan URL: {e}")))?;
+    let host = parsed
+        .host_str()
+        .unwrap_or("open.volcengineapi.com")
+        .to_string();
+    let timestamp = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let date_stamp = now.format("%Y%m%d").to_string();
+    let payload_hash = sha256_hex(body);
+    let content_type = "application/x-www-form-urlencoded; charset=utf-8";
+    let signed_headers = "content-type;host;x-content-sha256;x-date";
+    let canonical_request = [
+        "POST".to_string(),
+        canonical_uri(&parsed),
+        canonical_query_string(&parsed),
+        format!("content-type:{content_type}"),
+        format!("host:{host}"),
+        format!("x-content-sha256:{payload_hash}"),
+        format!("x-date:{timestamp}"),
+        String::new(),
+        signed_headers.to_string(),
+        payload_hash.clone(),
+    ]
+    .join("\n");
+    let credential_scope = format!("{}/{}/ark/request", date_stamp, credentials.region);
+    let string_to_sign = [
+        "HMAC-SHA256".to_string(),
+        timestamp.clone(),
+        credential_scope.clone(),
+        sha256_hex(canonical_request.as_bytes()),
+    ]
+    .join("\n");
+    let date_key = hmac_sha256(
+        credentials.secret_access_key.as_bytes(),
+        date_stamp.as_bytes(),
+    );
+    let region_key = hmac_sha256(&date_key, credentials.region.as_bytes());
+    let service_key = hmac_sha256(&region_key, b"ark");
+    let signing_key = hmac_sha256(&service_key, b"request");
+    let signature = hex(&hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    let authorization = format!(
+        "HMAC-SHA256 Credential={}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        credentials.access_key_id
+    );
+    Ok(SignedVolcengineRequest {
+        content_type,
+        host,
+        timestamp,
+        payload_hash,
+        authorization,
+    })
+}
+
+fn canonical_uri(url: &url::Url) -> String {
+    let path = url.path();
+    if path.is_empty() {
+        "/".to_string()
+    } else {
+        percent_encode(path, false)
+    }
+}
+
+fn canonical_query_string(url: &url::Url) -> String {
+    let mut pairs = url
+        .query_pairs()
+        .map(|(key, value)| (percent_encode(&key, true), percent_encode(&value, true)))
+        .collect::<Vec<_>>();
+    pairs.sort();
+    pairs
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn percent_encode(value: &str, encode_slash: bool) -> String {
+    value
+        .bytes()
+        .flat_map(|byte| {
+            let keep = byte.is_ascii_alphanumeric()
+                || matches!(byte, b'-' | b'_' | b'.' | b'~')
+                || (!encode_slash && byte == b'/');
+            if keep {
+                vec![byte as char]
+            } else {
+                format!("%{byte:02X}").chars().collect()
+            }
+        })
+        .collect()
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    hex(&Sha256::digest(data))
+}
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
+    const BLOCK_SIZE: usize = 64;
+    let mut key_block = [0u8; BLOCK_SIZE];
+    if key.len() > BLOCK_SIZE {
+        key_block[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        key_block[..key.len()].copy_from_slice(key);
+    }
+
+    let mut outer = [0x5cu8; BLOCK_SIZE];
+    let mut inner = [0x36u8; BLOCK_SIZE];
+    for i in 0..BLOCK_SIZE {
+        outer[i] ^= key_block[i];
+        inner[i] ^= key_block[i];
+    }
+
+    let mut inner_hash = Sha256::new();
+    inner_hash.update(inner);
+    inner_hash.update(data);
+    let inner_digest = inner_hash.finalize();
+
+    let mut outer_hash = Sha256::new();
+    outer_hash.update(outer);
+    outer_hash.update(inner_digest);
+    outer_hash.finalize().to_vec()
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn sanitized_body(body: &str) -> String {
+    let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() > 200 {
+        let preview = collapsed.chars().take(200).collect::<String>();
+        format!("{preview}... [truncated]")
+    } else if collapsed.is_empty() {
+        "empty body".to_string()
+    } else {
+        collapsed
+    }
+}
+
 impl Default for DoubaoProvider {
     fn default() -> Self {
         Self::new()
@@ -277,6 +632,12 @@ impl Provider for DoubaoProvider {
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::OAuth => {
+                if let Some(credentials) = Self::coding_plan_credentials(ctx.api_key.as_deref()) {
+                    return Ok(ProviderFetchResult::new(
+                        self.fetch_coding_plan(&credentials).await?,
+                        "coding-plan",
+                    ));
+                }
                 let api_key = Self::api_key(ctx.api_key.as_deref())?;
                 Ok(ProviderFetchResult::new(
                     self.fetch_api(&api_key).await?,
@@ -407,6 +768,63 @@ mod tests {
         assert_eq!(
             snapshot.primary.reset_description.as_deref(),
             Some("Active - check dashboard for details")
+        );
+    }
+
+    #[test]
+    fn doubao_parses_coding_plan_usage() {
+        let body = br#"{
+            "Result": {
+                "Status": "active",
+                "UpdateTimestamp": 1783036800,
+                "QuotaUsage": [
+                    {"Level": "session", "Percent": 12.5, "ResetTimestamp": 1783040400},
+                    {"Level": "weekly", "Percent": 50.0, "ResetTimestamp": 1783641600},
+                    {"Level": "monthly", "Percent": 75.0, "ResetTimestamp": 1785628800}
+                ]
+            }
+        }"#;
+        let snapshot = coding_plan_snapshot(decode_coding_plan_usage(body).unwrap());
+        assert_eq!(snapshot.primary.used_percent, 12.5);
+        assert_eq!(snapshot.secondary.unwrap().used_percent, 50.0);
+        assert_eq!(snapshot.tertiary.unwrap().used_percent, 75.0);
+        assert_eq!(snapshot.login_method.as_deref(), Some("active"));
+    }
+
+    #[test]
+    fn doubao_parses_coding_plan_credentials() {
+        let creds =
+            DoubaoCodingPlanCredentials::parse("ak-test|sk-test|cn-shanghai").expect("creds");
+        assert_eq!(creds.access_key_id, "ak-test");
+        assert_eq!(creds.secret_access_key, "sk-test");
+        assert_eq!(creds.region, "cn-shanghai");
+
+        let json = r#"{"accessKeyId":"ak-json","secretAccessKey":"sk-json","region":"cn-beijing"}"#;
+        let creds = DoubaoCodingPlanCredentials::parse(json).expect("json creds");
+        assert_eq!(creds.access_key_id, "ak-json");
+        assert_eq!(creds.secret_access_key, "sk-json");
+    }
+
+    #[test]
+    fn doubao_signer_sets_required_volcengine_headers() {
+        let creds = DoubaoCodingPlanCredentials {
+            access_key_id: "AKID".into(),
+            secret_access_key: "SECRET".into(),
+            region: "cn-beijing".into(),
+        };
+        let signed = sign_volcengine_request(
+            &creds,
+            b"",
+            Utc.with_ymd_and_hms(2026, 7, 3, 0, 0, 0).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(signed.host, "open.volcengineapi.com");
+        assert_eq!(signed.timestamp, "20260703T000000Z");
+        assert_eq!(signed.payload_hash, sha256_hex(b""));
+        assert!(
+            signed
+                .authorization
+                .starts_with("HMAC-SHA256 Credential=AKID/20260703/cn-beijing/ark/request")
         );
     }
 }

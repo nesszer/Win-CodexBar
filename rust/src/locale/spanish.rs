@@ -463,6 +463,10 @@ impl LocaleKey {
             LocaleKey::RefreshIntervalHelper => {
                 "Segundos entre actualizaciones automáticas de proveedores (0 = manual)."
             }
+            LocaleKey::RefreshAllProvidersOnMenuOpen => "Actualizar al abrir el menú",
+            LocaleKey::RefreshAllProvidersOnMenuOpenHelper => {
+                "Fuerza la actualización de proveedores habilitados cada vez que se abre el menú de bandeja."
+            }
             LocaleKey::SoundVolumeHelper => "Volumen para sonidos de alerta de umbral (0–100).",
             LocaleKey::HighUsageWarningHelper => {
                 "Mostrar una advertencia cuando el uso exceda este porcentaje."

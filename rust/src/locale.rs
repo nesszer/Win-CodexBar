@@ -496,6 +496,8 @@ pub enum LocaleKey {
     // Tauri desktop shell — General tab fields
     RefreshIntervalLabel,
     RefreshIntervalHelper,
+    RefreshAllProvidersOnMenuOpen,
+    RefreshAllProvidersOnMenuOpenHelper,
     SoundVolumeHelper,
     HighUsageWarningHelper,
     CriticalUsageWarningHelper,

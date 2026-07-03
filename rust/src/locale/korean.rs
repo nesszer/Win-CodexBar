@@ -441,6 +441,10 @@ impl LocaleKey {
             LocaleKey::RefreshIntervalHelper => {
                 "제공업체 자동 새로고침 간격(초) (0으로 설정 시 수동 새로고침)."
             }
+            LocaleKey::RefreshAllProvidersOnMenuOpen => "메뉴를 열 때 새로고침",
+            LocaleKey::RefreshAllProvidersOnMenuOpenHelper => {
+                "트레이 메뉴를 열 때마다 활성화된 제공업체를 강제로 새로고침합니다."
+            }
             LocaleKey::SoundVolumeHelper => "임계값 경고 소리 볼륨 (0~100).",
             LocaleKey::HighUsageWarningHelper => "사용량이 이 백분율을 초과하면 경고를 표시합니다.",
             LocaleKey::CriticalUsageWarningHelper => {

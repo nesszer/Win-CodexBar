@@ -86,7 +86,15 @@ export type ProofProviderId =
   | "elevenlabs"
   | "deepgram"
   | "groq"
-  | "llmproxy";
+  | "llmproxy"
+  | "chutes"
+  | "litellm"
+  | "poe"
+  | "devin"
+  | "zed"
+  | "crossmodel"
+  | "qoder"
+  | "sakana";
 
 export type TrayPanelSurfaceTarget = { kind: "summary" };
 export type PopOutSurfaceTarget =
@@ -154,6 +162,7 @@ export interface SettingsSnapshot {
   enabledProviders: string[];
   providerOrder?: string[];
   refreshIntervalSecs: number;
+  refreshAllProvidersOnMenuOpen: boolean;
   startAtLogin: boolean;
   startMinimized: boolean;
   showNotifications: boolean;
@@ -202,6 +211,7 @@ export interface SettingsSnapshot {
 export interface SettingsUpdate {
   enabledProviders?: string[];
   refreshIntervalSecs?: number;
+  refreshAllProvidersOnMenuOpen?: boolean;
   startAtLogin?: boolean;
   startMinimized?: boolean;
   showNotifications?: boolean;

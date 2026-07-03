@@ -47,4 +47,12 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["deepgram", "Deepgram"],
   ["groq", "Groq"],
   ["llmproxy", "LLM Proxy"],
+  ["chutes", "Chutes"],
+  ["litellm", "LiteLLM"],
+  ["poe", "Poe"],
+  ["devin", "Devin"],
+  ["zed", "Zed"],
+  ["crossmodel", "CrossModel"],
+  ["qoder", "Qoder"],
+  ["sakana", "Sakana AI"],
 ];

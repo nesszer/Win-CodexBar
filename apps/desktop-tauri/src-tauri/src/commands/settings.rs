@@ -9,6 +9,7 @@ use super::*;
 pub struct SettingsUpdate {
     pub enabled_providers: Option<Vec<String>>,
     pub refresh_interval_secs: Option<u64>,
+    pub refresh_all_providers_on_menu_open: Option<bool>,
     pub start_at_login: Option<bool>,
     pub start_minimized: Option<bool>,
     pub show_notifications: Option<bool>,
@@ -98,6 +99,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.refresh_interval_secs {
             settings.refresh_interval_secs = v;
+        }
+        if let Some(v) = self.refresh_all_providers_on_menu_open {
+            settings.refresh_all_providers_on_menu_open = v;
         }
         if let Some(ref s) = self.tray_icon_mode
             && let Some(mode) = parse_tray_icon_mode(s)

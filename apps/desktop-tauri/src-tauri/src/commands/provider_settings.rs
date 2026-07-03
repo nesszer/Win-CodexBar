@@ -66,6 +66,8 @@ fn cookie_source_provider(provider_id: &str) -> Option<codexbar::core::ProviderI
         "amp" => ProviderId::Amp,
         "ollama" => ProviderId::Ollama,
         "mistral" => ProviderId::Mistral,
+        "qoder" => ProviderId::Qoder,
+        "sakana" => ProviderId::Sakana,
         _ => return None,
     })
 }

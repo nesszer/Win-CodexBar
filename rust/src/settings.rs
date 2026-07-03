@@ -41,6 +41,10 @@ pub struct Settings {
     /// Refresh interval in seconds (0 = manual only)
     pub refresh_interval_secs: u64,
 
+    /// Force-refresh enabled providers whenever the tray/menu surface opens.
+    #[serde(default)]
+    pub refresh_all_providers_on_menu_open: bool,
+
     /// Whether to start minimized
     pub start_minimized: bool,
 
@@ -315,6 +319,7 @@ impl Default for Settings {
         Self {
             enabled_providers: enabled,
             refresh_interval_secs: 300, // 5 minutes
+            refresh_all_providers_on_menu_open: false,
             start_minimized: false,
             start_at_login: false,
             show_notifications: true,

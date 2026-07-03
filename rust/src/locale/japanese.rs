@@ -443,6 +443,10 @@ impl LocaleKey {
             LocaleKey::RefreshIntervalHelper => {
                 "Seconds between automatic provider refreshes (0 = manual)."
             }
+            LocaleKey::RefreshAllProvidersOnMenuOpen => "Refresh on menu open",
+            LocaleKey::RefreshAllProvidersOnMenuOpenHelper => {
+                "Force-refresh enabled providers whenever the tray menu opens."
+            }
             LocaleKey::SoundVolumeHelper => "Volume for threshold alert sounds (0–100).",
             LocaleKey::HighUsageWarningHelper => {
                 "Show a warning when usage exceeds this percentage."

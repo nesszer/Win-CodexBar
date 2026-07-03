@@ -184,6 +184,17 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
               onChange={(v) => set({ refreshIntervalSecs: Number(v) })}
             />
           </Field>
+          <Field
+            label={t("RefreshAllProvidersOnMenuOpen")}
+            description={t("RefreshAllProvidersOnMenuOpenHelper")}
+            leading
+          >
+            <Toggle
+              checked={settings.refreshAllProvidersOnMenuOpen}
+              disabled={saving}
+              onChange={(v) => set({ refreshAllProvidersOnMenuOpen: v })}
+            />
+          </Field>
         </div>
       </section>
     </>

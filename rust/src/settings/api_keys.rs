@@ -177,10 +177,12 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             id: ProviderId::Zai,
             name: "z.ai",
             requires_api_key: true,
-            api_key_env_var: Some("ZAI_API_TOKEN"),
-            api_key_help: Some("Get your API token from z.ai Dashboard → Settings"),
+            api_key_env_var: Some("Z_AI_API_KEY or ZAI_API_TOKEN"),
+            api_key_help: Some(
+                "Get your API token from z.ai Dashboard. BigModel team usage can set Z_AI_BIGMODEL_ORGANIZATION + Z_AI_BIGMODEL_PROJECT, or provider workspace_id as organization|project.",
+            ),
             config_file_path: None,
-            dashboard_url: Some("https://z.ai/dashboard"),
+            dashboard_url: Some("https://z.ai/manage-apikey/coding-plan/personal/my-plan"),
         },
         ProviderConfigInfo {
             id: ProviderId::Warp,
@@ -301,8 +303,12 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             id: ProviderId::Doubao,
             name: "Doubao / Volcengine Ark",
             requires_api_key: true,
-            api_key_env_var: Some("ARK_API_KEY"),
-            api_key_help: Some("Get your API key from Volcengine Ark."),
+            api_key_env_var: Some(
+                "ARK_API_KEY or VOLCENGINE_ACCESS_KEY_ID + VOLCENGINE_SECRET_ACCESS_KEY",
+            ),
+            api_key_help: Some(
+                "Use ARK_API_KEY for chat probe fallback, or paste Coding Plan credentials as access_key|secret_key|region (region defaults to cn-beijing).",
+            ),
             config_file_path: None,
             dashboard_url: Some("https://console.volcengine.com/ark/region:ark+cn-beijing/usage"),
         },
@@ -441,6 +447,17 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             ),
             config_file_path: Some("~/.config/zed/settings.json"),
             dashboard_url: Some("https://zed.dev/account"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::CrossModel,
+            name: "CrossModel",
+            requires_api_key: true,
+            api_key_env_var: Some("CROSSMODEL_API_KEY"),
+            api_key_help: Some(
+                "Paste a CrossModel API key. Optional API URL override: CROSSMODEL_API_URL.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://crossmodel.ai"),
         },
     ]
 }
