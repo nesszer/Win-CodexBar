@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useLocale } from "../hooks/useLocale";
 
 export interface MenuSurfaceAction {
@@ -24,7 +24,14 @@ interface MenuSurfaceProps {
   actions: MenuSurfaceAction[];
   summary?: ReactNode;
   banner?: ReactNode;
+  /** Non-button content rendered in the footer nav BEFORE the mapped
+   *  `footerRows` (e.g. the tray zoom control). Rendering it here — rather
+   *  than as a `footerRows` entry — keeps it a plain `div`, not a `button`. */
+  footerLead?: ReactNode;
   footerRows?: MenuFooterRow[];
+  /** Inline style applied to the root `menu-surface` element (e.g. CSS
+   *  `zoom` for the tray flyout). */
+  style?: CSSProperties;
   children: ReactNode;
 }
 
@@ -44,18 +51,21 @@ export default function MenuSurface({
   actions,
   summary,
   banner,
+  footerLead,
   footerRows,
+  style,
   children,
 }: MenuSurfaceProps) {
   return (
-    <div className={`menu-surface menu-surface--${variant}`}>
+    <div className={`menu-surface menu-surface--${variant}`} style={style}>
       {titleBar}
       {banner}
       {summary}
       <div className="menu-surface__body">{children}</div>
-      {footerRows && footerRows.length > 0 && (
+      {(footerLead || (footerRows && footerRows.length > 0)) && (
         <nav className="menu-surface__footer" aria-label="Menu">
-          {footerRows.map((row) => (
+          {footerLead}
+          {footerRows?.map((row) => (
             <button
               key={row.label}
               type="button"

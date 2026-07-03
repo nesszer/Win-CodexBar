@@ -188,6 +188,8 @@ export interface SettingsSnapshot {
   theme: ThemePreference;
   /** 100..=250 — clamped server-side. */
   windowScalePercent: number;
+  /** 100..=200 — clamped server-side. */
+  trayScalePercent: number;
   claudeAvoidKeychainPrompts: boolean;
   disableKeychainAccess: boolean;
   providerMetrics: Record<string, MetricPreference>;
@@ -236,6 +238,7 @@ export interface SettingsUpdate {
   uiLanguage?: Language;
   theme?: ThemePreference;
   windowScalePercent?: number;
+  trayScalePercent?: number;
   claudeAvoidKeychainPrompts?: boolean;
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */

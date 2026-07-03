@@ -138,9 +138,13 @@ fn main() {
             commands::update_settings,
             commands::set_surface_mode,
             commands::dismiss_tray_panel,
+            commands::begin_flyout_gesture,
+            commands::end_flyout_gesture,
             commands::reveal_tray_panel_window,
             commands::open_settings_window,
             commands::close_settings_window,
+            commands::set_flyout_size,
+            commands::flyout_stored_size,
             commands::get_current_surface_mode,
             commands::get_current_surface_state,
             commands::get_proof_state,
@@ -284,6 +288,19 @@ fn main() {
                     {
                         return;
                     }
+                    // Gesture guard: ignore blur while a resize-grip drag or
+                    // HTML5 drag-reorder is running its Win32/OLE modal loop.
+                    // Windows produces a spurious Focused(false) the instant
+                    // such a loop starts even though the user never left the
+                    // window; see AppState::begin_gesture_blur_guard.
+                    if let Some(st) = window.app_handle().try_state::<Mutex<AppState>>()
+                        && st
+                            .lock()
+                            .unwrap()
+                            .is_gesture_blur_guard_active(std::time::Instant::now())
+                    {
+                        return;
+                    }
                     // Blur in TrayPanel mode → auto-hide. Record successful
                     // dismissals so the same tray click cannot reopen it.
                     if matches!(
@@ -296,6 +313,16 @@ fn main() {
                         st.lock()
                             .unwrap()
                             .mark_blur_dismissed(std::time::Instant::now());
+                    }
+                }
+                tauri::WindowEvent::Focused(true) => {
+                    // A genuine refocus (after the gesture's own focus flicker
+                    // has settled) re-arms the gesture guard so a later
+                    // outside-click blur dismisses immediately again.
+                    if let Some(st) = window.app_handle().try_state::<Mutex<AppState>>() {
+                        st.lock()
+                            .unwrap()
+                            .clear_gesture_guard_on_refocus(std::time::Instant::now());
                     }
                 }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {

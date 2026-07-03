@@ -1066,6 +1066,93 @@ body:has(.tray-panel-reveal) {
   min-height: 100vh;
 }
 
+/* User-resized flyout: the window is a fixed (remembered) size, so the surface
+   fills the viewport height and its body scrolls instead of the window growing
+   to fit content. */
+.tray-panel-reveal--usersized {
+  height: 100vh;
+  min-height: 0;
+}
+.tray-panel-reveal--usersized .menu-surface--tray {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  max-height: 100%;
+}
+
+/* User-sized flyout body must scroll vertically when content overflows the
+   remembered window height — the base `.menu-surface--tray .menu-surface__body`
+   rule (below) uses `overflow-y: visible` because auto-fit sizes the window to
+   content instead of scrolling. Usersized mode is a fixed window, so it needs
+   the opposite: clip + scroll. The body also flex-grows to absorb any free
+   space so the footer (Zoom/Refresh/Settings/About/Quit) pins to the bottom
+   edge instead of floating mid-panel after the user widens the flyout.
+   Scoped to `--usersized` only; auto-fit path is untouched. Applies in both
+   narrow (single column) and wide (side-by-side, see the 640px media query
+   below) layouts. */
+.tray-panel-reveal--usersized .menu-surface--tray .menu-surface__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Side-by-side provider cards once the user has widened the flyout enough to
+   fit two columns — mirrors the PopOut window's `.menu-surface--popout
+   .menu-stack` row layout (styles.css ~3223), but scoped to the tray's
+   usersized state only so the auto-fit (content-hugging) path never sees it.
+   Unlike PopOut, tray cards KEEP their visual chrome (background/border on
+   `.menu-stack__item--selected`, card padding, etc.) — only the separators
+   between stacked cards are hidden, since they read as noise once cards sit
+   side by side instead of one on top of the other. */
+@media (min-width: 640px) {
+  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    align-items: flex-start;
+    gap: 12px 16px;
+    width: 100%;
+  }
+  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__item {
+    flex: 1 1 0;
+    min-width: min(300px, 100%);
+    width: auto;
+  }
+  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__sep {
+    display: none;
+  }
+}
+
+/* Flyout resize grips (top / left / top-left corner). Invisible strips at the
+   window's in-screen edges; the cursor change signals they're draggable. */
+.tray-resize {
+  position: fixed;
+  z-index: 50;
+}
+.tray-resize--top {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 10px;
+  cursor: ns-resize;
+}
+.tray-resize--left {
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+}
+.tray-resize--topleft {
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  z-index: 51;
+}
+
 .shell--tray-panel {
   max-width: 320px;
   padding: 8px 10px 12px;
@@ -3670,6 +3757,15 @@ html:has(.menu-surface--tray) {
   width: 14px;
   opacity: 0.7;
 }
+/* Zoom row keeps a taller (16px) slider hit area even though the tray
+   footer's row padding/font-size are otherwise compacted. */
+.menu-surface--tray .menu-surface__footer-zoom {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.menu-surface--tray .menu-surface__footer-zoom-value {
+  font-size: 10px;
+}
 
 /* ── Provider card — direct mirror of UsageMenuCardView ─────────────── */
 
@@ -4276,6 +4372,84 @@ html:has(.menu-surface--tray) {
   color: var(--text-secondary);
 }
 
+/* Tray flyout zoom row — sits above Refresh in the footer. A plain `div`
+   (not a nav button), so it opts out of the button hover highlight and
+   instead hosts a Win11-volume-style slider with a fixed-width % readout
+   on the right (tabular nums + fixed width = no jitter while dragging). */
+.menu-surface__footer-zoom {
+  cursor: default;
+}
+.menu-surface__footer-zoom:hover,
+.menu-surface__footer-zoom:focus-visible {
+  background: transparent;
+}
+.menu-surface__footer-zoom-value {
+  width: 34px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: var(--font-caption2);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Win11-style range input: thin rounded 4px track, accent fill left of the
+   thumb (painted via the `--zoom-fill` custom property set inline from
+   React — WebKit has no ::fill pseudo), round accent thumb. WebView2 is
+   Chromium-only, so ::-webkit-* pseudos are sufficient. */
+.menu-surface__footer-zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 16px;
+  margin: 0 2px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.menu-surface__footer-zoom-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent, #0a84ff) 0%,
+    var(--accent, #0a84ff) var(--zoom-fill, 0%),
+    rgba(255, 255, 255, 0.2) var(--zoom-fill, 0%)
+  );
+}
+.menu-surface__footer-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px; /* centres the 12px thumb on the 4px track */
+  border-radius: 50%;
+  background: var(--accent, #0a84ff);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.menu-surface__footer-zoom-slider:focus-visible {
+  outline: none;
+}
+.menu-surface__footer-zoom-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 2px var(--accent-muted, rgba(10, 132, 255, 0.25)),
+    0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+[data-theme="light"]
+  .menu-surface__footer-zoom-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--accent, #007aff) 0%,
+    var(--accent, #007aff) var(--zoom-fill, 0%),
+    rgba(0, 0, 0, 0.15) var(--zoom-fill, 0%)
+  );
+}
+[data-theme="light"] .menu-surface__footer-zoom-slider::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.15),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
 /* ── Provider icon grid ──────────────────────────────────────────────
    Mirrors the upstream macOS ProviderSwitcherView. Each cell is a
    stacked icon+label tile with a 4px weekly indicator pinned to the
@@ -4335,6 +4509,20 @@ html:has(.menu-surface--tray) {
 .provider-grid__item--active:hover {
   background: rgba(10, 132, 255, 0.32);
   filter: none;
+}
+
+/* Drag-to-reorder: grab cursor on draggable items, dim the one being dragged,
+   ring the drop target. The provider cards below follow the same order. */
+.provider-grid__item[draggable="true"] {
+  cursor: grab;
+}
+.provider-grid__item--dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+.provider-grid__item--drop-target {
+  background: rgba(10, 132, 255, 0.14);
+  box-shadow: inset 0 0 0 2px rgba(10, 132, 255, 0.65);
 }
 
 .provider-grid__label {

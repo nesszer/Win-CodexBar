@@ -156,14 +156,17 @@ fn build_native_tray_menu(
 
 fn resolve_menu_target(id: &str) -> Option<shell::ShellTransitionRequest> {
     match id {
+        // "Show Window" — the full draggable window (PopOut mode), unchanged.
         "show_panel" => Some(shell::ShellTransitionRequest {
             mode: SurfaceMode::PopOut,
             target: SurfaceTarget::Dashboard,
             position: None,
         }),
+        // "Pop Out Dashboard" — the tray-anchored flyout (TrayPanel mode):
+        // resizable, auto-hides on click-outside, no taskbar entry.
         "pop_out" => Some(shell::ShellTransitionRequest {
-            mode: SurfaceMode::PopOut,
-            target: SurfaceTarget::Dashboard,
+            mode: SurfaceMode::TrayPanel,
+            target: SurfaceTarget::Summary,
             position: None,
         }),
         _ if id.starts_with("provider:") => Some(shell::ShellTransitionRequest {
@@ -272,13 +275,11 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let app = tray.app_handle();
                 if button == MouseButton::Left && button_state == MouseButtonState::Up {
                     store_anchor(app, &rect, position);
-                    let request = tray_left_click_target();
-                    let _ = shell::reopen_to_target(
-                        app,
-                        request.mode,
-                        request.target,
-                        request.position,
-                    );
+                    // Left-click toggles the tray-anchored flyout (Pop Out
+                    // Dashboard): open it, or cleanly close it when this same
+                    // click already blur-dismissed it (no open→close flicker).
+                    // The full window stays available via "Show Window".
+                    shell::handle_tray_panel_click(app, None);
                 }
             }
         })
@@ -849,6 +850,22 @@ mod tests {
     }
 
     #[test]
+    fn pop_out_menu_targets_resizable_tray_flyout() {
+        // "Pop Out Dashboard" opens the tray-anchored flyout, not the window —
+        // this is what separates it from "Show Window" (which stays PopOut).
+        let request = resolve_menu_target("pop_out").expect("pop_out target");
+        assert_eq!(request.mode, SurfaceMode::TrayPanel);
+        assert_eq!(request.target, SurfaceTarget::Summary);
+
+        let show_window = resolve_menu_target("show_panel").expect("show_panel target");
+        assert_eq!(show_window.mode, SurfaceMode::PopOut);
+        assert_ne!(request.mode, show_window.mode, "the two must not collide");
+
+        let props = SurfaceMode::TrayPanel.window_properties();
+        assert!(props.resizable && props.blur_dismiss && props.skip_taskbar);
+    }
+
+    #[test]
     fn show_panel_menu_reopens_popout_dashboard_with_default_position_chain() {
         let request = resolve_menu_target("show_panel").expect("show_panel target");
         assert_eq!(request.mode, SurfaceMode::PopOut);
@@ -880,16 +897,16 @@ mod tests {
         let dispatch = resolve_menu_transition_dispatch(
             "pop_out",
             shell::ShellTransitionRequest {
-                mode: SurfaceMode::PopOut,
-                target: SurfaceTarget::Dashboard,
+                mode: SurfaceMode::TrayPanel,
+                target: SurfaceTarget::Summary,
                 position: Some((320, 240)),
             },
         );
 
         match dispatch {
             MenuTransitionDispatch::Transition(request) => {
-                assert_eq!(request.mode, SurfaceMode::PopOut);
-                assert_eq!(request.target, SurfaceTarget::Dashboard);
+                assert_eq!(request.mode, SurfaceMode::TrayPanel);
+                assert_eq!(request.target, SurfaceTarget::Summary);
                 assert_eq!(request.position, Some((320, 240)));
             }
             MenuTransitionDispatch::Reopen(_) => {

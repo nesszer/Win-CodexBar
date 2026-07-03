@@ -44,6 +44,9 @@ pub fn reorder_providers(
     settings.provider_order = codexbar::settings::normalize_provider_order(&ids);
     settings.save().map_err(|e| e.to_string())?;
     crate::tray_bridge::refresh_tray_presentation(&app);
+    // Notify open surfaces (tray flyout, pop-out window) so their provider grid
+    // and cards re-render in the new order immediately after a drag-reorder.
+    crate::events::emit_settings_changed(&app);
     Ok(build_provider_summaries(&settings))
 }
 

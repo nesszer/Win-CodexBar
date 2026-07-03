@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
-import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
+import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication, reorderProviders } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
@@ -95,6 +95,9 @@ export default function PopOutPanel({
 
   const handleGridClick = useCallback((nextProviderId: string | null) => {
     setSelectedProviderId(nextProviderId);
+  }, []);
+  const handleReorder = useCallback((orderedIds: string[]) => {
+    void reorderProviders(orderedIds).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -225,6 +228,7 @@ export default function PopOutPanel({
         expanded={gridExpanded}
         onExpandedChange={setGridExpanded}
         onSelect={handleGridClick}
+        onReorder={handleReorder}
       />
       <div className="provider-grid__divider" />
       <div className="menu-stack">

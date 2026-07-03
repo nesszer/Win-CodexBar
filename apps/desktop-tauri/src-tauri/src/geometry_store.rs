@@ -50,10 +50,17 @@ fn geometry_path() -> Option<PathBuf> {
 
 /// Surface modes eligible for geometry persistence.
 ///
-/// - `Hidden` / `TrayPanel`: anchored to tray, never remembered.
-/// - `PopOut` / `Settings`: user-movable, remembered across restarts.
+/// - `Hidden`: never remembered.
+/// - `TrayPanel`: remembered for SIZE — the "Pop Out Dashboard" flyout is always
+///   re-anchored above the tray icon (its position comes from
+///   `default_surface_position`, which ignores the stored x/y), but its
+///   width/height persist so a user resize sticks across opens.
+/// - `PopOut` / `Settings`: user-movable, position + size remembered.
 pub fn should_remember(mode: SurfaceMode) -> bool {
-    matches!(mode, SurfaceMode::PopOut | SurfaceMode::Settings)
+    matches!(
+        mode,
+        SurfaceMode::TrayPanel | SurfaceMode::PopOut | SurfaceMode::Settings
+    )
 }
 
 fn load_file() -> GeometryFile {
@@ -139,15 +146,21 @@ mod tests {
     }
 
     #[test]
-    fn tray_panel_and_hidden_are_not_remembered() {
-        assert!(!should_remember(SurfaceMode::TrayPanel));
+    fn tray_panel_is_remembered_for_size() {
+        // The flyout persists its size (position is always re-anchored).
+        assert!(should_remember(SurfaceMode::TrayPanel));
+    }
+
+    #[test]
+    fn hidden_is_not_remembered() {
         assert!(!should_remember(SurfaceMode::Hidden));
     }
+
     #[test]
     fn non_remembered_mode_save_is_noop() {
         // Call should not panic or error for ineligible modes.
         save(
-            SurfaceMode::TrayPanel,
+            SurfaceMode::Hidden,
             StoredGeometry {
                 x: 1,
                 y: 2,
@@ -155,7 +168,7 @@ mod tests {
                 height: Some(560),
             },
         );
-        assert!(load(SurfaceMode::TrayPanel).is_none());
+        assert!(load(SurfaceMode::Hidden).is_none());
     }
 
     #[test]

@@ -25,7 +25,8 @@
         "visible": false,
         "skipTaskbar": true,
         "alwaysOnTop": true,
-        "theme": "Dark"
+        "theme": "Dark",
+        "dragDropEnabled": false
       }
     ],
     "security": {

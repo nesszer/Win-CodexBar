@@ -40,6 +40,7 @@ const settings: SettingsSnapshot = {
   resetTimeRelative: true,
   menuBarDisplayMode: "compact",
   windowScalePercent: 125,
+  trayScalePercent: 100,
   hidePersonalInfo: false,
   autoDownloadUpdates: false,
   installUpdatesOnQuit: false,

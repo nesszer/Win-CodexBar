@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import {
+  getCurrentWindow,
+  LogicalSize,
+  PhysicalSize,
+} from "@tauri-apps/api/window";
 import {
   getWorkAreaRect,
   reanchorTrayPanel,
@@ -17,6 +21,16 @@ export interface TrayPanelLayoutOptions {
   denseOverview: boolean;
   detailMode: boolean;
   layoutKey: string;
+  /** Auto-fit the window to its content (until the user sets a size). */
+  autoFit?: boolean;
+  /** The user's remembered size, re-applied + re-anchored each time the flyout
+   *  opens. `null` when the user has not resized yet. */
+  fixedSize?: [number, number] | null;
+  /** Whether the flyout is currently open (surface mode === trayPanel). Used as
+   *  the "just opened" trigger for the fixed-size restore + re-anchor. */
+  isOpen?: boolean;
+  /** Called with the new logical size on a genuine user drag-resize. */
+  onUserResize?: (width: number, height: number) => void;
 }
 
 export interface TrayPanelLayout {
@@ -29,13 +43,112 @@ export function useTrayPanelLayout({
   denseOverview,
   detailMode,
   layoutKey,
+  autoFit = true,
+  fixedSize = null,
+  isOpen = false,
+  onUserResize,
 }: TrayPanelLayoutOptions): TrayPanelLayout {
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutRevision, setLayoutRevision] = useState(0);
   const layoutReadyRef = useRef(false);
   const resizeRunRef = useRef(0);
   const layoutTimerRef = useRef<number | undefined>(undefined);
+  // The window's actual PHYSICAL size after the last resize WE performed. The
+  // onResized event also reports physical pixels, so comparing physical-to-
+  // physical needs no scale factor — Tauri scaleFactor / webview devicePixelRatio
+  // / Win32 can all disagree on a scaled display, and that disagreement is what
+  // compounded a per-open size growth.
   const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const programmaticInFlightRef = useRef(0);
+  // Auto-fit tracks its last LOGICAL target separately (lastSizeRef is physical)
+  // so its "did the content size change?" check stays in content pixels.
+  const autoFitLogicalRef = useRef<{ width: number; height: number } | null>(
+    null,
+  );
+  const fixedSizeRef = useRef(fixedSize);
+  useEffect(() => {
+    fixedSizeRef.current = fixedSize;
+  }, [fixedSize]);
+  const onUserResizeRef = useRef(onUserResize);
+  useEffect(() => {
+    onUserResizeRef.current = onUserResize;
+  }, [onUserResize]);
+
+  // Resize the window and record the resulting ACTUAL physical size. Wrapped in
+  // an in-flight counter so the Resized event(s) this triggers can never be
+  // mistaken for a user drag, regardless of event timing.
+  const applySize = useCallback(
+    async (size: LogicalSize | PhysicalSize): Promise<void> => {
+      const win = getCurrentWindow();
+      programmaticInFlightRef.current += 1;
+      try {
+        await win.setSize(size);
+        const actual = await win.innerSize();
+        lastSizeRef.current = { width: actual.width, height: actual.height };
+      } catch {
+        /* ignore */
+      } finally {
+        programmaticInFlightRef.current -= 1;
+      }
+    },
+    [],
+  );
+
+  // Report genuine user drag-resizes. Ignore resizes that fire while WE are
+  // resizing (in-flight counter) or whose physical size still matches the last
+  // size we applied; anything else is the user dragging the border. Everything
+  // is in PHYSICAL pixels — no scale conversion, so it can't drift.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    const win = getCurrentWindow();
+    void (async () => {
+      try {
+        unlisten = await win.onResized(({ payload }) => {
+          if (programmaticInFlightRef.current > 0) return;
+          const last = lastSizeRef.current;
+          if (
+            last &&
+            Math.abs(payload.width - last.width) <= 3 &&
+            Math.abs(payload.height - last.height) <= 3
+          ) {
+            return;
+          }
+          onUserResizeRef.current?.(payload.width, payload.height);
+        });
+      } catch {
+        unlisten = undefined;
+      }
+      if (cancelled) unlisten?.();
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // User-sized flyout: on each open, apply the remembered size, re-anchor above
+  // the tray at THAT size (so the anchor math uses the real height, not the
+  // default), then reveal. Content scrolls inside the fixed window via CSS.
+  const hasFixedSize = fixedSize != null;
+  useEffect(() => {
+    if (autoFit || !isOpen || !canMeasure) return;
+    const fixed = fixedSizeRef.current;
+    if (!fixed) return;
+    let cancelled = false;
+    void (async () => {
+      // `fixed` is the user's remembered PHYSICAL size (scale-independent).
+      await applySize(new PhysicalSize(fixed[0], fixed[1]));
+      await Promise.resolve(reanchorTrayPanel()).catch(() => {});
+      if (cancelled) return;
+      layoutReadyRef.current = true;
+      setLayoutReady(true);
+      await Promise.resolve(revealTrayPanelWindow()).catch(() => {});
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [autoFit, isOpen, canMeasure, hasFixedSize, applySize]);
 
   const requestLayout = useCallback(() => {
     if (layoutTimerRef.current !== undefined) {
@@ -67,7 +180,7 @@ export function useTrayPanelLayout({
   }, []);
 
   useEffect(() => {
-    if (!canMeasure) return;
+    if (!autoFit || !canMeasure) return;
 
     const minHeight = detailMode
       ? TRAY_DETAIL_MIN_HEIGHT
@@ -77,7 +190,6 @@ export function useTrayPanelLayout({
 
     const resize = async () => {
       const run = ++resizeRunRef.current;
-      const win = getCurrentWindow();
       const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
       if (!surface) return;
       const html = document.documentElement;
@@ -133,10 +245,14 @@ export function useTrayPanelLayout({
         }
       };
 
+      // Suppress every Resized event this whole auto-fit pass causes (the burst
+      // of setSize calls + any that arrive shortly after) so none is mistaken
+      // for a user drag. The trailing delay absorbs late-delivered events.
+      programmaticInFlightRef.current += 1;
       try {
         if (!layoutReadyRef.current) {
-          await win.setSize(new LogicalSize(TRAY_WIDTH, minHeight));
-          lastSizeRef.current = { width: TRAY_WIDTH, height: minHeight };
+          autoFitLogicalRef.current = { width: TRAY_WIDTH, height: minHeight };
+          await applySize(new LogicalSize(TRAY_WIDTH, minHeight));
         }
 
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -165,14 +281,14 @@ export function useTrayPanelLayout({
         surface.style.maxHeight = `${height}px`;
         committedHeight = true;
 
-        const previousSize = lastSizeRef.current;
+        const previousSize = autoFitLogicalRef.current;
         const shouldResize =
           previousSize === null ||
           previousSize.width !== TRAY_WIDTH ||
           Math.abs(previousSize.height - height) > 2;
         if (shouldResize) {
-          await win.setSize(new LogicalSize(TRAY_WIDTH, height));
-          lastSizeRef.current = { width: TRAY_WIDTH, height };
+          autoFitLogicalRef.current = { width: TRAY_WIDTH, height };
+          await applySize(new LogicalSize(TRAY_WIDTH, height));
           await Promise.resolve(reanchorTrayPanel()).catch(() => {});
         }
 
@@ -197,6 +313,12 @@ export function useTrayPanelLayout({
         if (stack) {
           stack.style.overflow = previous.stackOverflow ?? "";
         }
+        window.setTimeout(() => {
+          programmaticInFlightRef.current = Math.max(
+            0,
+            programmaticInFlightRef.current - 1,
+          );
+        }, 200);
       }
     };
 
@@ -209,7 +331,7 @@ export function useTrayPanelLayout({
       window.clearTimeout(timer);
       resizeRunRef.current += 1;
     };
-  }, [canMeasure, denseOverview, detailMode, layoutRevision]);
+  }, [autoFit, canMeasure, denseOverview, detailMode, layoutRevision, applySize]);
 
   return { layoutReady, requestLayout };
 }

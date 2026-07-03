@@ -20,6 +20,35 @@ pub fn dismiss_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
     crate::shell::hide_to_tray_if_current(&app, |mode| mode == SurfaceMode::TrayPanel).map(|_| ())
 }
 
+/// Arm the gesture blur guard before a resize-grip drag or drag-reorder
+/// gesture starts its Win32/OLE modal loop, so the transient
+/// `Focused(false)` that loop produces doesn't auto-hide the flyout.
+#[tauri::command]
+pub fn begin_flyout_gesture(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app
+        .try_state::<Mutex<AppState>>()
+        .ok_or_else(|| "app state unavailable".to_string())?;
+    state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .begin_gesture_blur_guard(std::time::Instant::now());
+    Ok(())
+}
+
+/// Disarm the gesture blur guard when a gesture ends (mouseup / dragend),
+/// so a genuine outside click can dismiss the flyout again immediately.
+#[tauri::command]
+pub fn end_flyout_gesture(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app
+        .try_state::<Mutex<AppState>>()
+        .ok_or_else(|| "app state unavailable".to_string())?;
+    state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .end_gesture_blur_guard();
+    Ok(())
+}
+
 /// Open (or focus) a detached Settings/About window.
 ///
 /// Unlike `set_surface_mode`, this spawns a *separate* window so the tray
@@ -65,6 +94,35 @@ pub fn close_settings_window(
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     crate::shell::settings_window::dismiss(&app, &window)
+}
+
+/// Persist a user-chosen size for the "Pop Out Dashboard" flyout (TrayPanel).
+/// Only the size is stored; the flyout is always re-anchored above the tray.
+/// The frontend calls this on genuine user drag-resizes, not on its own
+/// auto-fit resizes, so auto-fit sizes never freeze the panel.
+#[tauri::command]
+pub fn set_flyout_size(width: f64, height: f64) -> Result<(), String> {
+    let width = (width.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
+    let height = (height.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
+    crate::geometry_store::save(
+        SurfaceMode::TrayPanel,
+        crate::geometry_store::StoredGeometry {
+            x: 0,
+            y: 0,
+            width: Some(width),
+            height: Some(height),
+        },
+    );
+    Ok(())
+}
+
+/// Return the remembered flyout size, if the user has manually resized it.
+/// The frontend uses this to decide whether to auto-fit (no stored size) or
+/// honor the user's size (stored) on open.
+#[tauri::command]
+pub fn flyout_stored_size() -> Result<Option<(u32, u32)>, String> {
+    Ok(crate::geometry_store::load(SurfaceMode::TrayPanel)
+        .and_then(|geometry| geometry.width.zip(geometry.height)))
 }
 
 #[tauri::command]

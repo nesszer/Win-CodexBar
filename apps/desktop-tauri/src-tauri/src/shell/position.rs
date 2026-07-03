@@ -10,9 +10,9 @@ use crate::surface::SurfaceMode;
 use crate::window_positioner;
 
 use super::geometry::{
-    MonitorPlacement, monitor_for_anchor, monitor_placement, monitor_placement_containing_point,
-    monitor_placement_for_anchor, monitor_work_area_rect, point_in_rect, popout_position,
-    surface_panel_size, tray_anchor_rect, tray_panel_size,
+    MonitorPlacement, inferred_tray_anchor_rect, monitor_for_anchor, monitor_placement,
+    monitor_placement_containing_point, monitor_placement_for_anchor, monitor_work_area_rect,
+    point_in_rect, popout_position, surface_panel_size, tray_anchor_rect, tray_panel_size,
 };
 
 pub fn inferred_tray_panel_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -91,6 +91,23 @@ pub(super) fn visible_surface_position_for_mode_with_fallbacks(
     {
         return Some(popout_position(
             Some(&tray_anchor_rect(anchor)),
+            &monitor,
+            &panel_size,
+        ));
+    }
+
+    // No usable tray anchor (e.g. a right-click menu "Pop Out Dashboard" with no
+    // prior left-click, or a proof/automation launch). The tray icon lives on
+    // the primary (taskbar) monitor, so anchor the surface there. Crucially, do
+    // NOT fall through to the hidden main window's `current_monitor`: after a
+    // previous session left the surface on a now-off-view monitor, that monitor
+    // becomes `current_monitor` and the surface would reopen where the user
+    // can't see it — the multi-monitor "nothing happens" bug.
+    if tray_anchor.is_none()
+        && let Some(monitor) = primary_monitor
+    {
+        return Some(popout_position(
+            Some(&inferred_tray_anchor_rect(&monitor)),
             &monitor,
             &panel_size,
         ));
@@ -215,7 +232,13 @@ pub fn remember_current_geometry_if_eligible(window: &tauri::Window) {
         let guard = st.lock().unwrap();
         guard.surface_machine.current()
     };
-    if !crate::geometry_store::should_remember(current_mode) {
+    // The TrayPanel flyout persists its size explicitly from the frontend (only
+    // on genuine user drag-resizes, never on its own auto-fit resizes), so skip
+    // the automatic capture here — otherwise an auto-fit resize would be saved
+    // and freeze the panel at that size.
+    if current_mode == SurfaceMode::TrayPanel
+        || !crate::geometry_store::should_remember(current_mode)
+    {
         return;
     }
 

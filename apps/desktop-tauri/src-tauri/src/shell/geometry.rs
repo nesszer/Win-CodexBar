@@ -74,7 +74,6 @@ pub(super) fn centered_position(monitor: &MonitorPlacement, panel_size: &PanelSi
     (x, y)
 }
 
-#[allow(dead_code)]
 pub(super) fn inferred_tray_anchor_rect(monitor: &MonitorPlacement) -> Rect {
     const SYNTHETIC_TRAY_ICON_SIZE: u32 = 24;
     const SYNTHETIC_TRAY_EDGE_PADDING: i32 = 8;

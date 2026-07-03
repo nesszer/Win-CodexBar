@@ -115,6 +115,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     uiLanguage: "english",
     theme: "dark",
     windowScalePercent: 125,
+    trayScalePercent: 100,
     claudeAvoidKeychainPrompts: false,
     disableKeychainAccess: false,
     providerMetrics: {},

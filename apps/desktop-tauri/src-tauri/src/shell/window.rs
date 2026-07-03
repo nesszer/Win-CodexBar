@@ -63,14 +63,20 @@ pub fn apply_window_layout(
     }
 
     if props.visible {
-        // The canonical surface mode drives geometry restore — no brittle
-        // shape-matching of WindowProperties. logical_size_from_geometry falls
-        // back to the mode's default size for non-remembered modes.
-        let (width, height) =
-            logical_size_from_geometry(mode, props, crate::geometry_store::load(mode));
-        let (width, height) = capped_logical_size(window, width, height);
-        let size = tauri::LogicalSize::new(width, height);
-        window.set_size(size).map_err(map_err)?;
+        // The TrayPanel flyout is sized entirely by the frontend (content
+        // auto-fit, or the user's remembered size applied on open). A backend
+        // size here would race the frontend and be indistinguishable from a user
+        // drag-resize, so skip it for TrayPanel and only enforce the min size.
+        if mode != SurfaceMode::TrayPanel {
+            // The canonical surface mode drives geometry restore — no brittle
+            // shape-matching of WindowProperties. logical_size_from_geometry
+            // falls back to the mode's default size for non-remembered modes.
+            let (width, height) =
+                logical_size_from_geometry(mode, props, crate::geometry_store::load(mode));
+            let (width, height) = capped_logical_size(window, width, height);
+            let size = tauri::LogicalSize::new(width, height);
+            window.set_size(size).map_err(map_err)?;
+        }
 
         if let (Some(min_w), Some(min_h)) = (props.min_width, props.min_height) {
             window

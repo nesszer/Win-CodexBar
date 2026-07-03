@@ -146,6 +146,12 @@ pub struct AppState {
     pub startup_tray_blur_grace_until: Option<std::time::Instant>,
     /// Whether the explicit startup path may use its delayed shell fallback.
     pub startup_tray_reveal_pending: bool,
+    /// Active while a user gesture (resize drag, HTML5 drag-reorder) is
+    /// running a Win32 modal loop that transiently steals focus from the
+    /// WebView2 child. `(began, until)` — `until` is the hard expiry;
+    /// `began` lets a genuine refocus clear the guard early once the
+    /// gesture's own focus flicker has settled.
+    pub gesture_blur_guard: Option<(std::time::Instant, std::time::Instant)>,
 }
 
 impl Default for AppState {
@@ -188,6 +194,7 @@ impl AppState {
             last_blur_dismissed_at: None,
             startup_tray_blur_grace_until: None,
             startup_tray_reveal_pending: false,
+            gesture_blur_guard: None,
         }
     }
 
@@ -233,6 +240,39 @@ impl AppState {
 
     pub fn take_startup_tray_reveal_fallback(&mut self) -> bool {
         std::mem::take(&mut self.startup_tray_reveal_pending)
+    }
+
+    /// Arm the gesture blur guard for 15s. Called when the frontend reports
+    /// a resize-grip press or a drag-reorder mousedown is about to start a
+    /// Win32/OLE modal loop that will transiently blur the window.
+    pub fn begin_gesture_blur_guard(&mut self, now: std::time::Instant) {
+        self.gesture_blur_guard = Some((now, now + std::time::Duration::from_secs(15)));
+    }
+
+    /// Disarm the gesture blur guard immediately. Called on gesture end
+    /// (mouseup / dragend) so a genuine outside click can dismiss again.
+    pub fn end_gesture_blur_guard(&mut self) {
+        self.gesture_blur_guard = None;
+    }
+
+    /// Whether a gesture-scoped blur guard is currently suppressing
+    /// blur-dismiss.
+    pub fn is_gesture_blur_guard_active(&self, now: std::time::Instant) -> bool {
+        self.gesture_blur_guard
+            .is_some_and(|(_, until)| now < until)
+    }
+
+    /// Clear the gesture guard on a genuine refocus. A 750ms grace from the
+    /// gesture's start keeps a focus flicker at gesture kickoff from
+    /// disarming the guard prematurely; a refocus after that settles the
+    /// guard so a real outside-click dismiss works immediately again.
+    pub fn clear_gesture_guard_on_refocus(&mut self, now: std::time::Instant) {
+        if let Some((began, until)) = self.gesture_blur_guard
+            && now < until
+            && now.saturating_duration_since(began) >= std::time::Duration::from_millis(750)
+        {
+            self.gesture_blur_guard = None;
+        }
     }
 
     pub fn transition_surface(
@@ -430,5 +470,63 @@ mod tests {
 
         assert!(!state.take_startup_tray_blur_grace(now));
         assert!(!state.take_startup_tray_blur_grace(now));
+    }
+
+    #[test]
+    fn gesture_blur_guard_is_active_immediately_after_begin() {
+        let mut state = AppState::new();
+        let now = std::time::Instant::now();
+
+        state.begin_gesture_blur_guard(now);
+
+        assert!(state.is_gesture_blur_guard_active(now));
+    }
+
+    #[test]
+    fn gesture_blur_guard_is_inactive_after_15_seconds() {
+        let mut state = AppState::new();
+        let now = std::time::Instant::now();
+
+        state.begin_gesture_blur_guard(now);
+
+        assert!(!state.is_gesture_blur_guard_active(
+            now + std::time::Duration::from_secs(15)
+        ));
+        assert!(!state.is_gesture_blur_guard_active(
+            now + std::time::Duration::from_secs(16)
+        ));
+    }
+
+    #[test]
+    fn end_gesture_blur_guard_clears_it() {
+        let mut state = AppState::new();
+        let now = std::time::Instant::now();
+
+        state.begin_gesture_blur_guard(now);
+        state.end_gesture_blur_guard();
+
+        assert!(!state.is_gesture_blur_guard_active(now));
+    }
+
+    #[test]
+    fn refocus_before_750ms_does_not_clear_gesture_guard() {
+        let mut state = AppState::new();
+        let now = std::time::Instant::now();
+
+        state.begin_gesture_blur_guard(now);
+        state.clear_gesture_guard_on_refocus(now + std::time::Duration::from_millis(200));
+
+        assert!(state.is_gesture_blur_guard_active(now + std::time::Duration::from_millis(200)));
+    }
+
+    #[test]
+    fn refocus_at_or_after_750ms_clears_gesture_guard() {
+        let mut state = AppState::new();
+        let now = std::time::Instant::now();
+
+        state.begin_gesture_blur_guard(now);
+        state.clear_gesture_guard_on_refocus(now + std::time::Duration::from_millis(750));
+
+        assert!(!state.is_gesture_blur_guard_active(now + std::time::Duration::from_millis(750)));
     }
 }

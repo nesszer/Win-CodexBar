@@ -50,6 +50,7 @@ describe("Language type", () => {
       resetTimeRelative: true,
       menuBarDisplayMode: "compact",
       windowScalePercent: 125,
+      trayScalePercent: 100,
       hidePersonalInfo: false,
       autoDownloadUpdates: false,
       installUpdatesOnQuit: false,

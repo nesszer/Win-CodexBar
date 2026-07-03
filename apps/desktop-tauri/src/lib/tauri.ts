@@ -64,6 +64,14 @@ export function dismissTrayPanel(): Promise<void> {
   return invoke<void>("dismiss_tray_panel");
 }
 
+/** Suppress flyout blur-dismiss while a resize/drag gesture is in flight. */
+export function beginFlyoutGesture(): Promise<void> {
+  return invoke<void>("begin_flyout_gesture");
+}
+export function endFlyoutGesture(): Promise<void> {
+  return invoke<void>("end_flyout_gesture");
+}
+
 export function openSettingsWindow(tab: string): Promise<void> {
   return invoke<void>("open_settings_window", { tab });
 }
@@ -378,6 +386,16 @@ export function reanchorTrayPanel(): Promise<void> {
 
 export function revealTrayPanelWindow(): Promise<void> {
   return invoke<void>("reveal_tray_panel_window");
+}
+
+/** Persist the user's manually-chosen flyout (Pop Out Dashboard) size. */
+export function setFlyoutSize(width: number, height: number): Promise<void> {
+  return invoke<void>("set_flyout_size", { width, height });
+}
+
+/** The remembered flyout size ([w, h]) if the user has resized it, else null. */
+export function flyoutStoredSize(): Promise<[number, number] | null> {
+  return invoke<[number, number] | null>("flyout_stored_size");
 }
 
 export function quitApp(): Promise<void> {

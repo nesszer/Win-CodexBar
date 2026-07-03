@@ -54,6 +54,34 @@ fn raw_settings_clamps_main_window_scale_on_load() {
 }
 
 #[test]
+fn tray_scale_defaults_to_100_percent() {
+    let settings = Settings::default();
+    assert_eq!(settings.tray_scale_percent, 100);
+}
+
+#[test]
+fn tray_scale_clamp_pins_to_supported_range() {
+    assert_eq!(clamp_tray_scale_percent(0), 100);
+    assert_eq!(clamp_tray_scale_percent(99), 100);
+    assert_eq!(clamp_tray_scale_percent(100), 100);
+    assert_eq!(clamp_tray_scale_percent(125), 125);
+    assert_eq!(clamp_tray_scale_percent(180), 180);
+    assert_eq!(clamp_tray_scale_percent(200), 200);
+    assert_eq!(clamp_tray_scale_percent(201), 200);
+}
+
+#[test]
+fn raw_settings_clamps_tray_scale_on_load() {
+    let json = r#"{
+            "enabled_providers": ["claude", "codex"],
+            "refresh_interval_secs": 300,
+            "tray_scale_percent": 300
+        }"#;
+    let loaded: Settings = serde_json::from_str(json).expect("parse settings");
+    assert_eq!(loaded.tray_scale_percent, 200);
+}
+
+#[test]
 fn float_bar_opacity_clamp_pins_to_supported_range() {
     // Below 30 → 30 so the bar isn't accidentally invisible.
     assert_eq!(clamp_float_bar_opacity(0), 30);

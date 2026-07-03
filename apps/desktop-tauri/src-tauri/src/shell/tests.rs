@@ -437,6 +437,70 @@ fn visible_surface_position_falls_back_to_current_monitor_without_available_moni
 }
 
 #[test]
+fn visible_surface_position_without_anchor_prefers_primary_over_offview_current_monitor() {
+    // Regression: the hidden main window is parked on a secondary monitor at
+    // negative coordinates (real machine: DISPLAY5 at x -2048..0). With no tray
+    // anchor (right-click menu / proof launch), the surface must open on the
+    // primary (tray/taskbar) monitor — not the off-view secondary, which is the
+    // "Pop Out Dashboard does nothing" bug.
+    let offview_current = MonitorPlacement {
+        bounds: Rect {
+            x: -2048,
+            y: 0,
+            width: 2048,
+            height: 1152,
+        },
+        work_area: Rect {
+            x: -2048,
+            y: 0,
+            width: 2048,
+            height: 1104,
+        },
+        scale_factor: 1.0,
+    };
+    let primary = MonitorPlacement {
+        bounds: Rect {
+            x: 0,
+            y: 0,
+            width: 3413,
+            height: 1440,
+        },
+        work_area: Rect {
+            x: 0,
+            y: 0,
+            width: 3413,
+            height: 1392,
+        },
+        scale_factor: 1.0,
+    };
+
+    let position = visible_surface_position_for_mode_with_fallbacks(
+        SurfaceMode::PopOut,
+        Some(&[offview_current, primary]),
+        None,                              // no tray anchor
+        Some(offview_current),             // hidden main window parked off-view
+        Some(((-1288, 8), (1024, 1088))),  // last bounds also off-view
+        Some(primary),
+    )
+    .expect("should resolve a position");
+
+    // Must land on the primary monitor (x >= 0), never the negative secondary.
+    assert!(
+        position.0 >= 0,
+        "expected on primary monitor, got {position:?}"
+    );
+    assert_eq!(
+        position,
+        window_positioner::calculate_popout_position(
+            Some(&inferred_tray_anchor_rect(&primary)),
+            &primary.work_area,
+            &surface_panel_size(SurfaceMode::PopOut),
+            primary.scale_factor,
+        )
+    );
+}
+
+#[test]
 fn visible_surface_position_anchor_lookup_uses_monitor_bounds() {
     let anchor_monitor = MonitorPlacement {
         bounds: Rect {
@@ -919,7 +983,10 @@ fn popout_layout_size_uses_remembered_logical_geometry() {
 }
 
 #[test]
-fn tray_panel_layout_ignores_remembered_geometry() {
+fn tray_panel_layout_uses_remembered_size() {
+    // The "Pop Out Dashboard" flyout now honors the user's remembered SIZE.
+    // (Position is still re-anchored above the tray via default_surface_position,
+    // which ignores the stored x/y — only the size is taken from geometry.)
     let props = SurfaceMode::TrayPanel.window_properties();
     let stored = crate::geometry_store::StoredGeometry {
         x: 0,
@@ -930,5 +997,5 @@ fn tray_panel_layout_ignores_remembered_geometry() {
 
     let size = logical_size_from_geometry(SurfaceMode::TrayPanel, &props, Some(stored));
 
-    assert_eq!(size, (props.width, props.height));
+    assert_eq!(size, (640.0, 720.0));
 }

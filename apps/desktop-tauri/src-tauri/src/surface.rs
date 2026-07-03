@@ -46,14 +46,18 @@ impl SurfaceMode {
                 blur_dismiss: false,
                 skip_taskbar: true,
             },
+            // TrayPanel is the "Pop Out Dashboard" flyout: anchored above the
+            // tray icon, always-on-top, auto-hides on click-outside (blur), and
+            // never shows in the taskbar. It is resizable so the user can widen
+            // or heighten it; the chosen size persists (position stays anchored).
             Self::TrayPanel => WindowProperties {
                 visible: true,
                 decorations: false,
-                resizable: false,
+                resizable: true,
                 width: 328.0,
                 height: 776.0,
-                min_width: None,
-                min_height: None,
+                min_width: Some(300.0),
+                min_height: Some(360.0),
                 always_on_top: true,
                 blur_dismiss: true,
                 skip_taskbar: true,
@@ -263,6 +267,19 @@ mod tests {
         let props = SurfaceMode::TrayPanel.window_properties();
         assert_eq!(props.width, 328.0);
         assert_eq!(props.height, 776.0);
+    }
+
+    #[test]
+    fn tray_panel_is_resizable_blur_dismiss_flyout() {
+        let props = SurfaceMode::TrayPanel.window_properties();
+        // "Pop Out Dashboard" flyout: resizable, anchored, auto-hide, no taskbar.
+        assert!(props.resizable);
+        assert!(props.blur_dismiss);
+        assert!(props.always_on_top);
+        assert!(props.skip_taskbar);
+        assert!(!props.decorations);
+        assert_eq!(props.min_width, Some(300.0));
+        assert_eq!(props.min_height, Some(360.0));
     }
 
     #[test]

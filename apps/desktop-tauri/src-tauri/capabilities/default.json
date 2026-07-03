@@ -10,6 +10,8 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-set-size",
     "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:default",
     "core:webview:allow-set-webview-zoom",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister"

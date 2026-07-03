@@ -636,8 +636,8 @@ pub(super) fn apply_transition(
     }
 }
 
-#[allow(dead_code)]
-// Retained for callers that still explicitly target the legacy TrayPanel mode.
+/// Handle a tray-icon left-click: cleanly close the flyout when this same click
+/// already blur-dismissed it; otherwise toggle it open/closed.
 pub fn handle_tray_panel_click(app: &AppHandle, position: Option<(i32, i32)>) {
     const BLUR_DISMISS_CLICK_WINDOW: std::time::Duration = std::time::Duration::from_millis(250);
 
@@ -656,7 +656,6 @@ pub fn handle_tray_panel_click(app: &AppHandle, position: Option<(i32, i32)>) {
 }
 
 /// Toggle the tray panel: hide if currently showing, show at `position` otherwise.
-#[allow(dead_code)]
 pub fn toggle_tray_panel(app: &AppHandle, position: Option<(i32, i32)>) {
     let current = {
         let st = app.state::<Mutex<AppState>>();

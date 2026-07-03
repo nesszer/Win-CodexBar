@@ -1,17 +1,23 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
 import {
+  beginFlyoutGesture,
   dismissTrayPanel,
+  endFlyoutGesture,
+  flyoutStoredSize,
   openSettingsWindow,
   quitApp as quitApplication,
+  reorderProviders,
+  setFlyoutSize,
   setSurfaceMode,
+  updateSettings,
 } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
 import { useLocale } from "../hooks/useLocale";
-import { useSurfaceTarget } from "../hooks/useSurfaceMode";
+import { useSurfaceMode, useSurfaceTarget } from "../hooks/useSurfaceMode";
 import { useTrayPanelLayout } from "../hooks/useTrayPanelLayout";
 import MenuCard from "../components/MenuCard";
 import MenuSurface, {
@@ -50,6 +56,22 @@ const HAS_STATUS_PAGE = new Set([
 const TRAY_INITIAL_REFRESH_DELAY_MS = 250;
 const DENSE_OVERVIEW_THRESHOLD = 32;
 
+// ── Tray flyout zoom (footer slider, above Refresh) ───────────────────
+// PopOut window mode has its own independent windowScalePercent (webview
+// setZoom) — this is a separate setting/control for the tray flyout only,
+// applied via CSS `zoom` on the MenuSurface root (see render below).
+const TRAY_SCALE_MIN = 100;
+const TRAY_SCALE_MAX = 200;
+const TRAY_SCALE_STEP = 5;
+const TRAY_SCALE_COMMIT_DEBOUNCE_MS = 250;
+
+function clampTrayScalePercent(value: number): number {
+  return Math.min(
+    TRAY_SCALE_MAX,
+    Math.max(TRAY_SCALE_MIN, Number.isFinite(value) ? value : 100),
+  );
+}
+
 function getProviderStatus(
   p: ProviderUsageSnapshot,
 ): "ok" | "warning" | "exhausted" | "error" {
@@ -81,6 +103,66 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     useUpdateState();
   const { t } = useLocale();
   const surfaceTarget = useSurfaceTarget("trayPanel");
+
+  // Zoom slider: LOCAL draft state drives both the thumb and the live CSS
+  // zoom preview while dragging; persistence trails behind a ~250ms debounce
+  // (fire-and-forget updateSettings). The settings_changed echo — from our
+  // own commit round-trip or another window — only re-syncs the draft when
+  // no debounce is pending, so it can't fight the thumb mid-drag.
+  const settingsTrayScalePercent = clampTrayScalePercent(
+    settings.trayScalePercent,
+  );
+  const [trayScaleDraft, setTrayScaleDraft] = useState(
+    settingsTrayScalePercent,
+  );
+  const trayScaleCommitTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (trayScaleCommitTimerRef.current === undefined) {
+      setTrayScaleDraft(settingsTrayScalePercent);
+    }
+  }, [settingsTrayScalePercent]);
+  useEffect(
+    () => () => {
+      if (trayScaleCommitTimerRef.current !== undefined) {
+        window.clearTimeout(trayScaleCommitTimerRef.current);
+      }
+    },
+    [],
+  );
+  const handleTrayScaleChange = useCallback((value: number) => {
+    const next = clampTrayScalePercent(value);
+    setTrayScaleDraft(next);
+    if (trayScaleCommitTimerRef.current !== undefined) {
+      window.clearTimeout(trayScaleCommitTimerRef.current);
+    }
+    trayScaleCommitTimerRef.current = window.setTimeout(() => {
+      trayScaleCommitTimerRef.current = undefined;
+      void updateSettings({ trayScalePercent: next }).catch(() => {});
+    }, TRAY_SCALE_COMMIT_DEBOUNCE_MS);
+  }, []);
+  const trayScale = trayScaleDraft / 100;
+  const trayScaleFillPercent =
+    ((trayScaleDraft - TRAY_SCALE_MIN) / (TRAY_SCALE_MAX - TRAY_SCALE_MIN)) *
+    100;
+  const zoomRow = (
+    <div className="menu-surface__footer-row menu-surface__footer-zoom">
+      <span>Zoom</span>
+      <input
+        type="range"
+        className="menu-surface__footer-zoom-slider"
+        min={TRAY_SCALE_MIN}
+        max={TRAY_SCALE_MAX}
+        step={TRAY_SCALE_STEP}
+        value={trayScaleDraft}
+        aria-label="Zoom"
+        onChange={(e) => handleTrayScaleChange(Number(e.target.value))}
+        style={{ "--zoom-fill": `${trayScaleFillPercent}%` } as CSSProperties}
+      />
+      <span className="menu-surface__footer-zoom-value">
+        {trayScaleDraft}%
+      </span>
+    </div>
+  );
 
   const sorted = useMemo(
     () =>
@@ -158,6 +240,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         expectsDenseOverview ? "dense" : "normal",
         hasLoadedCache ? "cache-ready" : "cache-pending",
         visibleProviders.map((provider) => provider.providerId).join(","),
+        trayScaleDraft,
       ].join("|"),
     [
       selectedProviderId,
@@ -169,14 +252,64 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       expectsDenseOverview,
       hasLoadedCache,
       visibleProviders,
+      trayScaleDraft,
     ],
   );
 
+  // Flyout sizing: auto-fit to content until the user manually drags the border,
+  // then remember + honor their size (position always re-anchors above the tray).
+  // `flyoutSize`: undefined = loading, null = auto-fit, [w,h] = user's fixed size.
+  const [flyoutSize, setFlyoutSizeState] = useState<
+    [number, number] | null | undefined
+  >(undefined);
+  const [autoFitKilled, setAutoFitKilled] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void flyoutStoredSize()
+      .then((size) => {
+        if (active) setFlyoutSizeState(size);
+      })
+      .catch(() => {
+        if (active) setFlyoutSizeState(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const saveSizeTimerRef = useRef<number | undefined>(undefined);
+  const handleUserResize = useCallback((width: number, height: number) => {
+    // Stop auto-fit immediately so it can't fight the drag; commit the size
+    // (state + persistence) after the drag settles.
+    setAutoFitKilled(true);
+    if (saveSizeTimerRef.current !== undefined) {
+      window.clearTimeout(saveSizeTimerRef.current);
+    }
+    saveSizeTimerRef.current = window.setTimeout(() => {
+      setFlyoutSizeState([width, height]);
+      void setFlyoutSize(width, height).catch(() => {});
+    }, 300);
+  }, []);
+  useEffect(
+    () => () => {
+      if (saveSizeTimerRef.current !== undefined) {
+        window.clearTimeout(saveSizeTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const isFlyoutOpen = useSurfaceMode() === "trayPanel";
+  const fixedFlyoutSize = Array.isArray(flyoutSize) ? flyoutSize : null;
   const { layoutReady, requestLayout } = useTrayPanelLayout({
     canMeasure: hasLoadedCache || sorted.length > 0,
     denseOverview: expectsDenseOverview,
     detailMode: selectedProviderId !== null,
     layoutKey,
+    autoFit: flyoutSize === null && !autoFitKilled,
+    fixedSize: fixedFlyoutSize,
+    isOpen: isFlyoutOpen,
+    onUserResize: handleUserResize,
   });
 
   const openSettings = useCallback(() => {
@@ -247,6 +380,15 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     },
     [],
   );
+  const handleReorder = useCallback((orderedIds: string[]) => {
+    void reorderProviders(orderedIds).catch(() => {});
+  }, []);
+  const handleGestureStart = useCallback(() => {
+    void beginFlyoutGesture().catch(() => {});
+  }, []);
+  const handleGestureEnd = useCallback(() => {
+    void endFlyoutGesture().catch(() => {});
+  }, []);
   const banner = (
     <UpdateBanner
       updateState={updateState}
@@ -257,7 +399,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       onOpenRelease={openRelease}
     />
   );
-  const revealClassName = `tray-panel-reveal${layoutReady ? " tray-panel-reveal--ready" : ""}${expectsDenseOverview ? " tray-panel-reveal--dense" : ""}`;
+  const revealClassName = `tray-panel-reveal${layoutReady ? " tray-panel-reveal--ready" : ""}${expectsDenseOverview ? " tray-panel-reveal--dense" : ""}${fixedFlyoutSize ? " tray-panel-reveal--usersized" : ""}`;
 
   if (sorted.length === 0) {
     return (
@@ -268,13 +410,16 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           isRefreshing={isRefreshing}
           actions={headerActions}
           banner={banner}
+          footerLead={zoomRow}
           footerRows={footerRows}
+          style={{ zoom: trayScale }}
         >
           <MenuEmpty
             isLoading={isRefreshing && !hasCachedData}
             onSettings={openSettings}
           />
         </MenuSurface>
+        <TrayResizeHandles />
       </div>
     );
   }
@@ -287,7 +432,9 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         isRefreshing={isRefreshing}
         actions={headerActions}
         banner={banner}
+        footerLead={zoomRow}
         footerRows={footerRows}
+        style={{ zoom: trayScale }}
       >
         <ProviderGrid
           providers={expectsDenseOverview ? denseTrayProviders : sorted}
@@ -297,6 +444,9 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           expanded={gridExpanded}
           onExpandedChange={setGridExpanded}
           onSelect={handleGridClick}
+          onReorder={handleReorder}
+          onGestureStart={handleGestureStart}
+          onGestureEnd={handleGestureEnd}
         />
         <div className="provider-grid__divider" />
         <div className="menu-stack">
@@ -360,6 +510,61 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           </div>
         )}
       </MenuSurface>
+      <TrayResizeHandles />
     </div>
+  );
+}
+
+/**
+ * Invisible resize grips along the flyout's in-screen edges (top / left /
+ * top-left corner). The flyout is anchored bottom-right above the tray, so these
+ * let the user widen (left edge) or heighten (top edge) it. Native edge-resize
+ * doesn't work through the borderless WebView2, so we drive it explicitly with
+ * `startResizeDragging`. That call enters a Win32 modal size loop which
+ * transiently steals focus from the WebView2 child for its duration — Windows
+ * fires a spurious `Focused(false)` the instant the press starts even though
+ * the user never left the window. We arm a gesture-scoped blur guard on the
+ * backend *before* starting the loop so that transient blur doesn't
+ * auto-hide the flyout; the guard clears itself once focus genuinely returns
+ * (via the `Focused(true)` refocus path) or after a 15s expiry, so no
+ * explicit end call is needed here — the OS loop swallows mouseup.
+ */
+function TrayResizeHandles() {
+  return (
+    <>
+      <div
+        className="tray-resize tray-resize--top"
+        aria-hidden
+        onMouseDown={(e) => {
+          e.preventDefault();
+          void (async () => {
+            await beginFlyoutGesture().catch(() => {});
+            await getCurrentWindow().startResizeDragging("North");
+          })().catch((err) => console.error("[tray-resize] startResizeDragging failed:", err));
+        }}
+      />
+      <div
+        className="tray-resize tray-resize--left"
+        aria-hidden
+        onMouseDown={(e) => {
+          e.preventDefault();
+          void (async () => {
+            await beginFlyoutGesture().catch(() => {});
+            await getCurrentWindow().startResizeDragging("West");
+          })().catch((err) => console.error("[tray-resize] startResizeDragging failed:", err));
+        }}
+      />
+      <div
+        className="tray-resize tray-resize--topleft"
+        aria-hidden
+        onMouseDown={(e) => {
+          e.preventDefault();
+          void (async () => {
+            await beginFlyoutGesture().catch(() => {});
+            await getCurrentWindow().startResizeDragging("NorthWest");
+          })().catch((err) => console.error("[tray-resize] startResizeDragging failed:", err));
+        }}
+      />
+    </>
   );
 }
