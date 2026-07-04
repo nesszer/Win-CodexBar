@@ -74,7 +74,9 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
         }
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
-        mark_shown(app);
+        if show_grace_starts_now(false) {
+            mark_shown(app);
+        }
         return Ok(());
     }
 
@@ -117,19 +119,23 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
     // Settings window.
     super::dwm::force_dark_caption_resizable(&win);
 
-    let target_position = position.or_else(|| super::position::default_surface_position(app, SurfaceMode::TrayPanel));
+    let target_position =
+        position.or_else(|| super::position::default_surface_position(app, SurfaceMode::TrayPanel));
     if let Some((x, y)) = target_position {
         let _ = win.set_position(PhysicalPosition::new(x, y));
     }
 
     // Left `.visible(false)` above — the frontend reveals the window itself
-    // after its first layout pass (see TrayPanel's `useTrayPanelLayout` /
-    // `revealTrayPanelWindow`), matching the pre-split TrayPanel behavior so
-    // Windows never shows a pre-measure blank/backing frame. `mark_shown`
-    // still runs here so the recently-shown blur grace covers the window
-    // between `show()`-by-the-frontend and any focus race.
-    mark_shown(app);
+    // after its first layout pass, then `reveal_tray_panel_window` starts the
+    // recently-shown blur grace at the real show/focus boundary.
+    if show_grace_starts_now(true) {
+        mark_shown(app);
+    }
     Ok(())
+}
+
+fn show_grace_starts_now(first_build_hidden: bool) -> bool {
+    !first_build_hidden
 }
 
 /// Toggle the flyout: hide if open, open (or focus) otherwise. Consumes a
@@ -347,5 +353,11 @@ mod tests {
         assert!(props.always_on_top);
         assert!(props.skip_taskbar);
         assert!(!props.decorations);
+    }
+
+    #[test]
+    fn first_hidden_build_does_not_start_show_grace() {
+        assert!(show_grace_starts_now(false));
+        assert!(!show_grace_starts_now(true));
     }
 }
