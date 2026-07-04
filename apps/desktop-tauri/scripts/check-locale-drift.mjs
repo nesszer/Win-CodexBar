@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Locale drift check — verifies that the TypeScript ALL_LOCALE_KEYS array
-// matches the Rust LocaleKey enum in rust/src/locale.rs exactly
+// matches the Rust locale_keys! list in rust/src/locale.rs exactly
 // (same keys, same count). Invoked from `pnpm run check-locale` and
 // automatically from `pnpm run prebuild`.
 //
@@ -32,21 +32,21 @@ try {
   die(2, `failed to read source files: ${err.message}`);
 }
 
-// Extract Rust LocaleKey enum variants from `pub enum LocaleKey { ... }`.
-const rustEnumMatch = rustSrc.match(
-  /pub enum LocaleKey\s*\{([\s\S]*?)^\}/m,
+// Extract Rust LocaleKey variants from the single source list.
+const rustKeysMatch = rustSrc.match(
+  /locale_keys!\s*\{([\s\S]*?)^\}/m,
 );
-if (!rustEnumMatch) {
-  die(2, "could not locate `pub enum LocaleKey` block in rust/src/locale.rs");
+if (!rustKeysMatch) {
+  die(2, "could not locate `locale_keys!` block in rust/src/locale.rs");
 }
 const rustKeys = [];
 const variantRe = /^\s*([A-Z][A-Za-z0-9]*)\s*,\s*$/gm;
 let m;
-while ((m = variantRe.exec(rustEnumMatch[1])) !== null) {
+while ((m = variantRe.exec(rustKeysMatch[1])) !== null) {
   rustKeys.push(m[1]);
 }
 if (rustKeys.length === 0) {
-  die(2, "parsed zero variants from pub enum LocaleKey");
+  die(2, "parsed zero variants from locale_keys!");
 }
 
 // Extract TS ALL_LOCALE_KEYS entries.

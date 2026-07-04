@@ -109,10 +109,32 @@ pub fn tray_tooltip_credits(provider_name: &str, credits_percent: f64) -> String
     )
 }
 
-/// Locale keys for app-owned UI strings
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LocaleKey {
+macro_rules! locale_keys {
+    ($($key:ident,)*) => {
+        /// Locale keys for app-owned UI strings.
+        #[allow(dead_code)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum LocaleKey {
+            $($key,)*
+        }
+
+        impl LocaleKey {
+            /// Every LocaleKey variant paired with its serialized name.
+            pub const ALL: &'static [(LocaleKey, &'static str)] = &[
+                $((LocaleKey::$key, stringify!($key)),)*
+            ];
+
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$key => stringify!($key),)*
+                }
+            }
+        }
+    };
+}
+
+locale_keys! {
+
     // Tab names (Preferences)
     TabGeneral,
     TabProviders,
@@ -735,8 +757,6 @@ pub enum LocaleKey {
     TrayResetsInLabel,
     TrayResetsDueNow,
 }
-
-mod keys;
 
 #[cfg(test)]
 mod tests;

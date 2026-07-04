@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../../../i18n/LocaleProvider";
 import { buildBundle } from "../../../test/localeHarness";
@@ -107,11 +107,13 @@ describe("ProvidersSidebar", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Move down Codex" }));
 
-    const names = Array.from(
-      container.querySelectorAll(".providers-sidebar__name"),
-      (node) => node.textContent,
-    );
-    expect(names.slice(0, 3)).toEqual(["Claude", "Codex", "Cursor"]);
+    await waitFor(() => {
+      const names = Array.from(
+        container.querySelectorAll(".providers-sidebar__name"),
+        (node) => node.textContent,
+      );
+      expect(names.slice(0, 3)).toEqual(["Claude", "Codex", "Cursor"]);
+    });
     expect(onReorder).toHaveBeenCalledWith([
       "claude",
       "codex",
