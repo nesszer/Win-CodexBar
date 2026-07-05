@@ -586,7 +586,10 @@ fn load_gh_cli_token(github_host: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|host| !host.is_empty())
         .unwrap_or(DEFAULT_GITHUB_HOST);
-    let mut command = Command::new("gh");
+    // Resolve via PATH (not the CWD) so a planted `gh` binary cannot run in
+    // place of the GitHub CLI when reading the auth token.
+    let gh = crate::core::process_util::resolve_in_path("gh")?;
+    let mut command = Command::new(gh);
     command.args(["auth", "token", "--hostname", host]);
     hide_windows_console(&mut command);
     let output = command.output().ok()?;

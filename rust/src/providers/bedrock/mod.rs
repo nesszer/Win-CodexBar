@@ -599,10 +599,18 @@ fn json_profile_name(json: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn aws_cli_path() -> Result<String, ProviderError> {
-    Ok(cleaned_env("CODEXBAR_AWS_CLI_PATH")
-        .or_else(|| cleaned_env("AWS_CLI_PATH"))
-        .unwrap_or_else(|| "aws".to_string()))
+fn aws_cli_path() -> Result<std::path::PathBuf, ProviderError> {
+    // Honour an explicit operator-supplied override (already an absolute path),
+    // otherwise resolve `aws` via PATH. Never fall back to the bare name
+    // "aws": CreateProcess would resolve it from the current working directory
+    // first, allowing a planted `aws.exe` to run with the user's credentials.
+    if let Some(explicit) =
+        cleaned_env("CODEXBAR_AWS_CLI_PATH").or_else(|| cleaned_env("AWS_CLI_PATH"))
+    {
+        return Ok(std::path::PathBuf::from(explicit));
+    }
+    crate::core::process_util::resolve_in_path("aws")
+        .ok_or_else(|| ProviderError::Other("AWS CLI (`aws`) was not found on PATH".to_string()))
 }
 
 fn map_aws_profile_error(profile: &str, stderr: &str) -> ProviderError {

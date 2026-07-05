@@ -6,6 +6,7 @@ mod credentials;
 mod http;
 mod jsonl_scanner;
 mod openai_dashboard;
+pub mod process_util;
 mod provider;
 mod provider_factory;
 mod rate_window;
