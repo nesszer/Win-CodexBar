@@ -201,7 +201,7 @@ impl CookieExtractor {
         let mut abe_decrypt_failures: u32 = 0;
         {
             // Keep SQLite handles scoped so Windows can delete the temp DB afterward.
-            let conn = Connection::open(&temp_db)?;
+            let conn = Connection::open(temp_db.path())?;
 
             let mut stmt = conn.prepare(
                 "SELECT name, encrypted_value, host_key, path, expires_utc, is_secure, is_httponly
@@ -268,8 +268,7 @@ impl CookieExtractor {
             decrypt_failures
         );
 
-        // Clean up temp file
-        let _ = std::fs::remove_file(&temp_db);
+        // temp_db (TempDbFile) removes the copied database on drop.
 
         // If every candidate cookie failed to decrypt and no cookies were recovered,
         // check whether Chrome App-Bound Encryption (Chrome 127+) is the culprit.
@@ -499,7 +498,7 @@ impl CookieExtractor {
         let mut cookies = Vec::new();
         {
             // Keep SQLite handles scoped so Windows can delete the temp DB afterward.
-            let conn = Connection::open(&temp_db)?;
+            let conn = Connection::open(temp_db.path())?;
 
             let mut stmt = conn.prepare(
                 "SELECT name, value, host, path, expiry, isSecure, isHttpOnly
@@ -527,8 +526,7 @@ impl CookieExtractor {
             }
         }
 
-        // Clean up
-        let _ = std::fs::remove_file(&temp_db);
+        // temp_db (TempDbFile) removes the copied database on drop.
 
         Ok(cookies)
     }
@@ -560,7 +558,7 @@ impl CookieExtractor {
 
     /// Copy a file to a temp location
     /// Uses Windows-specific file sharing to handle locked files
-    fn copy_to_temp(path: &Path) -> Result<std::path::PathBuf, CookieError> {
+    fn copy_to_temp(path: &Path) -> Result<TempDbFile, CookieError> {
         let temp_dir = std::env::temp_dir();
         let file_name = path
             .file_name()
@@ -598,7 +596,7 @@ impl CookieExtractor {
             std::fs::copy(path, &temp_path)?;
         }
 
-        Ok(temp_path)
+        Ok(TempDbFile { path: temp_path })
     }
 
     /// Build a cookie header string for HTTP requests
@@ -608,6 +606,27 @@ impl CookieExtractor {
             .map(|c| c.to_header_value())
             .collect::<Vec<_>>()
             .join("; ")
+    }
+}
+
+/// Owns a copied cookie-DB temp file and deletes it on drop. Copying is done
+/// precisely because the live DB is locked (or WAL-mode), so the read can fail
+/// partway through; an RAII guard guarantees every early `?` return still
+/// removes the temp copy instead of orphaning it (plaintext, for Firefox) in
+/// `%TEMP%`.
+struct TempDbFile {
+    path: std::path::PathBuf,
+}
+
+impl TempDbFile {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempDbFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 

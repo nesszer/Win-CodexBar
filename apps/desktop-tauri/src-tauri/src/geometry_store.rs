@@ -10,11 +10,18 @@
 //! carry fabricated `x`/`y` coordinates.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
 use crate::surface::SurfaceMode;
+
+/// Serializes read-modify-write of the geometry file across threads: main-thread
+/// window `Moved`/`Resized` events and the async flyout-open command both
+/// persist here, so without this an interleaved load/save could drop an entry
+/// or wipe the whole file.
+static GEOMETRY_LOCK: Mutex<()> = Mutex::new(());
 
 const GEOMETRY_FILENAME: &str = "window_geometry.json";
 
@@ -117,7 +124,29 @@ fn save_file(file: &GeometryFile) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(file).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    // Atomic replace: stage to a sibling temp file then rename, so a concurrent
+    // reader never observes a half-written file (which parses to empty and, on
+    // the next save, would persist a file missing every other entry).
+    let tmp = temp_sibling(&path);
+    fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    if let Err(e) = fs::rename(&tmp, &path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
+
+/// A unique sibling path (same directory) for staging an atomic write.
+fn temp_sibling(path: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut name = path
+        .file_name()
+        .map(|f| f.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".tmp.{}.{}", std::process::id(), n));
+    path.with_file_name(name)
 }
 
 /// Look up remembered geometry for a surface mode. Returns `None` when the
@@ -146,6 +175,7 @@ pub fn load_entry(key: &str) -> Option<StoredGeometry> {
 
 /// Persist geometry under an arbitrary key.
 pub fn save_entry(key: &str, geometry: StoredGeometry) {
+    let _guard = GEOMETRY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let mut file = load_file();
     file.version = GEOMETRY_VERSION;
     file.entries.insert(key.to_string(), geometry);
@@ -194,6 +224,9 @@ pub fn load_size(key: &str) -> Option<StoredSize> {
 
 /// Persist a size-only entry under an arbitrary key.
 pub fn save_size(key: &str, size: StoredSize) {
+    // NB: `load_size` calls this to persist a migrated value, but it does not
+    // hold GEOMETRY_LOCK itself, so this non-reentrant lock does not deadlock.
+    let _guard = GEOMETRY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let mut file = load_file();
     file.version = GEOMETRY_VERSION;
     file.size_entries.insert(key.to_string(), size);
@@ -205,6 +238,21 @@ pub fn save_size(key: &str, size: StoredSize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn temp_sibling_is_a_unique_sibling_of_the_target() {
+        let base = Path::new("C:/cfg/window_geometry.json");
+        let a = temp_sibling(base);
+        let b = temp_sibling(base);
+        assert_eq!(a.parent(), base.parent());
+        assert_ne!(a, b, "staged temp paths must be unique per call");
+        assert!(
+            a.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("window_geometry.json.tmp.")
+        );
+    }
 
     #[test]
     fn pop_out_and_settings_are_remembered() {

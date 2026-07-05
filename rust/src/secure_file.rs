@@ -1,7 +1,7 @@
 //! Small helper for storing local secret-bearing JSON files.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -93,11 +93,43 @@ pub fn read_string(path: &Path) -> io::Result<String> {
 }
 
 /// Write a UTF-8 file, protecting it with Windows DPAPI when available.
+///
+/// Writes to a unique sibling temp file and atomically renames it over the
+/// target. A crash mid-write, or two writers racing, can therefore never leave
+/// a truncated/interleaved secret file — which would deserialize to empty and
+/// silently discard all stored credentials on the next load.
 pub fn write_string(path: &Path, contents: &str) -> io::Result<()> {
     let bytes = protected_file_bytes(contents)?;
-    std::fs::write(path, bytes)?;
-    restrict_file_permissions(path)?;
+    let tmp = unique_temp_path(path);
+
+    if let Err(e) = std::fs::write(&tmp, &bytes) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    // Tighten the temp file's permissions before it becomes the target; the
+    // owner-only DACL / 0o600 mode moves with the file across the rename.
+    if let Err(e) = restrict_file_permissions(&tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     Ok(())
+}
+
+/// A unique sibling path (same directory as `path`) for staging an atomic write.
+fn unique_temp_path(path: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut name = path
+        .file_name()
+        .map(|f| f.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".tmp.{}.{}", std::process::id(), n));
+    path.with_file_name(name)
 }
 
 #[cfg(windows)]
@@ -328,6 +360,47 @@ mod tests {
         write_string(&path, r#"{"secret":"value"}"#).unwrap();
 
         assert_eq!(read_string(&path).unwrap(), r#"{"secret":"value"}"#);
+    }
+
+    #[test]
+    fn concurrent_writes_leave_a_valid_file_and_no_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secure.json");
+        write_string(&path, r#"{"seed":true}"#).unwrap();
+
+        let mut handles = Vec::new();
+        for writer in 0..4 {
+            let path = path.clone();
+            handles.push(std::thread::spawn(move || {
+                for n in 0..20 {
+                    let content = format!(r#"{{"writer":{writer},"n":{n}}}"#);
+                    // Rename-replace can transiently conflict under heavy
+                    // concurrency; retry so the test exercises interleaving.
+                    for _ in 0..50 {
+                        if write_string(&path, &content).is_ok() {
+                            break;
+                        }
+                        std::thread::yield_now();
+                    }
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Atomic replace guarantees the file is always one complete value, never
+        // a truncated/interleaved write that would deserialize to empty.
+        let read = read_string(&path).unwrap();
+        let _: serde_json::Value =
+            serde_json::from_str(&read).expect("final secret file must be valid JSON");
+
+        let leftover_temps = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .count();
+        assert_eq!(leftover_temps, 0, "atomic write must not leak temp files");
     }
 
     #[test]
