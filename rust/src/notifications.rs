@@ -284,7 +284,7 @@ impl NotificationManager {
             safe_title, safe_body
         );
 
-        match Command::new("powershell")
+        match Command::new(crate::core::process_util::windows_powershell())
             .args([
                 "-NoProfile",
                 "-ExecutionPolicy",

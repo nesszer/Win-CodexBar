@@ -138,7 +138,10 @@ impl GrokProvider {
     }
 
     fn detect_cli_version() -> Option<String> {
-        let mut command = std::process::Command::new("grok");
+        // Resolve via PATH (not the CWD) so a `grok` binary planted in the
+        // working directory cannot be executed in place of the real CLI.
+        let program = crate::core::process_util::resolve_in_path("grok")?;
+        let mut command = std::process::Command::new(program);
         command.arg("--version");
         hide_windows_console(&mut command);
         let output = command.output().ok()?;
