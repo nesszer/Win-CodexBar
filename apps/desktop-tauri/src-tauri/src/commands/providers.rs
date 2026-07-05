@@ -162,9 +162,9 @@ async fn do_refresh_providers_with_policy(
 ) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
 
-    if !begin_provider_refresh(&state, force)? {
+    let Some(_refresh_guard) = begin_provider_refresh(&state, force)? else {
         return Ok(());
-    }
+    };
 
     events::emit_refresh_started(app);
 
@@ -182,21 +182,41 @@ async fn do_refresh_providers_with_policy(
     Ok(())
 }
 
-fn begin_provider_refresh(
-    state: &tauri::State<'_, Mutex<AppState>>,
+/// Clears `is_refreshing` (and the start timestamp) on drop, so a refresh whose
+/// future is cancelled/dropped mid-flight — or a poisoned lock in
+/// `finish_provider_refresh` — can't leave the flag stuck `true`, which would
+/// silently short-circuit every future refresh (manual, auto, and tray).
+struct RefreshGuard<'a> {
+    state: &'a Mutex<AppState>,
+}
+
+impl Drop for RefreshGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.is_refreshing = false;
+            guard.provider_refresh_started_at = None;
+        }
+    }
+}
+
+/// Returns `Some(guard)` when a refresh should proceed (with the guard owning
+/// the `is_refreshing` flag for the duration), or `None` to skip.
+fn begin_provider_refresh<'a>(
+    state: &'a tauri::State<'_, Mutex<AppState>>,
     force: bool,
-) -> Result<bool, String> {
+) -> Result<Option<RefreshGuard<'a>>, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     if guard.is_refreshing {
-        return Ok(false);
+        return Ok(None);
     }
     if provider_cache_can_skip_refresh(&guard, force) {
-        return Ok(false);
+        return Ok(None);
     }
 
     guard.is_refreshing = true;
     guard.provider_refresh_started_at = Some(std::time::Instant::now());
-    Ok(true)
+    drop(guard);
+    Ok(Some(RefreshGuard { state: &**state }))
 }
 
 fn provider_cache_can_skip_refresh(guard: &AppState, force: bool) -> bool {
@@ -375,10 +395,10 @@ async fn await_provider_refreshes(handles: Vec<tokio::task::JoinHandle<()>>) {
 }
 
 fn finish_provider_refresh(state: &tauri::State<'_, Mutex<AppState>>) -> Result<usize, String> {
+    // `is_refreshing` / `provider_refresh_started_at` are owned by RefreshGuard,
+    // which clears them on drop even if this bookkeeping is skipped/errors.
     let mut guard = state.lock().map_err(|e| e.to_string())?;
-    guard.is_refreshing = false;
     guard.provider_cache_updated_at = Some(std::time::Instant::now());
-    guard.provider_refresh_started_at = None;
     Ok(guard
         .provider_cache
         .iter()
@@ -445,4 +465,31 @@ pub fn get_cached_providers(
         .lock()
         .map(|guard| guard.provider_cache.clone())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refresh_guard_clears_is_refreshing_on_drop() {
+        let state = Mutex::new(AppState::default());
+        {
+            let mut guard = state.lock().unwrap();
+            guard.is_refreshing = true;
+            guard.provider_refresh_started_at = Some(std::time::Instant::now());
+        }
+
+        {
+            let _guard = RefreshGuard { state: &state };
+            assert!(state.lock().unwrap().is_refreshing, "flag set while active");
+        } // guard drops here, even though no `finish` ran
+
+        let guard = state.lock().unwrap();
+        assert!(
+            !guard.is_refreshing,
+            "RefreshGuard must clear is_refreshing on drop"
+        );
+        assert!(guard.provider_refresh_started_at.is_none());
+    }
 }
