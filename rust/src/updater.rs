@@ -637,42 +637,49 @@ fn windows_powershell_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("powershell.exe"))
 }
 
-/// Authenticode publisher (certificate subject substring) that release
-/// installers must be signed by. Return `Some("...")` once release artifacts
-/// are code-signed to enforce publisher-pinned verification before an update
-/// is launched. While `None`, installers are unsigned and signature checking
-/// is skipped with a warning, so integrity still rests on the SHA-256 digest.
+/// SHA-1 Authenticode thumbprint that release installers must be signed with.
+/// Return `Some("<40 hex chars>")` once release artifacts are code-signed to
+/// enforce certificate-pinned verification before an update is launched. While
+/// `None`, installers are unsigned and signature checking is skipped with a
+/// warning, so integrity still rests on the SHA-256 digest.
+///
+/// A thumbprint (exact certificate identity) is pinned rather than the subject
+/// string: a subject substring/DN can be reproduced by anyone who obtains any
+/// CA-issued code-signing cert with a matching name, whereas the thumbprint
+/// identifies exactly one certificate. Update this when the signing cert is
+/// rotated.
 #[cfg(target_os = "windows")]
-fn expected_installer_publisher() -> Option<&'static str> {
+fn expected_installer_thumbprint() -> Option<&'static str> {
     None
 }
 
 /// Require the downloaded installer to carry a valid Authenticode signature
-/// from [`expected_installer_publisher`] before it is executed.
+/// from the certificate pinned by [`expected_installer_thumbprint`] before it
+/// is executed.
 ///
 /// Closes the gap where the only integrity gate was a SHA-256 digest served by
 /// the same GitHub API response as the download URL — an attacker able to forge
 /// that response (or publish a malicious release) controls both the binary and
-/// its advertised hash. Returns `Ok(())` with a warning while no publisher is
+/// its advertised hash. Returns `Ok(())` with a warning while no thumbprint is
 /// configured, so unsigned releases keep updating until signing is in place.
 #[cfg(target_os = "windows")]
 fn verify_installer_signature(installer_path: &Path) -> Result<(), String> {
-    let expected_publisher = match expected_installer_publisher() {
-        Some(publisher) => publisher,
+    let expected_thumbprint = match expected_installer_thumbprint() {
+        Some(thumbprint) => thumbprint,
         None => {
             tracing::warn!(
-                "Installer Authenticode verification is not enforced (no expected publisher configured); relying on the SHA-256 digest only"
+                "Installer Authenticode verification is not enforced (no expected thumbprint configured); relying on the SHA-256 digest only"
             );
             return Ok(());
         }
     };
 
-    // Ask PowerShell for the signature status and signer subject. `OK:<subject>`
+    // Ask PowerShell for the signature status and signer thumbprint. `OK:<hex>`
     // is emitted only for a `Valid` signature; anything else is `INVALID:<status>`.
     let script = format!(
         "$ErrorActionPreference='Stop'; \
          $sig = Get-AuthenticodeSignature -LiteralPath {}; \
-         if ($sig.Status -eq 'Valid') {{ Write-Output ('OK:' + $sig.SignerCertificate.Subject) }} \
+         if ($sig.Status -eq 'Valid') {{ Write-Output ('OK:' + $sig.SignerCertificate.Thumbprint) }} \
          else {{ Write-Output ('INVALID:' + $sig.Status) }}",
         powershell_single_quoted(&installer_path.to_string_lossy()),
     );
@@ -692,31 +699,37 @@ fn verify_installer_signature(installer_path: &Path) -> Result<(), String> {
         return Err("Installer signature verification failed to run".to_string());
     }
 
-    interpret_signature_output(&String::from_utf8_lossy(&output.stdout), expected_publisher)
+    interpret_signature_output(&String::from_utf8_lossy(&output.stdout), expected_thumbprint)
+}
+
+/// Normalize a certificate thumbprint for comparison: strip whitespace/colons
+/// and uppercase, so `aa:bb…`, `aa bb…`, and `AABB…` all compare equal.
+#[cfg(target_os = "windows")]
+fn normalize_thumbprint(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(char::to_uppercase)
+        .collect()
 }
 
 /// Parse the `Get-AuthenticodeSignature` probe output (see
-/// [`verify_installer_signature`]). Split out so the accept/reject logic is
-/// unit-testable without spawning PowerShell.
+/// [`verify_installer_signature`]) and require an EXACT thumbprint match. Split
+/// out so the accept/reject logic is unit-testable without spawning PowerShell.
 #[cfg(target_os = "windows")]
-fn interpret_signature_output(stdout: &str, expected_publisher: &str) -> Result<(), String> {
+fn interpret_signature_output(stdout: &str, expected_thumbprint: &str) -> Result<(), String> {
     let line = stdout
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
         .unwrap_or_default();
 
-    if let Some(subject) = line.strip_prefix("OK:") {
-        if subject
-            .to_ascii_lowercase()
-            .contains(&expected_publisher.to_ascii_lowercase())
-        {
-            tracing::info!("Installer Authenticode signature verified: {subject}");
+    if let Some(thumbprint) = line.strip_prefix("OK:") {
+        if normalize_thumbprint(thumbprint) == normalize_thumbprint(expected_thumbprint) {
+            tracing::info!("Installer Authenticode signature verified (thumbprint match)");
             Ok(())
         } else {
-            Err(format!(
-                "Installer is signed by an unexpected publisher: {subject}"
-            ))
+            Err("Installer is signed by an unexpected certificate (thumbprint mismatch)".to_string())
         }
     } else if let Some(status) = line.strip_prefix("INVALID:") {
         Err(format!("Installer is not validly signed (status: {status})"))
@@ -1010,25 +1023,41 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn signature_output_accepts_expected_publisher() {
+    fn signature_output_accepts_exact_thumbprint_in_any_format() {
+        let expected = "A1B2C3D4E5F60718293A4B5C6D7E8F9012345678";
+        // Exact match.
+        assert!(interpret_signature_output(&format!("OK:{expected}\n"), expected).is_ok());
+        // Colon/space/lowercase variants normalize to the same value.
         assert!(
-            interpret_signature_output("OK:CN=Finesssee, O=Finesssee, C=US\n", "Finesssee").is_ok()
+            interpret_signature_output(
+                "OK: a1:b2:c3:d4:e5:f6:07:18:29:3a:4b:5c:6d:7e:8f:90:12:34:56:78 \n",
+                expected
+            )
+            .is_ok()
         );
     }
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn signature_output_rejects_wrong_publisher_invalid_and_empty() {
+    fn signature_output_requires_exact_thumbprint_not_substring() {
+        let expected = "A1B2C3D4E5F60718293A4B5C6D7E8F9012345678";
+        // Different thumbprint.
         assert!(
-            interpret_signature_output("OK:CN=Somebody Else\n", "Finesssee")
+            interpret_signature_output("OK:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF\n", expected)
                 .unwrap_err()
-                .contains("unexpected publisher")
+                .contains("thumbprint mismatch")
+        );
+        // A superstring must NOT match (the old substring logic would have).
+        assert!(
+            interpret_signature_output(&format!("OK:{expected}99\n"), expected)
+                .unwrap_err()
+                .contains("thumbprint mismatch")
         );
         assert!(
-            interpret_signature_output("INVALID:NotSigned\n", "Finesssee")
+            interpret_signature_output("INVALID:NotSigned\n", expected)
                 .unwrap_err()
                 .contains("not validly signed")
         );
-        assert!(interpret_signature_output("", "Finesssee").is_err());
+        assert!(interpret_signature_output("", expected).is_err());
     }
 }

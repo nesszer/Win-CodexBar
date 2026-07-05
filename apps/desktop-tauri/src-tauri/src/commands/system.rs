@@ -92,8 +92,27 @@ pub fn open_path(path: String) -> Result<(), String> {
     if !is_local_disk_path(&pb) {
         return Err("Only local drive paths can be opened".into());
     }
+    // Reject a target whose final component is a symlink/junction *before* the
+    // existence probe follows it: a local-drive path that is a reparse point to
+    // `\\attacker\share` would otherwise re-open the SMB forced-auth vector.
+    #[cfg(target_os = "windows")]
+    if std::fs::symlink_metadata(&pb)
+        .map(|md| md.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err("Reparse points (symlinks/junctions) cannot be opened".into());
+    }
     if !pb.exists() {
         return Err(format!("Path not found: {trimmed}"));
+    }
+    // Re-validate against the fully-resolved path: canonicalization follows any
+    // intermediate junction, so a path that resolves onto a UNC/device target is
+    // rejected here even though its literal prefix looked local.
+    #[cfg(target_os = "windows")]
+    if let Ok(resolved) = std::fs::canonicalize(&pb)
+        && !is_local_disk_path(&resolved)
+    {
+        return Err("Path resolves to a non-local target".into());
     }
     // When given a file, open its parent directory so the file is highlighted
     // in a useful way across platforms without needing per-OS --select flags.
@@ -394,5 +413,15 @@ mod tests {
         assert!(!is_local_disk_path(Path::new("//attacker/share")));
         assert!(!is_local_disk_path(Path::new(r"\\?\UNC\attacker\share")));
         assert!(!is_local_disk_path(Path::new(r"\\.\PhysicalDrive0")));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn canonicalized_local_dir_stays_classified_local() {
+        // `canonicalize` returns a `\\?\C:\...` verbatim-disk path; the resolved
+        // re-check in `open_path` must still accept it so real local reveals are
+        // not rejected as non-local.
+        let resolved = std::fs::canonicalize(std::env::temp_dir()).expect("canonicalize temp dir");
+        assert!(is_local_disk_path(&resolved), "got {resolved:?}");
     }
 }
