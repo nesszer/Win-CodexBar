@@ -83,6 +83,15 @@ pub fn open_path(path: String) -> Result<(), String> {
     if !pb.is_absolute() {
         return Err("Path must be absolute".into());
     }
+    // Reject UNC/network and device-namespace paths *before* probing the
+    // filesystem: on Windows the `exists()` call below reaches out over SMB
+    // for a `\\host\share` target, which forces NTLM authentication to an
+    // attacker-controlled server (credential/hash theft). Every legitimate
+    // caller passes a backend-produced local credential path.
+    #[cfg(target_os = "windows")]
+    if !is_local_disk_path(&pb) {
+        return Err("Only local drive paths can be opened".into());
+    }
     if !pb.exists() {
         return Err(format!("Path not found: {trimmed}"));
     }
@@ -117,6 +126,20 @@ pub fn open_path(path: String) -> Result<(), String> {
             .map_err(|e| format!("Failed to open path: {e}"))?;
     }
     Ok(())
+}
+
+/// True only for local drive-letter paths (e.g. `C:\...`). Rejects UNC
+/// shares (`\\host\share`, `//host/share`) and device-namespace paths
+/// (`\\.\`, `\\?\` without a disk), which is what keeps `open_path` from
+/// probing or launching Explorer against a remote SMB target.
+#[cfg(target_os = "windows")]
+fn is_local_disk_path(path: &std::path::Path) -> bool {
+    use std::path::{Component, Prefix};
+    matches!(
+        path.components().next(),
+        Some(Component::Prefix(prefix))
+            if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+    )
 }
 
 // ── Session / environment ─────────────────────────────────────────────
@@ -354,5 +377,22 @@ mod tests {
             dashboard_url_for_provider("codex").as_deref(),
             Some("https://chatgpt.com/codex/settings/usage")
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn open_path_only_accepts_local_drive_paths() {
+        use std::path::Path;
+
+        // Local drive-letter paths are allowed.
+        assert!(is_local_disk_path(Path::new(r"C:\Users\me\creds")));
+        assert!(is_local_disk_path(Path::new(r"\\?\C:\Users\me\creds")));
+
+        // UNC / network shares and device paths are rejected, so the
+        // filesystem probe never reaches a remote SMB server.
+        assert!(!is_local_disk_path(Path::new(r"\\attacker\share")));
+        assert!(!is_local_disk_path(Path::new("//attacker/share")));
+        assert!(!is_local_disk_path(Path::new(r"\\?\UNC\attacker\share")));
+        assert!(!is_local_disk_path(Path::new(r"\\.\PhysicalDrive0")));
     }
 }
