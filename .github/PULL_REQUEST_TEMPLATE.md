@@ -22,14 +22,11 @@ Check every area this PR changes or could affect:
 
 ## Validation
 
-List the exact commands you ran and their results. If a check is not relevant, say why.
+There is no hosted CI right now. Run the relevant local checks and list the exact commands/results. If a check is not relevant, say why.
 
-- [ ] `cargo test --manifest-path rust\Cargo.toml`
-- [ ] `cargo test --manifest-path apps\desktop-tauri\src-tauri\Cargo.toml`
-- [ ] `cargo fmt --all`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `pnpm --dir apps\desktop-tauri test`
-- [ ] `pnpm --dir apps\desktop-tauri run build`
+- [ ] `powershell.exe -ExecutionPolicy Bypass -NoProfile -File scripts\local-check.ps1`
+- [ ] For full pre-release validation: `powershell.exe -ExecutionPolicy Bypass -NoProfile -File scripts\local-check.ps1 -All -Version <version>`
+- [ ] For installer/release changes: `powershell.exe -File scripts\windows-release-build.ps1 -Ref <ref> -SmokeInstall`
 - [ ] Thermo-nuclear code quality review completed before submitting: https://github.com/cursor/plugins/blob/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md
 - [ ] Other:
 

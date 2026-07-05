@@ -310,21 +310,21 @@ pub struct RegionOption {
 fn cookie_option(
     lang: Language,
     value: &str,
-    auto_desc: &str,
-    manual_desc: &str,
+    auto_desc: impl Into<String>,
+    manual_desc: impl Into<String>,
     off_desc: Option<&str>,
 ) -> CookieSourceOption {
     let (label, description) = match value {
         "auto" => (
-            locale::get_text(lang, locale::LocaleKey::Automatic).to_string(),
-            auto_desc.to_string(),
+            locale::get_text(lang, locale::LocaleKey::Automatic),
+            auto_desc.into(),
         ),
         "manual" => (
-            locale::get_text(lang, locale::LocaleKey::CookieSourceManual).to_string(),
-            manual_desc.to_string(),
+            locale::get_text(lang, locale::LocaleKey::CookieSourceManual),
+            manual_desc.into(),
         ),
         "off" => (
-            locale::get_text(lang, locale::LocaleKey::ProviderDisabled).to_string(),
+            locale::get_text(lang, locale::LocaleKey::ProviderDisabled),
             off_desc.unwrap_or("").to_string(),
         ),
         other => (other.to_string(), String::new()),

@@ -9,8 +9,3 @@ updates:
     directory: /apps/desktop-tauri
     schedule:
       interval: weekly
-
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly

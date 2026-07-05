@@ -114,6 +114,16 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 
 </details>
 
+## Supported Languages
+
+The UI and contributor reporting currently support:
+
+- English
+- 简体中文
+- 日本語
+- 한국어
+- Español mexicano
+
 ## Build From Source
 
 ```powershell

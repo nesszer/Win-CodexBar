@@ -5,15 +5,38 @@
 
 use crate::settings::Language;
 use crate::settings::Settings;
+use fluent_templates::{Loader, static_loader};
+use std::sync::LazyLock;
+use unic_langid::LanguageIdentifier;
+
+static_loader! {
+    static LOCALES = {
+        locales: "./src/locale",
+        fallback_language: "en-US",
+        customise: |bundle| bundle.set_use_isolating(false),
+    };
+}
 
 /// Get the localized string for a given key in the specified language
-pub fn get_text(lang: Language, key: LocaleKey) -> &'static str {
+pub fn get_text(lang: Language, key: LocaleKey) -> String {
+    LOCALES
+        .try_lookup(language_id(lang), key.name())
+        .unwrap_or_else(|| key.name().to_string())
+}
+
+fn language_id(lang: Language) -> &'static LanguageIdentifier {
+    static EN_US: LazyLock<LanguageIdentifier> = LazyLock::new(|| "en-US".parse().unwrap());
+    static ZH_CN: LazyLock<LanguageIdentifier> = LazyLock::new(|| "zh-CN".parse().unwrap());
+    static JA_JP: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ja-JP".parse().unwrap());
+    static KO_KR: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ko-KR".parse().unwrap());
+    static ES_MX: LazyLock<LanguageIdentifier> = LazyLock::new(|| "es-MX".parse().unwrap());
+
     match lang {
-        Language::English => key.english(),
-        Language::Chinese => key.chinese(),
-        Language::Japanese => key.japanese(),
-        Language::Korean => key.korean(),
-        Language::Spanish => key.spanish(),
+        Language::English => &EN_US,
+        Language::Chinese => &ZH_CN,
+        Language::Japanese => &JA_JP,
+        Language::Korean => &KO_KR,
+        Language::Spanish => &ES_MX,
     }
 }
 
@@ -48,7 +71,7 @@ pub fn tray_tooltip_with_status(
     let session_label = get_text(lang, LocaleKey::TraySessionPercent);
     let weekly_label = get_text(lang, LocaleKey::TrayWeeklyPercent);
     let status_suffix = match status {
-        None => "",
+        None => String::new(),
         Some(IconOverlayStatus::Error) => get_text(lang, LocaleKey::TrayStatusError),
         Some(IconOverlayStatus::Stale) => get_text(lang, LocaleKey::TrayStatusStale),
         Some(IconOverlayStatus::Incident) => get_text(lang, LocaleKey::TrayStatusIncident),
@@ -86,10 +109,32 @@ pub fn tray_tooltip_credits(provider_name: &str, credits_percent: f64) -> String
     )
 }
 
-/// Locale keys for app-owned UI strings
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub enum LocaleKey {
+macro_rules! locale_keys {
+    ($($key:ident,)*) => {
+        /// Locale keys for app-owned UI strings.
+        #[allow(dead_code)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum LocaleKey {
+            $($key,)*
+        }
+
+        impl LocaleKey {
+            /// Every LocaleKey variant paired with its serialized name.
+            pub const ALL: &'static [(LocaleKey, &'static str)] = &[
+                $((LocaleKey::$key, stringify!($key)),)*
+            ];
+
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$key => stringify!($key),)*
+                }
+            }
+        }
+    };
+}
+
+locale_keys! {
+
     // Tab names (Preferences)
     TabGeneral,
     TabProviders,
@@ -712,13 +757,6 @@ pub enum LocaleKey {
     TrayResetsInLabel,
     TrayResetsDueNow,
 }
-
-mod chinese;
-mod english;
-mod japanese;
-mod keys;
-mod korean;
-mod spanish;
 
 #[cfg(test)]
 mod tests;

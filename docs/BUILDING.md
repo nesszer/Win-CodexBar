@@ -71,8 +71,9 @@ Useful release flags:
 .\scripts\release-doctor.ps1 -Version 0.27.5
 ```
 
-GitHub Actions are optional for this repository. The Windows server release
-script is the primary path for installer and portable artifacts.
+There is no hosted CI/CD for this repository right now. Run local checks before
+PRs; the Windows release script is the primary path for installer and portable
+artifacts.
 
 ## macOS Windows Cross Build
 

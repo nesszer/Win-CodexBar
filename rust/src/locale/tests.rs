@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 
 #[test]
 fn test_locale_key_english() {
@@ -97,126 +98,62 @@ fn test_locale_respects_language_setting() {
 
 #[test]
 fn test_all_locale_keys_have_all_languages() {
-    // Verify all sampled variants have English, Chinese, Japanese, and Spanish coverage.
-    let keys = [
-        // Tab names
-        LocaleKey::TabGeneral,
-        LocaleKey::TabProviders,
-        LocaleKey::TabDisplay,
-        LocaleKey::TabApiKeys,
-        LocaleKey::TabCookies,
-        LocaleKey::TabAdvanced,
-        LocaleKey::TabAbout,
-        LocaleKey::TabShortcuts,
-        // General settings
-        LocaleKey::InterfaceLanguage,
-        LocaleKey::StartupSettings,
-        LocaleKey::StartAtLogin,
-        LocaleKey::StartMinimized,
-        // Display settings
-        LocaleKey::ShowNotifications,
-        LocaleKey::HighUsageThreshold,
-        LocaleKey::CriticalUsageThreshold,
-        LocaleKey::ShowUsageAsUsed,
-        // About
-        LocaleKey::AboutTitle,
-        LocaleKey::Version,
-        // Main popup - Header actions
-        LocaleKey::ActionRefreshAll,
-        LocaleKey::ActionSettings,
-        LocaleKey::ActionClose,
-        // Main popup - Provider section
-        LocaleKey::ProviderAccount,
-        LocaleKey::ProviderSession,
-        LocaleKey::ProviderWeekly,
-        LocaleKey::ProviderModel,
-        LocaleKey::ProviderPlan,
-        LocaleKey::ProviderNextReset,
-        LocaleKey::ProviderNoRecentUsage,
-        LocaleKey::ProviderNotSignedIn,
-        LocaleKey::SummaryTab,
-        // Main popup - Loading/Empty/Error states
-        LocaleKey::StateLoadingProviders,
-        LocaleKey::StateNoProviderData,
-        LocaleKey::StateNoProviderSelected,
-        LocaleKey::StateSummaryRefreshPending,
-        LocaleKey::StateError,
-        LocaleKey::StateRetry,
-        LocaleKey::StateDownload,
-        LocaleKey::StateRestartAndUpdate,
-        // Main popup - Credits
-        LocaleKey::CreditsTitle,
-        // Main popup - Update banner (non-happy-path)
-        LocaleKey::UpdateRestartAndUpdate,
-        LocaleKey::UpdateRetry,
-        LocaleKey::UpdateDownload,
-        LocaleKey::UpdateDownloading,
-        LocaleKey::UpdateReady,
-        LocaleKey::UpdateFailed,
-        // Main popup - Settings button
-        LocaleKey::ButtonOpenProviderSettings,
-        // Main popup - Bottom menu (Actions)
-        LocaleKey::MenuSettings,
-        LocaleKey::MenuAbout,
-        LocaleKey::MenuQuit,
-        // Main popup - Status strings
-        LocaleKey::StatusJustUpdated,
-        LocaleKey::StatusUnableToGetUsage,
-        // Main popup - Provider detail actions
-        LocaleKey::ActionRefresh,
-        LocaleKey::ActionSwitchAccount,
-        LocaleKey::ActionUsageDashboard,
-        LocaleKey::ActionStatusPage,
-        LocaleKey::ActionCopyError,
-        LocaleKey::ActionBuyCredits,
-        // Main popup - Pace status
-        LocaleKey::PaceOnTrack,
-        LocaleKey::PaceBehind,
-        // Main popup - Reset prefix
-        LocaleKey::MetricResetsIn,
-        // Main popup - Section titles
-        LocaleKey::SectionUsageBreakdown,
-        LocaleKey::SectionCost,
-        // Main popup - Usage/reset labels
-        LocaleKey::ResetInProgress,
-        LocaleKey::TomorrowAt,
-        LocaleKey::UsedPercent,
-        LocaleKey::RemainingPercent,
-        LocaleKey::RemainingAmount,
-        LocaleKey::Tokens1K,
-        LocaleKey::TodayCost,
-        LocaleKey::Last30DaysCost,
-        LocaleKey::StatusLabel,
-        // Main popup - Update banner messages
-        LocaleKey::UpdateAvailableMessage,
-        LocaleKey::UpdateReadyMessage,
-        LocaleKey::UpdateFailedMessage,
-        LocaleKey::UpdateDownloadingMessage,
+    let resources = [
+        ("en-US", include_str!("en-US.ftl")),
+        ("zh-CN", include_str!("zh-CN.ftl")),
+        ("ja-JP", include_str!("ja-JP.ftl")),
+        ("ko-KR", include_str!("ko-KR.ftl")),
+        ("es-MX", include_str!("es-MX.ftl")),
     ];
 
-    for key in keys {
-        // English should not be empty
-        let english = key.english();
-        assert!(!english.is_empty(), "English string for {:?} is empty", key);
+    let resource_keys: Vec<(&str, HashSet<&str>)> = resources
+        .into_iter()
+        .map(|(locale, resource)| (locale, resource_key_names(resource)))
+        .collect();
 
-        // Chinese should not be empty
-        let chinese = key.chinese();
-        assert!(!chinese.is_empty(), "Chinese string for {:?} is empty", key);
-
-        // Japanese should not be empty
-        let japanese = key.japanese();
-        assert!(
-            !japanese.is_empty(),
-            "Japanese string for {:?} is empty",
-            key
-        );
-
-        // Spanish should not be empty
-        let spanish = key.spanish();
-        assert!(!spanish.is_empty(), "Spanish string for {:?} is empty", key);
-
-        // Korean should not be empty
-        let korean = key.korean();
-        assert!(!korean.is_empty(), "Korean string for {:?} is empty", key);
+    for (key, name) in LocaleKey::ALL {
+        assert_eq!(key.name(), *name);
+        for (locale, keys) in &resource_keys {
+            assert!(keys.contains(name), "missing Fluent key {name} in {locale}");
+        }
+        for lang in Language::all() {
+            let text = LOCALES
+                .try_lookup(language_id(*lang), name)
+                .unwrap_or_default();
+            assert!(
+                !text.trim().is_empty(),
+                "missing or empty Fluent text for {:?} in {:?}",
+                key,
+                lang
+            );
+        }
     }
+}
+
+#[test]
+fn test_fluent_preserves_literal_placeholders_and_status_spacing() {
+    assert_eq!(
+        get_text(Language::English, LocaleKey::TrayStatusError),
+        " (Error)"
+    );
+    assert_eq!(
+        get_text(Language::English, LocaleKey::TrayCreditsRemaining),
+        "Credits remaining {}%"
+    );
+    assert_eq!(
+        get_text(Language::English, LocaleKey::UsedPercent),
+        "{:.0}% used"
+    );
+    assert_eq!(
+        get_text(Language::English, LocaleKey::RemainingAmount),
+        "{:.2} remaining"
+    );
+}
+
+fn resource_key_names(resource: &str) -> HashSet<&str> {
+    resource
+        .lines()
+        .filter_map(|line| line.split_once('=').map(|(name, _)| name.trim()))
+        .filter(|name| !name.is_empty())
+        .collect()
 }

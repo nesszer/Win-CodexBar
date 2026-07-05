@@ -33,7 +33,7 @@ pub struct LocaleStrings {
     /// Serialized language code (`"english"` or `"chinese"`).
     pub language: &'static str,
     /// Map of serialized `LocaleKey` variant name → localized text.
-    pub entries: HashMap<&'static str, &'static str>,
+    pub entries: HashMap<&'static str, String>,
 }
 
 fn locale_strings_for(lang: Language) -> LocaleStrings {
@@ -93,12 +93,15 @@ mod locale_tests {
         let bundle = locale_strings_for(Language::English);
         assert_eq!(bundle.language, "english");
         assert_eq!(
-            bundle.entries.get("TabGeneral").copied(),
+            bundle.entries.get("TabGeneral").map(String::as_str),
             Some("General"),
             "TabGeneral should resolve to English"
         );
         assert_eq!(
-            bundle.entries.get("ProviderSidebarSearch").copied(),
+            bundle
+                .entries
+                .get("ProviderSidebarSearch")
+                .map(String::as_str),
             Some("Search"),
             "ProviderSidebarSearch should resolve instead of leaking the key"
         );
@@ -109,7 +112,10 @@ mod locale_tests {
     fn locale_strings_roundtrip_chinese() {
         let bundle = locale_strings_for(Language::Chinese);
         assert_eq!(bundle.language, "chinese");
-        assert_eq!(bundle.entries.get("TabGeneral").copied(), Some("通用"));
+        assert_eq!(
+            bundle.entries.get("TabGeneral").map(String::as_str),
+            Some("通用")
+        );
         assert_eq!(bundle.entries.len(), locale::LocaleKey::ALL.len());
     }
 
@@ -117,7 +123,10 @@ mod locale_tests {
     fn locale_strings_roundtrip_japanese() {
         let bundle = locale_strings_for(Language::Japanese);
         assert_eq!(bundle.language, "japanese");
-        assert_eq!(bundle.entries.get("TabGeneral").copied(), Some("一般"));
+        assert_eq!(
+            bundle.entries.get("TabGeneral").map(String::as_str),
+            Some("一般")
+        );
         assert_eq!(bundle.entries.len(), locale::LocaleKey::ALL.len());
     }
 
@@ -125,7 +134,10 @@ mod locale_tests {
     fn locale_strings_roundtrip_korean() {
         let bundle = locale_strings_for(Language::Korean);
         assert_eq!(bundle.language, "korean");
-        assert_eq!(bundle.entries.get("TabGeneral").copied(), Some("일반"));
+        assert_eq!(
+            bundle.entries.get("TabGeneral").map(String::as_str),
+            Some("일반")
+        );
         assert_eq!(bundle.entries.len(), locale::LocaleKey::ALL.len());
     }
 

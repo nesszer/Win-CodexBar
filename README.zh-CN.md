@@ -161,7 +161,7 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 .\scripts\release-doctor.ps1 -Version 0.32.2
 ```
 
-GitHub Actions 只作为辅助检查；安装包和便携版资产以 Windows 构建服务器脚本为主发布路径。
+安装包和便携版资产以 Windows 构建服务器脚本为主发布路径。
 
 ## 首次运行
 
