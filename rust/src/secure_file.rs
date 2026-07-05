@@ -129,7 +129,17 @@ fn protect(plain: &[u8]) -> io::Result<(&'static str, Vec<u8>)> {
             plain,
             CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE,
         )
-        .map(|encrypted| (WINDOWS_DPAPI_MACHINE, encrypted))
+        .map(|encrypted| {
+            // Machine-scoped DPAPI blobs are decryptable by *any* account on
+            // this host, not just the current user. Fall back to it so the
+            // write still succeeds, but make the weaker protection visible.
+            // `write_string` additionally tightens the file's DACL to the
+            // current user, which is the primary mitigation for these blobs.
+            tracing::warn!(
+                "User-scope DPAPI failed ({user_error}); stored credentials with machine-scope DPAPI, which any local account can decrypt. Re-save credentials once user-scope DPAPI is available."
+            );
+            (WINDOWS_DPAPI_MACHINE, encrypted)
+        })
         .map_err(|machine_error| {
             io::Error::other(format!(
                 "CryptProtectData failed with user scope ({user_error}) and machine scope ({machine_error})"
@@ -222,7 +232,78 @@ fn restrict_file_permissions(path: &Path) -> io::Result<()> {
     std::fs::set_permissions(path, perms)
 }
 
-#[cfg(not(unix))]
+/// Tighten the DACL to the current user (parity with the unix `0o600` path).
+///
+/// Removes inherited ACEs and grants Full control only to the current user, so
+/// a secret file is not readable by other local accounts. This matters most
+/// for machine-scoped DPAPI blobs (decryptable by any local account) but is
+/// applied to every secret file as defense in depth.
+///
+/// Best-effort: failures are logged, not fatal. The file is still
+/// DPAPI-encrypted, and returning an error here would break credential writes.
+#[cfg(windows)]
+fn restrict_file_permissions(path: &Path) -> io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let Some(user) = current_user_account() else {
+        tracing::warn!("Could not determine current user; left default ACL on {path:?}");
+        return Ok(());
+    };
+
+    // Resolve icacls to an absolute System32 path so ACL hardening cannot
+    // itself be hijacked by a planted `icacls.exe` on the search path.
+    let grant = format!("{user}:(F)");
+    let result = Command::new(system32_binary("icacls.exe"))
+        .arg(path)
+        .arg("/inheritance:r")
+        .arg("/grant:r")
+        .arg(&grant)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => {
+            tracing::warn!(
+                "Failed to restrict ACL on {path:?}: icacls exited with {} ({})",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            Ok(())
+        }
+        Err(e) => {
+            tracing::warn!("Could not run icacls to restrict ACL on {path:?}: {e}");
+            Ok(())
+        }
+    }
+}
+
+/// `DOMAIN\User` (or bare `User`) for the current account, from the
+/// environment. Returns `None` when neither is set.
+#[cfg(windows)]
+fn current_user_account() -> Option<String> {
+    let name = std::env::var("USERNAME").ok().filter(|s| !s.is_empty())?;
+    match std::env::var("USERDOMAIN").ok().filter(|s| !s.is_empty()) {
+        Some(domain) => Some(format!("{domain}\\{name}")),
+        None => Some(name),
+    }
+}
+
+/// Absolute path to a Windows System32 binary, falling back to the bare name
+/// only if `%SystemRoot%` is unset or the file is missing.
+#[cfg(windows)]
+fn system32_binary(name: &str) -> std::path::PathBuf {
+    std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .map(|root| root.join("System32").join(name))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from(name))
+}
+
+#[cfg(not(any(unix, windows)))]
 fn restrict_file_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
 }
@@ -294,6 +375,25 @@ mod tests {
         .unwrap();
 
         assert!(matches!(status(&path), SecureFileStatus::Unreadable(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_restrict_permissions_keeps_owner_access() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secure.json");
+        std::fs::write(&path, b"data").unwrap();
+
+        // Owner keeps Full control, so the file is still readable after the
+        // DACL is tightened, and the call is non-fatal regardless.
+        restrict_file_permissions(&path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"data");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_current_user_account_is_available() {
+        assert!(current_user_account().is_some());
     }
 
     #[cfg(windows)]
