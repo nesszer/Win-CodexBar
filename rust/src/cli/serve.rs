@@ -1,12 +1,72 @@
 //! Local HTTP server for scriptable usage/cost JSON.
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
 use clap::Args;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
 
 use super::usage::ProviderSelection;
 use crate::core::{FetchContext, ProviderId, SourceMode, instantiate_provider};
 use crate::cost_scanner::CostScanner;
+
+/// Max time to wait for a client to send its request before dropping the
+/// connection (slowloris / idle-socket guard).
+const READ_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Max concurrent client connections; further accepts wait for a free slot
+/// (backpressure) rather than spawning unbounded tasks.
+const MAX_CONNECTIONS: usize = 32;
+
+/// Per-provider fetch bound so one hung upstream can't hang a request forever.
+const PROVIDER_FETCH_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// Shared server state: a connection limiter and the response cache.
+struct ServerState {
+    connections: Arc<Semaphore>,
+    cache: ResponseCache,
+}
+
+/// TTL cache of full JSON responses keyed by request path+query. Repeated
+/// scrapes within the refresh interval reuse one result instead of re-hitting
+/// every provider with the user's credentials on every request.
+struct ResponseCache {
+    ttl: Duration,
+    entries: Mutex<HashMap<String, (Instant, String)>>,
+}
+
+impl ResponseCache {
+    fn new(ttl: Duration) -> Self {
+        Self {
+            ttl,
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn get(&self, key: &str, now: Instant) -> Option<String> {
+        if self.ttl.is_zero() {
+            return None;
+        }
+        let entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        entries
+            .get(key)
+            .filter(|(stored, _)| now.duration_since(*stored) < self.ttl)
+            .map(|(_, value)| value.clone())
+    }
+
+    fn put(&self, key: String, value: String, now: Instant) {
+        if self.ttl.is_zero() {
+            return;
+        }
+        self.entries
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key, (now, value));
+    }
+}
 
 #[derive(Args, Debug, Clone)]
 pub struct ServeArgs {
@@ -26,22 +86,39 @@ pub async fn run(args: ServeArgs) -> anyhow::Result<()> {
         args.port
     );
 
+    let state = Arc::new(ServerState {
+        connections: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+        cache: ResponseCache::new(Duration::from_secs(args.refresh_interval)),
+    });
+
     loop {
         let (stream, _) = listener.accept().await?;
+        // Bound concurrent handlers; at the limit this awaits a free slot
+        // (backpressure) instead of spawning unbounded tasks.
+        let permit = state.connections.clone().acquire_owned().await?;
+        let state = Arc::clone(&state);
         tokio::spawn(async move {
-            if let Err(error) = handle_client(stream).await {
+            let _permit = permit; // released when the task ends
+            if let Err(error) = handle_client(stream, &state).await {
                 tracing::debug!("serve client error: {error}");
             }
         });
     }
 }
 
-async fn handle_client(mut stream: TcpStream) -> anyhow::Result<()> {
+async fn handle_client(mut stream: TcpStream, state: &ServerState) -> anyhow::Result<()> {
     let mut buffer = vec![0_u8; 8192];
-    let n = stream.read(&mut buffer).await?;
+    let n = match tokio::time::timeout(READ_TIMEOUT, stream.read(&mut buffer)).await {
+        Ok(result) => result?,
+        Err(_) => {
+            // Client never sent a request in time; drop it.
+            let _ = stream.shutdown().await;
+            return Ok(());
+        }
+    };
     let request = String::from_utf8_lossy(&buffer[..n]);
     let response = match parse_request(&request) {
-        Ok(request) => route_request(&request).await,
+        Ok(request) => route_request(&request, state).await,
         Err(status) => json_response(status, serde_json::json!({ "error": "bad request" })),
     };
     stream.write_all(response.as_bytes()).await?;
@@ -49,7 +126,7 @@ async fn handle_client(mut stream: TcpStream) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn route_request(request: &ServeRequest) -> String {
+async fn route_request(request: &ServeRequest, state: &ServerState) -> String {
     if request.method != "GET" {
         return json_response(405, serde_json::json!({ "error": "method not allowed" }));
     }
@@ -57,15 +134,37 @@ async fn route_request(request: &ServeRequest) -> String {
         return json_response(403, serde_json::json!({ "error": "forbidden host" }));
     }
 
+    let provider = request.query.get("provider").map(String::as_str);
     match request.path.as_str() {
         "/health" => json_response(
             200,
             serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }),
         ),
-        "/usage" => usage_response(request.query.get("provider").map(String::as_str)).await,
-        "/cost" => cost_response(request.query.get("provider").map(String::as_str)).await,
+        "/usage" => {
+            cached(state, "/usage", provider, || usage_response(provider)).await
+        }
+        "/cost" => cached(state, "/cost", provider, || cost_response(provider)).await,
         _ => json_response(404, serde_json::json!({ "error": "not found" })),
     }
+}
+
+/// Serve a cached response for `path?provider`, or compute it via `fetch` and
+/// cache successful (`200`) results for the configured refresh interval.
+async fn cached<F, Fut>(state: &ServerState, path: &str, provider: Option<&str>, fetch: F) -> String
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = String>,
+{
+    let key = format!("{path}?{}", provider.unwrap_or(""));
+    let now = Instant::now();
+    if let Some(hit) = state.cache.get(&key, now) {
+        return hit;
+    }
+    let response = fetch().await;
+    if response.starts_with("HTTP/1.1 200") {
+        state.cache.put(key, response.clone(), now);
+    }
+    response
 }
 
 async fn usage_response(provider: Option<&str>) -> String {
@@ -89,16 +188,22 @@ async fn usage_response(provider: Option<&str>) -> String {
     let mut results = Vec::new();
     for provider_id in selection.as_list() {
         let provider = instantiate_provider(provider_id);
-        match provider.fetch_usage(&ctx).await {
-            Ok(result) => results.push(serde_json::json!({
+        // Bound each provider so a hung upstream can't hang the whole request.
+        let fetched = tokio::time::timeout(PROVIDER_FETCH_TIMEOUT, provider.fetch_usage(&ctx)).await;
+        match fetched {
+            Ok(Ok(result)) => results.push(serde_json::json!({
                 "provider": provider_id.cli_name(),
                 "source": result.source_label,
                 "usage": result.usage,
                 "cost": result.cost,
             })),
-            Err(error) => results.push(serde_json::json!({
+            Ok(Err(error)) => results.push(serde_json::json!({
                 "provider": provider_id.cli_name(),
                 "error": error.to_string(),
+            })),
+            Err(_) => results.push(serde_json::json!({
+                "provider": provider_id.cli_name(),
+                "error": "timed out",
             })),
         }
     }
@@ -281,6 +386,26 @@ fn json_response(status: u16, payload: serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn response_cache_serves_fresh_skips_expired_and_zero_ttl() {
+        let now = Instant::now();
+        let cache = ResponseCache::new(Duration::from_secs(60));
+
+        assert_eq!(cache.get("k", now), None, "empty cache misses");
+        cache.put("k".to_string(), "v".to_string(), now);
+        assert_eq!(cache.get("k", now), Some("v".to_string()), "fresh hit");
+        assert_eq!(
+            cache.get("k", now + Duration::from_secs(61)),
+            None,
+            "past-TTL entry expires"
+        );
+
+        // A zero refresh interval disables caching entirely.
+        let zero = ResponseCache::new(Duration::ZERO);
+        zero.put("k".to_string(), "v".to_string(), now);
+        assert_eq!(zero.get("k", now), None);
+    }
 
     #[test]
     fn rejects_non_loopback_hosts() {

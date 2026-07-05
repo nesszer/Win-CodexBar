@@ -209,20 +209,36 @@ enum UsageOutput {
     },
 }
 
+/// Cap on concurrent provider fetches for `-p all`, so results overlap (rather
+/// than summing per-provider latency) without opening a connection to every
+/// provider at once. `buffered` preserves input order, so output is unchanged.
+const MAX_CONCURRENT_FETCHES: usize = 8;
+
 async fn collect_usage_output(command: &UsageCommand) -> UsageOutput {
+    use futures::stream::StreamExt;
     match command.format {
         OutputFormat::Text => {
-            let mut sections = Vec::new();
-            for provider_id in &command.providers {
-                sections.push(fetch_provider_text_output(*provider_id, command).await);
-            }
+            let sections = futures::stream::iter(
+                command
+                    .providers
+                    .iter()
+                    .map(|id| fetch_provider_text_output(*id, command)),
+            )
+            .buffered(MAX_CONCURRENT_FETCHES)
+            .collect::<Vec<_>>()
+            .await;
             UsageOutput::Text(sections)
         }
         OutputFormat::Json => {
-            let mut results = Vec::new();
-            for provider_id in &command.providers {
-                results.push(fetch_provider_json_output(*provider_id, command).await);
-            }
+            let results = futures::stream::iter(
+                command
+                    .providers
+                    .iter()
+                    .map(|id| fetch_provider_json_output(*id, command)),
+            )
+            .buffered(MAX_CONCURRENT_FETCHES)
+            .collect::<Vec<_>>()
+            .await;
             UsageOutput::Json {
                 results,
                 pretty: command.pretty,
@@ -253,21 +269,41 @@ async fn fetch_provider_json_output(
     }
 }
 
+/// Overall wall-clock bound for a single provider's fetch (+ optional status),
+/// generous relative to the per-request web timeout. Without this a provider
+/// with an untimed subprocess/network probe (e.g. a hung CLI) would stall the
+/// whole `usage`/`serve` command indefinitely.
+fn provider_fetch_timeout(command: &UsageCommand) -> std::time::Duration {
+    std::time::Duration::from_secs(command.ctx.web_timeout.saturating_mul(2).saturating_add(20))
+}
+
 async fn fetch_provider_result(
     provider_id: ProviderId,
     command: &UsageCommand,
 ) -> anyhow::Result<(ProviderFetchResult, Option<StatusInfo>)> {
-    let provider = instantiate_provider(provider_id);
-    let status_future = command
-        .fetch_status
-        .then(|| fetch_provider_status(provider_id.cli_name()));
-    let result = provider.fetch_usage(&command.ctx).await?;
-    let status = if let Some(fut) = status_future {
-        fut.await
-    } else {
-        None
+    let timeout = provider_fetch_timeout(command);
+    let fetch = async {
+        let provider = instantiate_provider(provider_id);
+        let status_future = command
+            .fetch_status
+            .then(|| fetch_provider_status(provider_id.cli_name()));
+        let result = provider.fetch_usage(&command.ctx).await?;
+        let status = if let Some(fut) = status_future {
+            fut.await
+        } else {
+            None
+        };
+        anyhow::Ok((result, status))
     };
-    Ok((result, status))
+
+    match tokio::time::timeout(timeout, fetch).await {
+        Ok(inner) => inner,
+        Err(_) => anyhow::bail!(
+            "Timed out fetching {} after {}s",
+            provider_id.cli_name(),
+            timeout.as_secs()
+        ),
+    }
 }
 
 fn render_text_error(provider_id: ProviderId, error_msg: &str, use_color: bool) -> String {
