@@ -97,6 +97,9 @@ pub enum InfiniError {
 
     #[error("Parse error: {0}")]
     ParseError(String),
+
+    #[error("Unexpected HTTP status: {0}")]
+    UnexpectedStatus(u16),
 }
 
 impl InfiniClient {
@@ -151,9 +154,11 @@ impl InfiniClient {
                 let body = response.text().await.unwrap_or_default();
                 Err(InfiniError::ServerError(body))
             }
-            _ => Err(InfiniError::HttpError(
-                response.error_for_status().unwrap_err(),
-            )),
+            // Any other status (e.g. a 2xx-non-200 like 204, or a 3xx) is not
+            // something we can parse. `error_for_status()` only returns `Err`
+            // for 4xx/5xx, so calling `.unwrap_err()` here would panic on a
+            // 2xx/3xx response — report it as an unexpected status instead.
+            other => Err(InfiniError::UnexpectedStatus(other)),
         }
     }
 }
@@ -276,6 +281,28 @@ mod tests {
         assert_eq!(usage.seven_day_percentage(), 0.0);
         assert_eq!(usage.thirty_day_percentage(), 0.0);
     }
+
+    // Regression: a 2xx-non-200 (or 3xx) response used to hit
+    // `error_for_status().unwrap_err()`, which panics because `error_for_status`
+    // returns `Ok` for non-error statuses. It must now degrade to an error.
+    #[tokio::test]
+    async fn fetch_usage_reports_unexpected_status_without_panicking() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/maas/coding/usage")
+            .with_status(204)
+            .create_async()
+            .await;
+
+        let client = InfiniClient::new("test-key".to_string()).with_base_url(server.url());
+        let result = client.fetch_usage().await;
+
+        assert!(
+            matches!(result, Err(InfiniError::UnexpectedStatus(204))),
+            "expected UnexpectedStatus(204), got {result:?}"
+        );
+        mock.assert_async().await;
+    }
 }
 
 // ==================== InfiniProvider ====================
@@ -366,6 +393,9 @@ impl Provider for InfiniProvider {
                     }
                     InfiniError::ParseError(msg) => ProviderError::Parse(msg),
                     InfiniError::HttpError(e) => ProviderError::Network(e),
+                    InfiniError::UnexpectedStatus(code) => {
+                        ProviderError::Other(format!("Unexpected HTTP status: {}", code))
+                    }
                 })?;
 
                 // 创建 primary rate window (5-hour)
