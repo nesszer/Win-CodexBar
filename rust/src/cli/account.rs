@@ -241,14 +241,36 @@ fn find_account<'a>(
     )
 }
 
-/// Mask a token for display (show first 4 and last 4 chars)
+/// Mask a token for display (show first 4 and last 4 chars).
+///
+/// Operates on `char`s, not bytes: a stored token containing multibyte
+/// characters would otherwise panic here on a non-char-boundary byte slice.
 fn mask_token(token: &str) -> String {
     let trimmed = token.trim();
-    if trimmed.len() > 12 {
-        format!("{}...{}", &trimmed[..4], &trimmed[trimmed.len() - 4..])
-    } else if trimmed.len() > 4 {
-        format!("{}...", &trimmed[..4])
+    let char_count = trimmed.chars().count();
+    let first4: String = trimmed.chars().take(4).collect();
+    if char_count > 12 {
+        let mut last: Vec<char> = trimmed.chars().rev().take(4).collect();
+        last.reverse();
+        let last4: String = last.into_iter().collect();
+        format!("{first4}...{last4}")
+    } else if char_count > 4 {
+        format!("{first4}...")
     } else {
         "****".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mask_token_handles_multibyte_without_panic() {
+        // Non-ASCII token longer than 12 chars must not panic on byte slicing.
+        assert_eq!(mask_token("😀😀😀😀abcdefghij😀😀😀😀"), "😀😀😀😀...😀😀😀😀");
+        assert_eq!(mask_token("aaaaa😀"), "aaaa...");
+        assert_eq!(mask_token("😀"), "****");
+        assert_eq!(mask_token("sk-1234567890abcdef"), "sk-1...cdef");
     }
 }

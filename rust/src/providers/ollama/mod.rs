@@ -324,8 +324,7 @@ impl OllamaProvider {
         for label in labels {
             if let Some(pos) = html.find(label) {
                 let tail = &html[pos..];
-                let end = usage_block_end(tail, label).unwrap_or_else(|| tail.len().min(4000));
-                let window = &tail[..end.min(tail.len())];
+                let window = usage_window(tail, label);
 
                 // Try "XX% used" pattern
                 let used_re = Regex::new(r"(\d+(?:\.\d+)?)\s*%\s*used").ok()?;
@@ -437,6 +436,18 @@ fn clean_secret(raw: Option<&str>) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
+/// The slice of `tail` covering one usage block, ending at the next block's
+/// label (or a 4000-byte cap). The end is floored to a UTF-8 char boundary so
+/// slicing never panics on multibyte content in the settings-page HTML.
+fn usage_window<'a>(tail: &'a str, current_label: &str) -> &'a str {
+    let raw_end = usage_block_end(tail, current_label).unwrap_or_else(|| tail.len().min(4000));
+    let mut end = raw_end.min(tail.len());
+    while end > 0 && !tail.is_char_boundary(end) {
+        end -= 1;
+    }
+    &tail[..end]
+}
+
 fn usage_block_end(tail: &str, current_label: &str) -> Option<usize> {
     ["Session usage", "Hourly usage", "Weekly usage"]
         .iter()
@@ -498,6 +509,15 @@ fn is_ollama_login_url(url: &Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usage_window_floors_to_char_boundary_without_panicking() {
+        // Next-label search misses, so the 4000-byte cap applies; the cap lands
+        // mid-multibyte-character and must be floored, not sliced raw.
+        let tail = format!("Weekly usage {}", "あ".repeat(2000));
+        let window = usage_window(&tail, "Weekly usage");
+        assert!(tail.starts_with(window));
+    }
 
     #[test]
     fn normalizes_raw_ollama_session_cookie_value() {

@@ -121,7 +121,13 @@ fn extract_window(text: &str, labels: &[&str]) -> Option<RateWindow> {
     let anchor = labels
         .iter()
         .find_map(|label| lower.find(label).map(|idx| (idx, *label)))?;
-    let end = (anchor.0 + 1400).min(text.len());
+    // Floor the window end to a UTF-8 char boundary: `anchor.0 + 1400` is an
+    // arbitrary byte offset, and Sakana's console HTML contains multibyte
+    // (CJK) characters, so a raw slice here would panic mid-character.
+    let mut end = (anchor.0 + 1400).min(text.len());
+    while end > anchor.0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
     let segment = &text[anchor.0..end];
     let percent = extract_percent(segment)?;
     let reset = extract_reset(segment);
@@ -223,6 +229,14 @@ impl Provider for SakanaProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_window_does_not_panic_on_multibyte_html() {
+        // The 1400-byte window end lands in the middle of a 3-byte CJK char;
+        // slicing must floor to a char boundary instead of panicking.
+        let text = format!("weekly {}", "あ".repeat(1000));
+        let _ = extract_window(&text, &["weekly"]);
+    }
 
     #[test]
     fn parses_sakana_windows_and_utc_reset() {
