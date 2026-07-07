@@ -630,38 +630,40 @@ impl LocaleKey {
             LocaleKey::ProviderStatusLoading => "Cargando",
             LocaleKey::ProviderStatusDisabled => "Deshabilitado",
             LocaleKey::ProviderDetailPlaceholder => "Panel de detalle llegando en Fase 6b",
-            LocaleKey::ProviderIssueNeedsSignIn => "needs sign-in",
-            LocaleKey::ProviderIssueFetchNeedsAttention => "Provider fetch needs attention",
-            LocaleKey::ProviderIssueCopy => "Copy",
-            LocaleKey::ProviderIssueUnsupportedSourceModePrefix => {
-                "Source mode not supported for this provider"
+            LocaleKey::ProviderIssueNeedsSignIn => "Requiere inicio de sesión",
+            LocaleKey::ProviderIssueFetchNeedsAttention => {
+                "La consulta del proveedor necesita atención"
             }
-            LocaleKey::CredentialStorageTitle => "Credential Storage",
-            LocaleKey::CredentialRevokeStored => "Revoke Stored Credentials",
-            LocaleKey::CredentialApiKeys => "API keys",
-            LocaleKey::CredentialManualCookies => "Manual cookies",
-            LocaleKey::CredentialTokenAccounts => "Token accounts",
-            LocaleKey::CredentialProtectedPrefix => "Protected",
-            LocaleKey::CredentialStatusNotCreated => "Not created",
-            LocaleKey::CredentialStatusPlaintext => "Plaintext",
-            LocaleKey::CredentialStatusUnavailable => "Unavailable",
-            LocaleKey::CredentialStatusUnreadable => "Unreadable",
-            LocaleKey::BrowserCookiesSectionTitle => "Browser Cookies",
-            LocaleKey::BrowserCookieNoneSaved => "No cookie saved.",
-            LocaleKey::BrowserCookieSavedBadge => "Saved",
-            LocaleKey::BrowserCookieRemove => "Remove",
-            LocaleKey::BrowserCookieImportSuccess => "Cookies imported successfully.",
-            LocaleKey::BrowserCookieImportFromBrowser => "Import from Browser",
-            LocaleKey::BrowserCookieProfileSingular => "profile",
-            LocaleKey::BrowserCookieProfilePlural => "profiles",
-            LocaleKey::BrowserCookiePlaceholderDefault => "Paste cookie header value...",
+            LocaleKey::ProviderIssueCopy => "Copiar",
+            LocaleKey::ProviderIssueUnsupportedSourceModePrefix => {
+                "Modo de origen no soportado para este proveedor"
+            }
+            LocaleKey::CredentialStorageTitle => "Almacenamiento de credenciales",
+            LocaleKey::CredentialRevokeStored => "Revocar credenciales almacenadas",
+            LocaleKey::CredentialApiKeys => "Claves API",
+            LocaleKey::CredentialManualCookies => "Cookies manuales",
+            LocaleKey::CredentialTokenAccounts => "Cuentas de token",
+            LocaleKey::CredentialProtectedPrefix => "Protegido",
+            LocaleKey::CredentialStatusNotCreated => "No creada",
+            LocaleKey::CredentialStatusPlaintext => "Texto plano",
+            LocaleKey::CredentialStatusUnavailable => "No disponible",
+            LocaleKey::CredentialStatusUnreadable => "No legible",
+            LocaleKey::BrowserCookiesSectionTitle => "Cookies del navegador",
+            LocaleKey::BrowserCookieNoneSaved => "Sin cookies guardadas.",
+            LocaleKey::BrowserCookieSavedBadge => "Guardada",
+            LocaleKey::BrowserCookieRemove => "Eliminar",
+            LocaleKey::BrowserCookieImportSuccess => "Cookies importadas correctamente.",
+            LocaleKey::BrowserCookieImportFromBrowser => "Importar desde navegador",
+            LocaleKey::BrowserCookieProfileSingular => "perfil",
+            LocaleKey::BrowserCookieProfilePlural => "perfiles",
+            LocaleKey::BrowserCookiePlaceholderDefault => "Pegar valor de cabecera de cookie...",
             LocaleKey::BrowserCookiePlaceholderOllama => {
-                "Paste the full Cookie header or just the __Secure-session value..."
+                "Pegar la cabecera Cookie completa o solo el valor __Secure-session..."
             }
             LocaleKey::BrowserCookiePlaceholderCurl => {
-                "Paste the Cookie header or full browser cURL request..."
+                "Pegar la cabecera Cookie o la solicitud cURL completa del navegador..."
             }
-            LocaleKey::BrowserCookieSave => "Save Cookie",
+            LocaleKey::BrowserCookieSave => "Guardar cookie",
 
             // Phase 6d — credential detection
             LocaleKey::CredentialsSectionTitle => "Credenciales",
