@@ -1,5 +1,15 @@
 # Changelog
 
+## [Windows] 0.41.1 - 2026-07-08
+
+### Fixed
+- Localize the tray panel and native tray menu for Japanese, Chinese (Simplified), Korean, and Spanish.
+- Add missing `es-MX` UI key translations.
+- Stop baking the UI language into cached provider snapshots so locale changes remain independent of provider data.
+- Localize the native tray menu proof harness.
+
+---
+
 ## [Windows] 0.41.0 - 2026-07-07
 
 ### Changed

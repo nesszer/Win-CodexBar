@@ -645,7 +645,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "codexbar"
-version = "0.41.0"
+version = "0.41.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -685,7 +685,7 @@ dependencies = [
 
 [[package]]
 name = "codexbar-desktop-tauri"
-version = "0.41.0"
+version = "0.41.1"
 dependencies = [
  "chrono",
  "codexbar",
