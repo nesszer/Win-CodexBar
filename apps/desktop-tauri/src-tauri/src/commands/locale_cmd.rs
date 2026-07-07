@@ -81,6 +81,7 @@ pub fn set_ui_language(app: tauri::AppHandle, language: String) -> Result<(), St
     settings.ui_language = lang;
     settings.save().map_err(|e| e.to_string())?;
     let _ = app.emit(events::LOCALE_CHANGED, language_label(lang));
+    crate::tray_bridge::refresh_tray_presentation(&app);
     Ok(())
 }
 

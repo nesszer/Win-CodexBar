@@ -74,6 +74,7 @@ impl SettingsUpdate {
             || self.menu_bar_display_mode.is_some()
             || self.provider_metrics.is_some()
             || self.enabled_providers.is_some()
+            || self.ui_language.is_some()
     }
 
     fn validate_shortcut_change(
@@ -327,6 +328,17 @@ mod tests {
         assert!(
             SettingsUpdate {
                 reset_time_relative: Some(false),
+                ..Default::default()
+            }
+            .refreshes_tray_presentation()
+        );
+    }
+
+    #[test]
+    fn ui_language_change_refreshes_tray_presentation() {
+        assert!(
+            SettingsUpdate {
+                ui_language: Some("japanese".to_string()),
                 ..Default::default()
             }
             .refreshes_tray_presentation()
