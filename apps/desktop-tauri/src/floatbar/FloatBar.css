@@ -97,6 +97,7 @@ body.floatbar-window #root {
   cursor: grab;
 }
 .floatbar__pill *,
+.floatbar__cost-pill *,
 .floatbar__handle *,
 .floatbar__empty * {
   pointer-events: none;
@@ -105,6 +106,51 @@ body.floatbar-window #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+.floatbar__cost-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--floatbar-scale, 1));
+  min-height: calc(16px * var(--floatbar-scale, 1));
+  padding: calc(1px * var(--floatbar-scale, 1)) calc(6px * var(--floatbar-scale, 1));
+  border-radius: calc(7px * var(--floatbar-scale, 1));
+  background: rgba(213, 231, 242, 0.74);
+  backdrop-filter: blur(16px) saturate(145%);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  border: 1px solid var(--brand, rgba(255, 255, 255, 0.48));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
+    0 1px 2px rgba(14, 42, 62, 0.22);
+  white-space: nowrap;
+  cursor: grab;
+}
+.floatbar__cost-items {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(5px * var(--floatbar-scale, 1));
+  line-height: 1;
+}
+.floatbar__cost-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: calc(2px * var(--floatbar-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+.floatbar__cost-label {
+  font-size: 0.78em;
+  font-weight: 600;
+  opacity: 0.66;
+}
+.floatbar__cost-value {
+  font-weight: 700;
+}
+.floatbar--vertical .floatbar__cost-pill {
+  flex-direction: column;
+  gap: calc(2px * var(--floatbar-scale, 1));
+}
+.floatbar--vertical .floatbar__cost-items {
+  flex-direction: column;
+  gap: calc(2px * var(--floatbar-scale, 1));
 }
 .floatbar__pill--warn {
   background: rgba(250, 221, 171, 0.84);
@@ -172,6 +218,7 @@ body.floatbar-window #root {
   color: rgba(20, 22, 26, 0.95);
 }
 .floatbar--light-bg .floatbar__pill,
+.floatbar--light-bg .floatbar__cost-pill,
 .floatbar--light-bg .floatbar__empty {
   background: rgba(248, 252, 255, 0.82);
   border-color: rgba(255, 255, 255, 0.64);
@@ -232,7 +279,8 @@ body.floatbar-window #root {
     radial-gradient(circle, rgba(255, 255, 255, 0.7) 1px, transparent 1.5px);
   background-size: calc(4px * var(--floatbar-scale, 1)) calc(3px * var(--floatbar-scale, 1));
 }
-.floatbar--floating .floatbar__pill {
+.floatbar--floating .floatbar__pill,
+.floatbar--floating .floatbar__cost-pill {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(14px) saturate(140%);
@@ -260,6 +308,7 @@ body.floatbar-window #root {
   color: rgba(20, 22, 26, 0.95);
 }
 .floatbar--floating.floatbar--light-bg .floatbar__pill,
+.floatbar--floating.floatbar--light-bg .floatbar__cost-pill,
 .floatbar--floating.floatbar--light-bg .floatbar__empty {
   background: rgba(255, 255, 255, 0.55);
   border-color: var(--brand, rgba(20, 22, 26, 0.25));

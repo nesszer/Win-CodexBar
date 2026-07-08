@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
 import {
@@ -9,6 +10,7 @@ import {
   openSettingsWindow,
   quitApp as quitApplication,
   reorderProviders,
+  refreshProvidersIfStale,
   setFlyoutSize,
   setSurfaceMode,
   updateSettings,
@@ -101,6 +103,22 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   });
   const { updateState, checkNow, download, apply, dismiss, openRelease } =
     useUpdateState();
+
+  useEffect(() => {
+    let active = true;
+    const unlisten = listen("flyout-opened", () => {
+      if (!active) return;
+      if (settings.refreshAllProvidersOnMenuOpen) {
+        refresh();
+      } else {
+        void refreshProvidersIfStale();
+      }
+    });
+    return () => {
+      active = false;
+      unlisten.then((fn) => fn());
+    };
+  }, [refresh, settings.refreshAllProvidersOnMenuOpen]);
   const { t } = useLocale();
   const surfaceTarget = useSurfaceTarget("trayPanel");
 

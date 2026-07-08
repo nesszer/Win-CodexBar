@@ -14,6 +14,9 @@ use std::sync::{
     Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::{Duration, Instant};
+
+const LOCAL_USAGE_TTL: Duration = Duration::from_secs(30);
 
 /// A single (date, value) point for cost or credits history charts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +83,18 @@ pub async fn get_provider_chart_data(
     })
 }
 
+#[tauri::command]
+pub async fn get_provider_local_usage_summary(
+    provider_id: String,
+) -> Option<ProviderLocalUsageSummary> {
+    tauri::async_runtime::spawn_blocking(move || load_provider_local_usage_summary(&provider_id))
+        .await
+        .unwrap_or_else(|err| {
+            tracing::warn!("Provider local usage worker failed: {}", err);
+            None
+        })
+}
+
 #[cfg(test)]
 pub(crate) fn build_provider_chart_data(
     provider_id: String,
@@ -107,7 +122,7 @@ fn build_provider_chart_data_with_cancel(
     {
         None
     } else {
-        load_local_usage_summary(&provider_id, cancel.as_deref())
+        load_local_usage_summary_cached(&provider_id, cancel.as_deref())
     };
 
     ProviderChartData {
@@ -173,6 +188,61 @@ fn load_local_usage_summary(
         top_model: top_model(&thirty_day),
         estimate_note: localized_estimate_note(provider_id, lang),
     })
+}
+
+pub(crate) fn load_provider_local_usage_summary(
+    provider_id: &str,
+) -> Option<ProviderLocalUsageSummary> {
+    load_local_usage_summary_cached(provider_id, None)
+}
+
+struct CachedLocalUsage {
+    loaded_at: Instant,
+    summary: Option<ProviderLocalUsageSummary>,
+}
+
+fn local_usage_cache() -> &'static Mutex<HashMap<String, CachedLocalUsage>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, CachedLocalUsage>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn clear_provider_local_usage_cache() {
+    if let Ok(mut guard) = local_usage_cache().lock() {
+        guard.clear();
+    }
+}
+
+fn load_local_usage_summary_cached(
+    provider_id: &str,
+    cancel: Option<&AtomicBool>,
+) -> Option<ProviderLocalUsageSummary> {
+    let cache = local_usage_cache();
+    if let Ok(guard) = cache.lock()
+        && let Some(entry) = guard.get(provider_id)
+        && entry.loaded_at.elapsed() <= LOCAL_USAGE_TTL
+    {
+        return entry.summary.clone();
+    }
+
+    if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+        return None;
+    }
+
+    let summary = load_local_usage_summary(provider_id, cancel);
+    if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+        return None;
+    }
+
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(
+            provider_id.to_string(),
+            CachedLocalUsage {
+                loaded_at: Instant::now(),
+                summary: summary.clone(),
+            },
+        );
+    }
+    summary
 }
 
 fn localized_estimate_note(provider_id: &str, lang: codexbar::settings::Language) -> String {

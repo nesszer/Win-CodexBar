@@ -609,6 +609,10 @@ locale_keys! {
     // Tauri desktop shell — Advanced tab fields
     UpdateChannelStableOption,
     UpdateChannelBetaOption,
+    CodexLocalLogsTitle,
+    CodexLocalLogsCaption,
+    CodexLogPathsLabel,
+    CodexLogPathsHelper,
     AvoidKeychainPromptsLabel,
     AvoidKeychainPromptsHelper,
     DisableAllKeychainLabel,

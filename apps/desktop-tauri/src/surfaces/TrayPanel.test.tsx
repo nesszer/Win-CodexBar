@@ -126,6 +126,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     autoDownloadUpdates: false,
     installUpdatesOnQuit: false,
     globalShortcut: "Ctrl+Shift+U",
+    codexCustomSessionsDirs: [],
     uiLanguage: "english",
     theme: "dark",
     windowScalePercent: 125,
@@ -287,6 +288,39 @@ describe("TrayPanel provider grid", () => {
     fireEvent.keyDown(window, { key: "Escape", metaKey: true });
 
     expect(tauriMocks.dismissTrayPanel).not.toHaveBeenCalled();
+  });
+
+  it("refreshes when the flyout is opened again and refresh-on-open is enabled", async () => {
+    renderTrayPanel(
+      [provider("codex", "Codex", 35)],
+      { refreshAllProvidersOnMenuOpen: true },
+    );
+
+    await waitFor(() => {
+      expect(tauriMocks.refreshProviders).toHaveBeenCalled();
+    });
+    tauriMocks.refreshProviders.mockClear();
+
+    emitEvent("flyout-opened", null);
+
+    await waitFor(() => {
+      expect(tauriMocks.refreshProviders).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("uses stale-aware refresh on reopen when refresh-on-open is disabled", async () => {
+    renderTrayPanel([provider("codex", "Codex", 35)]);
+
+    await waitFor(() => {
+      expect(tauriMocks.refreshProvidersIfStale).toHaveBeenCalled();
+    });
+    tauriMocks.refreshProviders.mockClear();
+    tauriMocks.refreshProvidersIfStale.mockClear();
+
+    emitEvent("flyout-opened", null);
+
+    expect(tauriMocks.refreshProviders).not.toHaveBeenCalled();
+    expect(tauriMocks.refreshProvidersIfStale).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the existing Ctrl+R tray shortcut", async () => {

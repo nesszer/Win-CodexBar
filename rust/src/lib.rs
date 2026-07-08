@@ -5,6 +5,7 @@
 
 pub mod browser;
 pub mod cli;
+mod codex_sessions;
 pub mod core;
 pub mod cost_scanner;
 pub mod host;

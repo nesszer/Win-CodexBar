@@ -85,6 +85,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     autoDownloadUpdates: false,
     installUpdatesOnQuit: false,
     globalShortcut: "Ctrl+Shift+U",
+    codexCustomSessionsDirs: [],
     uiLanguage: "english",
     // "dark" (not "auto") so useTheme's effect short-circuits before ever
     // touching window.matchMedia, which jsdom doesn't implement here.

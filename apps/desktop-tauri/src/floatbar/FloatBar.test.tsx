@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tauriMocks = vi.hoisted(() => ({
   getCachedProviders: vi.fn(),
+  getProviderChartData: vi.fn(),
+  getProviderLocalUsageSummary: vi.fn(),
   refreshProviders: vi.fn(),
   refreshProvidersIfStale: vi.fn(),
   getSettingsSnapshot: vi.fn(),
@@ -112,6 +114,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     autoDownloadUpdates: false,
     installUpdatesOnQuit: false,
     globalShortcut: "Ctrl+Shift+U",
+    codexCustomSessionsDirs: [],
     uiLanguage: "english",
     theme: "dark",
     windowScalePercent: 125,
@@ -153,6 +156,7 @@ describe("FloatBar", () => {
     vi.clearAllMocks();
     tauriMocks.refreshProviders.mockResolvedValue(undefined);
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
+    tauriMocks.getProviderLocalUsageSummary.mockResolvedValue(null);
     tauriMocks.getLocaleStrings.mockResolvedValue(
       buildBundle({
         ResetsInHoursMinutes: "Resets in {}h {}m",
@@ -182,6 +186,28 @@ describe("FloatBar", () => {
     // Highest used (codex, 75%) shows first; display follows showAsUsed.
     expect(titles[0]).toMatch(/Codex: 75% used/);
     expect(titles[1]).toMatch(/Claude: 20% used/);
+  });
+
+  it("loads local cost summaries without using the foreground chart endpoint", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("codex", "Codex", 75),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
+    tauriMocks.getProviderLocalUsageSummary.mockResolvedValue({
+      todayCost: 1.25,
+      thirtyDayCost: 12.5,
+      thirtyDayTokens: 1000,
+      latestTokens: 200,
+      topModel: "gpt-5",
+      estimateNote: "Estimated from local logs",
+    });
+
+    renderFloatBar(bootstrap());
+
+    await waitFor(() => {
+      expect(tauriMocks.getProviderLocalUsageSummary).toHaveBeenCalledWith("codex");
+    });
+    expect(tauriMocks.getProviderChartData).not.toHaveBeenCalled();
   });
 
   it("can show remaining percentages when configured", async () => {

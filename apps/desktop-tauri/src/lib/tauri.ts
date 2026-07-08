@@ -14,6 +14,7 @@ import type {
   ProviderCatalogEntry,
   ProviderChartData,
   ProviderDetail,
+  ProviderLocalUsageSummary,
   ProviderSummary,
   ProviderUsageSnapshot,
   ProviderTokenAccountsBridge,
@@ -222,6 +223,12 @@ export function getProviderChartData(
   accountEmail?: string,
 ): Promise<ProviderChartData> {
   return invoke<ProviderChartData>("get_provider_chart_data", { providerId, accountEmail });
+}
+
+export function getProviderLocalUsageSummary(
+  providerId: string,
+): Promise<ProviderLocalUsageSummary | null> {
+  return invoke<ProviderLocalUsageSummary | null>("get_provider_local_usage_summary", { providerId });
 }
 
 // ── Token account bridge ─────────────────────────────────────────────
