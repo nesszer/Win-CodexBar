@@ -11,11 +11,16 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
 import { useProviders } from "../hooks/useProviders";
-import { getSettingsSnapshot, refreshProvidersIfStale } from "../lib/tauri";
+import {
+  getProviderChartData,
+  getSettingsSnapshot,
+  refreshProvidersIfStale,
+} from "../lib/tauri";
 import { ProviderIcon } from "../components/providers/ProviderIcon";
 import { getProviderIcon } from "../components/providers/providerIcons";
 import type {
   BootstrapState,
+  ProviderLocalUsageSummary,
   ProviderUsageSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
@@ -60,6 +65,72 @@ function inlineResetTime(resetText: string): string {
     .trim();
 }
 
+
+type FloatBarCostSummary = {
+  key: string;
+  providerId: string;
+  displayName: string;
+  todayCost: number | null;
+  thirtyDayCost: number | null;
+};
+
+function providerCostKey(provider: ProviderUsageSnapshot): string {
+  return `${provider.providerId}:${provider.accountEmail ?? ""}`;
+}
+
+function hasLocalCost(summary: ProviderLocalUsageSummary | null): summary is ProviderLocalUsageSummary {
+  return summary?.todayCost != null || summary?.thirtyDayCost != null;
+}
+
+function formatUsd(value: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return `$${value.toFixed(2)}`;
+}
+
+function CostPill({ summary, scale }: { summary: FloatBarCostSummary; scale: number }) {
+  const today = formatUsd(summary.todayCost);
+  const thirtyDay = formatUsd(summary.thirtyDayCost);
+  const iconSize = Math.round(10 * scale);
+  const brand = getProviderIcon(summary.providerId).brandColor;
+  const title = [today ? `Today ${today}` : null, thirtyDay ? `30d ${thirtyDay}` : null]
+    .filter(Boolean)
+    .join(" / ");
+
+  return (
+    <div
+      className="floatbar__cost-pill"
+      title={`${summary.displayName}: ${title}`}
+      data-tauri-drag-region
+      style={{ "--brand": brand } as CSSProperties}
+    >
+      <span className="floatbar__provider-icon" data-tauri-drag-region>
+        <ProviderIcon providerId={summary.providerId} size={iconSize} />
+      </span>
+      <span className="floatbar__cost-items" data-tauri-drag-region>
+        {today && (
+          <span className="floatbar__cost-item" data-tauri-drag-region>
+            <span className="floatbar__cost-label" data-tauri-drag-region>
+              Today
+            </span>
+            <span className="floatbar__cost-value" data-tauri-drag-region>
+              {today}
+            </span>
+          </span>
+        )}
+        {thirtyDay && (
+          <span className="floatbar__cost-item" data-tauri-drag-region>
+            <span className="floatbar__cost-label" data-tauri-drag-region>
+              30d
+            </span>
+            <span className="floatbar__cost-value" data-tauri-drag-region>
+              {thirtyDay}
+            </span>
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
 /**
  * The capacity pill shown for a single provider.
  *
@@ -166,6 +237,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   // with the Settings tab. Listen for the Rust-side config-changed event
   // and re-pull the snapshot when fired.
   const [settings, setSettings] = useState<SettingsSnapshot>(state.settings);
+  const [localCosts, setLocalCosts] = useState<Record<string, FloatBarCostSummary>>({});
 
   // The detached floatbar should keep usage fresh, but it must not open or
   // focus any other surface. Refresh data only; provider-updated events feed
@@ -206,6 +278,64 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return [...list].sort((a, b) => b.primary.usedPercent - a.primary.usedPercent);
   }, [providers, settings.enabledProviders, filterIds]);
 
+  const visibleCostKey = visible
+    .map((p) => `${providerCostKey(p)}:${p.updatedAt}`)
+    .join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    const targets = visible.map((provider) => ({
+      key: providerCostKey(provider),
+      providerId: provider.providerId,
+      displayName: provider.displayName,
+      accountEmail: provider.accountEmail ?? undefined,
+    }));
+
+    if (targets.length === 0) {
+      setLocalCosts({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    Promise.allSettled(
+      targets.map(async (target) => {
+        const data = await getProviderChartData(target.providerId, target.accountEmail);
+        if (!hasLocalCost(data.localUsage)) return null;
+        return {
+          key: target.key,
+          providerId: target.providerId,
+          displayName: target.displayName,
+          todayCost: data.localUsage.todayCost,
+          thirtyDayCost: data.localUsage.thirtyDayCost,
+        } satisfies FloatBarCostSummary;
+      }),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        const next: Record<string, FloatBarCostSummary> = {};
+        for (const result of results) {
+          if (result.status === "fulfilled" && result.value) {
+            next[result.value.key] = result.value;
+          }
+        }
+        setLocalCosts(next);
+      })
+      .catch(() => {
+        if (!cancelled) setLocalCosts({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, visibleCostKey]);
+
+  const visibleCosts = visible
+    .map((provider) => localCosts[providerCostKey(provider)])
+    .filter((summary): summary is FloatBarCostSummary => Boolean(summary));
+  const visibleCostValuesKey = visibleCosts
+    .map((summary) => `${summary.key}:${summary.todayCost ?? ""}:${summary.thirtyDayCost ?? ""}`)
+    .join("|");
   // Keep the native floatbar window fitted when late data/fonts/icons change layout.
   const lastResizeRef = useRef<{ w: number; h: number } | null>(null);
   const resizeRafRef = useRef<number | null>(null);
@@ -233,6 +363,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   }, [
     resizeToContent,
     visible.length,
+    visibleCostValuesKey,
     orientation,
     style,
     scale,
@@ -279,18 +410,23 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
           No providers
         </div>
       ) : (
-        visible.map((p) => (
-          <ProviderPill
-            key={p.providerId}
-            provider={p}
-            highRemaining={highRemaining}
-            critRemaining={critRemaining}
-            showAsUsed={settings.showAsUsed}
-            scale={scale}
-            showResetInline={showResetInline}
-            resetRelative={settings.resetTimeRelative}
-          />
-        ))
+        <>
+          {visible.map((p) => (
+            <ProviderPill
+              key={providerCostKey(p)}
+              provider={p}
+              highRemaining={highRemaining}
+              critRemaining={critRemaining}
+              showAsUsed={settings.showAsUsed}
+              scale={scale}
+              showResetInline={showResetInline}
+              resetRelative={settings.resetTimeRelative}
+            />
+          ))}
+          {visibleCosts.map((summary) => (
+            <CostPill key={`cost:${summary.key}`} summary={summary} scale={scale} />
+          ))}
+        </>
       )}
     </div>
   );
