@@ -1,5 +1,16 @@
 # Changelog
 
+## [Windows] 0.41.2 - 2026-07-08
+
+### Added
+- Add Antigravity `agy` CLI alias setup guidance.
+- Add Traditional Chinese (Taiwan) localization.
+
+### Changed
+- Add repository interaction guardrails and switch the tray panel to a masonry card layout.
+
+---
+
 ## [Windows] 0.41.1 - 2026-07-08
 
 ### Fixed
