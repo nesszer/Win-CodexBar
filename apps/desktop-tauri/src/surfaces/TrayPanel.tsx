@@ -309,14 +309,10 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   // reveal itself. Hardcoded true: being mounted IS "the flyout is open".
   const isFlyoutOpen = true;
   const fixedFlyoutSize = Array.isArray(flyoutSize) ? flyoutSize : null;
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  useEffect(() => {
-    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", updateViewportWidth);
-    return () => window.removeEventListener("resize", updateViewportWidth);
-  }, []);
   const useWideColumns =
-    selectedProviderId === null && fixedFlyoutSize !== null && viewportWidth >= 640;
+    selectedProviderId === null &&
+    fixedFlyoutSize !== null &&
+    fixedFlyoutSize[0] >= 640;
   const wideColumns = useMemo(() => {
     const columns: ProviderUsageSnapshot[][] = [[], []];
     visibleProviders.forEach((provider, index) => {

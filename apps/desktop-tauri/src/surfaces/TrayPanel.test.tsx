@@ -491,7 +491,6 @@ describe("TrayPanel provider grid", () => {
   });
 
   it("uses independent columns for a wide user-sized overview", async () => {
-    vi.spyOn(window, "innerWidth", "get").mockReturnValue(700);
     tauriMocks.flyoutStoredSize.mockResolvedValue([700, 700]);
     const providers = [
       provider("codex", "Codex"),
@@ -519,6 +518,28 @@ describe("TrayPanel provider grid", () => {
       ["card-claude", "card-copilot"],
     ]);
     expect(container.querySelector(".menu-stack__sep")).toBeNull();
+  });
+
+  it("keeps the stacked layout when the saved flyout width is narrow", async () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(700);
+    tauriMocks.flyoutStoredSize.mockResolvedValue([500, 700]);
+    const providers = [
+      provider("codex", "Codex"),
+      provider("claude", "Claude"),
+      provider("antigravity", "Antigravity"),
+      provider("copilot", "GitHub Copilot"),
+    ];
+
+    const { container } = renderTrayPanel(providers, {
+      enabledProviders: providers.map((snapshot) => snapshot.providerId),
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector(".tray-panel-reveal--usersized")).not.toBeNull();
+    });
+
+    expect(container.querySelector(".menu-stack__column")).toBeNull();
+    expect(container.querySelectorAll(".menu-stack__sep")).toHaveLength(3);
   });
 
   it("collapses and expands the full provider catalog in the dense tray grid", async () => {
