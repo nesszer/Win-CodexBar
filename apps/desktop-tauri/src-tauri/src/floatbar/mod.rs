@@ -87,6 +87,7 @@ pub fn apply_state(app: &tauri::AppHandle, settings: &Settings) {
         window::apply_no_activate(&w);
         window::apply_opacity(&w, settings.float_bar_opacity);
         window::apply_click_through(&w, settings.float_bar_click_through);
+        window::apply_always_on_top(&w);
     }
 }
 

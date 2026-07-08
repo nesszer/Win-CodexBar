@@ -48,7 +48,9 @@ pub fn show(
         apply_no_activate(&window);
         apply_opacity(&window, opacity);
         apply_click_through(&window, click_through);
+        apply_always_on_top(&window);
         window.show().map_err(|e| e.to_string())?;
+        apply_always_on_top(&window);
         return Ok(());
     }
 
@@ -104,7 +106,9 @@ pub fn show(
     apply_no_activate(&win);
     apply_opacity(&win, opacity);
     apply_click_through(&win, click_through);
+    apply_always_on_top(&win);
     win.show().map_err(|e| e.to_string())?;
+    apply_always_on_top(&win);
     Ok(())
 }
 
@@ -197,7 +201,36 @@ pub fn resize(
         .map_err(|e| e.to_string())?;
     apply_no_activate(window);
     apply_click_through(window, click_through);
+    apply_always_on_top(window);
     Ok(())
+}
+
+/// Re-assert native topmost ordering without activating the window.
+///
+/// Tauri's `always_on_top(true)` sets the initial intent, but on Windows
+/// resize/style changes and competing topmost windows can still disturb z-order.
+/// This Win32 pass keeps the floatbar visually above normal app windows while
+/// preserving the current foreground app's input focus.
+pub fn apply_always_on_top(window: &tauri::WebviewWindow) {
+    let _ = window;
+    #[cfg(windows)]
+    {
+        use raw_window_handle::HasWindowHandle;
+        let Ok(handle) = window.window_handle() else {
+            return;
+        };
+        let raw_window_handle::RawWindowHandle::Win32(h) = handle.as_raw() else {
+            return;
+        };
+        unsafe {
+            const HWND_TOPMOST: isize = -1;
+            const SWP_NOSIZE: u32 = 0x0001;
+            const SWP_NOMOVE: u32 = 0x0002;
+            const SWP_NOACTIVATE: u32 = 0x0010;
+            let flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE;
+            SetWindowPos(h.hwnd.get(), HWND_TOPMOST, 0, 0, 0, 0, flags);
+        }
+    }
 }
 
 /// Apply the current opacity setting to an existing floatbar window via

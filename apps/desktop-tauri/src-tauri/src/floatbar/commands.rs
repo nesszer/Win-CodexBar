@@ -42,6 +42,7 @@ pub fn set_float_bar_opacity(app: AppHandle, opacity: u8) -> Result<(), String> 
     if let Some(window) = app.get_webview_window(floatbar_window::FLOATBAR_LABEL) {
         floatbar_window::apply_no_activate(&window);
         floatbar_window::apply_opacity(&window, opacity);
+        floatbar_window::apply_always_on_top(&window);
     }
     Ok(())
 }
@@ -55,6 +56,16 @@ pub fn set_float_bar_click_through(app: AppHandle, enabled: bool) -> Result<(), 
     if let Some(window) = app.get_webview_window(floatbar_window::FLOATBAR_LABEL) {
         floatbar_window::apply_no_activate(&window);
         floatbar_window::apply_click_through(&window, enabled);
+        floatbar_window::apply_always_on_top(&window);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn assert_float_bar_topmost(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(floatbar_window::FLOATBAR_LABEL) {
+        floatbar_window::apply_no_activate(&window);
+        floatbar_window::apply_always_on_top(&window);
     }
     Ok(())
 }
