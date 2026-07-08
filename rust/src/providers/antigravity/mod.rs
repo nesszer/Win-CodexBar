@@ -16,6 +16,9 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
+const NOT_RUNNING_MESSAGE: &str =
+    "Antigravity language server not running. Start Google Antigravity and sign in, then retry.";
+
 /// Antigravity provider
 pub struct AntigravityProvider {
     metadata: ProviderMetadata,
@@ -113,9 +116,7 @@ impl AntigravityProvider {
             }
         }
 
-        Err(ProviderError::NotInstalled(
-            "Antigravity language server not running".to_string(),
-        ))
+        Err(ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()))
     }
 
     /// Find the actual API port by probing the language server's candidate ports.
@@ -776,5 +777,12 @@ mod tests {
                 .iter()
                 .any(|window| window.title == "Gemini 2.5 Flash Image")
         );
+    }
+
+    #[test]
+    fn not_running_error_tells_user_how_to_start() {
+        let error = ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()).to_string();
+
+        assert!(error.contains("Start Google Antigravity and sign in"));
     }
 }
