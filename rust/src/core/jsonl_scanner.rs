@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 use crate::core::{CostUsagePricing, ProviderId};
-use chrono::NaiveDate;
+use chrono::{DateTime, Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -217,17 +217,10 @@ impl CodexParserState {
                 }
             }
             CodexFastEvent::TokenCount { timestamp, payload } => {
-                let Some(day_key) = timestamp.get(..10) else {
+                let Some(day_key) = codex_timestamp_day_key(timestamp, range) else {
                     return;
                 };
-                if !CostUsageDayRange::is_in_range(
-                    day_key,
-                    &range.scan_since_key,
-                    &range.scan_until_key,
-                ) {
-                    return;
-                }
-                self.record_fast_token_count(payload, day_key.to_string());
+                self.record_fast_token_count(payload, day_key);
             }
         }
     }
@@ -416,10 +409,17 @@ fn is_candidate_codex_line(line: &str) -> bool {
 
 fn codex_line_day_key(obj: &Value, range: &CostUsageDayRange) -> Option<String> {
     let ts = obj.get("timestamp").and_then(|v| v.as_str())?;
-    let day_key = ts.get(..10)?;
+    codex_timestamp_day_key(ts, range)
+}
 
-    CostUsageDayRange::is_in_range(day_key, &range.scan_since_key, &range.scan_until_key)
-        .then(|| day_key.to_string())
+fn codex_timestamp_day_key(timestamp: &str, range: &CostUsageDayRange) -> Option<String> {
+    let day_key = DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|dt| CostUsageDayRange::day_key(dt.with_timezone(&Local).date_naive()))
+        .or_else(|| timestamp.get(..10).map(str::to_string))?;
+
+    CostUsageDayRange::is_in_range(&day_key, &range.scan_since_key, &range.scan_until_key)
+        .then_some(day_key)
 }
 
 fn token_count_payload(obj: &Value) -> Option<&Value> {

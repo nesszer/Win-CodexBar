@@ -141,9 +141,12 @@ export function useTrayPanelLayout({
       await applySize(new PhysicalSize(fixed[0], fixed[1]));
       await Promise.resolve(reanchorTrayPanel()).catch(() => {});
       if (cancelled) return;
+      const shouldReveal = !layoutReadyRef.current;
       layoutReadyRef.current = true;
       setLayoutReady(true);
-      await Promise.resolve(revealTrayPanelWindow()).catch(() => {});
+      if (shouldReveal) {
+        await Promise.resolve(revealTrayPanelWindow()).catch(() => {});
+      }
     })();
     return () => {
       cancelled = true;
@@ -237,10 +240,11 @@ export function useTrayPanelLayout({
 
       const revealPanel = async () => {
         if (run !== resizeRunRef.current) return;
+        const shouldReveal = !layoutReadyRef.current;
         layoutReadyRef.current = true;
         setLayoutReady(true);
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        if (run === resizeRunRef.current) {
+        if (shouldReveal && run === resizeRunRef.current) {
           await Promise.resolve(revealTrayPanelWindow()).catch(() => {});
         }
       };

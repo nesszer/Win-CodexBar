@@ -28,6 +28,12 @@ export interface UseProvidersOptions {
    * enabled providers. Used by the tray/menu "refresh on open" setting.
    */
   forceRefreshOnMount?: boolean;
+  /**
+   * Whether provider reset times should schedule a refresh from this hook.
+   * Detached passive surfaces can disable this and rely on the backend global
+   * refresh loop plus provider-updated events.
+   */
+  refreshOnReset?: boolean;
 }
 
 export interface UseProvidersResult {
@@ -212,6 +218,8 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
       resetRefreshTimerRef.current = undefined;
     }
 
+    if (options.refreshOnReset === false) return;
+
     const now = Date.now();
     const nextReset = providers
       .flatMap((provider) => [
@@ -241,7 +249,7 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
         resetRefreshTimerRef.current = undefined;
       }
     };
-  }, [providers, refresh]);
+  }, [options.refreshOnReset, providers, refresh]);
 
   return {
     providers,

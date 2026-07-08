@@ -145,7 +145,9 @@ function ProviderPill({
  * setting changes (filter list, orientation) live without a reload.
  */
 export default function FloatBar({ state }: { state: BootstrapState }) {
-  const { providers } = useProviders({ refreshOnMount: false });
+  const { providers } = useProviders({
+    refreshOnMount: false,
+  });
   const startDrag = useCallback((event: MouseEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     void getCurrentWindow().startDragging().catch(() => {});
@@ -165,11 +167,9 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   // and re-pull the snapshot when fired.
   const [settings, setSettings] = useState<SettingsSnapshot>(state.settings);
 
-  // The Tauri shell has no global refresh timer — providers only update
-  // when something explicitly asks for it. Drive our own tick here so the
-  // bar reflects fresh data even when the tray panel is closed.
-  // `refreshProvidersIfStale` is a no-op when the backend cache is fresh,
-  // so this is safe to call frequently.
+  // The detached floatbar should keep usage fresh, but it must not open or
+  // focus any other surface. Refresh data only; provider-updated events feed
+  // this window when the backend completes.
   useEffect(() => {
     const intervalMs = Math.max(60_000, settings.refreshIntervalSecs * 1000);
     const tick = () => {
@@ -179,6 +179,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     const id = setInterval(tick, intervalMs);
     return () => clearInterval(id);
   }, [settings.refreshIntervalSecs]);
+
   useEffect(() => {
     const unlisten = listen(FLOAT_BAR_CONFIG_CHANGED_EVENT, () => {
       void getSettingsSnapshot().then(setSettings).catch(() => {});
