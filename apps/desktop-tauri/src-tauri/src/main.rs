@@ -7,6 +7,7 @@ mod commands;
 mod events;
 mod floatbar;
 mod geometry_store;
+mod powertoys;
 mod proof_harness;
 mod shell;
 mod shortcut_bridge;
@@ -213,6 +214,7 @@ fn main() {
             floatbar::hide_float_bar,
             floatbar::set_float_bar_opacity,
             floatbar::set_float_bar_click_through,
+            floatbar::assert_float_bar_topmost,
             floatbar::resize_float_bar,
             floatbar::set_float_bar_orientation,
         ])
@@ -225,6 +227,7 @@ fn main() {
             shortcut_bridge::register(app.handle());
             floatbar::install(app.handle());
             auto_refresh::install(app.handle().clone());
+            powertoys::install(app.handle().clone());
 
             // Give the WebView/event loop one turn to finish startup before
             // routing shortcut launches into the tray panel. Without this, the

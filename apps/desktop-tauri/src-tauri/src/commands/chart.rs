@@ -175,6 +175,12 @@ fn load_local_usage_summary(
     })
 }
 
+pub(crate) fn load_provider_local_usage_summary(
+    provider_id: &str,
+) -> Option<ProviderLocalUsageSummary> {
+    load_local_usage_summary(provider_id, None)
+}
+
 fn localized_estimate_note(provider_id: &str, lang: codexbar::settings::Language) -> String {
     match provider_id {
         "claude" => locale::get_text(lang, LocaleKey::PanelEstimatedFromLocalLogsClaude),

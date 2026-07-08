@@ -13,12 +13,21 @@ pub use window::FLOAT_BAR_CONFIG_CHANGED_EVENT;
 pub use window::FLOATBAR_LABEL;
 
 use codexbar::settings::Settings;
+#[cfg(windows)]
+use std::sync::Once;
+#[cfg(windows)]
+use std::{thread, time::Duration};
 use tauri::{Emitter, Manager};
+
+#[cfg(windows)]
+static TOPMOST_MONITOR: Once = Once::new();
 
 /// Reopen the floating bar on app start if it was enabled previously.
 ///
 /// Called once from `main.rs::setup`. No-op when the setting is off.
 pub fn install(app: &tauri::AppHandle) {
+    install_topmost_monitor(app);
+
     let persisted = Settings::load();
     if persisted.float_bar_enabled {
         let _ = window::show(
@@ -87,6 +96,42 @@ pub fn apply_state(app: &tauri::AppHandle, settings: &Settings) {
         window::apply_no_activate(&w);
         window::apply_opacity(&w, settings.float_bar_opacity);
         window::apply_click_through(&w, settings.float_bar_click_through);
+        window::apply_always_on_top(&w);
+    }
+}
+
+#[cfg(not(windows))]
+fn install_topmost_monitor(_app: &tauri::AppHandle) {}
+
+#[cfg(windows)]
+fn install_topmost_monitor(app: &tauri::AppHandle) {
+    let app = app.clone();
+    TOPMOST_MONITOR.call_once(move || {
+        thread::spawn(move || {
+            let mut last_foreground = window::foreground_window();
+            loop {
+                thread::sleep(Duration::from_millis(250));
+                let current = window::foreground_window();
+                if current == 0 || current == last_foreground {
+                    continue;
+                }
+                last_foreground = current;
+                reassert_topmost_burst(&app);
+            }
+        });
+    });
+}
+
+#[cfg(windows)]
+fn reassert_topmost_burst(app: &tauri::AppHandle) {
+    for delay_ms in [0, 80, 240] {
+        if delay_ms > 0 {
+            thread::sleep(Duration::from_millis(delay_ms));
+        }
+        if let Some(w) = app.get_webview_window(FLOATBAR_LABEL) {
+            window::apply_no_activate(&w);
+            window::apply_always_on_top(&w);
+        }
     }
 }
 
