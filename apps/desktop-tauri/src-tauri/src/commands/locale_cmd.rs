@@ -121,6 +121,17 @@ mod locale_tests {
     }
 
     #[test]
+    fn locale_strings_roundtrip_traditional_chinese() {
+        let bundle = locale_strings_for(Language::ChineseTraditional);
+        assert_eq!(bundle.language, "chinesetraditional");
+        assert_eq!(
+            bundle.entries.get("TabGeneral").map(String::as_str),
+            Some("一般")
+        );
+        assert_eq!(bundle.entries.len(), locale::LocaleKey::ALL.len());
+    }
+
+    #[test]
     fn locale_strings_roundtrip_japanese() {
         let bundle = locale_strings_for(Language::Japanese);
         assert_eq!(bundle.language, "japanese");
@@ -161,11 +172,25 @@ mod locale_tests {
 
         assert_eq!(
             values,
-            vec!["english", "chinese", "japanese", "korean", "spanish"]
+            vec![
+                "english",
+                "chinese",
+                "chinesetraditional",
+                "japanese",
+                "korean",
+                "spanish"
+            ]
         );
         assert_eq!(
             displays,
-            vec!["English", "中文", "日本語", "한국어", "Español"]
+            vec![
+                "English",
+                "中文",
+                "繁體中文（臺灣）",
+                "日本語",
+                "한국어",
+                "Español"
+            ]
         );
     }
 
@@ -190,6 +215,18 @@ mod locale_tests {
         assert!(matches!(
             parse_locale_language("中文"),
             Some(Language::Chinese)
+        ));
+        assert!(matches!(
+            parse_locale_language("zh-tw"),
+            Some(Language::ChineseTraditional)
+        ));
+        assert!(matches!(
+            parse_locale_language("zh-hant"),
+            Some(Language::ChineseTraditional)
+        ));
+        assert!(matches!(
+            parse_locale_language("繁體中文"),
+            Some(Language::ChineseTraditional)
         ));
         assert!(matches!(
             parse_locale_language("ja"),

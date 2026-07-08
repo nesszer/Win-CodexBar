@@ -9,6 +9,7 @@ import type { TabProps } from "../../Settings";
 const FALLBACK_LANGUAGE_OPTIONS: LanguageOption[] = [
   { value: "english", display: "English" },
   { value: "chinese", display: "中文" },
+  { value: "chinesetraditional", display: "繁體中文（臺灣）" },
   { value: "japanese", display: "日本語" },
   { value: "korean", display: "한국어" },
   { value: "spanish", display: "Español" },

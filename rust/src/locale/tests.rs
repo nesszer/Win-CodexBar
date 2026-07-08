@@ -32,6 +32,22 @@ fn test_locale_key_chinese() {
 }
 
 #[test]
+fn test_locale_key_traditional_chinese() {
+    assert_eq!(
+        get_text(Language::ChineseTraditional, LocaleKey::TabGeneral),
+        "一般"
+    );
+    assert_eq!(
+        get_text(Language::ChineseTraditional, LocaleKey::InterfaceLanguage),
+        "介面語言"
+    );
+    assert_eq!(
+        get_text(Language::ChineseTraditional, LocaleKey::StartAtLogin),
+        "登入時啟動"
+    );
+}
+
+#[test]
 fn test_locale_key_japanese() {
     assert_eq!(get_text(Language::Japanese, LocaleKey::TabGeneral), "一般");
     assert_eq!(
@@ -333,6 +349,7 @@ fn test_all_locale_keys_have_all_languages() {
     let resources = [
         ("en-US", include_str!("en-US.ftl")),
         ("zh-CN", include_str!("zh-CN.ftl")),
+        ("zh-TW", include_str!("zh-TW.ftl")),
         ("ja-JP", include_str!("ja-JP.ftl")),
         ("ko-KR", include_str!("ko-KR.ftl")),
         ("es-MX", include_str!("es-MX.ftl")),

@@ -427,9 +427,10 @@ fn test_language_defaults_to_english() {
 #[test]
 fn test_language_all_variants_available() {
     let languages = Language::all();
-    assert_eq!(languages.len(), 5);
+    assert_eq!(languages.len(), 6);
     assert!(languages.contains(&Language::English));
     assert!(languages.contains(&Language::Chinese));
+    assert!(languages.contains(&Language::ChineseTraditional));
     assert!(languages.contains(&Language::Japanese));
     assert!(languages.contains(&Language::Korean));
     assert!(languages.contains(&Language::Spanish));
@@ -439,6 +440,10 @@ fn test_language_all_variants_available() {
 fn test_language_display_names() {
     assert_eq!(Language::English.display_name(), "English");
     assert_eq!(Language::Chinese.display_name(), "中文");
+    assert_eq!(
+        Language::ChineseTraditional.display_name(),
+        "繁體中文（臺灣）"
+    );
     assert_eq!(Language::Japanese.display_name(), "日本語");
 }
 
@@ -498,12 +503,15 @@ fn test_language_serde_serialization() {
     // Test that Language serializes to lowercase string
     let english = Language::English;
     let chinese = Language::Chinese;
+    let chinese_traditional = Language::ChineseTraditional;
 
     let english_json = serde_json::to_string(&english).unwrap();
     let chinese_json = serde_json::to_string(&chinese).unwrap();
+    let chinese_traditional_json = serde_json::to_string(&chinese_traditional).unwrap();
 
     assert_eq!(english_json, "\"english\"");
     assert_eq!(chinese_json, "\"chinese\"");
+    assert_eq!(chinese_traditional_json, "\"chinesetraditional\"");
 }
 
 #[test]
@@ -511,9 +519,31 @@ fn test_language_serde_deserialization() {
     // Test that lowercase strings deserialize correctly
     let english: Language = serde_json::from_str("\"english\"").unwrap();
     let chinese: Language = serde_json::from_str("\"chinese\"").unwrap();
+    let chinese_traditional: Language = serde_json::from_str("\"chinesetraditional\"").unwrap();
 
     assert_eq!(english, Language::English);
     assert_eq!(chinese, Language::Chinese);
+    assert_eq!(chinese_traditional, Language::ChineseTraditional);
+}
+
+#[test]
+fn test_language_resolves_traditional_chinese_aliases() {
+    assert_eq!(
+        Language::resolve("chinesetraditional"),
+        Some(Language::ChineseTraditional)
+    );
+    assert_eq!(
+        Language::resolve("zh-tw"),
+        Some(Language::ChineseTraditional)
+    );
+    assert_eq!(
+        Language::resolve("zh-hant-tw"),
+        Some(Language::ChineseTraditional)
+    );
+    assert_eq!(
+        Language::resolve("繁體中文"),
+        Some(Language::ChineseTraditional)
+    );
 }
 
 #[test]

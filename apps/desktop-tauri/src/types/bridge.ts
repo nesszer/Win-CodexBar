@@ -21,7 +21,13 @@ export type MetricPreference =
   | "extraUsage"
   | "average";
 
-export type Language = "english" | "chinese" | "japanese" | "korean" | "spanish";
+export type Language =
+  | "english"
+  | "chinese"
+  | "chinesetraditional"
+  | "japanese"
+  | "korean"
+  | "spanish";
 
 /** Language catalog entry from the Rust backend. */
 export type LanguageOption = {

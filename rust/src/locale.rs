@@ -46,6 +46,7 @@ pub fn format_locale(lang: Language, key: LocaleKey, args: &[&str]) -> String {
 fn language_id(lang: Language) -> &'static LanguageIdentifier {
     static EN_US: LazyLock<LanguageIdentifier> = LazyLock::new(|| "en-US".parse().unwrap());
     static ZH_CN: LazyLock<LanguageIdentifier> = LazyLock::new(|| "zh-CN".parse().unwrap());
+    static ZH_TW: LazyLock<LanguageIdentifier> = LazyLock::new(|| "zh-TW".parse().unwrap());
     static JA_JP: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ja-JP".parse().unwrap());
     static KO_KR: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ko-KR".parse().unwrap());
     static ES_MX: LazyLock<LanguageIdentifier> = LazyLock::new(|| "es-MX".parse().unwrap());
@@ -53,6 +54,7 @@ fn language_id(lang: Language) -> &'static LanguageIdentifier {
     match lang {
         Language::English => &EN_US,
         Language::Chinese => &ZH_CN,
+        Language::ChineseTraditional => &ZH_TW,
         Language::Japanese => &JA_JP,
         Language::Korean => &KO_KR,
         Language::Spanish => &ES_MX,
