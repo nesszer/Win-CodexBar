@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 use crate::core::{CostUsagePricing, ProviderId};
-use chrono::NaiveDate;
+use chrono::{DateTime, Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -217,17 +217,17 @@ impl CodexParserState {
                 }
             }
             CodexFastEvent::TokenCount { timestamp, payload } => {
-                let Some(day_key) = timestamp.get(..10) else {
+                let Some(day_key) = codex_timestamp_day_key(timestamp) else {
                     return;
                 };
                 if !CostUsageDayRange::is_in_range(
-                    day_key,
+                    &day_key,
                     &range.scan_since_key,
                     &range.scan_until_key,
                 ) {
                     return;
                 }
-                self.record_fast_token_count(payload, day_key.to_string());
+                self.record_fast_token_count(payload, day_key);
             }
         }
     }
@@ -416,10 +416,22 @@ fn is_candidate_codex_line(line: &str) -> bool {
 
 fn codex_line_day_key(obj: &Value, range: &CostUsageDayRange) -> Option<String> {
     let ts = obj.get("timestamp").and_then(|v| v.as_str())?;
-    let day_key = ts.get(..10)?;
+    let day_key = codex_timestamp_day_key(ts)?;
 
-    CostUsageDayRange::is_in_range(day_key, &range.scan_since_key, &range.scan_until_key)
-        .then(|| day_key.to_string())
+    CostUsageDayRange::is_in_range(&day_key, &range.scan_since_key, &range.scan_until_key)
+        .then_some(day_key)
+}
+
+fn codex_timestamp_day_key(timestamp: &str) -> Option<String> {
+    DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|ts| {
+            ts.with_timezone(&Local)
+                .date_naive()
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .or_else(|| timestamp.get(..10).map(str::to_string))
 }
 
 fn token_count_payload(obj: &Value) -> Option<&Value> {
@@ -643,6 +655,7 @@ use chrono::Datelike;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
     use std::io::Write;
 
     #[test]
@@ -684,6 +697,22 @@ mod tests {
         assert_eq!(date.year(), 2026);
         assert_eq!(date.month(), 1);
         assert_eq!(date.day(), 15);
+    }
+
+    #[test]
+    fn codex_timestamp_day_key_uses_local_calendar_day() {
+        let today = Local::now().date_naive();
+        let local_midnight = today.and_hms_opt(0, 30, 0).unwrap();
+        let Some(local_time) = Local.from_local_datetime(&local_midnight).earliest() else {
+            return;
+        };
+        let utc_timestamp = local_time.with_timezone(&chrono::Utc).to_rfc3339();
+        let expected = today.format("%Y-%m-%d").to_string();
+
+        assert_eq!(
+            codex_timestamp_day_key(&utc_timestamp).as_deref(),
+            Some(expected.as_str())
+        );
     }
 
     #[test]
