@@ -331,7 +331,7 @@ impl ProviderId {
             "cursor" => Some(ProviderId::Cursor),
             "factory" | "droid" => Some(ProviderId::Factory),
             "gemini" | "google" => Some(ProviderId::Gemini),
-            "antigravity" => Some(ProviderId::Antigravity),
+            "antigravity" | "agy" => Some(ProviderId::Antigravity),
             "copilot" | "github" => Some(ProviderId::Copilot),
             "zai" | "z.ai" => Some(ProviderId::Zai),
             "minimax" => Some(ProviderId::MiniMax),
@@ -568,6 +568,7 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("ds", ProviderId::DeepSeek);
     map.insert("codeium", ProviderId::Windsurf);
     map.insert("google", ProviderId::Gemini);
+    map.insert("agy", ProviderId::Antigravity);
     map.insert("github", ProviderId::Copilot);
     map.insert("aws", ProviderId::Kiro);
     map.insert("vertex", ProviderId::VertexAI);
@@ -687,6 +688,10 @@ mod tests {
         assert_eq!(ProviderId::from_cli_name("codex"), Some(ProviderId::Codex));
         assert_eq!(ProviderId::from_cli_name("openai"), Some(ProviderId::Codex));
         assert_eq!(
+            ProviderId::from_cli_name("agy"),
+            Some(ProviderId::Antigravity)
+        );
+        assert_eq!(
             ProviderId::from_cli_name("factory"),
             Some(ProviderId::Factory)
         );
@@ -740,6 +745,7 @@ mod tests {
         assert_eq!(map.get("anthropic"), Some(&ProviderId::Claude));
         assert_eq!(map.get("codex"), Some(&ProviderId::Codex));
         assert_eq!(map.get("openai"), Some(&ProviderId::Codex));
+        assert_eq!(map.get("agy"), Some(&ProviderId::Antigravity));
     }
 
     #[test]
