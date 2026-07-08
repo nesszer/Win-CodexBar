@@ -77,6 +77,7 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
         if show_grace_starts_now(false) {
             mark_shown(app);
         }
+        crate::events::emit_flyout_opened(app);
         return Ok(());
     }
 
@@ -377,3 +378,4 @@ mod tests {
         assert!(!show_grace_starts_now(true));
     }
 }
+

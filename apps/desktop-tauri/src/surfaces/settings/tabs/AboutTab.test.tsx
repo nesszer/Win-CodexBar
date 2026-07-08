@@ -61,6 +61,7 @@ const settings: SettingsSnapshot = {
   autoDownloadUpdates: false,
   installUpdatesOnQuit: false,
   globalShortcut: "",
+  codexCustomSessionsDirs: [],
   updateChannel: "stable",
   uiLanguage: "english",
   theme: "dark",

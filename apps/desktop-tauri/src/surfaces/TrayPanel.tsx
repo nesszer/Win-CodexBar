@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
 import {
@@ -97,10 +98,21 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     hasLoadedCache,
   } = useProviders({
     initialRefreshDelayMs: TRAY_INITIAL_REFRESH_DELAY_MS,
-    forceRefreshOnMount: settings.refreshAllProvidersOnMenuOpen,
+    forceRefreshOnMount: true,
   });
   const { updateState, checkNow, download, apply, dismiss, openRelease } =
     useUpdateState();
+
+  useEffect(() => {
+    let active = true;
+    const unlisten = listen("flyout-opened", () => {
+      if (active) refresh();
+    });
+    return () => {
+      active = false;
+      unlisten.then((fn) => fn());
+    };
+  }, [refresh]);
   const { t } = useLocale();
   const surfaceTarget = useSurfaceTarget("trayPanel");
 
@@ -576,3 +588,5 @@ function TrayResizeHandles() {
     </>
   );
 }
+
+

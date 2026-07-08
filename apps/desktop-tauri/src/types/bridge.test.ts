@@ -55,6 +55,7 @@ describe("Language type", () => {
       autoDownloadUpdates: false,
       installUpdatesOnQuit: false,
       globalShortcut: "",
+      codexCustomSessionsDirs: [],
       updateChannel: "stable",
       uiLanguage: "spanish",
       theme: "dark",

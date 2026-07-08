@@ -126,6 +126,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     autoDownloadUpdates: false,
     installUpdatesOnQuit: false,
     globalShortcut: "Ctrl+Shift+U",
+    codexCustomSessionsDirs: [],
     uiLanguage: "english",
     theme: "dark",
     windowScalePercent: 125,
@@ -287,6 +288,21 @@ describe("TrayPanel provider grid", () => {
     fireEvent.keyDown(window, { key: "Escape", metaKey: true });
 
     expect(tauriMocks.dismissTrayPanel).not.toHaveBeenCalled();
+  });
+
+  it("refreshes when the flyout is opened again after being hidden", async () => {
+    renderTrayPanel([provider("codex", "Codex", 35)]);
+
+    await waitFor(() => {
+      expect(tauriMocks.refreshProviders).toHaveBeenCalled();
+    });
+    tauriMocks.refreshProviders.mockClear();
+
+    emitEvent("flyout-opened", null);
+
+    await waitFor(() => {
+      expect(tauriMocks.refreshProviders).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("keeps the existing Ctrl+R tray shortcut", async () => {
@@ -774,3 +790,4 @@ describe("TrayPanel provider grid", () => {
     });
   });
 });
+

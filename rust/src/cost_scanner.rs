@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{CostUsageDayRange, CostUsagePricing, JsonlScanner};
+use crate::settings::Settings;
 
 /// Cost summary from scanning local logs
 #[derive(Debug, Clone, Default)]
@@ -264,11 +265,6 @@ impl CostScanner {
 
     /// Scan Codex local logs, stopping early when the caller cancels the scan.
     pub fn scan_codex_with_cancel(&self, cancel: Option<&AtomicBool>) -> CostSummary {
-        let sessions_dir = self.get_codex_sessions_dir();
-        if !sessions_dir.exists() {
-            return CostSummary::default();
-        }
-
         let mut summary = CostSummary::default();
         let today = Local::now().date_naive();
         let start_date = codex_period_start(today, self.days);
@@ -277,32 +273,12 @@ impl CostScanner {
         summary.period_start = Some(start_date);
         summary.period_end = Some(today);
 
-        // Iterate through the date-based directory structure with one day of
-        // padding on each side. Codex JSONL timestamps are UTC, while the tray
-        // presents local calendar days; the parser filters back to `range`.
-        for date in codex_scan_dates(&range) {
+        for sessions_dir in self.get_codex_sessions_dirs() {
             if is_cancelled(cancel) {
                 break;
             }
-            let year = date.format("%Y").to_string();
-            let month = date.format("%m").to_string();
-            let day = date.format("%d").to_string();
-
-            let day_dir = sessions_dir.join(&year).join(&month).join(&day);
-            if !day_dir.exists() {
-                continue;
-            }
-
-            if let Ok(entries) = fs::read_dir(&day_dir) {
-                for entry in entries.flatten() {
-                    if is_cancelled(cancel) {
-                        break;
-                    }
-                    let path = entry.path();
-                    if path.extension().is_some_and(|e| e == "jsonl") {
-                        self.parse_codex_file(&path, &mut summary, cancel);
-                    }
-                }
+            if sessions_dir.exists() {
+                self.scan_codex_sessions_dir(&sessions_dir, &range, &mut summary, cancel);
             }
         }
 
@@ -346,18 +322,52 @@ impl CostScanner {
         summary
     }
 
-    fn get_codex_sessions_dir(&self) -> PathBuf {
-        if let Ok(codex_home) = std::env::var("CODEX_HOME") {
-            let trimmed = codex_home.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join("sessions");
+    fn get_codex_sessions_dirs(&self) -> Vec<PathBuf> {
+        let settings = Settings::load();
+        let codex_home = std::env::var("CODEX_HOME").ok();
+        codex_sessions_dir_candidates(
+            dirs::home_dir(),
+            codex_home,
+            &settings.codex_custom_sessions_dirs,
+            &default_wsl_roots(),
+        )
+    }
+
+    fn scan_codex_sessions_dir(
+        &self,
+        sessions_dir: &Path,
+        range: &CostUsageDayRange,
+        summary: &mut CostSummary,
+        cancel: Option<&AtomicBool>,
+    ) {
+        // Iterate through the date-based directory structure with one day of
+        // padding on each side. Codex JSONL timestamps are UTC, while the tray
+        // presents local calendar days; the parser filters back to `range`.
+        for date in codex_scan_dates(range) {
+            if is_cancelled(cancel) {
+                break;
+            }
+            let year = date.format("%Y").to_string();
+            let month = date.format("%m").to_string();
+            let day = date.format("%d").to_string();
+
+            let day_dir = sessions_dir.join(&year).join(&month).join(&day);
+            if !day_dir.exists() {
+                continue;
+            }
+
+            if let Ok(entries) = fs::read_dir(&day_dir) {
+                for entry in entries.flatten() {
+                    if is_cancelled(cancel) {
+                        break;
+                    }
+                    let path = entry.path();
+                    if path.extension().is_some_and(|e| e == "jsonl") {
+                        self.parse_codex_file(&path, summary, cancel);
+                    }
+                }
             }
         }
-
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".codex")
-            .join("sessions")
     }
 
     fn get_claude_projects_dir(&self) -> PathBuf {
@@ -606,6 +616,109 @@ fn codex_scan_dates(range: &CostUsageDayRange) -> Vec<NaiveDate> {
     dates
 }
 
+fn codex_sessions_dir_candidates(
+    home_dir: Option<PathBuf>,
+    codex_home: Option<String>,
+    custom_dirs: &[String],
+    wsl_roots: &[PathBuf],
+) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(codex_home) = codex_home {
+        if let Some(sessions_dir) = normalize_codex_sessions_dir(&codex_home) {
+            push_unique_path(&mut dirs, &mut seen, sessions_dir);
+        }
+    } else if let Some(home) = home_dir {
+        push_unique_path(
+            &mut dirs,
+            &mut seen,
+            home.join(".codex").join("sessions"),
+        );
+    }
+
+    for custom_dir in custom_dirs {
+        if let Some(sessions_dir) = normalize_codex_sessions_dir(custom_dir) {
+            push_unique_path(&mut dirs, &mut seen, sessions_dir);
+        }
+    }
+
+    for sessions_dir in discover_wsl_codex_sessions_dirs(wsl_roots) {
+        push_unique_path(&mut dirs, &mut seen, sessions_dir);
+    }
+
+    dirs
+}
+
+fn normalize_codex_sessions_dir(path: impl AsRef<str>) -> Option<PathBuf> {
+    let trimmed = path.as_ref().trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let path = PathBuf::from(trimmed);
+    let file_name = path.file_name().and_then(|name| name.to_str());
+    if file_name.is_some_and(|name| name.eq_ignore_ascii_case("sessions")) {
+        Some(path)
+    } else {
+        Some(path.join("sessions"))
+    }
+}
+
+fn default_wsl_roots() -> Vec<PathBuf> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+
+    let preferred = PathBuf::from(r"\\wsl.localhost");
+    if fs::read_dir(&preferred).is_ok() {
+        return vec![preferred];
+    }
+
+    vec![PathBuf::from(r"\\wsl$")]
+}
+
+fn discover_wsl_codex_sessions_dirs(wsl_roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen = HashSet::new();
+
+    for wsl_root in wsl_roots {
+        let Ok(distros) = fs::read_dir(wsl_root) else {
+            continue;
+        };
+
+        for distro in distros.flatten() {
+            let distro_path = distro.path();
+            let homes_dir = distro_path.join("home");
+            if let Ok(users) = fs::read_dir(&homes_dir) {
+                for user in users.flatten() {
+                    let sessions_dir = user.path().join(".codex").join("sessions");
+                    if sessions_dir.exists() {
+                        push_unique_path(&mut dirs, &mut seen, sessions_dir);
+                    }
+                }
+            }
+
+            let root_sessions_dir = distro_path.join("root").join(".codex").join("sessions");
+            if root_sessions_dir.exists() {
+                push_unique_path(&mut dirs, &mut seen, root_sessions_dir);
+            }
+        }
+    }
+
+    dirs
+}
+
+fn push_unique_path(dirs: &mut Vec<PathBuf>, seen: &mut HashSet<String>, path: PathBuf) {
+    let key = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    if seen.insert(key) {
+        dirs.push(path);
+    }
+}
+
 fn add_codex_days_to_summary(
     summary: &mut CostSummary,
     days: &CodexDays,
@@ -692,7 +805,11 @@ fn codex_days_in_range<'a>(
 #[allow(dead_code)]
 pub fn has_cost_usage_sources() -> bool {
     let scanner = CostScanner::new(1);
-    scanner.get_codex_sessions_dir().exists() || scanner.get_claude_projects_dir().exists()
+    scanner
+        .get_codex_sessions_dirs()
+        .iter()
+        .any(|dir| dir.exists())
+        || scanner.get_claude_projects_dir().exists()
 }
 
 /// Get daily cost history for the last N days
@@ -711,15 +828,15 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
 
     match provider {
         "codex" => {
-            // Scan Codex logs by day
-            let sessions_dir = scanner.get_codex_sessions_dir();
-            if sessions_dir.exists() {
-                for days_ago in 0..days {
-                    let date = today - Duration::days(days_ago as i64);
-                    let date_str = date.format("%Y-%m-%d").to_string();
-                    let range = CostUsageDayRange::new(date, date);
-                    let mut day_cost = 0.0;
+            // Scan Codex logs by day across Windows and WSL session roots.
+            let sessions_dirs = scanner.get_codex_sessions_dirs();
+            for days_ago in 0..days {
+                let date = today - Duration::days(days_ago as i64);
+                let date_str = date.format("%Y-%m-%d").to_string();
+                let range = CostUsageDayRange::new(date, date);
+                let mut day_cost = 0.0;
 
+                for sessions_dir in sessions_dirs.iter().filter(|dir| dir.exists()) {
                     for scan_date in codex_scan_dates(&range) {
                         let year = scan_date.format("%Y").to_string();
                         let month = scan_date.format("%m").to_string();
@@ -737,8 +854,8 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
                             }
                         }
                     }
-                    daily_costs.insert(date_str, day_cost);
                 }
+                daily_costs.insert(date_str, day_cost);
             }
         }
         "claude" => {
@@ -901,6 +1018,43 @@ mod tests {
         assert_eq!(codex_speed_bucket("gpt-5.5-fast"), "fast");
         assert_eq!(codex_speed_bucket("gpt-5.3-codex-spark"), "fast");
         assert_eq!(codex_speed_bucket("gpt-5-codex"), "standard");
+    }
+
+    #[test]
+    fn normalizes_codex_root_to_sessions_dir() {
+        assert_eq!(
+            normalize_codex_sessions_dir(r"\\wsl.localhost\archlinux\home\kk\.codex"),
+            Some(PathBuf::from(
+                r"\\wsl.localhost\archlinux\home\kk\.codex\sessions"
+            ))
+        );
+        assert_eq!(
+            normalize_codex_sessions_dir(r"C:\Users\me\.codex\sessions"),
+            Some(PathBuf::from(r"C:\Users\me\.codex\sessions"))
+        );
+        assert_eq!(normalize_codex_sessions_dir("  "), None);
+    }
+
+    fn discovers_wsl_codex_sessions_dirs_from_distro_homes() {
+        let base = std::env::temp_dir().join(format!(
+            "codexbar-wsl-roots-{}",
+            std::process::id()
+        ));
+        let distro = base.join("Ubuntu");
+        let user_sessions = distro
+            .join("home")
+            .join("alice")
+            .join(".codex")
+            .join("sessions");
+        let root_sessions = distro.join("root").join(".codex").join("sessions");
+        fs::create_dir_all(&user_sessions).unwrap();
+        fs::create_dir_all(&root_sessions).unwrap();
+
+        let dirs = discover_wsl_codex_sessions_dirs(&[base.clone()]);
+
+        assert!(dirs.contains(&user_sessions));
+        assert!(dirs.contains(&root_sessions));
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]
@@ -1141,3 +1295,7 @@ mod tests {
         let _ = std::fs::remove_file(&file_b);
     }
 }
+
+
+
+

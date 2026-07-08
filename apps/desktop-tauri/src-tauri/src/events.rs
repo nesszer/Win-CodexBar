@@ -21,6 +21,7 @@ pub const LOGIN_PHASE_CHANGED: &str = "login-phase-changed";
 pub const PROOF_STATE_CHANGED: &str = "proof-state-changed";
 pub const LOCALE_CHANGED: &str = "locale-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
+pub const FLYOUT_OPENED: &str = "flyout-opened";
 
 // ── Payloads ─────────────────────────────────────────────────────────
 
@@ -93,4 +94,8 @@ pub fn emit_proof_state_changed(app: &AppHandle, payload: &ProofStatePayload) {
 /// do not share React state. Payload-less; listeners re-fetch the snapshot.
 pub fn emit_settings_changed(app: &AppHandle) {
     let _ = app.emit(SETTINGS_CHANGED, ());
+}
+
+pub fn emit_flyout_opened(app: &AppHandle) {
+    let _ = app.emit(FLYOUT_OPENED, ());
 }

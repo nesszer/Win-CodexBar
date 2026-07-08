@@ -98,6 +98,7 @@ pub fn reveal_tray_panel_window(
         .map_err(|e| e.to_string())?
         .mark_tray_panel_shown(std::time::Instant::now());
     window.set_focus().map_err(|e| e.to_string())?;
+    crate::events::emit_flyout_opened(&app);
     Ok(())
 }
 
@@ -200,3 +201,4 @@ fn target_label(target: &SurfaceTarget) -> String {
         SurfaceTarget::Settings { tab } => format!("settings:{tab}"),
     }
 }
+
