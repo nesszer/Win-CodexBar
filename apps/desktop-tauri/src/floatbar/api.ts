@@ -27,10 +27,6 @@ export function setFloatBarClickThrough(enabled: boolean): Promise<void> {
   return invoke<void>("set_float_bar_click_through", { enabled });
 }
 
-export function assertFloatBarTopmost(): Promise<void> {
-  return invoke<void>("assert_float_bar_topmost");
-}
-
 export function resizeFloatBar(width: number, height: number): Promise<void> {
   return invoke<void>("resize_float_bar", { width, height });
 }

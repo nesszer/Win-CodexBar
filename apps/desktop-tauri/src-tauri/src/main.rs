@@ -213,7 +213,6 @@ fn main() {
             floatbar::hide_float_bar,
             floatbar::set_float_bar_opacity,
             floatbar::set_float_bar_click_through,
-            floatbar::assert_float_bar_topmost,
             floatbar::resize_float_bar,
             floatbar::set_float_bar_orientation,
         ])
