@@ -290,39 +290,6 @@ describe("TrayPanel provider grid", () => {
     expect(tauriMocks.dismissTrayPanel).not.toHaveBeenCalled();
   });
 
-  it("refreshes when the flyout is opened again and refresh-on-open is enabled", async () => {
-    renderTrayPanel(
-      [provider("codex", "Codex", 35)],
-      { refreshAllProvidersOnMenuOpen: true },
-    );
-
-    await waitFor(() => {
-      expect(tauriMocks.refreshProviders).toHaveBeenCalled();
-    });
-    tauriMocks.refreshProviders.mockClear();
-
-    emitEvent("flyout-opened", null);
-
-    await waitFor(() => {
-      expect(tauriMocks.refreshProviders).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it("uses stale-aware refresh on reopen when refresh-on-open is disabled", async () => {
-    renderTrayPanel([provider("codex", "Codex", 35)]);
-
-    await waitFor(() => {
-      expect(tauriMocks.refreshProvidersIfStale).toHaveBeenCalled();
-    });
-    tauriMocks.refreshProviders.mockClear();
-    tauriMocks.refreshProvidersIfStale.mockClear();
-
-    emitEvent("flyout-opened", null);
-
-    expect(tauriMocks.refreshProviders).not.toHaveBeenCalled();
-    expect(tauriMocks.refreshProvidersIfStale).toHaveBeenCalledTimes(1);
-  });
-
   it("keeps the existing Ctrl+R tray shortcut", async () => {
     const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
 

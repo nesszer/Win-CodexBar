@@ -700,6 +700,9 @@ locale_keys! {
     PanelReserveLastsUntilReset,
     PanelReserveRunsOutInDaysHours,
     PanelReserveRunsOutInHours,
+    FloatBarThirtyDayShort,
+    FloatBarNoProviders,
+    FloatBarRemainingSuffix,
 
     // Tauri desktop shell — update banner
     BannerCheckingForUpdates,

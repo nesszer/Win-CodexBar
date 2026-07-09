@@ -809,12 +809,11 @@ mod tests {
         assert!(result.is_ok());
         let snapshot = menu_snapshot();
         assert_eq!(snapshot.menu_path.as_deref(), Some("tray"));
-        assert!(
-            snapshot
-                .menu_items
-                .iter()
-                .any(|item| item == "About CodexBar")
+        let about_label = codexbar::locale::get_text(
+            codexbar::settings::Settings::load().ui_language,
+            codexbar::locale::LocaleKey::MenuAbout,
         );
+        assert!(snapshot.menu_items.iter().any(|item| item == &about_label));
     }
 
     #[test]

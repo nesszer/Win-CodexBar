@@ -162,6 +162,11 @@ describe("FloatBar", () => {
         ResetsInHoursMinutes: "Resets in {}h {}m",
         ResetsInDaysHours: "Resets in {}d {}h",
         TrayResetsDueNow: "Resetting",
+        PanelToday: "Today",
+        PanelUsedSuffix: "used",
+        FloatBarThirtyDayShort: "30d",
+        FloatBarNoProviders: "No providers",
+        FloatBarRemainingSuffix: "remaining",
       }),
     );
     eventMocks.listen.mockResolvedValue(() => {});

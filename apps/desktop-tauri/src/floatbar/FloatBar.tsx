@@ -10,6 +10,7 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
+import { useLocale } from "../hooks/useLocale";
 import { useProviders } from "../hooks/useProviders";
 import {
   getProviderLocalUsageSummary,
@@ -73,6 +74,12 @@ type FloatBarCostSummary = {
   thirtyDayCost: number | null;
 };
 
+type FloatBarCostTarget = {
+  key: string;
+  providerId: string;
+  displayName: string;
+};
+
 function providerCostKey(provider: ProviderUsageSnapshot): string {
   return `${provider.providerId}:${provider.accountEmail ?? ""}`;
 }
@@ -86,12 +93,25 @@ function formatUsd(value: number | null): string | null {
   return `$${value.toFixed(2)}`;
 }
 
-function CostPill({ summary, scale }: { summary: FloatBarCostSummary; scale: number }) {
+function CostPill({
+  summary,
+  scale,
+  todayLabel,
+  thirtyDayLabel,
+}: {
+  summary: FloatBarCostSummary;
+  scale: number;
+  todayLabel: string;
+  thirtyDayLabel: string;
+}) {
   const today = formatUsd(summary.todayCost);
   const thirtyDay = formatUsd(summary.thirtyDayCost);
   const iconSize = Math.round(10 * scale);
   const brand = getProviderIcon(summary.providerId).brandColor;
-  const title = [today ? `Today ${today}` : null, thirtyDay ? `30d ${thirtyDay}` : null]
+  const title = [
+    today ? `${todayLabel} ${today}` : null,
+    thirtyDay ? `${thirtyDayLabel} ${thirtyDay}` : null,
+  ]
     .filter(Boolean)
     .join(" / ");
 
@@ -109,7 +129,7 @@ function CostPill({ summary, scale }: { summary: FloatBarCostSummary; scale: num
         {today && (
           <span className="floatbar__cost-item" data-tauri-drag-region>
             <span className="floatbar__cost-label" data-tauri-drag-region>
-              Today
+              {todayLabel}
             </span>
             <span className="floatbar__cost-value" data-tauri-drag-region>
               {today}
@@ -119,7 +139,7 @@ function CostPill({ summary, scale }: { summary: FloatBarCostSummary; scale: num
         {thirtyDay && (
           <span className="floatbar__cost-item" data-tauri-drag-region>
             <span className="floatbar__cost-label" data-tauri-drag-region>
-              30d
+              {thirtyDayLabel}
             </span>
             <span className="floatbar__cost-value" data-tauri-drag-region>
               {thirtyDay}
@@ -145,6 +165,8 @@ function ProviderPill({
   scale,
   showResetInline,
   resetRelative,
+  usedSuffix,
+  remainingSuffix,
 }: {
   provider: ProviderUsageSnapshot;
   highRemaining: number;
@@ -153,11 +175,13 @@ function ProviderPill({
   scale: number;
   showResetInline: boolean;
   resetRelative: boolean;
+  usedSuffix: string;
+  remainingSuffix: string;
 }) {
   const remaining = Math.max(0, Math.min(100, provider.primary.remainingPercent));
   const used = Math.max(0, Math.min(100, provider.primary.usedPercent));
   const displayPercent = showAsUsed ? used : remaining;
-  const displaySuffix = showAsUsed ? "used" : "remaining";
+  const displaySuffix = showAsUsed ? usedSuffix : remainingSuffix;
   const exhausted = provider.primary.isExhausted || provider.error;
   let tone: "ok" | "warn" | "crit" = "ok";
   if (exhausted || remaining <= critRemaining) tone = "crit";
@@ -215,6 +239,7 @@ function ProviderPill({
  * setting changes (filter list, orientation) live without a reload.
  */
 export default function FloatBar({ state }: { state: BootstrapState }) {
+  const { t } = useLocale();
   const { providers } = useProviders({
     refreshOnMount: false,
   });
@@ -277,17 +302,22 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return [...list].sort((a, b) => b.primary.usedPercent - a.primary.usedPercent);
   }, [providers, settings.enabledProviders, filterIds]);
 
-  const visibleCostKey = visible
-    .map((p) => `${providerCostKey(p)}:${p.updatedAt}`)
+  const visibleCostTargetKey = visible
+    .map((p) => `${providerCostKey(p)}:${p.providerId}:${p.displayName}`)
     .join("|");
+  const visibleCostTargets = useMemo<FloatBarCostTarget[]>(
+    () =>
+      visible.map((provider) => ({
+        key: providerCostKey(provider),
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+      })),
+    [visibleCostTargetKey],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    const targets = visible.map((provider) => ({
-      key: providerCostKey(provider),
-      providerId: provider.providerId,
-      displayName: provider.displayName,
-    }));
+    const targets = visibleCostTargets;
 
     if (targets.length === 0) {
       setLocalCosts({});
@@ -326,7 +356,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return () => {
       cancelled = true;
     };
-  }, [visible, visibleCostKey]);
+  }, [visibleCostTargets]);
 
   const visibleCosts = visible
     .map((provider) => localCosts[providerCostKey(provider)])
@@ -405,7 +435,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
       <div className="floatbar__handle" data-tauri-drag-region aria-hidden />
       {visible.length === 0 ? (
         <div className="floatbar__empty" data-tauri-drag-region>
-          No providers
+          {t("FloatBarNoProviders")}
         </div>
       ) : (
         <>
@@ -419,10 +449,18 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
               scale={scale}
               showResetInline={showResetInline}
               resetRelative={settings.resetTimeRelative}
+              usedSuffix={t("PanelUsedSuffix")}
+              remainingSuffix={t("FloatBarRemainingSuffix")}
             />
           ))}
           {visibleCosts.map((summary) => (
-            <CostPill key={`cost:${summary.key}`} summary={summary} scale={scale} />
+            <CostPill
+              key={`cost:${summary.key}`}
+              summary={summary}
+              scale={scale}
+              todayLabel={t("PanelToday")}
+              thirtyDayLabel={t("FloatBarThirtyDayShort")}
+            />
           ))}
         </>
       )}
