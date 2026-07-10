@@ -509,6 +509,7 @@ function CredentialsDispatcher({
       return <OpenAiExtras providerId={providerId} t={t} />;
     case "litellm":
     case "devin":
+    case "opencodego":
     case "zed":
       return <OpenAiExtras providerId={providerId} t={t} />;
     default:

@@ -17,6 +17,9 @@ pub fn validate_provider_workspace_value(
         ProviderId::OpenAIApi => validate_id(trimmed, "OpenAI project ID", |value| {
             value.starts_with("proj_") && has_safe_id_chars(value)
         }),
+        ProviderId::OpenCodeGo => validate_id(trimmed, "OpenCode Go workspace ID", |value| {
+            value.starts_with("wrk_") && has_safe_id_chars(value)
+        }),
         ProviderId::Devin => validate_id(trimmed, "Devin organization", |value| {
             let Some((prefix, org)) = value.split_once('/') else {
                 return false;
@@ -146,12 +149,17 @@ mod tests {
             validate_provider_workspace_value(ProviderId::Devin, "org/acme_123").unwrap(),
             "org/acme_123"
         );
+        assert_eq!(
+            validate_provider_workspace_value(ProviderId::OpenCodeGo, " wrk_abc-123 ").unwrap(),
+            "wrk_abc-123"
+        );
         assert!(
             validate_provider_workspace_value(ProviderId::OpenAIApi, "https://evil.test").is_err()
         );
         assert!(
             validate_provider_workspace_value(ProviderId::Devin, "https://api.devin.ai").is_err()
         );
+        assert!(validate_provider_workspace_value(ProviderId::OpenCodeGo, "wrk_abc/123").is_err());
     }
 
     #[test]

@@ -47,6 +47,10 @@ impl OpenCodeGoProvider {
         }
     }
 
+    fn workspace_id_from_context(workspace_id: Option<&str>) -> Option<&str> {
+        workspace_id.filter(|id| !id.is_empty())
+    }
+
     async fn fetch_workspace_id(&self, cookie_header: &str) -> Result<String, ProviderError> {
         let url = format!("{}?id={}", SERVER_URL, WORKSPACES_SERVER_ID);
         let response = self
@@ -315,8 +319,12 @@ impl OpenCodeGoProvider {
     async fn fetch_with_cookies(
         &self,
         cookie_header: &str,
+        workspace_id_override: Option<&str>,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let workspace_id = self.fetch_workspace_id(cookie_header).await?;
+        let workspace_id = match Self::workspace_id_from_context(workspace_id_override) {
+            Some(workspace_id) => workspace_id.to_string(),
+            None => self.fetch_workspace_id(cookie_header).await?,
+        };
         let page = self.fetch_usage_page(&workspace_id, cookie_header).await?;
         let mut usage = Self::parse_usage_text(&page)?;
         let balance = Self::parse_zen_balance(&page);
@@ -357,11 +365,16 @@ impl Provider for OpenCodeGoProvider {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::Web => {
                 if let Some(ref cookie_header) = ctx.manual_cookie_header {
-                    return self.fetch_with_cookies(cookie_header).await;
+                    return self
+                        .fetch_with_cookies(cookie_header, ctx.workspace_id.as_deref())
+                        .await;
                 }
 
                 match crate::providers::browser_cookie_header(&["opencode.ai"]) {
-                    Ok(cookie_header) => match self.fetch_with_cookies(&cookie_header).await {
+                    Ok(cookie_header) => match self
+                        .fetch_with_cookies(&cookie_header, ctx.workspace_id.as_deref())
+                        .await
+                    {
                         Ok(result) => return Ok(result),
                         Err(ProviderError::AuthRequired) => {}
                         Err(e) => return Err(e),
@@ -401,6 +414,18 @@ mod tests {
         assert_eq!(
             ids,
             vec!["wrk_abc123".to_string(), "wrk_def456".to_string()]
+        );
+    }
+
+    #[test]
+    fn uses_context_workspace_id_before_discovery() {
+        assert_eq!(
+            OpenCodeGoProvider::workspace_id_from_context(Some("wrk_override")),
+            Some("wrk_override")
+        );
+        assert_eq!(
+            OpenCodeGoProvider::workspace_id_from_context(Some("")),
+            None
         );
     }
 
