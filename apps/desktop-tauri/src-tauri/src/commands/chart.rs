@@ -223,20 +223,29 @@ pub(crate) fn cached_provider_local_usage_summary(
         .and_then(|entry| entry.summary.clone())
 }
 
+pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>) {
+    if provider_ids.is_empty() {
+        return;
+    }
+
+    if let Err(err) = tauri::async_runtime::spawn_blocking(move || {
+        for provider_id in provider_ids {
+            let summary = load_local_usage_summary(&provider_id, None);
+            store_local_usage_summary(&provider_id, summary);
+        }
+    })
+    .await
+    {
+        tracing::warn!("Provider local usage refresh worker failed: {err}");
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn cache_provider_local_usage_summary_for_test(
     provider_id: &str,
     summary: Option<ProviderLocalUsageSummary>,
 ) {
-    if let Ok(mut guard) = local_usage_cache().lock() {
-        guard.insert(
-            provider_id.to_string(),
-            CachedLocalUsage {
-                loaded_at: Instant::now(),
-                summary,
-            },
-        );
-    }
+    store_local_usage_summary(provider_id, summary);
 }
 
 fn load_local_usage_summary_cached(
@@ -260,16 +269,20 @@ fn load_local_usage_summary_cached(
         return None;
     }
 
-    if let Ok(mut guard) = cache.lock() {
+    store_local_usage_summary(provider_id, summary.clone());
+    summary
+}
+
+fn store_local_usage_summary(provider_id: &str, summary: Option<ProviderLocalUsageSummary>) {
+    if let Ok(mut guard) = local_usage_cache().lock() {
         guard.insert(
             provider_id.to_string(),
             CachedLocalUsage {
                 loaded_at: Instant::now(),
-                summary: summary.clone(),
+                summary,
             },
         );
     }
-    summary
 }
 
 fn localized_estimate_note(provider_id: &str, lang: codexbar::settings::Language) -> String {

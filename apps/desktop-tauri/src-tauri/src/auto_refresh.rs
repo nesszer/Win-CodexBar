@@ -14,11 +14,35 @@ pub fn install(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             if should_refresh(&app) {
-                let _ = crate::commands::do_refresh_providers_if_stale(&app).await;
+                if crate::commands::do_refresh_providers_if_stale(&app)
+                    .await
+                    .is_ok()
+                {
+                    refresh_powertoys_local_usage_cache().await;
+                }
             }
             tokio::time::sleep(AUTO_REFRESH_POLL_INTERVAL).await;
         }
     });
+}
+
+async fn refresh_powertoys_local_usage_cache() {
+    let settings = Settings::load();
+    let provider_ids = powertoys_local_usage_provider_ids(&settings);
+    crate::commands::refresh_provider_local_usage_cache(provider_ids).await;
+}
+
+fn powertoys_local_usage_provider_ids(settings: &Settings) -> Vec<String> {
+    if !settings.powertoys_status_pipe_enabled {
+        return Vec::new();
+    }
+
+    settings
+        .get_enabled_provider_ids()
+        .into_iter()
+        .map(|provider| provider.cli_name().to_string())
+        .filter(|provider_id| matches!(provider_id.as_str(), "codex" | "claude"))
+        .collect()
 }
 
 fn should_refresh(app: &tauri::AppHandle) -> bool {
@@ -100,5 +124,21 @@ mod tests {
     #[test]
     fn active_refresh_blocks_overlapping_background_refresh() {
         assert!(!should_refresh_from_values(true, None, 300));
+    }
+
+    #[test]
+    fn powertoys_local_usage_refresh_only_includes_supported_enabled_providers() {
+        let mut settings = Settings::default();
+        assert!(powertoys_local_usage_provider_ids(&settings).is_empty());
+
+        settings.powertoys_status_pipe_enabled = true;
+        settings.enabled_providers = ["codex".to_string(), "cursor".to_string()]
+            .into_iter()
+            .collect();
+
+        assert_eq!(
+            powertoys_local_usage_provider_ids(&settings),
+            vec!["codex".to_string()]
+        );
     }
 }
