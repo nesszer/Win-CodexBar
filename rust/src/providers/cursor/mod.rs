@@ -31,7 +31,7 @@ impl CursorProvider {
                 supports_credits: true,
                 default_enabled: true,
                 is_primary: false,
-                dashboard_url: Some("https://cursor.com/settings/usage"),
+                dashboard_url: Some("https://cursor.com/dashboard/usage"),
                 status_page_url: None,
             },
             api: CursorApi::new(),
