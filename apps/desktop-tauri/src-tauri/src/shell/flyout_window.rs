@@ -298,6 +298,12 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
         width: monitor.work_area().size.width,
         height: monitor.work_area().size.height,
     };
+    let monitor_bounds = Rect {
+        x: monitor.position().x,
+        y: monitor.position().y,
+        width: monitor.size().width,
+        height: monitor.size().height,
+    };
 
     let (x, y) = {
         let st = app.try_state::<Mutex<AppState>>();
@@ -310,6 +316,7 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
                     width: a.width,
                     height: a.height,
                 },
+                &monitor_bounds,
                 &work_area,
                 &panel_size,
                 scale,

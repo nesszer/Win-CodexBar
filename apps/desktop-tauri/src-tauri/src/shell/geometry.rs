@@ -122,6 +122,7 @@ pub(super) fn inferred_tray_panel_position_for_monitor_size(
 ) -> (i32, i32) {
     window_positioner::calculate_panel_position(
         &inferred_tray_anchor_rect(monitor),
+        &monitor.bounds,
         &monitor.work_area,
         panel_size,
         monitor.scale_factor,

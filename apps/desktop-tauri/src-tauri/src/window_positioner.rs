@@ -83,16 +83,18 @@ pub fn clamp_position_to_work_area(
 ///
 /// Placement rules:
 /// - Horizontally centered on the icon, clamped to the monitor work area.
+/// - Left/right taskbars bottom-align the panel to the work area.
 /// - If the icon is in the bottom half of the monitor (bottom taskbar), the
 ///   panel opens *above* the icon. Otherwise it opens *below*.
 pub fn calculate_panel_position(
     icon_rect: &Rect,
-    monitor_rect: &Rect,
+    monitor_bounds: &Rect,
+    work_area: &Rect,
     panel_size: &PanelSize,
     scale_factor: f64,
 ) -> (i32, i32) {
-    let my = monitor_rect.y;
-    let mh = monitor_rect.height as i32;
+    let my = work_area.y;
+    let mh = work_area.height as i32;
 
     let icon_cy = icon_rect.y + (icon_rect.height as i32) / 2;
     let monitor_cy = my + mh / 2;
@@ -104,14 +106,26 @@ pub fn calculate_panel_position(
         icon_rect.y + icon_rect.height as i32
     };
 
-    calculate_anchored_position(
+    let position = calculate_anchored_position(
         icon_rect,
-        monitor_rect,
+        work_area,
         panel_size,
         scale_factor,
         anchor_y,
         open_above,
-    )
+    );
+    let bounds_right = monitor_bounds.x + monitor_bounds.width as i32;
+    let work_right = work_area.x + work_area.width as i32;
+
+    if work_area.x > monitor_bounds.x || work_right < bounds_right {
+        let (_, ph) = physical_panel_size(panel_size, scale_factor);
+        (
+            position.0,
+            work_area.y + work_area.height as i32 - ph - MARGIN,
+        )
+    } else {
+        position
+    }
 }
 
 /// Position for shortcut-triggered opening: 22 % from left, vertically centred.
@@ -222,7 +236,8 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (_, y) = calculate_panel_position(&icon, &hd_monitor(), &panel(), 1.0);
+        let monitor = hd_monitor();
+        let (_, y) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(y < icon.y, "panel should sit above the icon");
     }
 
@@ -234,7 +249,8 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (_, y) = calculate_panel_position(&icon, &hd_monitor(), &panel(), 1.0);
+        let monitor = hd_monitor();
+        let (_, y) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(
             y >= icon.y + icon.height as i32,
             "panel should sit below the icon"
@@ -249,7 +265,8 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (x, _) = calculate_panel_position(&icon, &hd_monitor(), &panel(), 1.0);
+        let monitor = hd_monitor();
+        let (x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         let icon_cx = icon.x + 12;
         let panel_cx = x + 210;
         assert!(
@@ -267,7 +284,8 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (x, _) = calculate_panel_position(&icon, &hd_monitor(), &panel(), 1.0);
+        let monitor = hd_monitor();
+        let (x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(x >= MARGIN, "panel must not exceed left margin");
     }
 
@@ -279,7 +297,8 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (x, _) = calculate_panel_position(&icon, &hd_monitor(), &panel(), 1.0);
+        let monitor = hd_monitor();
+        let (x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(
             x + panel().width as i32 + MARGIN <= 1920,
             "panel must not exceed right margin"
@@ -294,7 +313,8 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (_, y) = calculate_panel_position(&icon, &hd_monitor(), &panel(), 1.0);
+        let monitor = hd_monitor();
+        let (_, y) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(y >= MARGIN, "panel must not exceed top margin");
     }
 
@@ -312,7 +332,8 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (_, y) = calculate_panel_position(&icon, &work_area, &panel(), 1.0);
+        let monitor = hd_monitor();
+        let (_, y) = calculate_panel_position(&icon, &monitor, &work_area, &panel(), 1.0);
         assert_eq!(y, work_area.y + MARGIN);
     }
 
@@ -330,7 +351,7 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (x, _) = calculate_panel_position(&icon, &monitor, &panel(), 1.0);
+        let (x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(x >= monitor.x + MARGIN);
         assert!(x + panel().width as i32 + MARGIN <= monitor.x + monitor.width as i32);
     }
@@ -343,8 +364,9 @@ mod tests {
             width: 24,
             height: 24,
         };
-        let (x1, y1) = calculate_panel_position(&icon, &hd_monitor(), &panel(), 1.0);
-        let (x2, y2) = calculate_panel_position(&icon, &hd_monitor(), &panel(), 2.0);
+        let monitor = hd_monitor();
+        let (x1, y1) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
+        let (x2, y2) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 2.0);
         assert!(
             x2 < x1,
             "higher scale should shift the panel left to fit its physical width"
@@ -410,7 +432,8 @@ mod tests {
             height: 24,
         };
 
-        let (panel_x, _) = calculate_panel_position(&icon, &standard_monitor(), &panel(), 1.0);
+        let monitor = standard_monitor();
+        let (panel_x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         let (popout_x, _) =
             calculate_popout_position(Some(&icon), &standard_monitor(), &panel(), 1.0);
 

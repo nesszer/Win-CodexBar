@@ -1,7 +1,7 @@
 use super::ShellTransitionRequest;
 use super::geometry::{
     MonitorPlacement, inferred_tray_anchor_rect, inferred_tray_panel_position_for_monitor,
-    surface_panel_size, tray_anchor_rect,
+    inferred_tray_panel_position_for_monitor_size, surface_panel_size, tray_anchor_rect,
 };
 use super::position::{
     remembered_panel_size, remembered_surface_position_with_monitors,
@@ -21,7 +21,7 @@ use super::window::{
 use crate::state::AppState;
 use crate::surface::{SurfaceMode, SurfaceTransition};
 use crate::surface_target::SurfaceTarget;
-use crate::window_positioner::{self, Rect};
+use crate::window_positioner::{self, PanelSize, Rect};
 
 #[test]
 fn hide_to_tray_resets_hidden_target_to_summary() {
@@ -738,6 +738,7 @@ fn inferred_tray_panel_position_uses_tray_style_corner_fallback() {
                 width: 24,
                 height: 24,
             },
+            &monitor.bounds,
             &monitor.work_area,
             &super::geometry::tray_panel_size(),
             monitor.scale_factor,
@@ -763,22 +764,40 @@ fn inferred_tray_panel_position_supports_left_taskbar_layouts() {
         scale_factor: 1.0,
     };
 
-    let position = inferred_tray_panel_position_for_monitor(&monitor);
+    let panel_size = PanelSize {
+        width: 420,
+        height: 560,
+    };
+    let position = inferred_tray_panel_position_for_monitor_size(&monitor, &panel_size);
 
-    assert_eq!(
-        position,
-        window_positioner::calculate_panel_position(
-            &Rect {
-                x: 8,
-                y: 1048,
-                width: 24,
-                height: 24,
-            },
-            &monitor.work_area,
-            &super::geometry::tray_panel_size(),
-            monitor.scale_factor,
-        )
-    );
+    assert_eq!(position.1, 1080 - 560 - 8);
+}
+
+#[test]
+fn inferred_tray_panel_position_bottom_aligns_for_high_dpi_right_taskbar() {
+    let monitor = MonitorPlacement {
+        bounds: Rect {
+            x: 0,
+            y: 0,
+            width: 3840,
+            height: 2160,
+        },
+        work_area: Rect {
+            x: 0,
+            y: 0,
+            width: 3760,
+            height: 2160,
+        },
+        scale_factor: 2.0,
+    };
+
+    let panel_size = PanelSize {
+        width: 420,
+        height: 560,
+    };
+    let position = inferred_tray_panel_position_for_monitor_size(&monitor, &panel_size);
+
+    assert_eq!(position.1, 2160 - (560 * 2) - 8);
 }
 
 #[test]
