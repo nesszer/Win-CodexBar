@@ -338,6 +338,53 @@ mod tests {
     }
 
     #[test]
+    fn left_taskbar_bottom_aligns_panel() {
+        let monitor = hd_monitor();
+        let work_area = Rect {
+            x: 40,
+            y: 0,
+            width: 1880,
+            height: 1080,
+        };
+        let icon = Rect {
+            x: 8,
+            y: 1048,
+            width: 24,
+            height: 24,
+        };
+
+        let (_, y) = calculate_panel_position(&icon, &monitor, &work_area, &panel(), 1.0);
+
+        assert_eq!(y, 1080 - 560 - MARGIN);
+    }
+
+    #[test]
+    fn high_dpi_right_taskbar_bottom_aligns_panel() {
+        let monitor = Rect {
+            x: 0,
+            y: 0,
+            width: 3840,
+            height: 2160,
+        };
+        let work_area = Rect {
+            x: 0,
+            y: 0,
+            width: 3760,
+            height: 2160,
+        };
+        let icon = Rect {
+            x: 3808,
+            y: 2128,
+            width: 24,
+            height: 24,
+        };
+
+        let (_, y) = calculate_panel_position(&icon, &monitor, &work_area, &panel(), 2.0);
+
+        assert_eq!(y, 2160 - (560 * 2) - MARGIN);
+    }
+
+    #[test]
     fn multi_monitor_offset() {
         let monitor = Rect {
             x: 1920,

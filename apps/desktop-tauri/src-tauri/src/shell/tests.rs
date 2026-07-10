@@ -1,7 +1,7 @@
 use super::ShellTransitionRequest;
 use super::geometry::{
     MonitorPlacement, inferred_tray_anchor_rect, inferred_tray_panel_position_for_monitor,
-    inferred_tray_panel_position_for_monitor_size, surface_panel_size, tray_anchor_rect,
+    surface_panel_size, tray_anchor_rect,
 };
 use super::position::{
     remembered_panel_size, remembered_surface_position_with_monitors,
@@ -21,7 +21,7 @@ use super::window::{
 use crate::state::AppState;
 use crate::surface::{SurfaceMode, SurfaceTransition};
 use crate::surface_target::SurfaceTarget;
-use crate::window_positioner::{self, PanelSize, Rect};
+use crate::window_positioner::{self, Rect};
 
 #[test]
 fn hide_to_tray_resets_hidden_target_to_summary() {
@@ -744,60 +744,6 @@ fn inferred_tray_panel_position_uses_tray_style_corner_fallback() {
             monitor.scale_factor,
         )
     );
-}
-
-#[test]
-fn inferred_tray_panel_position_supports_left_taskbar_layouts() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 40,
-            y: 0,
-            width: 1880,
-            height: 1080,
-        },
-        scale_factor: 1.0,
-    };
-
-    let panel_size = PanelSize {
-        width: 420,
-        height: 560,
-    };
-    let position = inferred_tray_panel_position_for_monitor_size(&monitor, &panel_size);
-
-    assert_eq!(position.1, 1080 - 560 - 8);
-}
-
-#[test]
-fn inferred_tray_panel_position_bottom_aligns_for_high_dpi_right_taskbar() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 3840,
-            height: 2160,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 3760,
-            height: 2160,
-        },
-        scale_factor: 2.0,
-    };
-
-    let panel_size = PanelSize {
-        width: 420,
-        height: 560,
-    };
-    let position = inferred_tray_panel_position_for_monitor_size(&monitor, &panel_size);
-
-    assert_eq!(position.1, 2160 - (560 * 2) - 8);
 }
 
 #[test]
