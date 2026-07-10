@@ -181,6 +181,7 @@ fn workspace_provider(provider_id: &str) -> Option<codexbar::core::ProviderId> {
         "openaiapi" => ProviderId::OpenAIApi,
         "litellm" => ProviderId::LiteLLM,
         "devin" => ProviderId::Devin,
+        "opencodego" => ProviderId::OpenCodeGo,
         "zed" => ProviderId::Zed,
         _ => return None,
     })
@@ -237,7 +238,15 @@ fn litellm_workspace_change_allowed(
 mod tests {
     use codexbar::core::ProviderId;
 
-    use super::litellm_workspace_change_allowed;
+    use super::{litellm_workspace_change_allowed, workspace_provider};
+
+    #[test]
+    fn maps_opencode_go_workspace_provider() {
+        assert_eq!(
+            workspace_provider("opencodego"),
+            Some(ProviderId::OpenCodeGo)
+        );
+    }
 
     #[test]
     fn litellm_endpoint_change_requires_reentering_saved_key() {
