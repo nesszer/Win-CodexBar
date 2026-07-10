@@ -145,6 +145,7 @@ function settings(): SettingsSnapshot {
     theme: "dark",
     windowScalePercent: 125,
     trayScalePercent: 100,
+    powertoysStatusPipeEnabled: false,
     claudeAvoidKeychainPrompts: false,
     disableKeychainAccess: false,
     providerMetrics: {},

@@ -198,6 +198,7 @@ export interface SettingsSnapshot {
   windowScalePercent: number;
   /** 100..=200 — clamped server-side. */
   trayScalePercent: number;
+  powertoysStatusPipeEnabled: boolean;
   claudeAvoidKeychainPrompts: boolean;
   disableKeychainAccess: boolean;
   providerMetrics: Record<string, MetricPreference>;
@@ -248,6 +249,7 @@ export interface SettingsUpdate {
   theme?: ThemePreference;
   windowScalePercent?: number;
   trayScalePercent?: number;
+  powertoysStatusPipeEnabled?: boolean;
   claudeAvoidKeychainPrompts?: boolean;
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */

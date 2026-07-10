@@ -67,6 +67,7 @@ const settings: SettingsSnapshot = {
   theme: "dark",
   windowScalePercent: 125,
   trayScalePercent: 100,
+  powertoysStatusPipeEnabled: false,
   claudeAvoidKeychainPrompts: true,
   disableKeychainAccess: false,
   providerMetrics: {},

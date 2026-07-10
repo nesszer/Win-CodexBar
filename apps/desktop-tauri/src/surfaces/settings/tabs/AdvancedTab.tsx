@@ -132,6 +132,26 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
         </div>
       </section>
 
+      {/* -- Local integrations ----------------------------------- */}
+      <section className="settings-section">
+        <h3 className="settings-section__title">
+          {t("SectionLocalIntegrations")}
+        </h3>
+        <div className="settings-section__group">
+          <Field
+            label={t("PowerToysPipeLabel")}
+            description={t("PowerToysPipeHelper")}
+            leading
+          >
+            <Toggle
+              checked={settings.powertoysStatusPipeEnabled}
+              disabled={saving}
+              onChange={(v) => set({ powertoysStatusPipeEnabled: v })}
+            />
+          </Field>
+        </div>
+      </section>
+
       {/* ── Keychain access ──────────────────────────────────────── */}
       <section className="settings-section">
         <h3 className="settings-section__title settings-section__title--bold">

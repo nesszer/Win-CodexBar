@@ -7,7 +7,7 @@ use tauri::Manager;
 
 use crate::commands::{
     ProviderLocalUsageSummary, ProviderUsageSnapshot, RateWindowSnapshot,
-    load_provider_local_usage_summary,
+    cached_provider_local_usage_summary,
 };
 use crate::state::AppState;
 
@@ -90,7 +90,9 @@ fn provider_snapshot(provider: ProviderUsageSnapshot) -> PowerToysProviderSnapsh
         thirty_day_cost: local_usage
             .as_ref()
             .and_then(|summary| summary.thirty_day_cost),
-        latest_tokens: local_usage.as_ref().and_then(|summary| summary.latest_tokens),
+        latest_tokens: local_usage
+            .as_ref()
+            .and_then(|summary| summary.latest_tokens),
         thirty_day_tokens: local_usage
             .as_ref()
             .and_then(|summary| summary.thirty_day_tokens),
@@ -123,7 +125,7 @@ fn provider_subtitle(
 }
 
 fn cached_local_usage(provider_id: &str) -> Option<ProviderLocalUsageSummary> {
-    load_provider_local_usage_summary(provider_id)
+    cached_provider_local_usage_summary(provider_id)
 }
 
 #[cfg(windows)]
@@ -206,5 +208,61 @@ mod tests {
 
         assert!(value.get("planName").is_none());
         assert!(value.get("accountEmail").is_none());
+    }
+
+    #[test]
+    fn provider_snapshot_includes_cached_local_usage_fields() {
+        crate::commands::cache_provider_local_usage_summary_for_test(
+            "test-provider",
+            Some(ProviderLocalUsageSummary {
+                today_cost: Some(1.25),
+                thirty_day_cost: Some(12.5),
+                thirty_day_tokens: Some(42_000),
+                latest_tokens: Some(1_200),
+                top_model: Some("gpt-5".to_string()),
+                estimate_note: "cached".to_string(),
+            }),
+        );
+
+        let snapshot = provider_snapshot(ProviderUsageSnapshot {
+            provider_id: "test-provider".to_string(),
+            display_name: "Test Provider".to_string(),
+            primary: rate_window(42.0),
+            primary_label: Some("Session".to_string()),
+            secondary: None,
+            secondary_label: None,
+            model_specific: None,
+            tertiary: None,
+            extra_rate_windows: Vec::new(),
+            cost: None,
+            plan_name: None,
+            account_email: None,
+            source_label: "web".to_string(),
+            updated_at: "2026-07-09T00:00:00Z".to_string(),
+            error: None,
+            pace: None,
+            account_organization: None,
+            tray_status_label: None,
+            fetch_duration_ms: None,
+        });
+        let value = serde_json::to_value(snapshot).unwrap();
+
+        assert_eq!(value.get("todayCost").and_then(|v| v.as_f64()), Some(1.25));
+        assert_eq!(
+            value.get("thirtyDayCost").and_then(|v| v.as_f64()),
+            Some(12.5)
+        );
+        assert_eq!(
+            value.get("latestTokens").and_then(|v| v.as_u64()),
+            Some(1_200)
+        );
+        assert_eq!(
+            value.get("thirtyDayTokens").and_then(|v| v.as_u64()),
+            Some(42_000)
+        );
+        assert_eq!(
+            value.get("topModel").and_then(|v| v.as_str()),
+            Some("gpt-5")
+        );
     }
 }

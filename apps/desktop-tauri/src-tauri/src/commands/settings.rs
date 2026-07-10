@@ -36,6 +36,7 @@ pub struct SettingsUpdate {
     pub theme: Option<String>,
     pub window_scale_percent: Option<u16>,
     pub tray_scale_percent: Option<u16>,
+    pub powertoys_status_pipe_enabled: Option<bool>,
     pub claude_avoid_keychain_prompts: Option<bool>,
     pub disable_keychain_access: Option<bool>,
     /// Map of provider CLI name → metric preference label.
@@ -211,6 +212,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.install_updates_on_quit {
             settings.install_updates_on_quit = v;
+        }
+        if let Some(v) = self.powertoys_status_pipe_enabled {
+            settings.powertoys_status_pipe_enabled = v;
         }
         if let Some(v) = self.claude_avoid_keychain_prompts {
             settings.set_claude_avoid_keychain_prompts(v);

@@ -60,6 +60,7 @@ describe("Language type", () => {
       menuBarDisplayMode: "compact",
       windowScalePercent: 125,
       trayScalePercent: 100,
+      powertoysStatusPipeEnabled: false,
       hidePersonalInfo: false,
       autoDownloadUpdates: false,
       installUpdatesOnQuit: false,

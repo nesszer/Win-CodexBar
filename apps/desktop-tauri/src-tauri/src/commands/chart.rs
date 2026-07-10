@@ -212,6 +212,33 @@ pub(crate) fn clear_provider_local_usage_cache() {
     }
 }
 
+pub(crate) fn cached_provider_local_usage_summary(
+    provider_id: &str,
+) -> Option<ProviderLocalUsageSummary> {
+    let Ok(guard) = local_usage_cache().lock() else {
+        return None;
+    };
+    guard
+        .get(provider_id)
+        .and_then(|entry| entry.summary.clone())
+}
+
+#[cfg(test)]
+pub(crate) fn cache_provider_local_usage_summary_for_test(
+    provider_id: &str,
+    summary: Option<ProviderLocalUsageSummary>,
+) {
+    if let Ok(mut guard) = local_usage_cache().lock() {
+        guard.insert(
+            provider_id.to_string(),
+            CachedLocalUsage {
+                loaded_at: Instant::now(),
+                summary,
+            },
+        );
+    }
+}
+
 fn load_local_usage_summary_cached(
     provider_id: &str,
     cancel: Option<&AtomicBool>,

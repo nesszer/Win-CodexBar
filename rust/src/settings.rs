@@ -163,6 +163,10 @@ pub struct Settings {
     #[serde(default = "default_tray_scale_percent")]
     pub tray_scale_percent: u16,
 
+    /// Enable the local PowerToys Command Palette status pipe.
+    #[serde(default)]
+    pub powertoys_status_pipe_enabled: bool,
+
     /// Show the always-on-top floating capacity bar.
     #[serde(default)]
     pub float_bar_enabled: bool,
@@ -368,6 +372,7 @@ impl Default for Settings {
             theme: ThemePreference::default(), // Auto (follows prefers-color-scheme)
             window_scale_percent: default_window_scale_percent(),
             tray_scale_percent: default_tray_scale_percent(),
+            powertoys_status_pipe_enabled: false,
             float_bar_enabled: false,
             float_bar_opacity: default_float_bar_opacity(),
             float_bar_scale: default_float_bar_scale(),
