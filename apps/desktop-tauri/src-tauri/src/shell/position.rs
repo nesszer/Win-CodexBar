@@ -279,13 +279,14 @@ pub fn tray_panel_position(app: &AppHandle) -> Option<(i32, i32)> {
     let monitors = window.available_monitors().ok()?;
 
     let monitor = monitor_for_anchor(&monitors, anchor)?;
-    let scale = monitor.scale_factor();
+    let placement = monitor_placement(monitor);
 
     Some(window_positioner::calculate_panel_position(
         &tray_anchor_rect(anchor),
-        &monitor_work_area_rect(monitor),
+        &placement.bounds,
+        &placement.work_area,
         &tray_panel_size(),
-        scale,
+        placement.scale_factor,
     ))
 }
 

@@ -25,6 +25,24 @@ pub(super) fn tray_panel_size() -> PanelSize {
 }
 
 pub(super) fn monitor_work_area_rect(monitor: &tauri::Monitor) -> Rect {
+    let position = monitor.position();
+    let size = monitor.size();
+    if let Some(area) = codexbar::host::session::primary_work_area_pixels()
+        && area.width > 0
+        && area.height > 0
+        && area.x >= position.x
+        && area.y >= position.y
+        && area.x + area.width <= position.x + size.width as i32
+        && area.y + area.height <= position.y + size.height as i32
+    {
+        return Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width as u32,
+            height: area.height as u32,
+        };
+    }
+
     let work_area = monitor.work_area();
     Rect {
         x: work_area.position.x,
@@ -122,6 +140,7 @@ pub(super) fn inferred_tray_panel_position_for_monitor_size(
 ) -> (i32, i32) {
     window_positioner::calculate_panel_position(
         &inferred_tray_anchor_rect(monitor),
+        &monitor.bounds,
         &monitor.work_area,
         panel_size,
         monitor.scale_factor,

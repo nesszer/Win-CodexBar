@@ -71,6 +71,8 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
     if let Some(window) = app.get_webview_window(FLYOUT_LABEL) {
         if let Some((x, y)) = position {
             let _ = window.set_position(PhysicalPosition::new(x, y));
+        } else {
+            reanchor(app)?;
         }
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
@@ -285,23 +287,26 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
         height: (outer.height as f64 / scale).round() as u32,
     };
 
-    let monitor = window
-        .primary_monitor()
-        .ok()
-        .flatten()
+    let anchor = app
+        .try_state::<Mutex<AppState>>()
+        .and_then(|state| state.lock().ok()?.tray_anchor);
+    let monitors = window.available_monitors().unwrap_or_default();
+    let monitor = anchor
+        .and_then(|anchor| crate::shell::geometry::monitor_for_anchor(&monitors, anchor))
+        .cloned()
         .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten())
         .ok_or_else(|| "no monitor".to_string())?;
 
-    let work_area = Rect {
-        x: monitor.work_area().position.x,
-        y: monitor.work_area().position.y,
-        width: monitor.work_area().size.width,
-        height: monitor.work_area().size.height,
+    let work_area = crate::shell::geometry::monitor_work_area_rect(&monitor);
+    let monitor_bounds = Rect {
+        x: monitor.position().x,
+        y: monitor.position().y,
+        width: monitor.size().width,
+        height: monitor.size().height,
     };
 
     let (x, y) = {
-        let st = app.try_state::<Mutex<AppState>>();
-        let anchor = st.and_then(|s| s.lock().ok()?.tray_anchor);
         if let Some(a) = anchor {
             crate::window_positioner::calculate_panel_position(
                 &Rect {
@@ -310,6 +315,7 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
                     width: a.width,
                     height: a.height,
                 },
+                &monitor_bounds,
                 &work_area,
                 &panel_size,
                 scale,

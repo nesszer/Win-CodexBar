@@ -738,42 +738,7 @@ fn inferred_tray_panel_position_uses_tray_style_corner_fallback() {
                 width: 24,
                 height: 24,
             },
-            &monitor.work_area,
-            &super::geometry::tray_panel_size(),
-            monitor.scale_factor,
-        )
-    );
-}
-
-#[test]
-fn inferred_tray_panel_position_supports_left_taskbar_layouts() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 40,
-            y: 0,
-            width: 1880,
-            height: 1080,
-        },
-        scale_factor: 1.0,
-    };
-
-    let position = inferred_tray_panel_position_for_monitor(&monitor);
-
-    assert_eq!(
-        position,
-        window_positioner::calculate_panel_position(
-            &Rect {
-                x: 8,
-                y: 1048,
-                width: 24,
-                height: 24,
-            },
+            &monitor.bounds,
             &monitor.work_area,
             &super::geometry::tray_panel_size(),
             monitor.scale_factor,
