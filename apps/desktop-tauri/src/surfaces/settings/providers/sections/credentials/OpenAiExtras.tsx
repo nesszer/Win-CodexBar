@@ -119,10 +119,10 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
         };
       case "opencodego":
         return {
-          title: "OpenCode Go",
-          label: "Workspace ID",
+          title: t("OpenCodeGoWorkspaceTitle"),
+          label: t("OpenCodeGoWorkspaceLabel"),
           placeholder: "wrk_...",
-          help: "Optional. Use a workspace ID when automatic detection fails.",
+          help: t("OpenCodeGoWorkspaceHelp"),
         };
       case "zed":
         return {

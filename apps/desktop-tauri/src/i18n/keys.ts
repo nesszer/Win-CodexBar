@@ -538,6 +538,9 @@ export const ALL_LOCALE_KEYS = [
   "CredsKiroLabel",
   "CredsKiroHelperAvailablePrefix",
   "CredsKiroHelperMissing",
+  "OpenCodeGoWorkspaceTitle",
+  "OpenCodeGoWorkspaceLabel",
+  "OpenCodeGoWorkspaceHelp",
   "CredsOpenAiHistoryHelp",
   // Phase 6e — Token accounts (review)
   "TokenAccountActive",

@@ -789,6 +789,9 @@ locale_keys! {
     CredsKiroLabel,
     CredsKiroHelperAvailablePrefix,
     CredsKiroHelperMissing,
+    OpenCodeGoWorkspaceTitle,
+    OpenCodeGoWorkspaceLabel,
+    OpenCodeGoWorkspaceHelp,
     CredsOpenAiHistoryHelp,
 
     // Tauri desktop shell — Token accounts (Phase 6e, review)
