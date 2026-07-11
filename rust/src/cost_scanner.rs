@@ -13,7 +13,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(test)]
 use crate::codex_costs::scan_codex_file_cost;
 use crate::codex_costs::{
-    add_codex_days_to_summary, codex_period_start, codex_scan_dates, scan_codex_file_cost_for_range,
+    add_codex_records_to_summary, codex_period_start, codex_scan_dates,
+    scan_codex_file_cost_for_range,
 };
 use crate::codex_sessions::{codex_sessions_dir_candidates, default_wsl_roots};
 use crate::core::{CostUsageDayRange, CostUsagePricing, JsonlScanner};
@@ -371,7 +372,7 @@ impl CostScanner {
         };
 
         let (session_cost, has_tokens) =
-            add_codex_days_to_summary(summary, &parse_result.days, &range);
+            add_codex_records_to_summary(summary, &parse_result.records, &range);
 
         if has_tokens {
             summary.total_cost_usd += session_cost;

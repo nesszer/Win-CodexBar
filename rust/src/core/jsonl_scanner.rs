@@ -55,12 +55,24 @@ pub struct CodexTotals {
 pub struct CodexParseResult {
     /// Daily usage: day_key -> model -> [input, cached, output]
     pub days: HashMap<String, HashMap<String, Vec<i32>>>,
+    /// Individual token-count deltas used for per-request pricing.
+    pub records: Vec<CodexUsageRecord>,
     /// Bytes parsed
     pub parsed_bytes: i64,
     /// Last model seen
     pub last_model: Option<String>,
     /// Last totals seen
     pub last_totals: Option<CodexTotals>,
+}
+
+/// A billable Codex token-count delta.
+#[derive(Debug, Clone)]
+pub struct CodexUsageRecord {
+    pub day_key: String,
+    pub model: String,
+    pub input: i32,
+    pub cached: i32,
+    pub output: i32,
 }
 
 /// Day range for scanning
@@ -104,6 +116,7 @@ struct CodexParserState {
     current_model: Option<String>,
     previous_totals: Option<CodexTotals>,
     days: HashMap<String, HashMap<String, Vec<i32>>>,
+    records: Vec<CodexUsageRecord>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,6 +193,7 @@ impl CodexParserState {
             current_model: initial_model,
             previous_totals: initial_totals,
             days: HashMap::new(),
+            records: Vec::new(),
         }
     }
 
@@ -261,6 +275,13 @@ impl CodexParserState {
         let info = payload.get("info");
         let model = self.token_model(info, payload, obj);
         let norm_model = CostUsagePricing::normalize_codex_model(&model);
+        self.records.push(CodexUsageRecord {
+            day_key: day_key.clone(),
+            model: norm_model.clone(),
+            input: delta_input,
+            cached: delta_cached.min(delta_input),
+            output: delta_output,
+        });
         let packed = self
             .days
             .entry(day_key)
@@ -290,6 +311,13 @@ impl CodexParserState {
             .or(self.current_model.as_deref())
             .unwrap_or("gpt-5");
         let norm_model = CostUsagePricing::normalize_codex_model(model);
+        self.records.push(CodexUsageRecord {
+            day_key: day_key.clone(),
+            model: norm_model.clone(),
+            input: delta_input,
+            cached: delta_cached.min(delta_input),
+            output: delta_output,
+        });
         let packed = self
             .days
             .entry(day_key)
@@ -608,6 +636,7 @@ impl JsonlScanner {
 
         Ok(CodexParseResult {
             days: parser.days,
+            records: parser.records,
             parsed_bytes: file_size.max(parsed_bytes),
             last_model: parser.current_model,
             last_totals: parser.previous_totals,
@@ -807,5 +836,10 @@ mod tests {
         let day = parsed.days.get("2026-05-31").expect("day usage");
         let usage = day.get("gpt-5.5").expect("model usage");
         assert_eq!(usage, &vec![45, 12, 8]);
+        assert_eq!(parsed.records.len(), 1);
+        let record = &parsed.records[0];
+        assert_eq!(record.day_key, "2026-05-31");
+        assert_eq!(record.model, "gpt-5.5");
+        assert_eq!((record.input, record.cached, record.output), (45, 12, 8));
     }
 }

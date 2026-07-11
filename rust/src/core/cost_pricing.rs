@@ -264,9 +264,72 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             display_label: None,
         },
     );
+    m.insert(
+        "gpt-5.6-sol",
+        CodexPricing {
+            input_cost_per_token: 5e-6,
+            output_cost_per_token: 3e-5,
+            cache_read_input_cost_per_token: 5e-7,
+            display_label: None,
+        },
+    );
+    m.insert(
+        "gpt-5.6-terra",
+        CodexPricing {
+            input_cost_per_token: 2.5e-6,
+            output_cost_per_token: 1.5e-5,
+            cache_read_input_cost_per_token: 2.5e-7,
+            display_label: None,
+        },
+    );
+    m.insert(
+        "gpt-5.6-luna",
+        CodexPricing {
+            input_cost_per_token: 1e-6,
+            output_cost_per_token: 6e-6,
+            cache_read_input_cost_per_token: 1e-7,
+            display_label: None,
+        },
+    );
 
     m
 });
+
+const CODEX_LONG_CONTEXT_THRESHOLD: u64 = 272_000;
+
+/// Codex rates that apply to the entire request above the model's context threshold.
+static CODEX_LONG_CONTEXT_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> =
+    LazyLock::new(|| {
+        let mut m = HashMap::new();
+        m.insert(
+            "gpt-5.6-sol",
+            CodexPricing {
+                input_cost_per_token: 1e-5,
+                output_cost_per_token: 4.5e-5,
+                cache_read_input_cost_per_token: 1e-6,
+                display_label: None,
+            },
+        );
+        m.insert(
+            "gpt-5.6-terra",
+            CodexPricing {
+                input_cost_per_token: 5e-6,
+                output_cost_per_token: 2.25e-5,
+                cache_read_input_cost_per_token: 5e-7,
+                display_label: None,
+            },
+        );
+        m.insert(
+            "gpt-5.6-luna",
+            CodexPricing {
+                input_cost_per_token: 2e-6,
+                output_cost_per_token: 9e-6,
+                cache_read_input_cost_per_token: 2e-7,
+                display_label: None,
+            },
+        );
+        m
+    });
 
 /// Claude model pricing table
 static CLAUDE_PRICING: LazyLock<HashMap<&'static str, ClaudePricing>> = LazyLock::new(|| {
@@ -518,11 +581,18 @@ impl CostUsagePricing {
             trimmed = rest.to_string();
         }
 
+        if trimmed == "gpt-5.6" {
+            return "gpt-5.6-sol".to_string();
+        }
+
         // Check if base model (without -codex suffix) exists in pricing
         if let Some(idx) = trimmed.find("-codex") {
             let base = &trimmed[..idx];
             if CODEX_PRICING.contains_key(base) {
                 return base.to_string();
+            }
+            if base == "gpt-5.6" {
+                return "gpt-5.6-sol".to_string();
             }
         }
 
@@ -531,6 +601,9 @@ impl CostUsagePricing {
             let base = &trimmed[..mat.start()];
             if CODEX_PRICING.contains_key(base) {
                 return base.to_string();
+            }
+            if base == "gpt-5.6" {
+                return "gpt-5.6-sol".to_string();
             }
         }
 
@@ -588,7 +661,13 @@ impl CostUsagePricing {
         output_tokens: u64,
     ) -> Option<f64> {
         let key = Self::normalize_codex_model(model);
-        let pricing = CODEX_PRICING.get(key.as_str())?;
+        let pricing = if input_tokens > CODEX_LONG_CONTEXT_THRESHOLD {
+            CODEX_LONG_CONTEXT_PRICING
+                .get(key.as_str())
+                .or_else(|| CODEX_PRICING.get(key.as_str()))?
+        } else {
+            CODEX_PRICING.get(key.as_str())?
+        };
 
         let cached = cached_input_tokens.min(input_tokens);
         let non_cached = input_tokens.saturating_sub(cached);
@@ -863,6 +942,58 @@ mod tests {
         assert!(cost.is_some());
         // 1000 * 1.5e-5 + 500 * 1.2e-4 = 0.015 + 0.06 = 0.075
         assert!((cost.unwrap() - 0.075).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_gpt56_standard_pricing() {
+        for (model, expected) in [
+            ("gpt-5.6-sol", 0.0332),
+            ("gpt-5.6-terra", 0.0166),
+            ("gpt-5.6-luna", 0.00664),
+        ] {
+            let cost = CostUsagePricing::codex_cost_usd(model, 1_000, 400, 1_000);
+            assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
+        }
+    }
+
+    #[test]
+    fn test_gpt56_long_context_pricing() {
+        for (model, expected) in [
+            ("gpt-5.6-sol", 45.272001),
+            ("gpt-5.6-terra", 22.6360005),
+            ("gpt-5.6-luna", 9.0544002),
+        ] {
+            let cost = CostUsagePricing::codex_cost_usd(model, 272_001, 272_001, 1_000_000);
+            assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
+        }
+    }
+
+    #[test]
+    fn test_gpt56_context_threshold_is_exclusive() {
+        for (model, expected) in [
+            ("gpt-5.6-sol", 0.136),
+            ("gpt-5.6-terra", 0.068),
+            ("gpt-5.6-luna", 0.0272),
+        ] {
+            let cost = CostUsagePricing::codex_cost_usd(model, 272_000, 272_000, 0);
+            assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
+        }
+    }
+
+    #[test]
+    fn test_normalize_gpt56_aliases() {
+        for model in [
+            "gpt-5.6",
+            "openai/gpt-5.6",
+            "gpt-5.6-codex",
+            "gpt-5.6-2099-01-01",
+        ] {
+            assert_eq!(
+                CostUsagePricing::normalize_codex_model(model),
+                "gpt-5.6-sol",
+                "{model}"
+            );
+        }
     }
 
     #[test]
