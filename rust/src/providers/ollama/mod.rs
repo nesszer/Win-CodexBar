@@ -87,82 +87,9 @@ impl OllamaProvider {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
-
-        let mut current_url =
+        let start_url =
             Url::parse(OLLAMA_SETTINGS_URL).map_err(|e| ProviderError::Other(e.to_string()))?;
-        let mut resp = None;
-
-        for _ in 0..5 {
-            let cookie_header = cookies
-                .header_for_url(&current_url)
-                .ok_or(ProviderError::AuthRequired)?;
-            let request = client
-                .get(current_url.clone())
-                .header(
-                    "Accept",
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                )
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-                )
-                .header("Cookie", cookie_header);
-
-            let response = request.send().await?;
-            if response.status().is_redirection() {
-                let Some(location) = response.headers().get(reqwest::header::LOCATION) else {
-                    return Err(ProviderError::Other(
-                        "Ollama redirect missing Location header".to_string(),
-                    ));
-                };
-                let location = location
-                    .to_str()
-                    .map_err(|e| ProviderError::Other(e.to_string()))?;
-                let next_url = current_url
-                    .join(location)
-                    .map_err(|e| ProviderError::Other(e.to_string()))?;
-                if is_ollama_sign_in_redirect(&next_url) {
-                    return Err(ProviderError::AuthRequired);
-                }
-                if !should_attach_ollama_cookie(&next_url) {
-                    return Err(ProviderError::AuthRequired);
-                }
-                current_url = next_url;
-                continue;
-            }
-            resp = Some(response);
-            break;
-        }
-
-        let Some(resp) = resp else {
-            return Err(ProviderError::Other(
-                "Ollama returned too many redirects".to_string(),
-            ));
-        };
-
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
-            || resp.status() == reqwest::StatusCode::FORBIDDEN
-        {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        // Check for redirect to login page
-        if is_ollama_sign_in_redirect(resp.url()) {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !resp.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "Ollama returned status {}",
-                resp.status()
-            )));
-        }
-
-        let html = resp
-            .text()
-            .await
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
-
+        let html = fetch_settings_html_at(&client, &cookies, start_url).await?;
         self.parse_usage_html(&html)
     }
 
@@ -187,7 +114,7 @@ impl OllamaProvider {
         tags_url: Url,
     ) -> Result<UsageSnapshot, ProviderError> {
         let api_key = clean_secret(Some(api_key)).ok_or(ProviderError::AuthRequired)?;
-        if !same_origin(&validation_url, &tags_url) {
+        if !crate::core::is_same_origin(&validation_url, &tags_url) {
             return Err(ProviderError::Other(
                 "Ollama API endpoints must share an origin.".to_string(),
             ));
@@ -623,10 +550,71 @@ fn is_ollama_sign_in_redirect(url: &Url) -> bool {
         || (host.ends_with(".workos.com") && path.starts_with("/user_management/authorize"))
 }
 
-fn same_origin(left: &Url, right: &Url) -> bool {
-    left.scheme() == right.scheme()
-        && left.host_str() == right.host_str()
-        && left.port_or_known_default() == right.port_or_known_default()
+async fn fetch_settings_html_at(
+    client: &reqwest::Client,
+    source: &OllamaCookieSource,
+    start_url: Url,
+) -> Result<String, ProviderError> {
+    let mut current_url = start_url;
+
+    for _ in 0..5 {
+        let mut request = client
+            .get(current_url.clone())
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            );
+        if let Some(cookie_header) = source.header_for_url(&current_url) {
+            request = request.header("Cookie", cookie_header);
+        }
+
+        let response = request.send().await?;
+        if response.status().is_redirection() {
+            let Some(location) = response.headers().get(reqwest::header::LOCATION) else {
+                return Err(ProviderError::Other(
+                    "Ollama redirect missing Location header".to_string(),
+                ));
+            };
+            let location = location
+                .to_str()
+                .map_err(|e| ProviderError::Other(e.to_string()))?;
+            let next_url = current_url
+                .join(location)
+                .map_err(|e| ProviderError::Other(e.to_string()))?;
+            if is_ollama_sign_in_redirect(&next_url)
+                || !crate::core::is_same_origin(&current_url, &next_url)
+            {
+                return Err(ProviderError::AuthRequired);
+            }
+            current_url = next_url;
+            continue;
+        }
+
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED
+            || response.status() == reqwest::StatusCode::FORBIDDEN
+            || is_ollama_sign_in_redirect(response.url())
+        {
+            return Err(ProviderError::AuthRequired);
+        }
+        if !response.status().is_success() {
+            return Err(ProviderError::Other(format!(
+                "Ollama returned status {}",
+                response.status()
+            )));
+        }
+        return response
+            .text()
+            .await
+            .map_err(|e| ProviderError::Other(e.to_string()));
+    }
+
+    Err(ProviderError::Other(
+        "Ollama returned too many redirects".to_string(),
+    ))
 }
 
 fn ollama_api_key_error() -> ProviderError {
@@ -726,6 +714,22 @@ mod tests {
             .as_deref(),
             Some("__Secure-session=test")
         );
+        let source = OllamaCookieSource::Browser(vec![
+            cookie("__Secure-session", "ollama.com", "/settings"),
+            cookie("wos-session", "ollama.com", "/api"),
+        ]);
+        assert_eq!(
+            source
+                .header_for_url(&Url::parse("https://ollama.com/settings").unwrap())
+                .as_deref(),
+            Some("__Secure-session=test")
+        );
+        assert_eq!(
+            source
+                .header_for_url(&Url::parse("https://ollama.com/api/models").unwrap())
+                .as_deref(),
+            Some("wos-session=test")
+        );
     }
 
     #[test]
@@ -756,6 +760,97 @@ mod tests {
         assert!(!is_ollama_sign_in_redirect(
             &Url::parse("http://signin.ollama.com/").unwrap()
         ));
+    }
+
+    #[tokio::test]
+    async fn settings_fetch_follows_same_origin_redirects() {
+        let mut server = mockito::Server::new_async().await;
+        let first = server
+            .mock("GET", "/settings")
+            .with_status(302)
+            .with_header("location", "/settings/account")
+            .create_async()
+            .await;
+        let second = server
+            .mock("GET", "/settings/account")
+            .with_status(200)
+            .with_body("<html>usage</html>")
+            .create_async()
+            .await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let html = fetch_settings_html_at(
+            &client,
+            &OllamaCookieSource::Manual("__Secure-session=test".to_string()),
+            Url::parse(&format!("{}/settings", server.url())).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        first.assert_async().await;
+        second.assert_async().await;
+        assert_eq!(html, "<html>usage</html>");
+    }
+
+    #[tokio::test]
+    async fn settings_fetch_stops_before_following_signin_or_workos_redirects() {
+        for location in [
+            "https://signin.ollama.com/?client_id=test",
+            "https://auth.workos.com/user_management/authorize?client_id=test",
+        ] {
+            let mut server = mockito::Server::new_async().await;
+            let first = server
+                .mock("GET", "/settings")
+                .with_status(302)
+                .with_header("location", location)
+                .create_async()
+                .await;
+            let client = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap();
+
+            let error = fetch_settings_html_at(
+                &client,
+                &OllamaCookieSource::Manual("__Secure-session=test".to_string()),
+                Url::parse(&format!("{}/settings", server.url())).unwrap(),
+            )
+            .await
+            .unwrap_err();
+
+            first.assert_async().await;
+            assert!(matches!(error, ProviderError::AuthRequired));
+        }
+    }
+
+    #[tokio::test]
+    async fn settings_fetch_reports_redirect_exhaustion() {
+        let mut server = mockito::Server::new_async().await;
+        let redirect = server
+            .mock("GET", "/settings")
+            .expect(5)
+            .with_status(302)
+            .with_header("location", "/settings")
+            .create_async()
+            .await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let error = fetch_settings_html_at(
+            &client,
+            &OllamaCookieSource::Manual("__Secure-session=test".to_string()),
+            Url::parse(&format!("{}/settings", server.url())).unwrap(),
+        )
+        .await
+        .unwrap_err();
+
+        redirect.assert_async().await;
+        assert_eq!(error.to_string(), "Ollama returned too many redirects");
     }
 
     #[tokio::test]
