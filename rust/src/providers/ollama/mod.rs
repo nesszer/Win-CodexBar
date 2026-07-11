@@ -18,7 +18,6 @@ use crate::settings::ApiKeys;
 
 /// Ollama settings page URL
 const OLLAMA_SETTINGS_URL: &str = "https://ollama.com/settings";
-const OLLAMA_SETTINGS_PATH: &str = "/settings";
 const OLLAMA_TAGS_URL: &str = "https://ollama.com/api/tags";
 const OLLAMA_VALIDATION_URL: &str = "https://ollama.com/api/web_search";
 const OLLAMA_COOKIE_DOMAIN: &str = "ollama.com";
