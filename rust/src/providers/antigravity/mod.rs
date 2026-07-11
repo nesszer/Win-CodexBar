@@ -52,7 +52,7 @@ impl AntigravityProvider {
         cmd.args([
                 "-ExecutionPolicy", "Bypass",
                 "-Command",
-                "Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server_windows*' } | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"
+                "Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server_windows*' -or $_.Name -like 'language_server.exe' } | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"
             ]);
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
@@ -68,7 +68,11 @@ impl AntigravityProvider {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
+        Self::parse_process_info(&stdout)
+            .ok_or_else(|| ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()))
+    }
 
+    fn parse_process_info(stdout: &str) -> Option<ProcessInfo> {
         // Parse command line for CSRF token and port — compiled once
         static CSRF_RE: OnceLock<Regex> = OnceLock::new();
         static EXT_CSRF_RE: OnceLock<Regex> = OnceLock::new();
@@ -82,7 +86,7 @@ impl AntigravityProvider {
             .get_or_init(|| Regex::new(r"--extension_server_port\s+(\d+)").expect("valid regex"));
 
         for line in stdout.lines() {
-            if line.contains("language_server_windows") && line.contains("--csrf_token") {
+            if line.contains("--csrf_token") {
                 // Line is "<pid>\t<command line>"; split off the PID prefix we added so the
                 // PID can be used to enumerate the process's real listening ports below.
                 let (pid, line) = match line.split_once('\t') {
@@ -106,7 +110,7 @@ impl AntigravityProvider {
                     .and_then(|m| m.as_str().parse::<u16>().ok());
 
                 if let (Some(token), Some(p)) = (csrf_token, port) {
-                    return Ok(ProcessInfo {
+                    return Some(ProcessInfo {
                         csrf_token: token,
                         extension_server_csrf_token: ext_csrf_token,
                         extension_port: p,
@@ -116,7 +120,7 @@ impl AntigravityProvider {
             }
         }
 
-        Err(ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()))
+        None
     }
 
     /// Find the actual API port by probing the language server's candidate ports.
@@ -689,6 +693,17 @@ mod tests {
         assert_eq!(classify_model("Flash Model"), ModelFamily::GeminiFlash);
         assert_eq!(classify_model("GPT-4o"), ModelFamily::Other);
         assert_eq!(classify_model("unknown-model"), ModelFamily::Other);
+    }
+
+    #[test]
+    fn parses_current_language_server_process() {
+        let output = r"4242	C:\Users\test\AppData\Local\Programs\Antigravity\resources\bin\language_server.exe --csrf_token 11111111-2222-3333-4444-555555555555 --extension_server_port 54123";
+
+        let process = AntigravityProvider::parse_process_info(output).expect("process info");
+
+        assert_eq!(process.pid, Some(4242));
+        assert_eq!(process.extension_port, 54123);
+        assert_eq!(process.csrf_token, "11111111-2222-3333-4444-555555555555");
     }
 
     fn make_response(models: Vec<(&str, f64)>) -> UserStatusResponse {
