@@ -601,4 +601,17 @@ mod tests {
             "Claude: Session (5h) <1%, Weekly 100%, resets n/a, Pro"
         );
     }
+
+    #[test]
+    fn gemini_plan_preserves_acronym_casing() {
+        let result = fetch_result(
+            UsageSnapshot::new(RateWindow::new(0.0))
+                .with_login_method("Gemini Code Assist in Google One AI Pro"),
+        );
+
+        let output = render_text(ProviderId::Gemini, &result, false);
+
+        assert!(output.contains("Plan:    Gemini Code Assist in Google One AI Pro"));
+        assert!(!output.contains("Google One Ai Pro"));
+    }
 }

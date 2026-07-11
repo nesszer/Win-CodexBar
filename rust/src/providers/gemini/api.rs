@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 const QUOTA_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
+const CODE_ASSIST_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
 const TOKEN_REFRESH_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 
 /// Gemini API client
@@ -25,12 +26,20 @@ impl GeminiApi {
     }
 
     /// Fetch quota information from the Gemini API
-    /// Returns (primary RateWindow, optional model-specific RateWindow, optional email)
+    /// Returns (primary RateWindow, optional model-specific RateWindow, optional email, optional plan)
     /// Note: Gemini quota API requires OAuth tokens, not API keys
     pub async fn fetch_quota(
         &self,
         _ctx: &FetchContext,
-    ) -> Result<(RateWindow, Option<RateWindow>, Option<String>), ProviderError> {
+    ) -> Result<
+        (
+            RateWindow,
+            Option<RateWindow>,
+            Option<String>,
+            Option<String>,
+        ),
+        ProviderError,
+    > {
         // Gemini quota endpoint requires OAuth credentials (not API keys)
         // Always load OAuth credentials from ~/.gemini/oauth_creds.json
         let mut creds = self.load_credentials()?;
@@ -45,6 +54,8 @@ impl GeminiApi {
             .access_token
             .clone()
             .ok_or_else(|| ProviderError::AuthRequired)?;
+
+        let code_assist = self.load_code_assist_status(&access_token).await;
 
         // Fetch quota
         let response = self
@@ -74,7 +85,47 @@ impl GeminiApi {
             .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
         // Since we use OAuth, we can use the credentials we already loaded for email extraction
-        self.parse_quota_response(quota_response, Some(&creds))
+        let (primary, model_specific, email) =
+            self.parse_quota_response(quota_response, Some(&creds))?;
+        let hosted_domain = creds
+            .id_token
+            .as_deref()
+            .and_then(extract_hosted_domain_from_jwt);
+        let plan = resolve_account_plan(&code_assist, hosted_domain.as_deref());
+
+        Ok((primary, model_specific, email, plan))
+    }
+
+    async fn load_code_assist_status(&self, access_token: &str) -> CodeAssistStatus {
+        let response = self
+            .client
+            .post(CODE_ASSIST_ENDPOINT)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .body(r#"{"metadata":{"ideType":"GEMINI_CLI","pluginType":"GEMINI"}}"#)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await;
+
+        let response = match response {
+            Ok(response) if response.status().is_success() => response,
+            Ok(response) => {
+                tracing::warn!(status = %response.status(), "Gemini loadCodeAssist request failed");
+                return CodeAssistStatus::default();
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Gemini loadCodeAssist request failed");
+                return CodeAssistStatus::default();
+            }
+        };
+
+        match response.json::<CodeAssistResponse>().await {
+            Ok(response) => code_assist_status(response),
+            Err(error) => {
+                tracing::warn!(%error, "Gemini loadCodeAssist response was invalid");
+                CodeAssistStatus::default()
+            }
+        }
     }
 
     fn load_credentials(&self) -> Result<OAuthCredentials, ProviderError> {
@@ -481,6 +532,78 @@ struct QuotaBucket {
     token_type: Option<String>,
 }
 
+#[derive(Default)]
+struct CodeAssistStatus {
+    tier: Option<GeminiUserTier>,
+    paid_tier_name: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+enum GeminiUserTier {
+    Free,
+    Legacy,
+    Standard,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodeAssistResponse {
+    current_tier: Option<CodeAssistTier>,
+    paid_tier: Option<PaidTier>,
+}
+
+#[derive(Deserialize)]
+struct CodeAssistTier {
+    id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PaidTier {
+    name: Option<String>,
+}
+
+fn code_assist_status(response: CodeAssistResponse) -> CodeAssistStatus {
+    let tier = response
+        .current_tier
+        .and_then(|tier| match tier.id.as_deref() {
+            Some("free-tier") => Some(GeminiUserTier::Free),
+            Some("legacy-tier") => Some(GeminiUserTier::Legacy),
+            Some("standard-tier") => Some(GeminiUserTier::Standard),
+            _ => None,
+        });
+    let paid_tier_name = response
+        .paid_tier
+        .and_then(|tier| tier.name)
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty());
+
+    CodeAssistStatus {
+        tier,
+        paid_tier_name,
+    }
+}
+
+#[cfg(test)]
+fn parse_code_assist_status(body: &str) -> CodeAssistStatus {
+    serde_json::from_str(body)
+        .map(code_assist_status)
+        .unwrap_or_default()
+}
+
+fn resolve_account_plan(status: &CodeAssistStatus, hosted_domain: Option<&str>) -> Option<String> {
+    if let Some(plan) = &status.paid_tier_name {
+        return Some(plan.clone());
+    }
+
+    match status.tier {
+        Some(GeminiUserTier::Standard) => Some("Paid".to_string()),
+        Some(GeminiUserTier::Free) if hosted_domain.is_some() => Some("Workspace".to_string()),
+        Some(GeminiUserTier::Free) => Some("Free".to_string()),
+        Some(GeminiUserTier::Legacy) => Some("Legacy".to_string()),
+        None => None,
+    }
+}
+
 // --- Helper functions ---
 
 fn parse_iso_date(s: &str) -> Option<DateTime<Utc>> {
@@ -498,6 +621,20 @@ fn parse_iso_date(s: &str) -> Option<DateTime<Utc>> {
 }
 
 fn extract_email_from_jwt(token: &str) -> Option<String> {
+    jwt_payload(token)?
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+}
+
+fn extract_hosted_domain_from_jwt(token: &str) -> Option<String> {
+    jwt_payload(token)?
+        .get("hd")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+}
+
+fn jwt_payload(token: &str) -> Option<serde_json::Value> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() < 2 {
         return None;
@@ -515,8 +652,60 @@ fn extract_email_from_jwt(token: &str) -> Option<String> {
     let decoded =
         base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &payload).ok()?;
 
-    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    json.get("email")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+    serde_json::from_slice(&decoded).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paid_tier_name_overrides_generic_tier_fallbacks() {
+        let status = parse_code_assist_status(
+            r#"{
+                "currentTier": { "id": "free-tier" },
+                "paidTier": { "name": "Gemini Code Assist in Google One AI Pro" }
+            }"#,
+        );
+
+        assert_eq!(
+            resolve_account_plan(&status, Some("example.com")),
+            Some("Gemini Code Assist in Google One AI Pro".to_string())
+        );
+
+        let standard = parse_code_assist_status(
+            r#"{
+                "currentTier": { "id": "standard-tier" },
+                "paidTier": { "name": "Plus" }
+            }"#,
+        );
+
+        assert_eq!(
+            resolve_account_plan(&standard, None),
+            Some("Plus".to_string())
+        );
+    }
+
+    #[test]
+    fn generic_tier_fallbacks_remain_when_paid_tier_is_absent() {
+        let free_tier = parse_code_assist_status(r#"{"currentTier":{"id":"free-tier"}}"#);
+        let paid = parse_code_assist_status(r#"{"currentTier":{"id":"standard-tier"}}"#);
+
+        assert_eq!(
+            resolve_account_plan(&free_tier, Some("example.com")),
+            Some("Workspace".to_string())
+        );
+        assert_eq!(
+            resolve_account_plan(&free_tier, None),
+            Some("Free".to_string())
+        );
+        assert_eq!(resolve_account_plan(&paid, None), Some("Paid".to_string()));
+    }
+
+    #[test]
+    fn invalid_code_assist_response_does_not_create_a_generic_plan() {
+        let status = parse_code_assist_status("not json");
+
+        assert_eq!(resolve_account_plan(&status, Some("example.com")), None);
+    }
 }
