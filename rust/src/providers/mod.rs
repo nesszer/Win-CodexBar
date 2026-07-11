@@ -121,13 +121,26 @@ pub use zed::ZedProvider;
 pub(crate) fn browser_cookie_header(
     domains: &[&str],
 ) -> Result<String, crate::core::ProviderError> {
-    crate::browser::cookies::get_cookie_header_for_domains(domains).map_err(|error| match error {
+    crate::browser::cookies::get_cookie_header_for_domains(domains)
+        .map_err(map_browser_cookie_error)
+}
+
+pub(crate) fn browser_cookies_for_domain(
+    domain: &str,
+) -> Result<Vec<crate::browser::cookies::Cookie>, crate::core::ProviderError> {
+    crate::browser::cookies::get_cookies_for_domain(domain).map_err(map_browser_cookie_error)
+}
+
+fn map_browser_cookie_error(
+    error: crate::browser::cookies::CookieError,
+) -> crate::core::ProviderError {
+    match error {
         crate::browser::cookies::CookieError::BrowserNotInstalled
         | crate::browser::cookies::CookieError::NotFound(_) => {
             crate::core::ProviderError::NoCookies
         }
         _ => crate::core::ProviderError::Other(format!("Failed to read browser cookies: {error}")),
-    })
+    }
 }
 
 pub(crate) fn resolve_api_key(
