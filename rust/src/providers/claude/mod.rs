@@ -20,6 +20,8 @@ use crate::core::{
 };
 
 use admin_api::ClaudeAdminApiFetcher;
+#[cfg(test)]
+use cli_reset::parse_claude_reset_date_in_system_zone;
 use cli_reset::{
     extract_cli_scoped_weekly_limits, normalized_for_label_search, parse_claude_reset_date,
     parse_percent_line, starts_next_usage_section,
@@ -1097,6 +1099,30 @@ Resets Apr 5, 2pm (America/Bogota)
         assert_eq!(
             parse_claude_reset_date("ResetsApr3at2pm(America/Bogota)", now, None),
             Some("2026-04-03T19:00:00Z".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn timezone_less_resets_use_the_supplied_system_zone() {
+        let now = "2026-03-07T18:00:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        assert_eq!(
+            parse_claude_reset_date_in_system_zone(
+                "Resets Mar 8 at 3:30am",
+                now,
+                None,
+                "America/New_York".parse().unwrap(),
+            ),
+            Some("2026-03-08T07:30:00Z".parse().unwrap())
+        );
+        assert_eq!(
+            parse_claude_reset_date_in_system_zone(
+                "Resets Mar 8 at 3:30am (America/Los_Angeles)",
+                now,
+                None,
+                "America/New_York".parse().unwrap(),
+            ),
+            Some("2026-03-08T10:30:00Z".parse().unwrap())
         );
     }
 

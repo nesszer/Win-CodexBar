@@ -128,7 +128,20 @@ pub(super) fn parse_claude_reset_date(
     now: DateTime<Utc>,
     expected_window_minutes: Option<u32>,
 ) -> Option<DateTime<Utc>> {
-    let (raw, timezone) = normalize_claude_reset_text(text)?;
+    let system_timezone = iana_time_zone::get_timezone()
+        .ok()
+        .and_then(|name| Tz::from_str(&name).ok())
+        .unwrap_or(chrono_tz::UTC);
+    parse_claude_reset_date_in_system_zone(text, now, expected_window_minutes, system_timezone)
+}
+
+pub(super) fn parse_claude_reset_date_in_system_zone(
+    text: &str,
+    now: DateTime<Utc>,
+    expected_window_minutes: Option<u32>,
+    system_timezone: Tz,
+) -> Option<DateTime<Utc>> {
+    let (raw, timezone) = normalize_claude_reset_text(text, system_timezone)?;
     let components = parse_claude_reset_components(&raw)?;
     let now_local = now.with_timezone(&timezone);
     let candidates = match (components.year, components.month, components.day) {
@@ -171,7 +184,7 @@ pub(super) fn parse_claude_reset_date(
     resolve_claude_reset_occurrence(candidates, now, expected_window_minutes)
 }
 
-fn normalize_claude_reset_text(text: &str) -> Option<(String, Tz)> {
+fn normalize_claude_reset_text(text: &str, system_timezone: Tz) -> Option<(String, Tz)> {
     static MONTH_BOUNDARY: OnceLock<Regex> = OnceLock::new();
     static COMPACT_AT: OnceLock<Regex> = OnceLock::new();
     let mut raw = text
@@ -189,7 +202,7 @@ fn normalize_claude_reset_text(text: &str) -> Option<(String, Tz)> {
             raw.truncate(start);
             timezone
         })
-        .unwrap_or(chrono_tz::UTC);
+        .unwrap_or(system_timezone);
     raw = raw.replace(" at ", " ");
     raw = regex(&MONTH_BOUNDARY, r"(?i)([a-z]{3})(\d)")
         .replace(&raw, "$1 $2")

@@ -151,6 +151,117 @@ describe("useProviders", () => {
     expect(tauriMocks.getCachedProviders).toHaveBeenCalledTimes(2);
   });
 
+  it("discards queued pre-change snapshots before reloading settings presentation", async () => {
+    vi.useFakeTimers();
+    try {
+      tauriMocks.getCachedProviders.mockResolvedValueOnce([provider("codex")]);
+      const { result } = renderHook(() => useProviders({ refreshOnMount: false }));
+      await act(async () => {});
+
+      const visible = provider("codex", 30);
+      visible.extraRateWindows = [
+        { id: "codex-spark", title: "Spark", window: visible.primary },
+      ];
+      tauriMocks.getCachedProviders.mockResolvedValueOnce([provider("codex", 40)]);
+
+      await act(async () => {
+        emitProviderEvent("provider-updated", visible);
+        emitProviderEvent("settings-changed", undefined);
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(80);
+      });
+
+      expect(result.current.providers[0]?.primary.usedPercent).toBe(40);
+      expect(result.current.providers[0]?.extraRateWindows).toHaveLength(0);
+
+      act(() => emitProviderEvent("provider-updated", provider("codex", 50)));
+      act(() => vi.advanceTimersByTime(80));
+      expect(result.current.providers[0]?.primary.usedPercent).toBe(50);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies post-change events after a pending settings cache reload", async () => {
+    let resolveReload!: (snapshots: ProviderUsageSnapshot[]) => void;
+    tauriMocks.getCachedProviders
+      .mockResolvedValueOnce([provider("codex", 20)])
+      .mockImplementationOnce(
+        () =>
+          new Promise<ProviderUsageSnapshot[]>((resolve) => {
+            resolveReload = resolve;
+          }),
+      );
+    const { result } = renderHook(() => useProviders({ refreshOnMount: false }));
+    await waitFor(() => expect(result.current.providers[0]?.primary.usedPercent).toBe(20));
+
+    act(() => {
+      emitProviderEvent("settings-changed", undefined);
+      emitProviderEvent("provider-updated", provider("codex", 50));
+    });
+    await act(async () => {
+      resolveReload([provider("codex", 40)]);
+    });
+
+    expect(result.current.providers[0]?.primary.usedPercent).toBe(50);
+  });
+
+  it("ignores an initial cache response superseded by a settings reload", async () => {
+    let resolveInitial!: (snapshots: ProviderUsageSnapshot[]) => void;
+    tauriMocks.getCachedProviders
+      .mockImplementationOnce(
+        () =>
+          new Promise<ProviderUsageSnapshot[]>((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([provider("codex", 40)]);
+    const { result } = renderHook(() => useProviders({ refreshOnMount: false }));
+    await waitFor(() =>
+      expect(eventMocks.listeners.get("settings-changed")).toHaveLength(1),
+    );
+
+    await act(async () => {
+      emitProviderEvent("settings-changed", undefined);
+      emitProviderEvent("provider-updated", provider("codex", 50));
+    });
+    await act(async () => {
+      resolveInitial([provider("codex", 20)]);
+    });
+
+    expect(result.current.providers[0]?.primary.usedPercent).toBe(50);
+  });
+
+  it("does not leave event batching paused when an effect restarts during reload", async () => {
+    vi.useFakeTimers();
+    try {
+      tauriMocks.getCachedProviders
+        .mockResolvedValueOnce([provider("codex", 20)])
+        .mockImplementationOnce(() => new Promise<ProviderUsageSnapshot[]>(() => {}))
+        .mockResolvedValueOnce([provider("codex", 30)]);
+      const { result, rerender } = renderHook(
+        ({ delay }) =>
+          useProviders({
+            refreshOnMount: false,
+            initialRefreshDelayMs: delay,
+          }),
+        { initialProps: { delay: 0 } },
+      );
+      await act(async () => {});
+
+      act(() => emitProviderEvent("settings-changed", undefined));
+      rerender({ delay: 1 });
+      await act(async () => {});
+      act(() => emitProviderEvent("provider-updated", provider("codex", 50)));
+      act(() => vi.advanceTimersByTime(80));
+
+      expect(result.current.providers[0]?.primary.usedPercent).toBe(50);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("manual refresh uses forced refresh", async () => {
     const { result } = renderHook(() => useProviders());
 

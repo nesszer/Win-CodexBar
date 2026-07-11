@@ -66,6 +66,8 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
   const pendingSnapshotsRef = useRef<Map<string, ProviderUsageSnapshot>>(new Map());
   const flushTimerRef = useRef<number | undefined>(undefined);
   const resetRefreshTimerRef = useRef<number | undefined>(undefined);
+  const settingsReloadEpochRef = useRef(0);
+  const settingsReloadingRef = useRef(false);
 
   const mergeSnapshots = useCallback((snapshots: ProviderUsageSnapshot[]) => {
     if (snapshots.length === 0) return;
@@ -97,7 +99,7 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
 
   const queueSnapshot = useCallback((snapshot: ProviderUsageSnapshot) => {
     pendingSnapshotsRef.current.set(snapshot.providerId, snapshot);
-    if (flushTimerRef.current !== undefined) return;
+    if (settingsReloadingRef.current || flushTimerRef.current !== undefined) return;
     flushTimerRef.current = window.setTimeout(flushPendingSnapshots, 80);
   }, [flushPendingSnapshots]);
 
@@ -115,9 +117,14 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     let cancelled = false;
 
     // Load existing cache first.
+    const initialEpoch = settingsReloadEpochRef.current;
     getCachedProviders()
       .then((cached) => {
-        if (!cancelled && cached.length > 0) {
+        if (
+          !cancelled &&
+          initialEpoch === settingsReloadEpochRef.current &&
+          cached.length > 0
+        ) {
           mergeSnapshots(cached);
         }
       })
@@ -136,9 +143,25 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     );
 
     const unlistenSettings = listen("settings-changed", () => {
-      getCachedProviders().then((cached) => {
-        if (!cancelled) mergeSnapshots(cached);
-      });
+      const epoch = ++settingsReloadEpochRef.current;
+      settingsReloadingRef.current = true;
+      if (flushTimerRef.current !== undefined) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = undefined;
+      }
+      pendingSnapshotsRef.current.clear();
+      getCachedProviders()
+        .then((cached) => {
+          if (!cancelled && epoch === settingsReloadEpochRef.current) {
+            mergeSnapshots(cached);
+          }
+        })
+        .finally(() => {
+          if (!cancelled && epoch === settingsReloadEpochRef.current) {
+            settingsReloadingRef.current = false;
+            flushPendingSnapshots();
+          }
+        });
     });
 
     const unlistenStarted = listen("refresh-started", () => {
@@ -152,7 +175,7 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
       "refresh-complete",
       (event) => {
         if (!cancelled) {
-          flushPendingSnapshots();
+          if (!settingsReloadingRef.current) flushPendingSnapshots();
           refreshingRef.current = false;
           setIsRefreshing(false);
           setLastRefresh(event.payload);
@@ -186,6 +209,8 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
 
     return () => {
       cancelled = true;
+      settingsReloadEpochRef.current += 1;
+      settingsReloadingRef.current = false;
       if (initialRefreshTimer !== undefined) {
         window.clearTimeout(initialRefreshTimer);
       }
