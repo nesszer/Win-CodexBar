@@ -8,6 +8,14 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+/// Whole-request Codex rates for input above the model context threshold.
+#[derive(Debug, Clone, Copy)]
+pub struct CodexLongContextRates {
+    pub input_cost_per_token: f64,
+    pub output_cost_per_token: f64,
+    pub cache_read_input_cost_per_token: f64,
+}
+
 /// Codex (OpenAI) model pricing
 #[derive(Debug, Clone, Copy)]
 pub struct CodexPricing {
@@ -19,6 +27,8 @@ pub struct CodexPricing {
     pub cache_read_input_cost_per_token: f64,
     /// Optional display label override (e.g. "Research Preview")
     pub display_label: Option<&'static str>,
+    /// Whole-request rates above the Codex long-context threshold.
+    pub long_context: Option<CodexLongContextRates>,
 }
 
 /// Claude (Anthropic) model pricing with optional tiered pricing
@@ -56,6 +66,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1e-5,
             cache_read_input_cost_per_token: 1.25e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -65,6 +76,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1e-5,
             cache_read_input_cost_per_token: 1.25e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -74,6 +86,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 2e-6,
             cache_read_input_cost_per_token: 2.5e-8,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -83,6 +96,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 4e-7,
             cache_read_input_cost_per_token: 5e-9,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -92,6 +106,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.2e-4,
             cache_read_input_cost_per_token: 1.5e-5,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -101,6 +116,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1e-5,
             cache_read_input_cost_per_token: 1.25e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -110,6 +126,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1e-5,
             cache_read_input_cost_per_token: 1.25e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -119,6 +136,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1e-5,
             cache_read_input_cost_per_token: 1.25e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -128,6 +146,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 2e-6,
             cache_read_input_cost_per_token: 2.5e-8,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -137,6 +156,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.4e-5,
             cache_read_input_cost_per_token: 1.75e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -146,6 +166,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.4e-5,
             cache_read_input_cost_per_token: 1.75e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -155,6 +176,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.68e-4,
             cache_read_input_cost_per_token: 2.1e-5,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -164,6 +186,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.4e-5,
             cache_read_input_cost_per_token: 1.75e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -173,6 +196,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 0.0,
             cache_read_input_cost_per_token: 0.0,
             display_label: Some("Research Preview"),
+            long_context: None,
         },
     );
 
@@ -184,6 +208,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.5e-5,
             cache_read_input_cost_per_token: 2.5e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -193,6 +218,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.5e-5,
             cache_read_input_cost_per_token: 2.5e-7,
             display_label: None,
+            long_context: None,
         },
     );
 
@@ -204,6 +230,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 4.5e-6,
             cache_read_input_cost_per_token: 7.5e-8,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -213,6 +240,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 4.5e-6,
             cache_read_input_cost_per_token: 7.5e-8,
             display_label: None,
+            long_context: None,
         },
     );
 
@@ -224,6 +252,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.25e-6,
             cache_read_input_cost_per_token: 2e-8,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -233,6 +262,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.25e-6,
             cache_read_input_cost_per_token: 2e-8,
             display_label: None,
+            long_context: None,
         },
     );
 
@@ -244,6 +274,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.8e-4,
             cache_read_input_cost_per_token: 3e-5,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -253,6 +284,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 3e-5,
             cache_read_input_cost_per_token: 5e-7,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -262,6 +294,7 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.8e-4,
             cache_read_input_cost_per_token: 3e-5,
             display_label: None,
+            long_context: None,
         },
     );
     m.insert(
@@ -271,6 +304,11 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 3e-5,
             cache_read_input_cost_per_token: 5e-7,
             display_label: None,
+            long_context: Some(CodexLongContextRates {
+                input_cost_per_token: 1e-5,
+                output_cost_per_token: 4.5e-5,
+                cache_read_input_cost_per_token: 1e-6,
+            }),
         },
     );
     m.insert(
@@ -280,6 +318,11 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 1.5e-5,
             cache_read_input_cost_per_token: 2.5e-7,
             display_label: None,
+            long_context: Some(CodexLongContextRates {
+                input_cost_per_token: 5e-6,
+                output_cost_per_token: 2.25e-5,
+                cache_read_input_cost_per_token: 5e-7,
+            }),
         },
     );
     m.insert(
@@ -289,6 +332,11 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             output_cost_per_token: 6e-6,
             cache_read_input_cost_per_token: 1e-7,
             display_label: None,
+            long_context: Some(CodexLongContextRates {
+                input_cost_per_token: 2e-6,
+                output_cost_per_token: 9e-6,
+                cache_read_input_cost_per_token: 2e-7,
+            }),
         },
     );
 
@@ -296,40 +344,6 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
 });
 
 const CODEX_LONG_CONTEXT_THRESHOLD: u64 = 272_000;
-
-/// Codex rates that apply to the entire request above the model's context threshold.
-static CODEX_LONG_CONTEXT_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> =
-    LazyLock::new(|| {
-        let mut m = HashMap::new();
-        m.insert(
-            "gpt-5.6-sol",
-            CodexPricing {
-                input_cost_per_token: 1e-5,
-                output_cost_per_token: 4.5e-5,
-                cache_read_input_cost_per_token: 1e-6,
-                display_label: None,
-            },
-        );
-        m.insert(
-            "gpt-5.6-terra",
-            CodexPricing {
-                input_cost_per_token: 5e-6,
-                output_cost_per_token: 2.25e-5,
-                cache_read_input_cost_per_token: 5e-7,
-                display_label: None,
-            },
-        );
-        m.insert(
-            "gpt-5.6-luna",
-            CodexPricing {
-                input_cost_per_token: 2e-6,
-                output_cost_per_token: 9e-6,
-                cache_read_input_cost_per_token: 2e-7,
-                display_label: None,
-            },
-        );
-        m
-    });
 
 /// Claude model pricing table
 static CLAUDE_PRICING: LazyLock<HashMap<&'static str, ClaudePricing>> = LazyLock::new(|| {
@@ -581,30 +595,24 @@ impl CostUsagePricing {
             trimmed = rest.to_string();
         }
 
-        if trimmed == "gpt-5.6" {
-            return "gpt-5.6-sol".to_string();
-        }
-
         // Check if base model (without -codex suffix) exists in pricing
         if let Some(idx) = trimmed.find("-codex") {
             let base = &trimmed[..idx];
-            if CODEX_PRICING.contains_key(base) {
-                return base.to_string();
-            }
-            if base == "gpt-5.6" {
-                return "gpt-5.6-sol".to_string();
+            if CODEX_PRICING.contains_key(base) || base == "gpt-5.6" {
+                trimmed = base.to_string();
             }
         }
 
         let date_pattern = regex_lite::Regex::new(r"-\d{4}-\d{2}-\d{2}$").unwrap();
         if let Some(mat) = date_pattern.find(&trimmed) {
             let base = &trimmed[..mat.start()];
-            if CODEX_PRICING.contains_key(base) {
-                return base.to_string();
+            if CODEX_PRICING.contains_key(base) || base == "gpt-5.6" {
+                trimmed = base.to_string();
             }
-            if base == "gpt-5.6" {
-                return "gpt-5.6-sol".to_string();
-            }
+        }
+
+        if trimmed == "gpt-5.6" {
+            return "gpt-5.6-sol".to_string();
         }
 
         trimmed
@@ -661,20 +669,36 @@ impl CostUsagePricing {
         output_tokens: u64,
     ) -> Option<f64> {
         let key = Self::normalize_codex_model(model);
-        let pricing = if input_tokens > CODEX_LONG_CONTEXT_THRESHOLD {
-            CODEX_LONG_CONTEXT_PRICING
-                .get(key.as_str())
-                .or_else(|| CODEX_PRICING.get(key.as_str()))?
-        } else {
-            CODEX_PRICING.get(key.as_str())?
-        };
+        let pricing = CODEX_PRICING.get(key.as_str())?;
+        let (input_rate, cache_read_rate, output_rate) =
+            if input_tokens > CODEX_LONG_CONTEXT_THRESHOLD {
+                if let Some(long_context) = pricing.long_context {
+                    (
+                        long_context.input_cost_per_token,
+                        long_context.cache_read_input_cost_per_token,
+                        long_context.output_cost_per_token,
+                    )
+                } else {
+                    (
+                        pricing.input_cost_per_token,
+                        pricing.cache_read_input_cost_per_token,
+                        pricing.output_cost_per_token,
+                    )
+                }
+            } else {
+                (
+                    pricing.input_cost_per_token,
+                    pricing.cache_read_input_cost_per_token,
+                    pricing.output_cost_per_token,
+                )
+            };
 
         let cached = cached_input_tokens.min(input_tokens);
         let non_cached = input_tokens.saturating_sub(cached);
 
-        let cost = (non_cached as f64) * pricing.input_cost_per_token
-            + (cached as f64) * pricing.cache_read_input_cost_per_token
-            + (output_tokens as f64) * pricing.output_cost_per_token;
+        let cost = (non_cached as f64) * input_rate
+            + (cached as f64) * cache_read_rate
+            + (output_tokens as f64) * output_rate;
 
         Some(cost)
     }
@@ -987,6 +1011,7 @@ mod tests {
             "openai/gpt-5.6",
             "gpt-5.6-codex",
             "gpt-5.6-2099-01-01",
+            "openai/gpt-5.6-codex-2099-01-01",
         ] {
             assert_eq!(
                 CostUsagePricing::normalize_codex_model(model),
