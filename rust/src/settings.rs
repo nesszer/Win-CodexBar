@@ -329,6 +329,7 @@ fn default_api_region(id: ProviderId) -> &'static str {
 
 /// Default for the codex `openai_web_extras` boolean (true = show extras).
 const DEFAULT_CODEX_OPENAI_WEB_EXTRAS: bool = true;
+const DEFAULT_CODEX_SPARK_USAGE_VISIBLE: bool = true;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -733,6 +734,18 @@ impl Settings {
         self.provider_config_mut(id).openai_web_extras = Some(value);
     }
 
+    /// Codex Spark rows are visible by default.
+    pub fn spark_usage_visible(&self, id: ProviderId) -> bool {
+        self.provider_configs
+            .get(&id)
+            .and_then(|c| c.spark_usage_visible)
+            .unwrap_or(DEFAULT_CODEX_SPARK_USAGE_VISIBLE)
+    }
+
+    pub fn set_spark_usage_visible(&mut self, id: ProviderId, value: bool) {
+        self.provider_config_mut(id).spark_usage_visible = Some(value);
+    }
+
     /// Per-provider historical-tracking toggle (currently codex-only).
     pub fn historical_tracking(&self, id: ProviderId) -> bool {
         self.provider_configs
@@ -924,6 +937,12 @@ impl Settings {
     }
     pub fn set_codex_openai_web_extras(&mut self, v: bool) {
         self.set_openai_web_extras(ProviderId::Codex, v)
+    }
+    pub fn codex_spark_usage_visible(&self) -> bool {
+        self.spark_usage_visible(ProviderId::Codex)
+    }
+    pub fn set_codex_spark_usage_visible(&mut self, v: bool) {
+        self.set_spark_usage_visible(ProviderId::Codex, v)
     }
     pub fn codex_historical_tracking(&self) -> bool {
         self.historical_tracking(ProviderId::Codex)

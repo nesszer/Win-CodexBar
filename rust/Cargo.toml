@@ -40,6 +40,7 @@ anyhow = "1"
 
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 
 # Async utilities
 async-trait = "0.1"

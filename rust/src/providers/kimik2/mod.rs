@@ -30,7 +30,7 @@ impl KimiK2Provider {
                 supports_credits: true,
                 default_enabled: false,
                 is_primary: false,
-                dashboard_url: Some("https://platform.moonshot.ai/console/account"),
+                dashboard_url: Some("https://kimrel.com/my-credits"),
                 status_page_url: None,
             },
         }
@@ -39,23 +39,23 @@ impl KimiK2Provider {
     /// Get API key from environment or config
     fn get_api_key(api_key: Option<&str>) -> Option<String> {
         if let Some(key) = api_key
-            && !key.is_empty()
+            && !key.trim().is_empty()
         {
-            return Some(key.to_string());
+            return Some(key.trim().to_string());
         }
 
         // Check environment variable first
         if let Ok(key) = std::env::var("MOONSHOT_API_KEY")
-            && !key.is_empty()
+            && !key.trim().is_empty()
         {
-            return Some(key);
+            return Some(key.trim().to_string());
         }
 
         // Check KIMI_API_KEY
         if let Ok(key) = std::env::var("KIMI_API_KEY")
-            && !key.is_empty()
+            && !key.trim().is_empty()
         {
-            return Some(key);
+            return Some(key.trim().to_string());
         }
 
         // Check config file
@@ -65,12 +65,27 @@ impl KimiK2Provider {
                 && let Ok(content) = std::fs::read_to_string(&config_file)
                 && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
                 && let Some(key) = json.get("api_key").and_then(|v| v.as_str())
+                && !key.trim().is_empty()
             {
-                return Some(key.to_string());
+                return Some(key.trim().to_string());
             }
         }
 
         None
+    }
+
+    fn missing_api_key_error() -> ProviderError {
+        ProviderError::Other(
+            "Kimi K2 API key is missing or blank. Set it in Preferences → Providers, MOONSHOT_API_KEY, or KIMI_API_KEY."
+                .to_string(),
+        )
+    }
+
+    fn rejected_api_key_error() -> ProviderError {
+        ProviderError::Other(
+            "Kimi K2 API key was rejected or expired. Update it in Preferences → Providers, MOONSHOT_API_KEY, or KIMI_API_KEY."
+                .to_string(),
+        )
     }
 
     fn api_bases_from_region(region: Option<&str>) -> &'static [&'static str] {
@@ -83,12 +98,8 @@ impl KimiK2Provider {
 
     /// Fetch usage via Moonshot API
     async fn fetch_via_api(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
-        let api_key = Self::get_api_key(ctx.api_key.as_deref()).ok_or_else(|| {
-            ProviderError::NotInstalled(
-                "Moonshot API key not found. Set it in Preferences → Providers, MOONSHOT_API_KEY, or KIMI_API_KEY."
-                    .to_string(),
-            )
-        })?;
+        let api_key =
+            Self::get_api_key(ctx.api_key.as_deref()).ok_or_else(Self::missing_api_key_error)?;
 
         let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -125,7 +136,7 @@ impl KimiK2Provider {
         }
 
         if auth_error {
-            Err(ProviderError::AuthRequired)
+            Err(Self::rejected_api_key_error())
         } else {
             Err(ProviderError::Other(
                 "Moonshot API endpoint not configured".to_string(),
@@ -274,13 +285,40 @@ impl Provider for KimiK2Provider {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::Provider;
+
     use super::KimiK2Provider;
+
+    #[test]
+    fn kimi_uses_legacy_credits_dashboard() {
+        assert_eq!(
+            KimiK2Provider::new().metadata().dashboard_url,
+            Some("https://kimrel.com/my-credits")
+        );
+    }
 
     #[test]
     fn explicit_api_key_overrides_environment_lookup() {
         assert_eq!(
             KimiK2Provider::get_api_key(Some("kimi-direct-key")),
             Some("kimi-direct-key".to_string())
+        );
+    }
+
+    #[test]
+    fn blank_explicit_api_key_is_not_accepted() {
+        assert_eq!(KimiK2Provider::get_api_key(Some(" \t ")), None);
+    }
+
+    #[test]
+    fn kimi_key_errors_distinguish_missing_and_rejected_keys() {
+        assert_eq!(
+            KimiK2Provider::missing_api_key_error().to_string(),
+            "Kimi K2 API key is missing or blank. Set it in Preferences → Providers, MOONSHOT_API_KEY, or KIMI_API_KEY."
+        );
+        assert_eq!(
+            KimiK2Provider::rejected_api_key_error().to_string(),
+            "Kimi K2 API key was rejected or expired. Update it in Preferences → Providers, MOONSHOT_API_KEY, or KIMI_API_KEY."
         );
     }
 

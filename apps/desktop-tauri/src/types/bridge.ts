@@ -200,6 +200,7 @@ export interface SettingsSnapshot {
   trayScalePercent: number;
   powertoysStatusPipeEnabled: boolean;
   claudeAvoidKeychainPrompts: boolean;
+  codexSparkUsageVisible?: boolean;
   disableKeychainAccess: boolean;
   providerMetrics: Record<string, MetricPreference>;
   floatBarEnabled: boolean;
@@ -251,6 +252,7 @@ export interface SettingsUpdate {
   trayScalePercent?: number;
   powertoysStatusPipeEnabled?: boolean;
   claudeAvoidKeychainPrompts?: boolean;
+  codexSparkUsageVisible?: boolean;
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */
   providerMetrics?: Record<string, MetricPreference>;

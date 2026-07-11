@@ -243,6 +243,8 @@ export const ALL_LOCALE_KEYS = [
   "ProviderClaudeCookiesHelp",
   "ProviderClaudeAvoidKeychainPrompts",
   "ProviderClaudeAvoidKeychainPromptsHelp",
+  "ProviderCodexSparkUsage",
+  "ProviderCodexSparkUsageHelp",
   "ProviderCursorCookieSourceHelp",
   "ProviderCursorCreditsHelp",
   "AutoFallbackHelp",

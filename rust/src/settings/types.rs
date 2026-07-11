@@ -262,6 +262,9 @@ pub struct ProviderConfig {
     /// Codex-only: opt out of OpenAI web "extras" surfaces.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai_web_extras: Option<bool>,
+    /// Codex-only: show or hide Codex Spark quota rows in presentation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spark_usage_visible: Option<bool>,
     /// Codex-only: enable historical usage tracking in UI.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub historical_tracking: bool,

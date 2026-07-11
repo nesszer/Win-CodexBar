@@ -35,6 +35,7 @@ import { VertexAiCreds } from "./sections/credentials/VertexAiCreds";
 import { JetBrainsCreds } from "./sections/credentials/JetBrainsCreds";
 import { KiroCreds } from "./sections/credentials/KiroCreds";
 import { ClaudeCreds } from "./sections/credentials/ClaudeCreds";
+import { CodexUsageOptions } from "./sections/credentials/CodexUsageOptions";
 import { OpenAiExtras } from "./sections/credentials/OpenAiExtras";
 import { TokenAccountsPanel } from "../tokens/TokenAccountsPanel";
 import { ApiKeySection } from "./ApiKeySection";
@@ -299,6 +300,7 @@ export function ProviderDetailPane({
         onChanged={() => void load(detail.id)}
       />
       <CredentialsDispatcher providerId={detail.id} t={t} />
+      {detail.id === "codex" && <CodexUsageOptions t={t} />}
       <CredentialStorageSection
         status={credentialStatus}
         busy={busy}

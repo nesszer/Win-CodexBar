@@ -116,25 +116,30 @@ pub fn get_provider_detail(
             .iter()
             .find(|s| s.provider_id == detail.id)
     {
-        detail.email = snap.account_email.clone();
-        detail.plan = snap.plan_name.clone();
-        detail.organization = snap.account_organization.clone();
-        detail.source_label = if snap.source_label.is_empty() {
+        let mut snapshot = snap.clone();
+        super::filter_hidden_codex_spark_rows(
+            &mut snapshot,
+            Settings::load().codex_spark_usage_visible(),
+        );
+        detail.email = snapshot.account_email.clone();
+        detail.plan = snapshot.plan_name.clone();
+        detail.organization = snapshot.account_organization.clone();
+        detail.source_label = if snapshot.source_label.is_empty() {
             None
         } else {
-            Some(snap.source_label.clone())
+            Some(snapshot.source_label.clone())
         };
-        detail.last_updated = Some(snap.updated_at.clone());
-        if snap.error.is_none() {
-            detail.session = Some(snap.primary.clone());
-            detail.weekly = snap.secondary.clone();
-            detail.model_specific = snap.model_specific.clone();
-            detail.tertiary = snap.tertiary.clone();
-            detail.extra_rate_windows = snap.extra_rate_windows.clone();
-            detail.cost = snap.cost.clone();
-            detail.pace = snap.pace.clone();
+        detail.last_updated = Some(snapshot.updated_at.clone());
+        if snapshot.error.is_none() {
+            detail.session = Some(snapshot.primary.clone());
+            detail.weekly = snapshot.secondary.clone();
+            detail.model_specific = snapshot.model_specific.clone();
+            detail.tertiary = snapshot.tertiary.clone();
+            detail.extra_rate_windows = snapshot.extra_rate_windows.clone();
+            detail.cost = snapshot.cost.clone();
+            detail.pace = snapshot.pace.clone();
         }
-        detail.last_error = snap.error.clone();
+        detail.last_error = snapshot.error.clone();
         detail.has_snapshot = true;
     }
 

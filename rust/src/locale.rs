@@ -457,6 +457,8 @@ locale_keys! {
     ProviderClaudeCookiesHelp,
     ProviderClaudeAvoidKeychainPrompts,
     ProviderClaudeAvoidKeychainPromptsHelp,
+    ProviderCodexSparkUsage,
+    ProviderCodexSparkUsageHelp,
     ProviderCursorCookieSourceHelp,
     ProviderCursorCreditsHelp,
     AutoFallbackHelp,

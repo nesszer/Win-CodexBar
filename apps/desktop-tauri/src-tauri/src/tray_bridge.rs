@@ -370,7 +370,9 @@ pub(crate) fn rebuild_tray_menu(app: &AppHandle) {
     let settings = Settings::load();
     let status_labels = if let Some(st) = app.try_state::<Mutex<AppState>>() {
         let guard = st.lock().unwrap();
-        status_labels_for_settings(&settings, &guard.provider_cache, settings.ui_language)
+        let snapshots =
+            presentation_snapshots(&guard.provider_cache, settings.codex_spark_usage_visible());
+        status_labels_for_settings(&settings, &snapshots, settings.ui_language)
     } else {
         vec![]
     };
@@ -388,7 +390,8 @@ pub fn update_tray_status_items(
 ) {
     let catalog = crate::commands::get_provider_catalog();
     let settings = Settings::load();
-    let status_labels = status_labels_for_settings(&settings, snapshots, settings.ui_language);
+    let snapshots = presentation_snapshots(snapshots, settings.codex_spark_usage_visible());
+    let status_labels = status_labels_for_settings(&settings, &snapshots, settings.ui_language);
 
     if let Ok(menu) = build_native_tray_menu(app, &catalog, &status_labels)
         && let Some(tray) = app.tray_by_id("codexbar-main")
@@ -403,9 +406,22 @@ pub(crate) fn refresh_tray_presentation(app: &AppHandle) {
         .try_state::<Mutex<AppState>>()
         .map(|st| st.lock().unwrap().provider_cache.clone())
         .unwrap_or_default();
+    let snapshots =
+        presentation_snapshots(&snapshots, Settings::load().codex_spark_usage_visible());
 
     update_tray_status_items(app, &snapshots);
     update_tray_icon_and_tooltip(app, &snapshots);
+}
+
+fn presentation_snapshots(
+    snapshots: &[crate::commands::ProviderUsageSnapshot],
+    spark_usage_visible: bool,
+) -> Vec<crate::commands::ProviderUsageSnapshot> {
+    let mut snapshots = snapshots.to_vec();
+    for snapshot in &mut snapshots {
+        crate::commands::filter_hidden_codex_spark_rows(snapshot, spark_usage_visible);
+    }
+    snapshots
 }
 
 /// Update the tray icon pixels and tooltip text to reflect current provider usage.
@@ -429,7 +445,8 @@ pub fn update_tray_icon_and_tooltip(
 
     // ── Icon ─────────────────────────────────────────────────────────────
     let settings = Settings::load();
-    let ordered_snapshots = ordered_snapshot_refs(&settings, snapshots);
+    let snapshots = presentation_snapshots(snapshots, settings.codex_spark_usage_visible());
+    let ordered_snapshots = ordered_snapshot_refs(&settings, &snapshots);
     let ok_snapshots: Vec<_> = ordered_snapshots
         .iter()
         .copied()
@@ -458,7 +475,7 @@ pub fn update_tray_icon_and_tooltip(
     let _ = tray.set_icon(Some(icon));
 
     // ── Tooltip ───────────────────────────────────────────────────────────
-    let tooltip = build_tooltip(snapshots, settings.ui_language);
+    let tooltip = build_tooltip(&snapshots, settings.ui_language);
     let _ = tray.set_tooltip(Some(tooltip));
 }
 

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use super::{
-    ProviderSummary, ProviderUsageSnapshot, provider_cookie_source_lookup, provider_region_lookup,
-    validate_external_url, validate_surface_target,
+    NamedRateWindowSnapshot, ProviderSummary, ProviderUsageSnapshot, provider_cookie_source_lookup,
+    provider_region_lookup, validate_external_url, validate_surface_target,
 };
 use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
@@ -693,6 +693,35 @@ fn provider_cache_upsert_replaces_existing_provider() {
     assert_eq!(cache.len(), 1);
     assert_eq!(cache[0].provider_id, "codex");
     assert_eq!(cache[0].error.as_deref(), Some("new"));
+}
+
+#[test]
+fn hiding_codex_spark_rows_preserves_other_extra_usage() {
+    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        cost: None,
+        source_label: "CLI".to_string(),
+    };
+    let mut snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result);
+    snapshot.extra_rate_windows = vec![
+        NamedRateWindowSnapshot {
+            id: "codex-spark".to_string(),
+            title: "Codex Spark 5-hour".to_string(),
+            window: snapshot.primary.clone(),
+        },
+        NamedRateWindowSnapshot {
+            id: "credits".to_string(),
+            title: "Credits".to_string(),
+            window: snapshot.primary.clone(),
+        },
+    ];
+
+    super::filter_hidden_codex_spark_rows(&mut snapshot, false);
+
+    assert_eq!(snapshot.extra_rate_windows.len(), 1);
+    assert_eq!(snapshot.extra_rate_windows[0].id, "credits");
 }
 
 #[test]

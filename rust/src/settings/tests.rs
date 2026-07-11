@@ -788,3 +788,15 @@ fn test_per_provider_defaults_applied() {
     assert!(!settings.historical_tracking(ProviderId::Codex));
     assert!(!settings.avoid_keychain_prompts(ProviderId::Claude));
 }
+
+#[test]
+fn codex_spark_usage_visibility_defaults_to_visible_and_roundtrips() {
+    let mut settings = Settings::default();
+    assert!(settings.codex_spark_usage_visible());
+
+    settings.set_codex_spark_usage_visible(false);
+    let serialized = serde_json::to_string(&settings).unwrap();
+    let loaded: Settings = serde_json::from_str(&serialized).unwrap();
+
+    assert!(!loaded.codex_spark_usage_visible());
+}
