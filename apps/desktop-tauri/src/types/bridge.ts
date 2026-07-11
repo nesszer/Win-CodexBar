@@ -200,7 +200,7 @@ export interface SettingsSnapshot {
   trayScalePercent: number;
   powertoysStatusPipeEnabled: boolean;
   claudeAvoidKeychainPrompts: boolean;
-  codexSparkUsageVisible?: boolean;
+  codexSparkUsageVisible: boolean;
   disableKeychainAccess: boolean;
   providerMetrics: Record<string, MetricPreference>;
   floatBarEnabled: boolean;

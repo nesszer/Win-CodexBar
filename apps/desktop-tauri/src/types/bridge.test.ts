@@ -70,6 +70,7 @@ describe("Language type", () => {
       uiLanguage: "spanish",
       theme: "dark",
       claudeAvoidKeychainPrompts: true,
+      codexSparkUsageVisible: true,
       disableKeychainAccess: false,
       providerMetrics: {},
       floatBarEnabled: false,

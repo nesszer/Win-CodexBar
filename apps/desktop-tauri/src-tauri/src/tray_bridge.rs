@@ -406,9 +406,6 @@ pub(crate) fn refresh_tray_presentation(app: &AppHandle) {
         .try_state::<Mutex<AppState>>()
         .map(|st| st.lock().unwrap().provider_cache.clone())
         .unwrap_or_default();
-    let snapshots =
-        presentation_snapshots(&snapshots, Settings::load().codex_spark_usage_visible());
-
     update_tray_status_items(app, &snapshots);
     update_tray_icon_and_tooltip(app, &snapshots);
 }

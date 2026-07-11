@@ -147,6 +147,7 @@ function settings(): SettingsSnapshot {
     trayScalePercent: 100,
     powertoysStatusPipeEnabled: false,
     claudeAvoidKeychainPrompts: false,
+    codexSparkUsageVisible: true,
     disableKeychainAccess: false,
     providerMetrics: {},
     floatBarEnabled: false,

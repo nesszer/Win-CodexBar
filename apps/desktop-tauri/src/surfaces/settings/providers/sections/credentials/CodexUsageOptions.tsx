@@ -16,7 +16,7 @@ export function CodexUsageOptions({ t }: Props) {
     getSettingsSnapshot()
       .then(
         (settings) =>
-          !cancelled && setValue(settings.codexSparkUsageVisible ?? true),
+          !cancelled && setValue(settings.codexSparkUsageVisible),
       )
       .catch((e) => !cancelled && setError(String(e)));
     return () => {
@@ -28,7 +28,7 @@ export function CodexUsageOptions({ t }: Props) {
     setSaving(true);
     try {
       const updated = await updateSettings({ codexSparkUsageVisible: next });
-      setValue(updated.codexSparkUsageVisible ?? true);
+      setValue(updated.codexSparkUsageVisible);
     } catch (e) {
       setError(String(e));
     } finally {

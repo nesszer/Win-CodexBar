@@ -58,6 +58,11 @@ pub fn emit_surface_mode_changed(
 }
 
 pub fn emit_provider_updated(app: &AppHandle, snapshot: &ProviderUsageSnapshot) {
+    let mut snapshot = snapshot.clone();
+    crate::commands::filter_hidden_codex_spark_rows(
+        &mut snapshot,
+        codexbar::settings::Settings::load().codex_spark_usage_visible(),
+    );
     let _ = app.emit(PROVIDER_UPDATED, snapshot);
 }
 

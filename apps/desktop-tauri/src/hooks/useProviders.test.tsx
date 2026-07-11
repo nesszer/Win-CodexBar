@@ -130,6 +130,27 @@ describe("useProviders", () => {
     ]);
   });
 
+  it("reloads cached provider presentation when settings change", async () => {
+    const visible = provider("codex");
+    visible.extraRateWindows = [
+      {
+        id: "codex-spark",
+        title: "Spark",
+        window: visible.primary,
+      },
+    ];
+    tauriMocks.getCachedProviders.mockResolvedValueOnce([visible]);
+
+    const { result } = renderHook(() => useProviders({ refreshOnMount: false }));
+    await waitFor(() => expect(result.current.providers[0]?.extraRateWindows).toHaveLength(1));
+
+    tauriMocks.getCachedProviders.mockResolvedValueOnce([provider("codex")]);
+    act(() => emitProviderEvent("settings-changed", undefined));
+
+    await waitFor(() => expect(result.current.providers[0]?.extraRateWindows).toHaveLength(0));
+    expect(tauriMocks.getCachedProviders).toHaveBeenCalledTimes(2);
+  });
+
   it("manual refresh uses forced refresh", async () => {
     const { result } = renderHook(() => useProviders());
 

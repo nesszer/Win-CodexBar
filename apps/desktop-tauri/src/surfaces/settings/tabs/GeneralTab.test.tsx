@@ -52,6 +52,7 @@ const settings: SettingsSnapshot = {
   uiLanguage: "english",
   theme: "dark",
   claudeAvoidKeychainPrompts: true,
+  codexSparkUsageVisible: true,
   disableKeychainAccess: false,
   providerMetrics: {},
   floatBarEnabled: false,

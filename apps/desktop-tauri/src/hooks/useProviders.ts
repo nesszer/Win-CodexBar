@@ -135,6 +135,12 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
       },
     );
 
+    const unlistenSettings = listen("settings-changed", () => {
+      getCachedProviders().then((cached) => {
+        if (!cancelled) mergeSnapshots(cached);
+      });
+    });
+
     const unlistenStarted = listen("refresh-started", () => {
       if (!cancelled) {
         refreshingRef.current = true;
@@ -193,6 +199,7 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
       }
       pendingSnapshotsRef.current.clear();
       unlistenUpdated.then((fn) => fn());
+      unlistenSettings.then((fn) => fn());
       unlistenStarted.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
     };

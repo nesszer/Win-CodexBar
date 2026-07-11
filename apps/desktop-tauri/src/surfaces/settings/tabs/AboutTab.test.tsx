@@ -69,6 +69,7 @@ const settings: SettingsSnapshot = {
   trayScalePercent: 100,
   powertoysStatusPipeEnabled: false,
   claudeAvoidKeychainPrompts: true,
+  codexSparkUsageVisible: true,
   disableKeychainAccess: false,
   providerMetrics: {},
   floatBarEnabled: false,

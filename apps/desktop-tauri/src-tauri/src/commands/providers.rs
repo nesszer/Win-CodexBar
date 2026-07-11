@@ -268,23 +268,14 @@ async fn refresh_provider(app: tauri::AppHandle, id: ProviderId, ctx: FetchConte
     let snapshot = fetch_provider_snapshot(id, ctx).await;
 
     let state = app.state::<Mutex<AppState>>();
-    if let Ok(mut guard) = state.lock() {
+    let snapshot = if let Ok(mut guard) = state.lock() {
         let snapshot = preserve_last_good_transient_failure(&mut guard, id, snapshot);
         upsert_provider_cache(&mut guard.provider_cache, snapshot.clone());
-        let mut presented = snapshot;
-        super::filter_hidden_codex_spark_rows(
-            &mut presented,
-            Settings::load().codex_spark_usage_visible(),
-        );
-        events::emit_provider_updated(&app, &presented);
+        snapshot
     } else {
-        let mut presented = snapshot;
-        super::filter_hidden_codex_spark_rows(
-            &mut presented,
-            Settings::load().codex_spark_usage_visible(),
-        );
-        events::emit_provider_updated(&app, &presented);
-    }
+        snapshot
+    };
+    events::emit_provider_updated(&app, &snapshot);
 }
 
 pub(super) fn preserve_last_good_transient_failure(

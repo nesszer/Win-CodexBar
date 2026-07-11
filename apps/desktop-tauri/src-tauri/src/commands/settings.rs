@@ -82,10 +82,6 @@ impl SettingsUpdate {
             || self.ui_language.is_some()
     }
 
-    fn refreshes_provider_presentation(&self) -> bool {
-        self.codex_spark_usage_visible.is_some()
-    }
-
     fn validate_shortcut_change(
         &self,
         app: &tauri::AppHandle,
@@ -322,7 +318,6 @@ pub async fn update_settings(
     let clear_local_usage_cache = patch.codex_custom_sessions_dirs.is_some();
     let rebuild_tray_menu = patch.rebuilds_tray_menu();
     let refresh_tray_presentation = patch.refreshes_tray_presentation();
-    let refresh_provider_presentation = patch.refreshes_provider_presentation();
     let previous_language = settings.ui_language;
 
     patch.validate_shortcut_change(&app, &settings.global_shortcut)?;
@@ -344,18 +339,6 @@ pub async fn update_settings(
     if refresh_tray_presentation {
         crate::tray_bridge::refresh_tray_presentation(&app);
     }
-    if refresh_provider_presentation && let Some(state) = app.try_state::<Mutex<AppState>>() {
-        let snapshots = state
-            .lock()
-            .map_err(|error| error.to_string())?
-            .provider_cache
-            .clone();
-        for mut snapshot in snapshots {
-            filter_hidden_codex_spark_rows(&mut snapshot, settings.codex_spark_usage_visible());
-            events::emit_provider_updated(&app, &snapshot);
-        }
-    }
-
     // Notify other windows (PopOut dashboard, tray, float bar) so they re-read
     // settings live — e.g. the Display tab's window-scale slider takes effect
     // immediately instead of only after the PopOut is reopened.
@@ -394,17 +377,6 @@ mod tests {
                 ..Default::default()
             }
             .refreshes_tray_presentation()
-        );
-    }
-
-    #[test]
-    fn spark_visibility_change_refreshes_provider_presentation() {
-        assert!(
-            SettingsUpdate {
-                codex_spark_usage_visible: Some(false),
-                ..Default::default()
-            }
-            .refreshes_provider_presentation()
         );
     }
 
