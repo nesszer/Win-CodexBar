@@ -442,6 +442,7 @@ export interface ProviderLocalUsageSummary {
   latestTokens: number | null;
   topModel: string | null;
   estimateNote: string;
+  tokenCostUpdatedAtMs: number;
 }
 
 export interface ProviderChartData {

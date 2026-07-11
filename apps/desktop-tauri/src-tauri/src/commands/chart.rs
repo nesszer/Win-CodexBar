@@ -14,7 +14,7 @@ use std::sync::{
     Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const LOCAL_USAGE_TTL: Duration = Duration::from_secs(30);
 
@@ -53,6 +53,7 @@ pub struct ProviderLocalUsageSummary {
     pub latest_tokens: Option<u64>,
     pub top_model: Option<String>,
     pub estimate_note: String,
+    pub token_cost_updated_at_ms: i64,
 }
 
 /// Full chart data bundle for one provider.
@@ -87,10 +88,12 @@ pub async fn get_provider_chart_data(
 pub async fn get_provider_local_usage_summary(
     provider_id: String,
 ) -> Option<ProviderLocalUsageSummary> {
+    let failure_provider_id = provider_id.clone();
     tauri::async_runtime::spawn_blocking(move || load_provider_local_usage_summary(&provider_id))
         .await
         .unwrap_or_else(|err| {
             tracing::warn!("Provider local usage worker failed: {}", err);
+            record_local_usage_fetch_failure(&failure_provider_id, CostFetchFailure::Failed);
             None
         })
 }
@@ -187,6 +190,7 @@ fn load_local_usage_summary(
         latest_tokens: non_zero_u64(latest_tokens),
         top_model: top_model(&thirty_day),
         estimate_note: localized_estimate_note(provider_id, lang),
+        token_cost_updated_at_ms: current_unix_ms(),
     })
 }
 
@@ -228,6 +232,7 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
         return;
     }
 
+    let failure_provider_ids = provider_ids.clone();
     if let Err(err) = tauri::async_runtime::spawn_blocking(move || {
         for provider_id in provider_ids {
             let summary = load_local_usage_summary(&provider_id, None);
@@ -237,6 +242,9 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
     .await
     {
         tracing::warn!("Provider local usage refresh worker failed: {err}");
+        for provider_id in failure_provider_ids {
+            record_local_usage_fetch_failure(&provider_id, CostFetchFailure::Failed);
+        }
     }
 }
 
@@ -255,7 +263,7 @@ fn load_local_usage_summary_cached(
     let cache = local_usage_cache();
     if let Ok(guard) = cache.lock()
         && let Some(entry) = guard.get(provider_id)
-        && entry.loaded_at.elapsed() <= LOCAL_USAGE_TTL
+        && token_cost_cache_is_fresh(Some(entry.loaded_at), Instant::now(), LOCAL_USAGE_TTL)
     {
         return entry.summary.clone();
     }
@@ -283,6 +291,52 @@ fn store_local_usage_summary(provider_id: &str, summary: Option<ProviderLocalUsa
             },
         );
     }
+}
+
+fn record_local_usage_fetch_failure(provider_id: &str, failure: CostFetchFailure) {
+    let loaded_at = if cost_fetch_failure_allows_early_retry(failure) {
+        Instant::now() - LOCAL_USAGE_TTL - Duration::from_secs(1)
+    } else {
+        Instant::now()
+    };
+    if let Ok(mut guard) = local_usage_cache().lock() {
+        guard.insert(
+            provider_id.to_string(),
+            CachedLocalUsage {
+                loaded_at,
+                summary: None,
+            },
+        );
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum CostFetchFailure {
+    Failed,
+    TimedOut,
+}
+
+pub(crate) fn token_cost_cache_is_fresh(
+    loaded_at: Option<Instant>,
+    now: Instant,
+    ttl: Duration,
+) -> bool {
+    loaded_at
+        .and_then(|loaded| now.checked_duration_since(loaded))
+        .map(|age| age <= ttl)
+        .unwrap_or(false)
+}
+
+pub(crate) fn cost_fetch_failure_allows_early_retry(failure: CostFetchFailure) -> bool {
+    !matches!(failure, CostFetchFailure::TimedOut)
+}
+
+fn current_unix_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
 }
 
 fn localized_estimate_note(provider_id: &str, lang: codexbar::settings::Language) -> String {
@@ -392,8 +446,58 @@ fn load_openai_dashboard_chart_data(
 
 #[cfg(test)]
 mod tests {
-    use super::localized_estimate_note;
+    use super::{
+        CostFetchFailure, ProviderLocalUsageSummary, cost_fetch_failure_allows_early_retry,
+        localized_estimate_note, token_cost_cache_is_fresh,
+    };
+    use crate::commands::is_provider_cache_fresh;
     use codexbar::settings::Language;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn token_cost_age_does_not_use_provider_quota_age() {
+        let now = Instant::now();
+        let token_loaded = now - Duration::from_secs(31);
+        let provider_updated = now;
+        assert!(!token_cost_cache_is_fresh(
+            Some(token_loaded),
+            now,
+            Duration::from_secs(30)
+        ));
+        assert!(is_provider_cache_fresh(
+            Some(provider_updated),
+            Duration::from_secs(30)
+        ));
+    }
+
+    #[test]
+    fn fast_cost_failures_allow_the_next_pass_to_retry() {
+        assert!(cost_fetch_failure_allows_early_retry(
+            CostFetchFailure::Failed
+        ));
+        assert!(!cost_fetch_failure_allows_early_retry(
+            CostFetchFailure::TimedOut
+        ));
+    }
+
+    #[test]
+    fn local_usage_summary_serializes_token_cost_timestamp() {
+        let summary = ProviderLocalUsageSummary {
+            today_cost: Some(1.0),
+            thirty_day_cost: Some(2.0),
+            thirty_day_tokens: Some(300),
+            latest_tokens: Some(40),
+            top_model: Some("gpt-5".to_string()),
+            estimate_note: "estimated".to_string(),
+            token_cost_updated_at_ms: 1234,
+        };
+
+        let json = serde_json::to_value(summary).expect("serialize summary");
+        assert_eq!(
+            json.get("tokenCostUpdatedAtMs").and_then(|v| v.as_i64()),
+            Some(1234)
+        );
+    }
 
     #[test]
     fn japanese_estimate_note_is_localized() {
