@@ -132,6 +132,7 @@ describe("MenuCard", () => {
         latestTokens: null,
         topModel: "glim-4.6",
         estimateNote: "Estimated from local logs",
+        tokenCostUpdatedAtMs: 1234,
       },
     });
     eventMocks.listen.mockResolvedValue(() => {});

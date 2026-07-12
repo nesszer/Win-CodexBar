@@ -5,6 +5,7 @@
 
 #![allow(dead_code)]
 
+use super::models_dev_pricing;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -582,6 +583,21 @@ static CLAUDE_PRICING: LazyLock<HashMap<&'static str, ClaudePricing>> = LazyLock
     m
 });
 
+fn codex_cost_from_rates(
+    input_tokens: u64,
+    cached_input_tokens: u64,
+    output_tokens: u64,
+    input_rate: f64,
+    cache_read_rate: f64,
+    output_rate: f64,
+) -> f64 {
+    let cached = cached_input_tokens.min(input_tokens);
+    let non_cached = input_tokens.saturating_sub(cached);
+    (non_cached as f64) * input_rate
+        + (cached as f64) * cache_read_rate
+        + (output_tokens as f64) * output_rate
+}
+
 /// Cost usage pricing utilities
 pub struct CostUsagePricing;
 
@@ -669,38 +685,72 @@ impl CostUsagePricing {
         output_tokens: u64,
     ) -> Option<f64> {
         let key = Self::normalize_codex_model(model);
-        let pricing = CODEX_PRICING.get(key.as_str())?;
-        let (input_rate, cache_read_rate, output_rate) =
-            if input_tokens > CODEX_LONG_CONTEXT_THRESHOLD {
-                if let Some(long_context) = pricing.long_context {
-                    (
-                        long_context.input_cost_per_token,
-                        long_context.cache_read_input_cost_per_token,
-                        long_context.output_cost_per_token,
-                    )
+        if let Some(pricing) = CODEX_PRICING.get(key.as_str()) {
+            let (input_rate, cache_read_rate, output_rate) =
+                if input_tokens > CODEX_LONG_CONTEXT_THRESHOLD {
+                    if let Some(long_context) = pricing.long_context {
+                        (
+                            long_context.input_cost_per_token,
+                            long_context.cache_read_input_cost_per_token,
+                            long_context.output_cost_per_token,
+                        )
+                    } else {
+                        (
+                            pricing.input_cost_per_token,
+                            pricing.cache_read_input_cost_per_token,
+                            pricing.output_cost_per_token,
+                        )
+                    }
                 } else {
                     (
                         pricing.input_cost_per_token,
                         pricing.cache_read_input_cost_per_token,
                         pricing.output_cost_per_token,
                     )
-                }
+                };
+            return Some(codex_cost_from_rates(
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                input_rate,
+                cache_read_rate,
+                output_rate,
+            ));
+        }
+
+        let pricing = models_dev_pricing::lookup("openai", model)?;
+        let use_tier = pricing
+            .threshold_tokens
+            .is_some_and(|threshold| input_tokens > threshold);
+        Some(codex_cost_from_rates(
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            if use_tier {
+                pricing
+                    .input_cost_per_token_above_threshold
+                    .unwrap_or(pricing.input_cost_per_token)
             } else {
-                (
-                    pricing.input_cost_per_token,
-                    pricing.cache_read_input_cost_per_token,
-                    pricing.output_cost_per_token,
-                )
-            };
-
-        let cached = cached_input_tokens.min(input_tokens);
-        let non_cached = input_tokens.saturating_sub(cached);
-
-        let cost = (non_cached as f64) * input_rate
-            + (cached as f64) * cache_read_rate
-            + (output_tokens as f64) * output_rate;
-
-        Some(cost)
+                pricing.input_cost_per_token
+            },
+            if use_tier {
+                pricing
+                    .cache_read_input_cost_per_token_above_threshold
+                    .or(pricing.cache_read_input_cost_per_token)
+                    .unwrap_or(pricing.input_cost_per_token)
+            } else {
+                pricing
+                    .cache_read_input_cost_per_token
+                    .unwrap_or(pricing.input_cost_per_token)
+            },
+            if use_tier {
+                pricing
+                    .output_cost_per_token_above_threshold
+                    .unwrap_or(pricing.output_cost_per_token)
+            } else {
+                pricing.output_cost_per_token
+            },
+        ))
     }
 
     /// Calculate cost for Claude usage in USD
@@ -712,44 +762,96 @@ impl CostUsagePricing {
         output_tokens: i32,
     ) -> Option<f64> {
         let key = Self::normalize_claude_model(model);
-        let pricing = CLAUDE_PRICING.get(key.as_str())?;
-
-        /// Calculate tiered cost
-        fn tiered(tokens: i32, base: f64, above: Option<f64>, threshold: Option<i32>) -> f64 {
-            let tokens = tokens.max(0);
-            match (threshold, above) {
-                (Some(thresh), Some(above_rate)) => {
-                    let below = tokens.min(thresh);
-                    let over = (tokens - thresh).max(0);
-                    (below as f64) * base + (over as f64) * above_rate
+        if let Some(pricing) = CLAUDE_PRICING.get(key.as_str()) {
+            /// Calculate tiered cost
+            fn tiered(tokens: i32, base: f64, above: Option<f64>, threshold: Option<i32>) -> f64 {
+                let tokens = tokens.max(0);
+                match (threshold, above) {
+                    (Some(thresh), Some(above_rate)) => {
+                        let below = tokens.min(thresh);
+                        let over = (tokens - thresh).max(0);
+                        (below as f64) * base + (over as f64) * above_rate
+                    }
+                    _ => (tokens as f64) * base,
                 }
-                _ => (tokens as f64) * base,
             }
+
+            let cost = tiered(
+                input_tokens,
+                pricing.input_cost_per_token,
+                pricing.input_cost_per_token_above_threshold,
+                pricing.threshold_tokens,
+            ) + tiered(
+                cache_read_input_tokens,
+                pricing.cache_read_input_cost_per_token,
+                pricing.cache_read_input_cost_per_token_above_threshold,
+                pricing.threshold_tokens,
+            ) + tiered(
+                cache_creation_input_tokens,
+                pricing.cache_creation_input_cost_per_token,
+                pricing.cache_creation_input_cost_per_token_above_threshold,
+                pricing.threshold_tokens,
+            ) + tiered(
+                output_tokens,
+                pricing.output_cost_per_token,
+                pricing.output_cost_per_token_above_threshold,
+                pricing.threshold_tokens,
+            );
+
+            return Some(cost);
         }
 
-        let cost = tiered(
-            input_tokens,
-            pricing.input_cost_per_token,
-            pricing.input_cost_per_token_above_threshold,
-            pricing.threshold_tokens,
-        ) + tiered(
-            cache_read_input_tokens,
-            pricing.cache_read_input_cost_per_token,
-            pricing.cache_read_input_cost_per_token_above_threshold,
-            pricing.threshold_tokens,
-        ) + tiered(
-            cache_creation_input_tokens,
-            pricing.cache_creation_input_cost_per_token,
-            pricing.cache_creation_input_cost_per_token_above_threshold,
-            pricing.threshold_tokens,
-        ) + tiered(
-            output_tokens,
-            pricing.output_cost_per_token,
-            pricing.output_cost_per_token_above_threshold,
-            pricing.threshold_tokens,
-        );
-
-        Some(cost)
+        let pricing = models_dev_pricing::lookup("anthropic", model)?;
+        let input_tokens = input_tokens.max(0);
+        let cache_read_input_tokens = cache_read_input_tokens.max(0);
+        let cache_creation_input_tokens = cache_creation_input_tokens.max(0);
+        let output_tokens = output_tokens.max(0);
+        let use_tier = pricing.threshold_tokens.is_some_and(|threshold| {
+            (input_tokens as u64)
+                + (cache_read_input_tokens as u64)
+                + (cache_creation_input_tokens as u64)
+                > threshold
+        });
+        let input_rate = if use_tier {
+            pricing
+                .input_cost_per_token_above_threshold
+                .unwrap_or(pricing.input_cost_per_token)
+        } else {
+            pricing.input_cost_per_token
+        };
+        let cache_read_rate = if use_tier {
+            pricing
+                .cache_read_input_cost_per_token_above_threshold
+                .or(pricing.cache_read_input_cost_per_token)
+                .unwrap_or(input_rate)
+        } else {
+            pricing
+                .cache_read_input_cost_per_token
+                .unwrap_or(input_rate)
+        };
+        let cache_write_rate = if use_tier {
+            pricing
+                .cache_write_input_cost_per_token_above_threshold
+                .or(pricing.cache_write_input_cost_per_token)
+                .unwrap_or(input_rate)
+        } else {
+            pricing
+                .cache_write_input_cost_per_token
+                .unwrap_or(input_rate)
+        };
+        let output_rate = if use_tier {
+            pricing
+                .output_cost_per_token_above_threshold
+                .unwrap_or(pricing.output_cost_per_token)
+        } else {
+            pricing.output_cost_per_token
+        };
+        Some(
+            (input_tokens as f64) * input_rate
+                + (cache_read_input_tokens as f64) * cache_read_rate
+                + (cache_creation_input_tokens as f64) * cache_write_rate
+                + (output_tokens as f64) * output_rate,
+        )
     }
 
     /// Base per-token input rate for a Claude model. Exposed for callers that
@@ -757,9 +859,10 @@ impl CostUsagePricing {
     /// scanner's one-hour cache-write premium, billed at 2x the input rate.
     pub fn claude_input_cost_per_token(model: &str) -> Option<f64> {
         let key = Self::normalize_claude_model(model);
-        CLAUDE_PRICING
-            .get(key.as_str())
-            .map(|p| p.input_cost_per_token)
+        if let Some(pricing) = CLAUDE_PRICING.get(key.as_str()) {
+            return Some(pricing.input_cost_per_token);
+        }
+        models_dev_pricing::lookup("anthropic", model).map(|p| p.input_cost_per_token)
     }
 
     /// Format model name for display (e.g., "claude-3.5-sonnet" → "Sonnet 3.5")

@@ -207,6 +207,7 @@ describe("FloatBar", () => {
       latestTokens: 200,
       topModel: "gpt-5",
       estimateNote: "Estimated from local logs",
+      tokenCostUpdatedAtMs: 1234,
     });
 
     renderFloatBar(bootstrap());
