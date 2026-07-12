@@ -74,4 +74,3 @@ This ports behavior, not Swift structure:
   but keeps it for timed-out scans;
 - upstream `ModelsDevPricing` coordinates refreshes by cache path, limits
   repeated attempts, and retries an unknown-model lookup once.
-
