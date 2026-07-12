@@ -9,7 +9,7 @@ use codexbar::core::OpenAIDashboardCacheStore;
 use codexbar::cost_scanner::{CostScanner, CostSummary, get_daily_cost_history};
 use codexbar::locale::{self, LocaleKey};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
@@ -168,30 +168,47 @@ fn load_local_usage_summary(
     provider_id: &str,
     cancel: Option<&AtomicBool>,
 ) -> Option<ProviderLocalUsageSummary> {
-    let thirty_day = scan_local_cost(provider_id, 30, cancel)?;
+    load_local_usage_summary_with_unknown_models(provider_id, cancel).0
+}
+
+fn load_local_usage_summary_with_unknown_models(
+    provider_id: &str,
+    cancel: Option<&AtomicBool>,
+) -> (Option<ProviderLocalUsageSummary>, HashSet<String>) {
+    let Some(thirty_day) = scan_local_cost(provider_id, 30, cancel) else {
+        return (None, HashSet::new());
+    };
     if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
-        return None;
+        return (None, HashSet::new());
     }
     let today = scan_local_cost(provider_id, 1, cancel).unwrap_or_default();
+    let unknown_models = thirty_day
+        .unknown_models
+        .union(&today.unknown_models)
+        .cloned()
+        .collect();
 
     let thirty_day_tokens = total_tokens(&thirty_day);
     let latest_tokens = total_tokens(&today);
     let has_usage =
         thirty_day.sessions_count > 0 || thirty_day.total_cost_usd > 0.0 || thirty_day_tokens > 0;
     if !has_usage {
-        return None;
+        return (None, unknown_models);
     }
 
     let lang = locale::current_language();
-    Some(ProviderLocalUsageSummary {
-        today_cost: non_zero_f64(today.total_cost_usd),
-        thirty_day_cost: non_zero_f64(thirty_day.total_cost_usd),
-        thirty_day_tokens: non_zero_u64(thirty_day_tokens),
-        latest_tokens: non_zero_u64(latest_tokens),
-        top_model: top_model(&thirty_day),
-        estimate_note: localized_estimate_note(provider_id, lang),
-        token_cost_updated_at_ms: current_unix_ms(),
-    })
+    (
+        Some(ProviderLocalUsageSummary {
+            today_cost: non_zero_f64(today.total_cost_usd),
+            thirty_day_cost: non_zero_f64(thirty_day.total_cost_usd),
+            thirty_day_tokens: non_zero_u64(thirty_day_tokens),
+            latest_tokens: non_zero_u64(latest_tokens),
+            top_model: top_model(&thirty_day),
+            estimate_note: localized_estimate_note(provider_id, lang),
+            token_cost_updated_at_ms: current_unix_ms(),
+        }),
+        unknown_models,
+    )
 }
 
 pub(crate) fn load_provider_local_usage_summary(
@@ -233,18 +250,46 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
     }
 
     let failure_provider_ids = provider_ids.clone();
-    if let Err(err) = tauri::async_runtime::spawn_blocking(move || {
-        for provider_id in provider_ids {
-            let summary = load_local_usage_summary(&provider_id, None);
-            store_local_usage_summary(&provider_id, summary);
-        }
+    let scans = match tauri::async_runtime::spawn_blocking(move || {
+        provider_ids
+            .into_iter()
+            .map(|provider_id| {
+                let (summary, unknown_models) =
+                    load_local_usage_summary_with_unknown_models(&provider_id, None);
+                (provider_id, summary, unknown_models)
+            })
+            .collect::<Vec<_>>()
     })
     .await
     {
-        tracing::warn!("Provider local usage refresh worker failed: {err}");
-        for provider_id in failure_provider_ids {
-            record_local_usage_fetch_failure(&provider_id, CostFetchFailure::Failed);
+        Ok(scans) => scans,
+        Err(err) => {
+            tracing::warn!("Provider local usage refresh worker failed: {err}");
+            for provider_id in failure_provider_ids {
+                record_local_usage_fetch_failure(&provider_id, CostFetchFailure::Failed);
+            }
+            return;
         }
+    };
+
+    for (provider_id, mut summary, unknown_models) in scans {
+        let pricing_provider = match provider_id.as_str() {
+            "codex" => Some("openai"),
+            "claude" => Some("anthropic"),
+            _ => None,
+        };
+        if let Some(pricing_provider) = pricing_provider
+            && codexbar::core::refresh_unknown_models_if_needed(pricing_provider, &unknown_models)
+                .await
+        {
+            let rescan_provider = provider_id.clone();
+            summary = tauri::async_runtime::spawn_blocking(move || {
+                load_local_usage_summary(&rescan_provider, None)
+            })
+            .await
+            .unwrap_or(summary);
+        }
+        store_local_usage_summary(&provider_id, summary);
     }
 }
 
