@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use codexbar::settings::Settings;
@@ -62,12 +62,14 @@ pub(crate) fn schedule_refresh_enrichment(settings: &Settings) {
     if provider_ids.is_empty() {
         return;
     }
+    static ENRICHMENT: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
+    let Ok(guard) = Arc::clone(ENRICHMENT.get_or_init(|| Arc::new(tokio::sync::Mutex::new(()))))
+        .try_lock_owned()
+    else {
+        return;
+    };
     tauri::async_runtime::spawn(async move {
-        static ENRICHMENT: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-        let _guard = ENRICHMENT
-            .get_or_init(|| tokio::sync::Mutex::new(()))
-            .lock()
-            .await;
+        let _guard = guard;
         crate::commands::refresh_provider_local_usage_cache(provider_ids).await;
     });
 }
@@ -77,57 +79,12 @@ fn refresh_interval(seconds: u64) -> Option<Duration> {
 }
 
 #[cfg(test)]
-pub(crate) fn should_refresh_from_values(
-    is_refreshing: bool,
-    updated_at: Option<Instant>,
-    interval_secs: u64,
-) -> bool {
-    let Some(interval) = refresh_interval(interval_secs) else {
-        return false;
-    };
-    if is_refreshing {
-        return false;
-    }
-    updated_at
-        .map(|updated| updated.elapsed() >= interval)
-        .unwrap_or(true)
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn manual_refresh_setting_disables_background_refresh() {
-        assert!(!should_refresh_from_values(false, None, 0));
-    }
-
-    #[test]
-    fn missing_cache_triggers_background_refresh() {
-        assert!(should_refresh_from_values(false, None, 300));
-    }
-
-    #[test]
-    fn fresh_cache_does_not_refresh_before_interval() {
-        assert!(!should_refresh_from_values(
-            false,
-            Some(Instant::now() - Duration::from_secs(299)),
-            300,
-        ));
-    }
-
-    #[test]
-    fn stale_cache_refreshes_after_configured_interval() {
-        assert!(should_refresh_from_values(
-            false,
-            Some(Instant::now() - Duration::from_secs(300)),
-            300,
-        ));
-    }
-
-    #[test]
-    fn active_refresh_blocks_overlapping_background_refresh() {
-        assert!(!should_refresh_from_values(true, None, 300));
+        assert_eq!(refresh_interval(0), None);
     }
 
     #[test]
