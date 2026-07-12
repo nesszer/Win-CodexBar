@@ -181,6 +181,7 @@ async fn do_refresh_providers_with_policy(
     update_tray_and_notifications(app, &state, &inputs.settings, &inputs.token_accounts)?;
 
     events::emit_refresh_complete(app, enabled_count, error_count);
+    crate::auto_refresh::schedule_refresh_enrichment(&inputs.settings);
 
     Ok(())
 }

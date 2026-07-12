@@ -56,6 +56,10 @@ pub struct SettingsUpdate {
 }
 
 impl SettingsUpdate {
+    fn refreshes_provider_data(&self) -> bool {
+        self.enabled_providers.is_some()
+    }
+
     fn notifies_float_bar(&self) -> bool {
         self.enabled_providers.is_some()
             || self.refresh_interval_secs.is_some()
@@ -324,6 +328,7 @@ pub async fn update_settings(
 ) -> Result<SettingsSnapshot, String> {
     let mut settings = Settings::load();
     let notify_float_bar = patch.notifies_float_bar();
+    let refresh_provider_data = patch.refreshes_provider_data();
     let clear_local_usage_cache = patch.codex_custom_sessions_dirs.is_some();
     let rebuild_tray_menu = patch.rebuilds_tray_menu();
     let refresh_tray_presentation = patch.refreshes_tray_presentation();
@@ -352,6 +357,12 @@ pub async fn update_settings(
     // settings live — e.g. the Display tab's window-scale slider takes effect
     // immediately instead of only after the PopOut is reopened.
     events::emit_settings_changed(&app);
+    if refresh_provider_data {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = crate::commands::do_refresh_providers(&app).await;
+        });
+    }
 
     Ok(SettingsSnapshot::from(settings))
 }
@@ -359,6 +370,25 @@ pub async fn update_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_data_affecting_settings_refresh_providers() {
+        assert!(
+            SettingsUpdate {
+                enabled_providers: Some(vec!["codex".to_string()]),
+                ..Default::default()
+            }
+            .refreshes_provider_data()
+        );
+        assert!(
+            !SettingsUpdate {
+                provider_metrics: Some(Default::default()),
+                tray_icon_mode: Some("single".to_string()),
+                ..Default::default()
+            }
+            .refreshes_provider_data()
+        );
+    }
 
     #[test]
     fn display_settings_that_affect_tray_trigger_presentation_refresh() {
