@@ -102,6 +102,18 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
               onChange={(v) => set({ showNotifications: v })}
             />
           </Field>
+          <Field
+            label={t("PredictivePaceWarnings")}
+            description={t("PredictivePaceWarningsHelper")}
+            leading
+          >
+            <Toggle
+              checked={settings.predictivePaceWarningEnabled}
+              ariaLabel={t("PredictivePaceWarnings")}
+              disabled={saving}
+              onChange={(v) => set({ predictivePaceWarningEnabled: v })}
+            />
+          </Field>
           <Field label={t("SoundEnabled")} description={t("SoundEnabledHelper")} leading>
             <div className="sound-enabled-row">
               <Toggle

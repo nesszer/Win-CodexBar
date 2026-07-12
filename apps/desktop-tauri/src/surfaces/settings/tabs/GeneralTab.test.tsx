@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../hooks/useLocale", () => ({
@@ -31,6 +31,7 @@ const settings: SettingsSnapshot = {
   soundVolume: 100,
   highUsageThreshold: 70,
   criticalUsageThreshold: 90,
+  predictivePaceWarningEnabled: false,
   trayIconMode: "single",
   switcherShowsIcons: true,
   menuBarShowsHighestUsage: true,
@@ -64,6 +65,7 @@ const settings: SettingsSnapshot = {
   floatBarProviderIds: [],
   floatBarDarkText: false,
   floatBarShowResetInline: false,
+  showResetWhenExhausted: false,
 };
 
 describe("GeneralTab language picker", () => {
@@ -97,5 +99,14 @@ describe("GeneralTab language picker", () => {
     render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
 
     expect(screen.getByText("繁體中文（臺灣）")).toBeInTheDocument();
+  });
+
+  it("updates the predictive pace warning preference", () => {
+    const set = vi.fn();
+    render(<GeneralTab settings={settings} set={set} saving={false} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "PredictivePaceWarnings" }));
+
+    expect(set).toHaveBeenCalledWith({ predictivePaceWarningEnabled: true });
   });
 });

@@ -433,6 +433,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           provider={p}
           hideEmail={settings.hidePersonalInfo}
           resetTimeRelative={settings.resetTimeRelative}
+          showResetWhenExhausted={settings.showResetWhenExhausted}
           showAsUsed={settings.showAsUsed}
           compactMetrics={selectedProviderId === null}
           onLayoutChange={requestLayout}

@@ -81,6 +81,70 @@ pub struct UsagePace {
     pub eta_seconds: Option<f64>,
     /// Whether current pace will last until reset
     pub will_last_to_reset: bool,
+    /// Estimated probability of running out before reset, when a predictor provides one.
+    pub run_out_probability: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageDisplayMode {
+    Percent,
+    Pace,
+    Both,
+}
+
+pub fn usage_display_text(
+    mode: UsageDisplayMode,
+    window: &RateWindow,
+    pace: Option<&UsagePace>,
+    show_used: bool,
+    show_reset_when_exhausted: bool,
+    now: DateTime<Utc>,
+) -> Option<String> {
+    let percent = || {
+        let value = if show_used {
+            window.used_percent
+        } else {
+            window.remaining_percent()
+        };
+        format!("{value:.0}%")
+    };
+
+    if show_reset_when_exhausted && window.is_exhausted() {
+        if let Some(resets_at) = window.resets_at.filter(|reset| *reset > now) {
+            let duration = resets_at - now;
+            let total_minutes = ((duration.num_seconds() + 59) / 60).max(1);
+            let days = total_minutes / 1440;
+            let hours = (total_minutes % 1440) / 60;
+            let minutes = total_minutes % 60;
+            let countdown = if days > 0 {
+                format!("{days}d {hours}h")
+            } else if hours > 0 {
+                format!("{hours}h {minutes}m")
+            } else {
+                format!("{minutes}m")
+            };
+            return Some(format!("↻ in {countdown}"));
+        }
+        return Some(percent());
+    }
+
+    let pace_text = pace.map(|pace| {
+        let delta = pace.delta_percent.abs().round() as i64;
+        if delta == 0 {
+            "0%".to_string()
+        } else {
+            let sign = if pace.delta_percent >= 0.0 { "+" } else { "-" };
+            format!("{sign}{delta}%")
+        }
+    });
+
+    Some(match mode {
+        UsageDisplayMode::Percent => percent(),
+        UsageDisplayMode::Pace => pace_text.unwrap_or_else(percent),
+        UsageDisplayMode::Both => pace_text
+            .map(|pace| format!("{} · {pace}", percent()))
+            .unwrap_or_else(percent),
+    })
 }
 
 impl UsagePace {
@@ -149,6 +213,7 @@ impl UsagePace {
             actual_used_percent: actual,
             eta_seconds,
             will_last_to_reset,
+            run_out_probability: None,
         })
     }
 
@@ -265,5 +330,106 @@ mod tests {
         assert_eq!(PaceStage::OnTrack.label(), "On Track");
         assert_eq!(PaceStage::FarAhead.label(), "Far Ahead");
         assert_eq!(PaceStage::SlightlyBehind.emoji(), "🐢");
+    }
+
+    fn exhausted_window(
+        _now: DateTime<Utc>,
+        resets_at: Option<DateTime<Utc>>,
+        reset_description: Option<&str>,
+    ) -> RateWindow {
+        RateWindow::with_details(
+            100.0,
+            Some(300),
+            resets_at,
+            reset_description.map(str::to_string),
+        )
+    }
+
+    fn pace() -> UsagePace {
+        UsagePace {
+            stage: PaceStage::Ahead,
+            delta_percent: 12.0,
+            expected_used_percent: 40.0,
+            actual_used_percent: 52.0,
+            eta_seconds: Some(3600.0),
+            will_last_to_reset: false,
+            run_out_probability: None,
+        }
+    }
+
+    #[test]
+    fn exhausted_display_uses_future_reset_for_percent_pace_and_both() {
+        let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let window = exhausted_window(
+            now,
+            Some(now + Duration::hours(2) + Duration::minutes(15)),
+            None,
+        );
+
+        for mode in [
+            UsageDisplayMode::Percent,
+            UsageDisplayMode::Pace,
+            UsageDisplayMode::Both,
+        ] {
+            assert_eq!(
+                usage_display_text(mode, &window, Some(&pace()), false, true, now).as_deref(),
+                Some("↻ in 2h 15m")
+            );
+        }
+    }
+
+    #[test]
+    fn exhausted_display_preserves_percent_without_schedulable_reset() {
+        let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let cases = [
+            exhausted_window(now, None, None),
+            exhausted_window(now, None, Some("in 2h")),
+            exhausted_window(now, Some(now - Duration::minutes(1)), None),
+        ];
+
+        for window in cases {
+            for mode in [
+                UsageDisplayMode::Percent,
+                UsageDisplayMode::Pace,
+                UsageDisplayMode::Both,
+            ] {
+                assert_eq!(
+                    usage_display_text(mode, &window, Some(&pace()), false, true, now).as_deref(),
+                    Some("0%")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn exhausted_display_is_disabled_by_default_and_reverts_after_reset() {
+        let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let resets_at = now + Duration::hours(1);
+        let window = exhausted_window(now, Some(resets_at), None);
+
+        assert_eq!(
+            usage_display_text(
+                UsageDisplayMode::Percent,
+                &window,
+                None,
+                false,
+                false,
+                now
+            )
+            .as_deref(),
+            Some("0%")
+        );
+        assert_eq!(
+            usage_display_text(
+                UsageDisplayMode::Percent,
+                &window,
+                None,
+                false,
+                true,
+                resets_at
+            )
+            .as_deref(),
+            Some("0%")
+        );
     }
 }

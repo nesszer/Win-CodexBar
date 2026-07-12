@@ -6,11 +6,13 @@ export function Toggle({
   checked,
   onChange,
   label,
+  ariaLabel,
   disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label?: string;
+  ariaLabel?: string;
   disabled?: boolean;
 }) {
   const input = (
@@ -18,6 +20,7 @@ export function Toggle({
       type="checkbox"
       className="toggle"
       checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       onChange={(e) => onChange(e.target.checked)}
     />

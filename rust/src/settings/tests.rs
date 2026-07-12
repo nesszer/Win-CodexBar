@@ -9,6 +9,22 @@ fn test_settings_default() {
     assert!(settings.show_notifications);
     assert_eq!(settings.high_usage_threshold, 70.0);
     assert_eq!(settings.critical_usage_threshold, 90.0);
+    assert!(!settings.show_reset_when_exhausted);
+    assert!(!settings.predictive_pace_warning_enabled);
+}
+
+#[test]
+fn new_warning_and_reset_settings_are_backward_compatible() {
+    let loaded: Settings = serde_json::from_str(
+        r#"{
+            "enabled_providers": ["claude", "codex"],
+            "refresh_interval_secs": 300
+        }"#,
+    )
+    .expect("parse legacy settings");
+
+    assert!(!loaded.show_reset_when_exhausted);
+    assert!(!loaded.predictive_pace_warning_enabled);
 }
 
 #[test]

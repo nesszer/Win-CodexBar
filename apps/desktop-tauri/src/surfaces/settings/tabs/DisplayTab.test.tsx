@@ -23,6 +23,7 @@ const baseSettings = {
   showAsUsed: false,
   showAllTokenAccountsInMenu: false,
   resetTimeRelative: false,
+  showResetWhenExhausted: false,
 } as unknown as SettingsSnapshot;
 
 function renderTab(set: (patch: Record<string, unknown>) => void) {
@@ -52,5 +53,14 @@ describe("DisplayTab window scale", () => {
     fireEvent.blur(slider);
 
     expect(set).not.toHaveBeenCalled();
+  });
+
+  it("updates the exhausted reset display preference", () => {
+    const set = vi.fn();
+    renderTab(set);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "ShowResetWhenExhausted" }));
+
+    expect(set).toHaveBeenCalledWith({ showResetWhenExhausted: true });
   });
 });

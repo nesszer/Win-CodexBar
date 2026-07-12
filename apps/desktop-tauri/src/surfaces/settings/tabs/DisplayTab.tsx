@@ -158,6 +158,18 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
               onChange={(v) => set({ resetTimeRelative: v })}
             />
           </Field>
+          <Field
+            label={t("ShowResetWhenExhausted")}
+            description={t("ShowResetWhenExhaustedHelper")}
+            leading
+          >
+            <Toggle
+              checked={settings.showResetWhenExhausted}
+              ariaLabel={t("ShowResetWhenExhausted")}
+              disabled={saving}
+              onChange={(v) => set({ showResetWhenExhausted: v })}
+            />
+          </Field>
         </div>
       </section>
 

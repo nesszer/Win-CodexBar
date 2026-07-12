@@ -5,8 +5,11 @@
 #![allow(dead_code)]
 
 use crate::core::ProviderId;
+use crate::core::{RateWindow, UsagePace};
+use crate::locale::{self, LocaleKey};
 use crate::settings::Settings;
 use crate::sound::{AlertSound, play_alert};
+use chrono::{DateTime, Utc};
 
 /// Notification types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,6 +26,52 @@ pub enum NotificationType {
     SessionDepleted,
     /// Session quota restored (back from 100%)
     SessionRestored,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PredictiveWarningWindow {
+    Session,
+    Weekly,
+}
+
+impl PredictiveWarningWindow {
+    fn localized_label(self, language: crate::settings::Language) -> String {
+        locale::get_text(
+            language,
+            match self {
+                Self::Session => LocaleKey::ProviderSession,
+                Self::Weekly => LocaleKey::ProviderWeekly,
+            },
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PredictiveResetWindow {
+    window_minutes: Option<u32>,
+    resets_at: DateTime<Utc>,
+}
+
+impl PredictiveResetWindow {
+    fn belongs_to_same_cycle(&self, other: &Self) -> bool {
+        if self.window_minutes != other.window_minutes {
+            return false;
+        }
+        let tolerance_secs = self
+            .window_minutes
+            .map(|minutes| i64::from(minutes) * 30)
+            .unwrap_or(300)
+            .max(300);
+        (self.resets_at - other.resets_at).num_seconds().abs() < tolerance_secs
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PredictiveWarningKey {
+    provider: ProviderId,
+    identity: String,
+    window: PredictiveWarningWindow,
+    reset: PredictiveResetWindow,
 }
 
 impl NotificationType {
@@ -55,6 +104,7 @@ pub struct NotificationManager {
     sent_notifications: std::collections::HashSet<(ProviderId, NotificationType)>,
     /// Track previous session percent for depleted/restored transitions
     previous_session_percent: std::collections::HashMap<ProviderId, f64>,
+    predictive_warning_keys: std::collections::HashSet<PredictiveWarningKey>,
 }
 
 impl NotificationManager {
@@ -62,7 +112,133 @@ impl NotificationManager {
         Self {
             sent_notifications: std::collections::HashSet::new(),
             previous_session_percent: std::collections::HashMap::new(),
+            predictive_warning_keys: std::collections::HashSet::new(),
         }
+    }
+
+    pub fn record_predictive_observation(
+        &mut self,
+        enabled: bool,
+        provider: ProviderId,
+        identity: &str,
+        window: PredictiveWarningWindow,
+        rate_window: &RateWindow,
+        pace: &UsagePace,
+    ) -> bool {
+        if !enabled {
+            self.predictive_warning_keys = self
+                .predictive_warning_keys
+                .iter()
+                .filter(|key| key.provider != provider)
+                .cloned()
+                .collect();
+            return false;
+        }
+        if !matches!(provider, ProviderId::Claude | ProviderId::Codex) || identity.is_empty() {
+            return false;
+        }
+        let Some(resets_at) = rate_window.resets_at else {
+            return false;
+        };
+        let key = PredictiveWarningKey {
+            provider,
+            identity: identity.to_string(),
+            window,
+            reset: PredictiveResetWindow {
+                window_minutes: rate_window.window_minutes,
+                resets_at,
+            },
+        };
+
+        let siblings: Vec<_> = self
+            .predictive_warning_keys
+            .iter()
+            .filter(|existing| {
+                existing.provider == key.provider
+                    && existing.identity == key.identity
+                    && existing.window == key.window
+            })
+            .cloned()
+            .collect();
+        let warned_this_cycle = siblings
+            .iter()
+            .any(|existing| existing.reset.belongs_to_same_cycle(&key.reset));
+        self.predictive_warning_keys = self
+            .predictive_warning_keys
+            .iter()
+            .filter(|existing| !siblings.contains(existing))
+            .cloned()
+            .collect();
+        if warned_this_cycle {
+            self.predictive_warning_keys.insert(key.clone());
+        }
+
+        if pace.will_last_to_reset {
+            self.predictive_warning_keys = self
+                .predictive_warning_keys
+                .iter()
+                .filter(|existing| *existing != &key)
+                .cloned()
+                .collect();
+            return false;
+        }
+        if !pace.eta_seconds.is_some_and(|eta| eta.is_finite() && eta > 0.0)
+            || !pace
+                .run_out_probability
+                .is_none_or(|probability| probability.is_finite() && probability >= 0.5)
+        {
+            return false;
+        }
+
+        self.predictive_warning_keys.insert(key)
+    }
+
+    pub fn set_predictive_warnings_enabled(&mut self, provider: ProviderId, enabled: bool) {
+        if !enabled {
+            self.predictive_warning_keys = self
+                .predictive_warning_keys
+                .iter()
+                .filter(|key| key.provider != provider)
+                .cloned()
+                .collect();
+        }
+    }
+
+    pub fn check_predictive_pace(
+        &mut self,
+        provider: ProviderId,
+        identity: &str,
+        window: PredictiveWarningWindow,
+        rate_window: &RateWindow,
+        pace: &UsagePace,
+        settings: &Settings,
+    ) {
+        if !self.record_predictive_observation(
+            settings.show_notifications && settings.predictive_pace_warning_enabled,
+            provider,
+            identity,
+            window,
+            rate_window,
+            pace,
+        ) {
+            return;
+        }
+
+        let eta = format_duration(pace.eta_seconds.unwrap_or_default());
+        let provider_name = provider.display_name();
+        let window_label = window.localized_label(settings.ui_language);
+        let title = locale::format_locale(
+            settings.ui_language,
+            LocaleKey::PredictivePaceWarningTitle,
+            &[provider_name, &window_label],
+        );
+        let body = locale::format_locale(
+            settings.ui_language,
+            LocaleKey::PredictivePaceWarningBody,
+            &[&eta],
+        );
+        self.show_toast(&title, &body);
+        play_alert(AlertSound::Warning, settings);
     }
 
     /// Check usage and send notifications if thresholds are crossed
@@ -323,6 +499,20 @@ impl NotificationManager {
     }
 }
 
+fn format_duration(seconds: f64) -> String {
+    let total_minutes = (seconds / 60.0).ceil().max(1.0) as i64;
+    let days = total_minutes / 1440;
+    let hours = (total_minutes % 1440) / 60;
+    let minutes = total_minutes % 60;
+    if days > 0 {
+        format!("{days}d {hours}h")
+    } else if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else {
+        format!("{minutes}m")
+    }
+}
+
 impl Default for NotificationManager {
     fn default() -> Self {
         Self::new()
@@ -355,4 +545,170 @@ fn ensure_aumid_registered() {
 pub fn show_notification(title: &str, body: &str) {
     let manager = NotificationManager::new();
     manager.show_toast(title, body);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{PaceStage, RateWindow, UsagePace};
+    use chrono::{DateTime, Duration, Utc};
+
+    fn pace(will_last_to_reset: bool, eta_seconds: Option<f64>, probability: Option<f64>) -> UsagePace {
+        UsagePace {
+            stage: PaceStage::Ahead,
+            delta_percent: 20.0,
+            expected_used_percent: 40.0,
+            actual_used_percent: 60.0,
+            eta_seconds,
+            will_last_to_reset,
+            run_out_probability: probability,
+        }
+    }
+
+    fn window(now: DateTime<Utc>, offset: Duration, minutes: u32) -> RateWindow {
+        RateWindow::with_details(60.0, Some(minutes), Some(now + offset), None)
+    }
+
+    #[test]
+    fn predictive_warning_notifies_once_until_recovery_then_rearms() {
+        let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let window = window(now, Duration::hours(3), 300);
+        let risk = pace(false, Some(3600.0), Some(0.8));
+        let recovery = pace(true, None, Some(0.0));
+        let mut manager = NotificationManager::new();
+
+        assert!(manager.record_predictive_observation(
+            true,
+            ProviderId::Claude,
+            "oauth:person@example.com",
+            PredictiveWarningWindow::Session,
+            &window,
+            &risk,
+        ));
+        assert!(!manager.record_predictive_observation(
+            true,
+            ProviderId::Claude,
+            "oauth:person@example.com",
+            PredictiveWarningWindow::Session,
+            &window,
+            &risk,
+        ));
+        assert!(!manager.record_predictive_observation(
+            true,
+            ProviderId::Claude,
+            "oauth:person@example.com",
+            PredictiveWarningWindow::Session,
+            &window,
+            &recovery,
+        ));
+        assert!(manager.record_predictive_observation(
+            true,
+            ProviderId::Claude,
+            "oauth:person@example.com",
+            PredictiveWarningWindow::Session,
+            &window,
+            &risk,
+        ));
+    }
+
+    #[test]
+    fn predictive_warning_reset_jitter_does_not_retrigger() {
+        let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let mut manager = NotificationManager::new();
+        let risk = pace(false, Some(3600.0), None);
+
+        assert!(manager.record_predictive_observation(
+            true,
+            ProviderId::Codex,
+            "oauth:account-a",
+            PredictiveWarningWindow::Weekly,
+            &window(now, Duration::days(3), 10080),
+            &risk,
+        ));
+        assert!(!manager.record_predictive_observation(
+            true,
+            ProviderId::Codex,
+            "oauth:account-a",
+            PredictiveWarningWindow::Weekly,
+            &window(now, Duration::days(3) + Duration::minutes(5), 10080),
+            &risk,
+        ));
+    }
+
+    #[test]
+    fn predictive_warning_isolates_provider_identity_source_and_window() {
+        let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let reset = window(now, Duration::hours(3), 300);
+        let risk = pace(false, Some(3600.0), None);
+        let mut manager = NotificationManager::new();
+
+        for (provider, identity, warning_window) in [
+            (
+                ProviderId::Claude,
+                "cli:person@example.com",
+                PredictiveWarningWindow::Session,
+            ),
+            (
+                ProviderId::Claude,
+                "oauth:person@example.com",
+                PredictiveWarningWindow::Session,
+            ),
+            (
+                ProviderId::Claude,
+                "token-account:1",
+                PredictiveWarningWindow::Session,
+            ),
+            (
+                ProviderId::Claude,
+                "oauth:person@example.com",
+                PredictiveWarningWindow::Weekly,
+            ),
+            (
+                ProviderId::Codex,
+                "oauth:person@example.com",
+                PredictiveWarningWindow::Session,
+            ),
+        ] {
+            assert!(manager.record_predictive_observation(
+                true,
+                provider,
+                identity,
+                warning_window,
+                &reset,
+                &risk,
+            ));
+        }
+    }
+
+    #[test]
+    fn predictive_warning_requires_enabled_confident_positive_risk() {
+        let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let reset = window(now, Duration::hours(3), 300);
+        let mut manager = NotificationManager::new();
+
+        for (enabled, observation) in [
+            (false, pace(false, Some(3600.0), Some(0.8))),
+            (true, pace(true, None, Some(0.8))),
+            (true, pace(false, Some(0.0), Some(0.8))),
+            (true, pace(false, Some(3600.0), Some(0.49))),
+        ] {
+            assert!(!manager.record_predictive_observation(
+                enabled,
+                ProviderId::Claude,
+                "oauth:person@example.com",
+                PredictiveWarningWindow::Session,
+                &reset,
+                &observation,
+            ));
+        }
+
+        assert!(manager.record_predictive_observation(
+            true,
+            ProviderId::Claude,
+            "oauth:person@example.com",
+            PredictiveWarningWindow::Session,
+            &reset,
+            &pace(false, Some(3600.0), Some(0.5)),
+        ));
+    }
 }

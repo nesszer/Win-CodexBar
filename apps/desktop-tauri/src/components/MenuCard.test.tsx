@@ -78,7 +78,11 @@ function provider(
 
 function renderCard(
   snapshot: ProviderUsageSnapshot,
-  opts: { showAsUsed?: boolean; onLayoutChange?: () => void } = {},
+  opts: {
+    showAsUsed?: boolean;
+    showResetWhenExhausted?: boolean;
+    onLayoutChange?: () => void;
+  } = {},
 ) {
   return render(
     <LocaleProvider>
@@ -87,6 +91,7 @@ function renderCard(
         hideEmail={false}
         resetTimeRelative={true}
         showAsUsed={opts.showAsUsed}
+        showResetWhenExhausted={opts.showResetWhenExhausted}
         onLayoutChange={opts.onLayoutChange}
       />
     </LocaleProvider>,
@@ -110,6 +115,7 @@ describe("MenuCard", () => {
         PanelThirtyDayTokens: "30d tokens",
         PanelTodayBudget: "today",
         PanelUsedSuffix: "used",
+        ResetsInHoursMinutes: "Resets in {}h {}m",
       }),
     );
     tauriMocks.getProviderChartData.mockResolvedValue({
@@ -167,6 +173,24 @@ describe("MenuCard", () => {
     expect(await screen.findAllByText("115% used")).not.toHaveLength(0);
     const fill = document.querySelector<HTMLElement>(".menu-metric__bar-fill");
     expect(fill?.style.width).toBe("100%");
+  });
+
+  it("replaces an exhausted percentage with a future reset countdown", async () => {
+    const snapshot = provider(null, 100, { exhausted: true });
+    snapshot.primary.resetsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    renderCard(snapshot, { showResetWhenExhausted: true });
+
+    expect(await screen.findByText(/Resets in 0h/)).toBeInTheDocument();
+    expect(screen.queryByText("0% left")).not.toBeInTheDocument();
+  });
+
+  it("keeps an exhausted percentage without a concrete future reset", async () => {
+    renderCard(provider(null, 100, { exhausted: true, resetDescription: "in 2h" }), {
+      showResetWhenExhausted: true,
+    });
+
+    expect(await screen.findByText("0% left")).toBeInTheDocument();
   });
 
   it("renders additional Copilot budget windows", async () => {

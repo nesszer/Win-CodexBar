@@ -253,6 +253,7 @@ export default function PopOutPanel({
                 provider={p}
                 hideEmail={settings.hidePersonalInfo}
                 resetTimeRelative={settings.resetTimeRelative}
+                showResetWhenExhausted={settings.showResetWhenExhausted}
                 showAsUsed={settings.showAsUsed}
                 compactMetrics={selectedProviderId === null}
               />

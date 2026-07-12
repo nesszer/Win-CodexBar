@@ -94,6 +94,14 @@ pub struct Settings {
     /// Show reset times as relative (e.g., "2h 30m" instead of "3:00 PM")
     pub reset_time_relative: bool,
 
+    /// Replace exhausted quota text with its concrete future reset time.
+    #[serde(default)]
+    pub show_reset_when_exhausted: bool,
+
+    /// Warn when Codex or Claude pace predicts exhaustion before reset.
+    #[serde(default)]
+    pub predictive_pace_warning_enabled: bool,
+
     /// Menu bar display mode: "minimal", "compact", or "detailed"
     pub menu_bar_display_mode: String,
 
@@ -357,6 +365,8 @@ impl Default for Settings {
             show_as_used: true,        // Show as "used" by default
             enable_animations: true,   // Animations enabled by default
             reset_time_relative: true, // Show relative times by default
+            show_reset_when_exhausted: false,
+            predictive_pace_warning_enabled: false,
             menu_bar_display_mode: "detailed".to_string(), // Detailed mode by default
             show_all_token_accounts_in_menu: false,
             provider_configs: HashMap::new(),

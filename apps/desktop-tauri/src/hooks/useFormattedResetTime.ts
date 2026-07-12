@@ -25,7 +25,7 @@ export function useFormattedResetTime(
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!resetsAt || !relative) return;
+    if (!resetsAt) return;
     const id = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, [resetsAt, relative]);

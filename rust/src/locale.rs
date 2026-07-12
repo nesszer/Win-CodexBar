@@ -188,6 +188,10 @@ locale_keys! {
     HighUsageAlert,
     CriticalUsageThreshold,
     CriticalUsageAlert,
+    PredictivePaceWarnings,
+    PredictivePaceWarningsHelper,
+    PredictivePaceWarningTitle,
+    PredictivePaceWarningBody,
 
     // Display settings (Preferences)
     UsageDisplay,
@@ -195,6 +199,8 @@ locale_keys! {
     ShowUsageAsUsedHelper,
     ResetTimeRelative,
     ResetTimeRelativeHelper,
+    ShowResetWhenExhausted,
+    ShowResetWhenExhaustedHelper,
     TrayIcon,
     MergeTrayIcons,
     MergeTrayIconsHelper,

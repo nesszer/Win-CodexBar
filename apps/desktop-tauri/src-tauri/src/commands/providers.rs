@@ -175,7 +175,12 @@ async fn do_refresh_providers_with_policy(
     await_provider_refreshes(handles).await;
 
     let error_count = finish_provider_refresh(&state)?;
-    update_tray_and_notifications(app, &state, &inputs.settings)?;
+    update_tray_and_notifications(
+        app,
+        &state,
+        &inputs.settings,
+        &inputs.token_accounts,
+    )?;
 
     events::emit_refresh_complete(app, enabled_count, error_count);
 
@@ -390,6 +395,7 @@ fn update_tray_and_notifications(
     app: &tauri::AppHandle,
     state: &tauri::State<'_, Mutex<AppState>>,
     settings: &Settings,
+    token_accounts: &HashMap<ProviderId, ProviderAccountData>,
 ) -> Result<(), String> {
     let cached = {
         let guard = state.lock().map_err(|e| e.to_string())?;
@@ -397,13 +403,14 @@ fn update_tray_and_notifications(
     };
     crate::tray_bridge::update_tray_status_items(app, &cached);
     crate::tray_bridge::update_tray_icon_and_tooltip(app, &cached);
-    notify_usage_thresholds(state, settings, &cached);
+    notify_usage_thresholds(state, settings, token_accounts, &cached);
     Ok(())
 }
 
 fn notify_usage_thresholds(
     state: &tauri::State<'_, Mutex<AppState>>,
     settings: &Settings,
+    token_accounts: &HashMap<ProviderId, ProviderAccountData>,
     cached: &[ProviderUsageSnapshot],
 ) {
     let cli_map = codexbar::core::cli_name_map();
@@ -422,9 +429,125 @@ fn notify_usage_thresholds(
                     snapshot.primary.used_percent,
                     settings,
                 );
+                notify_predictive_pace(
+                    &mut guard.notification_manager,
+                    provider,
+                    snapshot,
+                    token_accounts,
+                    settings,
+                );
             }
         }
     }
+}
+
+fn notify_predictive_pace(
+    manager: &mut codexbar::notifications::NotificationManager,
+    provider: ProviderId,
+    snapshot: &ProviderUsageSnapshot,
+    token_accounts: &HashMap<ProviderId, ProviderAccountData>,
+    settings: &Settings,
+) {
+    let enabled = settings.show_notifications && settings.predictive_pace_warning_enabled;
+    manager.set_predictive_warnings_enabled(provider, enabled);
+    if !enabled || !matches!(provider, ProviderId::Claude | ProviderId::Codex) {
+        return;
+    }
+
+    let token_account_id = token_accounts
+        .get(&provider)
+        .and_then(ProviderAccountData::active_account)
+        .map(|account| account.id);
+    let Some(identity) = predictive_warning_identity(
+        provider,
+        &snapshot.source_label,
+        snapshot.account_email.as_deref(),
+        token_account_id,
+    ) else {
+        return;
+    };
+    let observed_at = chrono::DateTime::parse_from_rfc3339(&snapshot.updated_at)
+        .ok()
+        .map(|date| date.with_timezone(&chrono::Utc));
+
+    notify_predictive_window(
+        manager,
+        provider,
+        &identity,
+        codexbar::notifications::PredictiveWarningWindow::Session,
+        &snapshot.primary,
+        observed_at,
+        300,
+        settings,
+    );
+    if let Some(weekly) = &snapshot.secondary {
+        notify_predictive_window(
+            manager,
+            provider,
+            &identity,
+            codexbar::notifications::PredictiveWarningWindow::Weekly,
+            weekly,
+            observed_at,
+            10080,
+            settings,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn notify_predictive_window(
+    manager: &mut codexbar::notifications::NotificationManager,
+    provider: ProviderId,
+    identity: &str,
+    warning_window: codexbar::notifications::PredictiveWarningWindow,
+    window: &RateWindowSnapshot,
+    observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    default_window_minutes: u32,
+    settings: &Settings,
+) {
+    let rate_window = RateWindow::with_details(
+        window.used_percent,
+        window.window_minutes,
+        window
+            .resets_at
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|date| date.with_timezone(&chrono::Utc)),
+        window.reset_description.clone(),
+    );
+    let Some(pace) =
+        codexbar::core::UsagePace::weekly(&rate_window, observed_at, default_window_minutes)
+    else {
+        return;
+    };
+    manager.check_predictive_pace(
+        provider,
+        identity,
+        warning_window,
+        &rate_window,
+        &pace,
+        settings,
+    );
+}
+
+fn predictive_warning_identity(
+    provider: ProviderId,
+    source_label: &str,
+    account_email: Option<&str>,
+    token_account_id: Option<uuid::Uuid>,
+) -> Option<String> {
+    if !matches!(provider, ProviderId::Claude | ProviderId::Codex) {
+        return None;
+    }
+    if let Some(id) = token_account_id {
+        return Some(format!("token-account:{}", id.as_hyphenated()));
+    }
+    let source = source_label.trim().to_ascii_lowercase();
+    let account = account_email?.trim().to_ascii_lowercase();
+    if source.is_empty() || account.is_empty() {
+        return None;
+    }
+    Some(format!("{source}:{account}"))
 }
 
 #[tauri::command]
@@ -449,5 +572,59 @@ pub fn get_cached_providers(
     for snapshot in &mut snapshots {
         super::filter_hidden_codex_spark_rows(snapshot, spark_usage_visible);
     }
+
     snapshots
+}
+
+#[cfg(test)]
+mod predictive_warning_tests {
+    use super::*;
+
+    #[test]
+    fn predictive_warning_identity_keeps_claude_sources_and_token_accounts_separate() {
+        let account_id = uuid::Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
+
+        assert_eq!(
+            predictive_warning_identity(
+                ProviderId::Claude,
+                "cli",
+                Some("Person@Example.com"),
+                None,
+            )
+            .as_deref(),
+            Some("cli:person@example.com")
+        );
+        assert_eq!(
+            predictive_warning_identity(
+                ProviderId::Claude,
+                "oauth",
+                Some("Person@Example.com"),
+                None,
+            )
+            .as_deref(),
+            Some("oauth:person@example.com")
+        );
+        assert_eq!(
+            predictive_warning_identity(
+                ProviderId::Claude,
+                "oauth",
+                Some("Person@Example.com"),
+                Some(account_id),
+            )
+            .as_deref(),
+            Some("token-account:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        );
+    }
+
+    #[test]
+    fn predictive_warning_identity_skips_unidentified_accounts() {
+        assert_eq!(
+            predictive_warning_identity(ProviderId::Claude, "oauth", None, None),
+            None
+        );
+        assert_eq!(
+            predictive_warning_identity(ProviderId::Codex, "cli", Some("  "), None),
+            None
+        );
+    }
 }

@@ -17,6 +17,7 @@ pub struct SettingsUpdate {
     pub sound_volume: Option<u8>,
     pub high_usage_threshold: Option<f64>,
     pub critical_usage_threshold: Option<f64>,
+    pub predictive_pace_warning_enabled: Option<bool>,
     pub tray_icon_mode: Option<String>,
     pub switcher_shows_icons: Option<bool>,
     pub menu_bar_shows_highest_usage: Option<bool>,
@@ -25,6 +26,7 @@ pub struct SettingsUpdate {
     pub show_all_token_accounts_in_menu: Option<bool>,
     pub enable_animations: Option<bool>,
     pub reset_time_relative: Option<bool>,
+    pub show_reset_when_exhausted: Option<bool>,
     pub menu_bar_display_mode: Option<String>,
     pub hide_personal_info: Option<bool>,
     pub update_channel: Option<String>,
@@ -62,6 +64,7 @@ impl SettingsUpdate {
             || self.critical_usage_threshold.is_some()
             || self.show_as_used.is_some()
             || self.reset_time_relative.is_some()
+            || self.show_reset_when_exhausted.is_some()
     }
 
     fn rebuilds_tray_menu(&self) -> bool {
@@ -149,6 +152,9 @@ impl SettingsUpdate {
         if let Some(v) = self.reset_time_relative {
             settings.reset_time_relative = v;
         }
+        if let Some(v) = self.show_reset_when_exhausted {
+            settings.show_reset_when_exhausted = v;
+        }
         if let Some(v) = self.menu_bar_display_mode.clone() {
             settings.menu_bar_display_mode = v;
         }
@@ -188,6 +194,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.critical_usage_threshold {
             settings.critical_usage_threshold = v.clamp(0.0, 100.0);
+        }
+        if let Some(v) = self.predictive_pace_warning_enabled {
+            settings.predictive_pace_warning_enabled = v;
         }
         self
     }

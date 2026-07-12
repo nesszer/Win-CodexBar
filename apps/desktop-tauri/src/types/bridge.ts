@@ -176,6 +176,7 @@ export interface SettingsSnapshot {
   soundVolume: number;
   highUsageThreshold: number;
   criticalUsageThreshold: number;
+  predictivePaceWarningEnabled: boolean;
   trayIconMode: TrayIconMode;
   switcherShowsIcons: boolean;
   menuBarShowsHighestUsage: boolean;
@@ -184,6 +185,7 @@ export interface SettingsSnapshot {
   showAllTokenAccountsInMenu: boolean;
   enableAnimations: boolean;
   resetTimeRelative: boolean;
+  showResetWhenExhausted: boolean;
   menuBarDisplayMode: MenuBarDisplayMode;
   hidePersonalInfo: boolean;
   updateChannel: UpdateChannel;
@@ -231,6 +233,7 @@ export interface SettingsUpdate {
   soundVolume?: number;
   highUsageThreshold?: number;
   criticalUsageThreshold?: number;
+  predictivePaceWarningEnabled?: boolean;
   trayIconMode?: TrayIconMode;
   switcherShowsIcons?: boolean;
   menuBarShowsHighestUsage?: boolean;
@@ -239,6 +242,7 @@ export interface SettingsUpdate {
   showAllTokenAccountsInMenu?: boolean;
   enableAnimations?: boolean;
   resetTimeRelative?: boolean;
+  showResetWhenExhausted?: boolean;
   menuBarDisplayMode?: MenuBarDisplayMode;
   hidePersonalInfo?: boolean;
   updateChannel?: UpdateChannel;
