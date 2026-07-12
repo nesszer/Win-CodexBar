@@ -101,7 +101,14 @@ fn add_codex_tokens_to_summary(
         return None;
     }
 
+    let uses_fallback_pricing =
+        CostUsagePricing::codex_cost_usd(model, tokens.input, tokens.cached, tokens.output)
+            .is_none();
     let cost = codex_cost_usd(model, tokens.input, tokens.cached, tokens.output);
+    if uses_fallback_pricing {
+        summary.unknown_models.insert(model.to_string());
+    }
+
     summary.input_tokens += tokens.input;
     summary.cached_tokens += tokens.cached;
     summary.output_tokens += tokens.output;
@@ -237,6 +244,26 @@ mod tests {
         assert!(has_tokens);
         assert_eq!(summary.input_tokens, 400_000);
         assert!((cost - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn records_unknown_codex_model_while_using_fallback_cost() {
+        let target = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+        let range = CostUsageDayRange::new(target, target);
+        let records = vec![CodexUsageRecord {
+            day_key: "2026-05-31".to_string(),
+            model: "gpt-mystery".to_string(),
+            input: 1_000_000,
+            cached: 0,
+            output: 1_000_000,
+        }];
+        let mut summary = CostSummary::default();
+
+        let (cost, has_tokens) = add_codex_records_to_summary(&mut summary, &records, &range);
+
+        assert!(has_tokens);
+        assert!(cost > 0.0);
+        assert!(summary.unknown_models.contains("gpt-mystery"));
     }
 
     #[test]

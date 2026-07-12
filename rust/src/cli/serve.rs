@@ -84,6 +84,7 @@ async fn usage_response(provider: Option<&str>) -> String {
         api_key: None,
         workspace_id: None,
         api_region: None,
+        gateway_url: None,
     };
 
     let mut results = Vec::new();

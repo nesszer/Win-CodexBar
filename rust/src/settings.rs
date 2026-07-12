@@ -720,6 +720,24 @@ impl Settings {
         self.provider_config_mut(id).workspace_id = Some(value.into());
     }
 
+    /// Wayfinder gateway URL, defaulting to the local loopback gateway.
+    pub fn gateway_url(&self, id: ProviderId) -> &str {
+        self.provider_configs
+            .get(&id)
+            .and_then(|c| c.gateway_url.as_deref())
+            .unwrap_or_else(|| {
+                if id == ProviderId::Wayfinder {
+                    crate::providers::wayfinder::DEFAULT_GATEWAY_URL
+                } else {
+                    ""
+                }
+            })
+    }
+
+    pub fn set_gateway_url(&mut self, id: ProviderId, value: impl Into<String>) {
+        self.provider_config_mut(id).gateway_url = Some(value.into());
+    }
+
     /// IDE base path override for `id`, or `""` if unset.
     pub fn ide_base_path(&self, id: ProviderId) -> &str {
         self.provider_configs

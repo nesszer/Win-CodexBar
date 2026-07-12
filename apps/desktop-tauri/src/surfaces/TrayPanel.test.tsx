@@ -345,6 +345,7 @@ describe("TrayPanel provider grid", () => {
         latestTokens: 1200,
         topModel: "gpt-5.5",
         estimateNote: "Estimated from local logs",
+        tokenCostUpdatedAtMs: 1234,
       },
     });
 

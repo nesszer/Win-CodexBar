@@ -203,6 +203,7 @@ mod tests {
             account_organization: Some("Example Org".to_string()),
             tray_status_label: None,
             fetch_duration_ms: None,
+            wayfinder_usage: None,
         });
         let value = serde_json::to_value(snapshot).unwrap();
 
@@ -221,6 +222,7 @@ mod tests {
                 latest_tokens: Some(1_200),
                 top_model: Some("gpt-5".to_string()),
                 estimate_note: "cached".to_string(),
+                token_cost_updated_at_ms: 1234,
             }),
         );
 
@@ -244,6 +246,7 @@ mod tests {
             account_organization: None,
             tray_status_label: None,
             fetch_duration_ms: None,
+            wayfinder_usage: None,
         });
         let value = serde_json::to_value(snapshot).unwrap();
 

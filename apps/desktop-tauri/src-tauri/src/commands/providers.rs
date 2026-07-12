@@ -82,6 +82,8 @@ pub(crate) fn build_fetch_context(
 
     let workspace_id = settings.workspace_id(id).trim().to_string();
     let api_region = settings.api_region(id).trim().to_string();
+    let gateway_url = (id == ProviderId::Wayfinder && !settings.gateway_url(id).is_empty())
+        .then(|| settings.gateway_url(id).to_string());
 
     FetchContext {
         source_mode,
@@ -89,6 +91,7 @@ pub(crate) fn build_fetch_context(
         api_key,
         workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
         api_region: (!api_region.is_empty()).then_some(api_region),
+        gateway_url,
         ..FetchContext::default()
     }
 }

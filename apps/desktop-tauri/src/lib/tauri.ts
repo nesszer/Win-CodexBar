@@ -344,6 +344,17 @@ export function setProviderWorkspaceId(
   return invoke<void>("set_provider_workspace_id", { providerId, workspaceId });
 }
 
+export function getProviderGatewayUrl(providerId: string): Promise<string | null> {
+  return invoke<string | null>("get_provider_gateway_url", { providerId });
+}
+
+export function setProviderGatewayUrl(
+  providerId: string,
+  gatewayUrl: string,
+): Promise<void> {
+  return invoke<void>("set_provider_gateway_url", { providerId, gatewayUrl });
+}
+
 // ── Phase 6d — credential detection ──────────────────────────────────
 
 export function openPath(path: string): Promise<void> {

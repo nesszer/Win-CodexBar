@@ -67,6 +67,7 @@ pub enum ProviderId {
     CrossModel,
     Qoder,
     Sakana,
+    Wayfinder,
 }
 
 impl ProviderId {
@@ -129,6 +130,7 @@ impl ProviderId {
             ProviderId::CrossModel,
             ProviderId::Qoder,
             ProviderId::Sakana,
+            ProviderId::Wayfinder,
         ]
     }
 
@@ -191,6 +193,7 @@ impl ProviderId {
             ProviderId::CrossModel => "crossmodel",
             ProviderId::Qoder => "qoder",
             ProviderId::Sakana => "sakana",
+            ProviderId::Wayfinder => "wayfinder",
         }
     }
 
@@ -253,6 +256,7 @@ impl ProviderId {
             ProviderId::CrossModel => "CrossModel",
             ProviderId::Qoder => "Qoder",
             ProviderId::Sakana => "Sakana AI",
+            ProviderId::Wayfinder => "Wayfinder",
         }
     }
 
@@ -320,6 +324,7 @@ impl ProviderId {
             ProviderId::Devin => None,
             ProviderId::Zed => None,
             ProviderId::CrossModel => None,
+            ProviderId::Wayfinder => None,
         }
     }
 
@@ -389,6 +394,7 @@ impl ProviderId {
             "crossmodel" | "cross-model" | "cross model" => Some(ProviderId::CrossModel),
             "qoder" => Some(ProviderId::Qoder),
             "sakana" | "sakana-ai" | "sakana ai" => Some(ProviderId::Sakana),
+            "wayfinder" => Some(ProviderId::Wayfinder),
             _ => None,
         }
     }
@@ -498,6 +504,9 @@ pub struct FetchContext {
 
     /// Optional provider API/web region from persisted settings.
     pub api_region: Option<String>,
+
+    /// Optional provider gateway URL, used by local gateway-backed providers.
+    pub gateway_url: Option<String>,
 }
 
 impl Default for FetchContext {
@@ -511,6 +520,7 @@ impl Default for FetchContext {
             api_key: None,
             workspace_id: None,
             api_region: None,
+            gateway_url: None,
         }
     }
 }
@@ -617,7 +627,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 56);
+        assert_eq!(all.len(), 57);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -654,6 +664,7 @@ mod tests {
         assert!(all.contains(&ProviderId::CrossModel));
         assert!(all.contains(&ProviderId::Qoder));
         assert!(all.contains(&ProviderId::Sakana));
+        assert!(all.contains(&ProviderId::Wayfinder));
     }
 
     #[test]

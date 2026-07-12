@@ -236,7 +236,8 @@ impl TokenAccountSupport {
             | ProviderId::Poe
             | ProviderId::Devin
             | ProviderId::Zed
-            | ProviderId::CrossModel => None,
+            | ProviderId::CrossModel
+            | ProviderId::Wayfinder => None,
         }
     }
 
