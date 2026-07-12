@@ -60,7 +60,7 @@ impl Provider for GeminiProvider {
         tracing::debug!("Fetching Gemini usage via API");
 
         match self.api.fetch_quota(ctx).await {
-            Ok((primary, model_specific, email)) => {
+            Ok((primary, model_specific, email, plan)) => {
                 let mut usage = UsageSnapshot::new(primary);
                 if let Some(ms) = model_specific {
                     usage = usage.with_model_specific(ms);
@@ -68,7 +68,7 @@ impl Provider for GeminiProvider {
                 if let Some(e) = email {
                     usage = usage.with_email(e);
                 }
-                usage = usage.with_login_method("Gemini CLI");
+                usage = usage.with_login_method(plan.unwrap_or_else(|| "Gemini CLI".to_string()));
 
                 Ok(ProviderFetchResult::new(usage, "cli"))
             }
