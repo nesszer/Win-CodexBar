@@ -100,7 +100,8 @@ export type ProofProviderId =
   | "zed"
   | "crossmodel"
   | "qoder"
-  | "sakana";
+  | "sakana"
+  | "wayfinder";
 
 export type TrayPanelSurfaceTarget = { kind: "summary" };
 export type PopOutSurfaceTarget =
@@ -202,6 +203,7 @@ export interface SettingsSnapshot {
   claudeAvoidKeychainPrompts: boolean;
   codexSparkUsageVisible: boolean;
   disableKeychainAccess: boolean;
+  wayfinderGatewayUrl?: string;
   providerMetrics: Record<string, MetricPreference>;
   floatBarEnabled: boolean;
   /** 30..=100 — clamped server-side. */
@@ -332,6 +334,36 @@ export interface ProviderUsageSnapshot {
   accountOrganization: string | null;
   trayStatusLabel: string | null;
   fetchDurationMs?: number | null;
+  wayfinderUsage?: WayfinderUsageSnapshot | null;
+}
+
+export interface WayfinderRouteSummary {
+  name: string;
+  requests: number;
+  tokens: number;
+  realized: number;
+  baseline: number;
+  saved: number;
+}
+
+export interface WayfinderUsageSnapshot {
+  gatewayStatus: string;
+  offline: boolean;
+  dryRun: boolean;
+  missingKeys: string[];
+  modelCount: number;
+  models: string[];
+  requests: number;
+  estimatedRequests: number;
+  tokens: number;
+  realized: number;
+  baseline: number;
+  saved: number;
+  savedPercent: number;
+  periodDays: number;
+  unit: string;
+  priced: boolean;
+  routes: WayfinderRouteSummary[];
 }
 
 export interface RefreshCompletePayload {

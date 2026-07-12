@@ -298,6 +298,31 @@ pub fn get_provider_workspace_id(provider_id: String) -> Result<Option<String>, 
     Ok((!value.is_empty()).then_some(value))
 }
 
+fn gateway_provider(provider_id: &str) -> Option<codexbar::core::ProviderId> {
+    (provider_id == "wayfinder").then_some(codexbar::core::ProviderId::Wayfinder)
+}
+
+#[tauri::command]
+pub fn get_provider_gateway_url(provider_id: String) -> Result<Option<String>, String> {
+    let Some(id) = gateway_provider(&provider_id) else {
+        return Ok(None);
+    };
+    Ok(Some(Settings::load().gateway_url(id).to_string()))
+}
+
+#[tauri::command]
+pub fn set_provider_gateway_url(provider_id: String, gateway_url: String) -> Result<(), String> {
+    let id = gateway_provider(&provider_id)
+        .ok_or_else(|| format!("Provider '{provider_id}' does not expose a gateway URL"))?;
+    let gateway_url = gateway_url.trim();
+    codexbar::providers::wayfinder::parse_gateway_url(gateway_url)
+        .map_err(|error| error.to_string())?;
+
+    let mut settings = Settings::load();
+    settings.set_gateway_url(id, gateway_url.to_string());
+    settings.save().map_err(|error| error.to_string())
+}
+
 // ── Phase 6c — cookie source & region option catalogs ────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

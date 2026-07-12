@@ -178,6 +178,9 @@ async fn collect_provider_diagnostic(
         api_region: settings
             .provider_config(provider_id)
             .and_then(|config| config.api_region.clone()),
+        gateway_url: settings
+            .provider_config(provider_id)
+            .and_then(|config| config.gateway_url.clone()),
     };
 
     let fetch_result = provider.fetch_usage(&ctx).await;

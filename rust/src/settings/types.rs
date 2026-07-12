@@ -257,6 +257,9 @@ pub struct ProviderConfig {
     pub api_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+    /// Wayfinder gateway URL override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ide_base_path: Option<String>,
     /// Codex-only: opt out of OpenAI web "extras" surfaces.

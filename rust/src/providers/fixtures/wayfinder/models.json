@@ -1,0 +1,1 @@
+{"models":[{"name":"local","endpoint":"http://127.0.0.1:9101/v1","model":"stand-in-small","api_key_env":null,"key_ok":true},{"name":"cloud","endpoint":"http://127.0.0.1:9102/v1","model":"stand-in-large","api_key_env":"RIG_CLOUD_KEY","key_ok":true}],"dry_run":false}

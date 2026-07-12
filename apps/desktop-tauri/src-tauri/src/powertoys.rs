@@ -203,6 +203,7 @@ mod tests {
             account_organization: Some("Example Org".to_string()),
             tray_status_label: None,
             fetch_duration_ms: None,
+            wayfinder_usage: None,
         });
         let value = serde_json::to_value(snapshot).unwrap();
 
@@ -245,6 +246,7 @@ mod tests {
             account_organization: None,
             tray_status_label: None,
             fetch_duration_ms: None,
+            wayfinder_usage: None,
         });
         let value = serde_json::to_value(snapshot).unwrap();
 

@@ -680,6 +680,7 @@ fn provider_cache_upsert_replaces_existing_provider() {
     let result = ProviderFetchResult {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
         cost: None,
+        wayfinder_usage: None,
         source_label: "CLI".to_string(),
     };
     let mut first = ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result);
@@ -701,6 +702,7 @@ fn hiding_codex_spark_rows_preserves_other_extra_usage() {
     let result = ProviderFetchResult {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
         cost: None,
+        wayfinder_usage: None,
         source_label: "CLI".to_string(),
     };
     let mut snapshot =
@@ -730,6 +732,7 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
     let result = ProviderFetchResult {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         cost: None,
+        wayfinder_usage: None,
         source_label: "OAuth".to_string(),
     };
     let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
@@ -757,6 +760,7 @@ fn claude_repeated_auth_failure_surfaces_error() {
     let result = ProviderFetchResult {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         cost: None,
+        wayfinder_usage: None,
         source_label: "OAuth".to_string(),
     };
     let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
@@ -896,6 +900,7 @@ fn japanese_provider_snapshot_localizes_weekly_label() {
     let result = ProviderFetchResult {
         usage,
         cost: None,
+        wayfinder_usage: None,
         source_label: "OAuth".to_string(),
     };
 
@@ -923,6 +928,7 @@ fn japanese_provider_snapshot_localizes_pace_reserve_description() {
     let result = ProviderFetchResult {
         usage,
         cost: None,
+        wayfinder_usage: None,
         source_label: "OAuth".to_string(),
     };
 

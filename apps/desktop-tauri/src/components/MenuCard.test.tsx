@@ -110,6 +110,14 @@ describe("MenuCard", () => {
         PanelThirtyDayTokens: "30d tokens",
         PanelTodayBudget: "today",
         PanelUsedSuffix: "used",
+        WayfinderGatewayStatus: "Gateway",
+        WayfinderModels: "Models",
+        WayfinderRequests: "Requests",
+        WayfinderTokens: "Tokens",
+        WayfinderSaved: "Saved",
+        WayfinderOffline: "Gateway offline",
+        WayfinderDryRun: "Dry run",
+        WayfinderMissingKeys: "Missing keys",
       }),
     );
     tauriMocks.getProviderChartData.mockResolvedValue({
@@ -186,6 +194,42 @@ describe("MenuCard", () => {
 
     expect(await screen.findByText("Additional Budget")).toBeInTheDocument();
     expect(screen.getByText("58% left")).toBeInTheDocument();
+  });
+
+  it("renders Wayfinder telemetry without quota or identity rows", async () => {
+    const snapshot = provider(null);
+    snapshot.providerId = "wayfinder";
+    snapshot.displayName = "Wayfinder";
+    snapshot.accountEmail = "should-not-render@example.test";
+    snapshot.planName = "should-not-render";
+    snapshot.wayfinderUsage = {
+      gatewayStatus: "ok",
+      offline: false,
+      dryRun: false,
+      missingKeys: [],
+      modelCount: 2,
+      models: ["model-a", "model-b"],
+      requests: 14,
+      estimatedRequests: 0,
+      tokens: 1028,
+      realized: 0.004,
+      baseline: 0.01,
+      saved: 0.006,
+      savedPercent: 60,
+      periodDays: 30,
+      unit: "usd",
+      priced: true,
+      routes: [],
+    };
+
+    renderCard(snapshot);
+
+    expect(await screen.findByText("ok")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("1K")).toBeInTheDocument();
+    expect(screen.queryByText("should-not-render@example.test")).not.toBeInTheDocument();
+    expect(screen.queryByText("should-not-render")).not.toBeInTheDocument();
+    expect(screen.queryByText("Session")).not.toBeInTheDocument();
   });
 
   it("notifies the tray panel after async local usage data loads", async () => {
