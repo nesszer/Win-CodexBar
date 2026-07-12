@@ -126,12 +126,8 @@ impl NotificationManager {
         pace: &UsagePace,
     ) -> bool {
         if !enabled {
-            self.predictive_warning_keys = self
-                .predictive_warning_keys
-                .iter()
-                .filter(|key| key.provider != provider)
-                .cloned()
-                .collect();
+            self.predictive_warning_keys
+                .retain(|key| key.provider != provider);
             return false;
         }
         if !matches!(provider, ProviderId::Claude | ProviderId::Codex) || identity.is_empty() {
@@ -150,57 +146,36 @@ impl NotificationManager {
             },
         };
 
-        let siblings: Vec<_> = self
-            .predictive_warning_keys
-            .iter()
-            .filter(|existing| {
-                existing.provider == key.provider
-                    && existing.identity == key.identity
-                    && existing.window == key.window
-            })
-            .cloned()
-            .collect();
-        let warned_this_cycle = siblings
-            .iter()
-            .any(|existing| existing.reset.belongs_to_same_cycle(&key.reset));
-        self.predictive_warning_keys = self
-            .predictive_warning_keys
-            .iter()
-            .filter(|existing| !siblings.contains(existing))
-            .cloned()
-            .collect();
-        if warned_this_cycle {
-            self.predictive_warning_keys.insert(key.clone());
-        }
+        let warned_this_cycle = self.predictive_warning_keys.iter().any(|existing| {
+            existing.provider == key.provider
+                && existing.identity == key.identity
+                && existing.window == key.window
+                && existing.reset.belongs_to_same_cycle(&key.reset)
+        });
+        self.predictive_warning_keys.retain(|existing| {
+            existing.provider != key.provider
+                || existing.identity != key.identity
+                || existing.window != key.window
+        });
 
         if pace.will_last_to_reset {
-            self.predictive_warning_keys = self
-                .predictive_warning_keys
-                .iter()
-                .filter(|existing| *existing != &key)
-                .cloned()
-                .collect();
             return false;
         }
-        if !pace.eta_seconds.is_some_and(|eta| eta.is_finite() && eta > 0.0)
-            || !pace
-                .run_out_probability
-                .is_none_or(|probability| probability.is_finite() && probability >= 0.5)
+        if !pace
+            .eta_seconds
+            .is_some_and(|eta| eta.is_finite() && eta > 0.0)
         {
             return false;
         }
 
-        self.predictive_warning_keys.insert(key)
+        self.predictive_warning_keys.insert(key);
+        !warned_this_cycle
     }
 
     pub fn set_predictive_warnings_enabled(&mut self, provider: ProviderId, enabled: bool) {
         if !enabled {
-            self.predictive_warning_keys = self
-                .predictive_warning_keys
-                .iter()
-                .filter(|key| key.provider != provider)
-                .cloned()
-                .collect();
+            self.predictive_warning_keys
+                .retain(|key| key.provider != provider);
         }
     }
 
@@ -553,7 +528,7 @@ mod tests {
     use crate::core::{PaceStage, RateWindow, UsagePace};
     use chrono::{DateTime, Duration, Utc};
 
-    fn pace(will_last_to_reset: bool, eta_seconds: Option<f64>, probability: Option<f64>) -> UsagePace {
+    fn pace(will_last_to_reset: bool, eta_seconds: Option<f64>) -> UsagePace {
         UsagePace {
             stage: PaceStage::Ahead,
             delta_percent: 20.0,
@@ -561,7 +536,6 @@ mod tests {
             actual_used_percent: 60.0,
             eta_seconds,
             will_last_to_reset,
-            run_out_probability: probability,
         }
     }
 
@@ -573,8 +547,8 @@ mod tests {
     fn predictive_warning_notifies_once_until_recovery_then_rearms() {
         let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
         let window = window(now, Duration::hours(3), 300);
-        let risk = pace(false, Some(3600.0), Some(0.8));
-        let recovery = pace(true, None, Some(0.0));
+        let risk = pace(false, Some(3600.0));
+        let recovery = pace(true, None);
         let mut manager = NotificationManager::new();
 
         assert!(manager.record_predictive_observation(
@@ -615,7 +589,7 @@ mod tests {
     fn predictive_warning_reset_jitter_does_not_retrigger() {
         let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
         let mut manager = NotificationManager::new();
-        let risk = pace(false, Some(3600.0), None);
+        let risk = pace(false, Some(3600.0));
 
         assert!(manager.record_predictive_observation(
             true,
@@ -639,7 +613,7 @@ mod tests {
     fn predictive_warning_isolates_provider_identity_source_and_window() {
         let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
         let reset = window(now, Duration::hours(3), 300);
-        let risk = pace(false, Some(3600.0), None);
+        let risk = pace(false, Some(3600.0));
         let mut manager = NotificationManager::new();
 
         for (provider, identity, warning_window) in [
@@ -687,10 +661,9 @@ mod tests {
         let mut manager = NotificationManager::new();
 
         for (enabled, observation) in [
-            (false, pace(false, Some(3600.0), Some(0.8))),
-            (true, pace(true, None, Some(0.8))),
-            (true, pace(false, Some(0.0), Some(0.8))),
-            (true, pace(false, Some(3600.0), Some(0.49))),
+            (false, pace(false, Some(3600.0))),
+            (true, pace(true, None)),
+            (true, pace(false, Some(0.0))),
         ] {
             assert!(!manager.record_predictive_observation(
                 enabled,
@@ -708,7 +681,7 @@ mod tests {
             "oauth:person@example.com",
             PredictiveWarningWindow::Session,
             &reset,
-            &pace(false, Some(3600.0), Some(0.5)),
+            &pace(false, Some(3600.0)),
         ));
     }
 }
