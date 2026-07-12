@@ -178,12 +178,7 @@ async fn do_refresh_providers_with_policy(
     await_provider_refreshes(handles).await;
 
     let error_count = finish_provider_refresh(&state)?;
-    update_tray_and_notifications(
-        app,
-        &state,
-        &inputs.settings,
-        &inputs.token_accounts,
-    )?;
+    update_tray_and_notifications(app, &state, &inputs.settings, &inputs.token_accounts)?;
 
     events::emit_refresh_complete(app, enabled_count, error_count);
 
@@ -473,64 +468,45 @@ fn notify_predictive_pace(
         .ok()
         .map(|date| date.with_timezone(&chrono::Utc));
 
-    notify_predictive_window(
-        manager,
-        provider,
-        &identity,
-        codexbar::notifications::PredictiveWarningWindow::Session,
-        &snapshot.primary,
-        observed_at,
-        300,
-        settings,
-    );
-    if let Some(weekly) = &snapshot.secondary {
-        notify_predictive_window(
-            manager,
+    for (warning_window, window, default_window_minutes) in [
+        (
+            codexbar::notifications::PredictiveWarningWindow::Session,
+            Some(&snapshot.primary),
+            300,
+        ),
+        (
+            codexbar::notifications::PredictiveWarningWindow::Weekly,
+            snapshot.secondary.as_ref(),
+            10080,
+        ),
+    ] {
+        let Some(window) = window else {
+            continue;
+        };
+        let rate_window = RateWindow::with_details(
+            window.used_percent,
+            window.window_minutes,
+            window
+                .resets_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .map(|date| date.with_timezone(&chrono::Utc)),
+            window.reset_description.clone(),
+        );
+        let Some(pace) =
+            codexbar::core::UsagePace::weekly(&rate_window, observed_at, default_window_minutes)
+        else {
+            continue;
+        };
+        manager.check_predictive_pace(
             provider,
             &identity,
-            codexbar::notifications::PredictiveWarningWindow::Weekly,
-            weekly,
-            observed_at,
-            10080,
+            warning_window,
+            &rate_window,
+            &pace,
             settings,
         );
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn notify_predictive_window(
-    manager: &mut codexbar::notifications::NotificationManager,
-    provider: ProviderId,
-    identity: &str,
-    warning_window: codexbar::notifications::PredictiveWarningWindow,
-    window: &RateWindowSnapshot,
-    observed_at: Option<chrono::DateTime<chrono::Utc>>,
-    default_window_minutes: u32,
-    settings: &Settings,
-) {
-    let rate_window = RateWindow::with_details(
-        window.used_percent,
-        window.window_minutes,
-        window
-            .resets_at
-            .as_deref()
-            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-            .map(|date| date.with_timezone(&chrono::Utc)),
-        window.reset_description.clone(),
-    );
-    let Some(pace) =
-        codexbar::core::UsagePace::weekly(&rate_window, observed_at, default_window_minutes)
-    else {
-        return;
-    };
-    manager.check_predictive_pace(
-        provider,
-        identity,
-        warning_window,
-        &rate_window,
-        &pace,
-        settings,
-    );
 }
 
 fn predictive_warning_identity(
