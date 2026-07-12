@@ -119,8 +119,8 @@ impl GeminiApi {
             }
         };
 
-        match response.json::<CodeAssistResponse>().await {
-            Ok(response) => code_assist_status(response),
+        match response.text().await {
+            Ok(body) => parse_code_assist_status(&body),
             Err(error) => {
                 tracing::warn!(%error, "Gemini loadCodeAssist response was invalid");
                 CodeAssistStatus::default()
@@ -545,49 +545,33 @@ enum GeminiUserTier {
     Standard,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CodeAssistResponse {
-    current_tier: Option<CodeAssistTier>,
-    paid_tier: Option<PaidTier>,
-}
+fn parse_code_assist_status(body: &str) -> CodeAssistStatus {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(body) else {
+        return CodeAssistStatus::default();
+    };
 
-#[derive(Deserialize)]
-struct CodeAssistTier {
-    id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct PaidTier {
-    name: Option<String>,
-}
-
-fn code_assist_status(response: CodeAssistResponse) -> CodeAssistStatus {
-    let tier = response
-        .current_tier
-        .and_then(|tier| match tier.id.as_deref() {
-            Some("free-tier") => Some(GeminiUserTier::Free),
-            Some("legacy-tier") => Some(GeminiUserTier::Legacy),
-            Some("standard-tier") => Some(GeminiUserTier::Standard),
+    let tier = json
+        .get("currentTier")
+        .and_then(|tier| tier.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|tier| match tier {
+            "free-tier" => Some(GeminiUserTier::Free),
+            "legacy-tier" => Some(GeminiUserTier::Legacy),
+            "standard-tier" => Some(GeminiUserTier::Standard),
             _ => None,
         });
-    let paid_tier_name = response
-        .paid_tier
-        .and_then(|tier| tier.name)
-        .map(|name| name.trim().to_string())
+    let paid_tier_name = json
+        .get("paidTier")
+        .and_then(|tier| tier.get("name"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .map(str::to_owned)
         .filter(|name| !name.is_empty());
 
     CodeAssistStatus {
         tier,
         paid_tier_name,
     }
-}
-
-#[cfg(test)]
-fn parse_code_assist_status(body: &str) -> CodeAssistStatus {
-    serde_json::from_str(body)
-        .map(code_assist_status)
-        .unwrap_or_default()
 }
 
 fn resolve_account_plan(status: &CodeAssistStatus, hosted_domain: Option<&str>) -> Option<String> {
@@ -707,5 +691,16 @@ mod tests {
         let status = parse_code_assist_status("not json");
 
         assert_eq!(resolve_account_plan(&status, Some("example.com")), None);
+    }
+
+    #[test]
+    fn malformed_paid_tier_preserves_current_tier_fallback() {
+        let status =
+            parse_code_assist_status(r#"{"currentTier":{"id":"free-tier"},"paidTier":[]}"#);
+
+        assert_eq!(
+            resolve_account_plan(&status, Some("example.com")),
+            Some("Workspace".to_string())
+        );
     }
 }
