@@ -204,6 +204,7 @@ fn build_usage_fetch_context(args: &UsageArgs, source_mode: SourceMode) -> Fetch
         api_key: None,
         workspace_id: None,
         api_region: None,
+        gateway_url: None,
     }
 }
 

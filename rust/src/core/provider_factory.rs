@@ -17,7 +17,7 @@ use crate::providers::{
     MistralProvider, NanoGPTProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider,
     OpenCodeProvider, OpenRouterProvider, PerplexityProvider, PoeProvider, QoderProvider,
     SakanaProvider, StepFunProvider, T3ChatProvider, VeniceProvider, VertexAIProvider,
-    WarpProvider, WindsurfProvider, ZaiProvider, ZedProvider,
+    WarpProvider, WayfinderProvider, WindsurfProvider, ZaiProvider, ZedProvider,
 };
 
 /// Instantiate the concrete [`Provider`] implementation for a given [`ProviderId`].
@@ -82,6 +82,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::CrossModel => Box::new(CrossModelProvider::new()),
         ProviderId::Qoder => Box::new(QoderProvider::new()),
         ProviderId::Sakana => Box::new(SakanaProvider::new()),
+        ProviderId::Wayfinder => Box::new(WayfinderProvider::new()),
     }
 }
 

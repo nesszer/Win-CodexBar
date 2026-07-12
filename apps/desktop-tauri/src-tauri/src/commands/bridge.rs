@@ -104,6 +104,7 @@ pub struct ProviderUsageSnapshot {
     pub account_organization: Option<String>,
     pub tray_status_label: Option<String>,
     pub fetch_duration_ms: Option<u128>,
+    pub wayfinder_usage: Option<codexbar::core::WayfinderUsageSnapshot>,
 }
 
 pub(crate) fn filter_hidden_codex_spark_rows(
@@ -211,6 +212,7 @@ impl ProviderUsageSnapshot {
             account_organization: usage.account_organization.clone(),
             tray_status_label: None,
             fetch_duration_ms: None,
+            wayfinder_usage: result.wayfinder_usage.clone(),
         }
     }
 
@@ -247,6 +249,7 @@ impl ProviderUsageSnapshot {
             account_organization: None,
             tray_status_label: None,
             fetch_duration_ms: None,
+            wayfinder_usage: None,
         }
     }
 }
@@ -433,6 +436,7 @@ pub struct SettingsSnapshot {
     claude_avoid_keychain_prompts: bool,
     codex_spark_usage_visible: bool,
     disable_keychain_access: bool,
+    wayfinder_gateway_url: String,
     provider_metrics: std::collections::HashMap<String, &'static str>,
     float_bar_enabled: bool,
     float_bar_opacity: u8,
@@ -469,6 +473,7 @@ impl From<Settings> for SettingsSnapshot {
     fn from(settings: Settings) -> Self {
         let avoid_keychain_prompts = settings.claude_avoid_keychain_prompts();
         let codex_spark_usage_visible = settings.codex_spark_usage_visible();
+        let wayfinder_gateway_url = settings.gateway_url(ProviderId::Wayfinder).to_string();
 
         let provider_order = settings.provider_display_order_names();
         let enabled_providers = provider_order
@@ -518,6 +523,7 @@ impl From<Settings> for SettingsSnapshot {
             claude_avoid_keychain_prompts: avoid_keychain_prompts,
             codex_spark_usage_visible,
             disable_keychain_access: settings.disable_keychain_access,
+            wayfinder_gateway_url,
             provider_metrics,
             float_bar_enabled: settings.float_bar_enabled,
             float_bar_opacity: settings.float_bar_opacity,

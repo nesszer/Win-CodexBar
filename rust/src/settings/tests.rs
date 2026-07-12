@@ -192,6 +192,27 @@ fn test_settings_provider_enabled() {
     assert!(settings.is_provider_enabled(ProviderId::Claude));
     assert!(settings.is_provider_enabled(ProviderId::Codex));
     assert!(!settings.is_provider_enabled(ProviderId::Gemini));
+    assert!(!settings.is_provider_enabled(ProviderId::Wayfinder));
+    assert_eq!(
+        settings.gateway_url(ProviderId::Wayfinder),
+        "http://127.0.0.1:8088"
+    );
+}
+
+#[test]
+fn wayfinder_gateway_round_trips_without_changing_settings_paths() {
+    let mut settings = Settings::default();
+    settings.set_gateway_url(
+        ProviderId::Wayfinder,
+        "https://gateway.example.test/wayfinder/",
+    );
+
+    let json = serde_json::to_string(&settings).expect("serialize settings");
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize settings");
+    assert_eq!(
+        loaded.gateway_url(ProviderId::Wayfinder),
+        "https://gateway.example.test/wayfinder/"
+    );
 }
 
 #[test]

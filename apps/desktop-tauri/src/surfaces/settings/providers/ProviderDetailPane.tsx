@@ -18,6 +18,7 @@ import {
   openProviderStatusPage,
   refreshProviders,
   revokeProviderCredentials,
+  setProviderGatewayUrl,
   triggerProviderLogin,
 } from "../../../lib/tauri";
 import { listen } from "@tauri-apps/api/event";
@@ -47,6 +48,7 @@ interface Props {
   cookieDomain?: string | null;
   resetTimeRelative: boolean;
   providerMetrics: SettingsSnapshot["providerMetrics"];
+  wayfinderGatewayUrl: string;
   settingsDisabled: boolean;
   onSettingsChange: (patch: SettingsUpdate) => void;
 }
@@ -66,6 +68,7 @@ export function ProviderDetailPane({
   cookieDomain = null,
   resetTimeRelative,
   providerMetrics,
+  wayfinderGatewayUrl,
   settingsDisabled,
   onSettingsChange,
 }: Props) {
@@ -82,6 +85,26 @@ export function ProviderDetailPane({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [gatewayDraft, setGatewayDraft] = useState(wayfinderGatewayUrl);
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (providerId === "wayfinder") setGatewayDraft(wayfinderGatewayUrl);
+    setGatewayError(null);
+  }, [providerId, wayfinderGatewayUrl]);
+
+  const saveGateway = async () => {
+    setBusy(true);
+    setGatewayError(null);
+    try {
+      await setProviderGatewayUrl("wayfinder", gatewayDraft);
+      await load("wayfinder");
+    } catch (e) {
+      setGatewayError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Load the set of providers that support token accounts once.
   useEffect(() => {
@@ -274,6 +297,26 @@ export function ProviderDetailPane({
         resetTimeRelative={resetTimeRelative}
         t={t}
       />
+      {detail.id === "wayfinder" && (
+        <section className="provider-detail__section">
+          <h3>{t("WayfinderGatewayTitle")}</h3>
+          <label>
+            <span>{t("WayfinderGatewayLabel")}</span>
+            <input
+              type="url"
+              value={gatewayDraft}
+              disabled={settingsDisabled || busy}
+              onChange={(event) => setGatewayDraft(event.target.value)}
+              aria-describedby="wayfinder-gateway-help"
+            />
+          </label>
+          <p id="wayfinder-gateway-help">{t("WayfinderGatewayHelp")}</p>
+          {gatewayError && <p role="alert">{gatewayError}</p>}
+          <button type="button" disabled={settingsDisabled || busy} onClick={() => void saveGateway()}>
+            {t("Save")}
+          </button>
+        </section>
+      )}
       <MenuBarMetricSection
         provider={detail}
         providerMetrics={providerMetrics}
