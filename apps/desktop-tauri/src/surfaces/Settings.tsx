@@ -97,7 +97,7 @@ const TabIcons: Record<SettingsTab, ReactElement> = {
   ),
 };
 
-const TAB_META: { id: SettingsTab; labelKey: LocaleKey }[] = [
+export const TAB_META: { id: SettingsTab; labelKey: LocaleKey }[] = [
   { id: "general", labelKey: "TabGeneral" },
   { id: "providers", labelKey: "TabProviders" },
   { id: "notifications", labelKey: "TabNotifications" },

@@ -7,9 +7,8 @@ mod scoped_weekly;
 mod web_api;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use regex_lite::Regex;
-use serde::Deserialize;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 #[cfg(windows)]
@@ -17,8 +16,8 @@ use std::process::{Command as StdCommand, Stdio};
 
 use crate::cli::tty_runner::{TtyCommandOptions, TtyCommandRunner};
 use crate::core::{
-    FetchContext, NamedRateWindow, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 use admin_api::ClaudeAdminApiFetcher;
@@ -26,72 +25,10 @@ use admin_api::ClaudeAdminApiFetcher;
 use cli_reset::parse_claude_reset_date_in_system_zone;
 use cli_reset::{
     extract_cli_scoped_weekly_limits, normalized_for_label_search, parse_claude_reset_date,
-    parse_percent_line, slug_claude_model, starts_next_usage_section,
+    parse_percent_line, starts_next_usage_section,
 };
 pub use oauth::ClaudeOAuthFetcher;
 pub use web_api::ClaudeWebApiFetcher;
-
-#[derive(Debug, Deserialize)]
-struct ScopedWeeklyLimit {
-    kind: Option<String>,
-    group: Option<String>,
-    percent: Option<f64>,
-    #[serde(alias = "resetsAt")]
-    resets_at: Option<String>,
-    scope: Option<ScopedWeeklyScope>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ScopedWeeklyScope {
-    model: Option<ScopedWeeklyModel>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ScopedWeeklyModel {
-    id: Option<String>,
-    #[serde(alias = "displayName")]
-    display_name: Option<String>,
-}
-
-fn scoped_weekly_windows(limits: &[ScopedWeeklyLimit]) -> Vec<NamedRateWindow> {
-    let mut seen = std::collections::HashSet::new();
-    limits
-        .iter()
-        .filter_map(|limit| {
-            if limit.kind.as_deref() != Some("weekly_scoped")
-                || limit.group.as_deref() != Some("weekly")
-            {
-                return None;
-            }
-            let percent = limit.percent.filter(|value| value.is_finite())?;
-            let model = limit.scope.as_ref()?.model.as_ref()?;
-            let title = model.display_name.as_deref()?.trim();
-            if title.is_empty() {
-                return None;
-            }
-            let identity = model
-                .id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or(title);
-            let slug = slug_claude_model(identity);
-            if slug.is_empty() || !seen.insert(slug.clone()) {
-                return None;
-            }
-            let resets_at = limit
-                .resets_at
-                .as_deref()
-                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-                .map(|value| value.with_timezone(&Utc));
-            Some(NamedRateWindow::new(
-                format!("claude-weekly-scoped-{slug}"),
-                format!("{title} only"),
-                RateWindow::with_details(percent, Some(10080), resets_at, None),
-            ))
-        })
-        .collect()
-}
 
 /// Claude provider implementation
 pub struct ClaudeProvider {
