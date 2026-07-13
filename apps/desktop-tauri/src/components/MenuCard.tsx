@@ -11,6 +11,7 @@ import { getProviderChartData } from "../lib/tauri";
 import { useLocale } from "../hooks/useLocale";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
 import { formatRelativeUpdated } from "../lib/relativeTime";
+import { formatEta } from "../lib/formatEta";
 import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
@@ -662,10 +663,7 @@ export default function MenuCard({
               {provider.pace.etaSeconds != null && !provider.pace.willLastToReset && (
                 <div className="menu-card__pace-eta">
                   ⚠{" "}
-                  {t("DetailPaceRunsOutIn").replace(
-                    "{}",
-                    String(Math.round(provider.pace.etaSeconds / 3600)),
-                  )}
+                  {t("DetailPaceRunsOutIn")} {formatEta(provider.pace.etaSeconds)}
                 </div>
               )}
               {provider.pace.willLastToReset && (

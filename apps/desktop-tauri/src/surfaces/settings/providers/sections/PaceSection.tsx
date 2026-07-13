@@ -1,5 +1,6 @@
 import type { PaceSnapshot } from "../../../../types/bridge";
 import type { LocaleKey } from "../../../../i18n/keys";
+import { formatEta } from "../../../../lib/formatEta";
 
 interface Props {
   pace: PaceSnapshot | null;
@@ -16,10 +17,7 @@ const STAGE_TO_KEY: Record<PaceSnapshot["stage"], LocaleKey> = {
   far_behind: "DetailPaceFarBehind",
 };
 
-/**
- * Pace stage + auxiliary copy. Port of the pace rows in
- * `rust/src/native_ui/preferences.rs::render_provider_detail_panel`.
- */
+/** 展示配额节奏状态及其辅助说明。 */
 export function PaceSection({ pace, t }: Props) {
   if (!pace) return null;
 
@@ -39,12 +37,4 @@ export function PaceSection({ pace, t }: Props) {
       {aux && <div className="provider-detail-pace__aux">{aux}</div>}
     </section>
   );
-}
-
-function formatEta(seconds: number): string {
-  const mins = Math.max(0, Math.round(seconds / 60));
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.round(hrs / 24)}d`;
 }

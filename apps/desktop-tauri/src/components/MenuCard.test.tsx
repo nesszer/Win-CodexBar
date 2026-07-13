@@ -104,6 +104,7 @@ describe("MenuCard", () => {
     tauriMocks.getLocaleStrings.mockResolvedValue(
       buildBundle({
         ActionCopyError: "Copy error",
+        DetailPaceRunsOutIn: "Runs out in",
         PanelEstimatedFromLocalLogs: "Estimated from local logs",
         PanelLeftSuffix: "left",
         PanelNow: "now",
@@ -264,6 +265,26 @@ describe("MenuCard", () => {
 
     await waitFor(() => {
       expect(onLayoutChange).toHaveBeenCalled();
+    });
+  });
+
+  it("shows the formatted predicted exhaustion time", async () => {
+    const snapshot = provider(null, 40);
+    snapshot.pace = {
+      stage: "far_ahead",
+      deltaPercent: 20,
+      expectedUsedPercent: 20,
+      actualUsedPercent: 40,
+      etaSeconds: 90 * 60,
+      willLastToReset: false,
+    };
+
+    const { container } = renderCard(snapshot);
+
+    await waitFor(() => {
+      expect(container.querySelector(".menu-card__pace-eta")).toHaveTextContent(
+        "⚠ Runs out in 2h",
+      );
     });
   });
 
