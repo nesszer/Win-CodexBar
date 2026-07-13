@@ -12,6 +12,7 @@ pub use mcp_details::{
 };
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use reqwest::Url;
 use serde::Deserialize;
 
@@ -61,8 +62,10 @@ struct ZaiLimit {
     /// Limit type: "TOKENS_LIMIT" or "TIME_LIMIT" (upstream) or "tokens"/"mcp" (legacy)
     #[serde(rename = "type")]
     limit_type: Option<String>,
-    /// Used amount
+    /// Used amount (legacy response)
     used: Option<f64>,
+    /// Total limit (current response)
+    usage: Option<f64>,
     /// Current value (alternative to used)
     #[serde(rename = "currentValue")]
     current_value: Option<f64>,
@@ -70,6 +73,8 @@ struct ZaiLimit {
     limit: Option<f64>,
     /// Remaining amount
     remaining: Option<f64>,
+    /// Used percentage (current response)
+    percentage: Option<f64>,
     /// Time unit enum: 1=days, 3=hours, 5=minutes, 6=weeks
     unit: Option<i32>,
     /// Number of time units in the window
@@ -77,6 +82,9 @@ struct ZaiLimit {
     /// Reset time (ISO 8601)
     #[serde(rename = "resetAt")]
     reset_at: Option<String>,
+    /// Reset time as Unix epoch milliseconds (current response)
+    #[serde(rename = "nextResetTime")]
+    next_reset_time: Option<i64>,
 }
 
 /// z.ai provider
@@ -295,7 +303,11 @@ impl ZaiProvider {
 
         // Compute used percent for a limit entry
         fn compute_percent(l: &ZaiLimit) -> f64 {
-            let limit = l.limit.unwrap_or(0.0);
+            if let Some(percentage) = l.percentage {
+                return percentage.clamp(0.0, 100.0);
+            }
+
+            let limit = l.limit.or(l.usage).unwrap_or(0.0);
             if limit <= 0.0 {
                 return if l.used.unwrap_or(0.0) > 0.0 || l.current_value.unwrap_or(0.0) > 0.0 {
                     100.0
@@ -315,7 +327,16 @@ impl ZaiProvider {
         }
 
         fn make_window(l: &ZaiLimit, window_mins: Option<u32>) -> RateWindow {
-            RateWindow::with_details(compute_percent(l), window_mins, None, l.reset_at.clone())
+            let resets_at = l
+                .next_reset_time
+                .and_then(DateTime::<Utc>::from_timestamp_millis)
+                .or_else(|| {
+                    l.reset_at
+                        .as_deref()
+                        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                        .map(|timestamp| timestamp.with_timezone(&Utc))
+                });
+            RateWindow::with_details(compute_percent(l), window_mins, resets_at, None)
         }
 
         // Build windows based on upstream layout:
@@ -550,6 +571,33 @@ mod tests {
 
         assert_eq!(usage.login_method.as_deref(), Some("BigModel CN"));
         assert_eq!(usage.primary.used_percent, 10.0);
+    }
+
+    #[test]
+    fn parses_current_api_percentage_and_reset_time() {
+        let provider = ZaiProvider::new();
+        let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
+            "code": 200,
+            "data": {
+                "limits": [{
+                    "type": "TOKENS_LIMIT",
+                    "unit": 3,
+                    "number": 5,
+                    "usage": 800000000,
+                    "currentValue": 600000000,
+                    "remaining": 200000000,
+                    "percentage": 75,
+                    "nextResetTime": 1770648402389_i64
+                }]
+            }
+        }))
+        .unwrap();
+
+        let usage = provider.parse_quota_response(&quota).unwrap();
+
+        assert_eq!(usage.primary.used_percent, 75.0);
+        assert_eq!(usage.primary.window_minutes, Some(300));
+        assert!(usage.primary.resets_at.is_some());
     }
 
     #[test]
