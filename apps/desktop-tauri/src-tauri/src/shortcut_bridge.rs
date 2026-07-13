@@ -1,8 +1,8 @@
-//! Global keyboard shortcut registration for opening the primary window.
+//! Global keyboard shortcut registration for toggling the tray flyout.
 //!
 //! Reads the persisted `global_shortcut` setting (e.g. `"Ctrl+Shift+U"`)
 //! and registers it through the Tauri global-shortcut plugin. The shortcut
-//! opens/focuses the native PopOut dashboard via the surface state machine.
+//! toggles the dedicated tray flyout, matching a left-click on the tray icon.
 
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -104,17 +104,12 @@ fn parse_key(token: &str) -> Option<Code> {
         .find_map(|(alias, code)| (*alias == normalized).then_some(*code))
 }
 
-/// Build the Tauri global-shortcut plugin with the primary-window handler.
+/// Build the Tauri global-shortcut plugin with the tray-flyout handler.
 pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
-                let _ = shell::reopen_to_target(
-                    app,
-                    crate::surface::SurfaceMode::PopOut,
-                    crate::surface_target::SurfaceTarget::Dashboard,
-                    None,
-                );
+                shell::flyout_window::toggle_with_blur_consume(app, None);
             }
         })
         .build()
