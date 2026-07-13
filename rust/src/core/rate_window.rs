@@ -20,6 +20,10 @@ pub struct RateWindow {
     /// Human-readable reset description (e.g., "Jan 15 at 3:00pm")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reset_description: Option<String>,
+
+    /// Whether this row is an informational value rather than a quota.
+    #[serde(default)]
+    pub is_informational: bool,
 }
 
 impl RateWindow {
@@ -30,6 +34,16 @@ impl RateWindow {
             window_minutes: None,
             resets_at: None,
             reset_description: None,
+            is_informational: false,
+        }
+    }
+
+    /// Create an informational row without implying a percentage quota.
+    pub fn informational(description: impl Into<String>) -> Self {
+        Self {
+            reset_description: Some(description.into()),
+            is_informational: true,
+            ..Self::new(0.0)
         }
     }
 
@@ -45,6 +59,7 @@ impl RateWindow {
             window_minutes,
             resets_at,
             reset_description,
+            is_informational: false,
         }
     }
 

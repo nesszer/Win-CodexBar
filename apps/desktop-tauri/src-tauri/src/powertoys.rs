@@ -174,6 +174,7 @@ mod tests {
             resets_at: None,
             reset_description: None,
             is_exhausted: false,
+            is_informational: false,
             reserve_percent: None,
             reserve_description: None,
             reserve_eta_seconds: None,

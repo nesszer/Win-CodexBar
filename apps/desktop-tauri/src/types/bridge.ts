@@ -341,6 +341,7 @@ export interface RateWindowSnapshot {
   resetsAt: string | null;
   resetDescription: string | null;
   isExhausted: boolean;
+  isInformational?: boolean;
   reservePercent: number | null;
   reserveDescription: string | null;
   reserveWillLastToReset?: boolean;

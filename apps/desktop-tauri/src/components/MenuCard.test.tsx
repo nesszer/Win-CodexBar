@@ -221,6 +221,28 @@ describe("MenuCard", () => {
     expect(screen.getByText("58% left")).toBeInTheDocument();
   });
 
+  it("renders informational metrics without quota percentages", async () => {
+    const snapshot = provider(null, 20);
+    snapshot.extraRateWindows = [
+      {
+        id: "requests",
+        title: "Requests",
+        window: {
+          ...rateWindow(0),
+          isInformational: true,
+          resetDescription: "7 requests",
+        },
+      },
+    ];
+
+    renderCard(snapshot);
+
+    const title = await screen.findByText("Requests");
+    expect(title.parentElement).not.toHaveTextContent("100% left");
+    expect(title.parentElement?.querySelector(".menu-metric__bar")).toBeNull();
+    expect(screen.getByText("7 requests")).toBeInTheDocument();
+  });
+
   it("renders Wayfinder telemetry without quota or identity rows", async () => {
     const snapshot = provider(null);
     snapshot.providerId = "wayfinder";

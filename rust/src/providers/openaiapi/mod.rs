@@ -364,12 +364,12 @@ fn result_from_admin_usage(
     .with_extra_rate_window(
         "requests",
         "Requests",
-        RateWindow::with_details(0.0, None, None, Some(format!("{request_total} requests"))),
+        RateWindow::informational(format!("{request_total} requests")),
     )
     .with_extra_rate_window(
         "tokens",
         "Tokens",
-        RateWindow::with_details(0.0, None, None, Some(format!("{token_total} tokens"))),
+        RateWindow::informational(format!("{token_total} tokens")),
     )
     .with_login_method(
         project_id
@@ -388,7 +388,7 @@ fn result_from_admin_usage(
         usage = usage.with_extra_rate_window(
             format!("model-{idx}"),
             format!("Model: {model}"),
-            RateWindow::with_details(0.0, None, None, Some(format!("{tokens} tokens"))),
+            RateWindow::informational(format!("{tokens} tokens")),
         );
     }
 
@@ -398,7 +398,7 @@ fn result_from_admin_usage(
         usage = usage.with_extra_rate_window(
             format!("line-item-{idx}"),
             format!("Cost: {item}"),
-            RateWindow::with_details(0.0, None, None, Some(format!("${amount:.2}"))),
+            RateWindow::informational(format!("${amount:.2}")),
         );
     }
 
@@ -613,7 +613,7 @@ mod tests {
             .iter()
             .find(|window| window.id == "requests")
             .unwrap();
-        assert_eq!(requests.window.used_percent, 0.0);
+        assert!(requests.window.is_informational);
         assert_eq!(
             requests.window.reset_description.as_deref(),
             Some("7 requests")

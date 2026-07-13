@@ -321,6 +321,7 @@ function MetricRow({
   onToggleExpanded: () => void;
 }) {
   const { t } = useLocale();
+  const isInformational = snap.isInformational === true;
   const usedPct = Number.isFinite(snap.usedPercent) ? Math.max(0, snap.usedPercent) : 0;
   const barPct = Math.min(100, usedPct);
   const remain = 100 - usedPct;
@@ -347,21 +348,27 @@ function MetricRow({
   return (
     <div className="menu-metric">
       <span className="menu-metric__title">{title}</span>
-      <div className="menu-metric__bar">
-        <div className="menu-metric__bar-fill" data-level={level} style={{ width: `${barDisplayPct}%` }} />
-      </div>
+      {!isInformational && (
+        <div className="menu-metric__bar">
+          <div className="menu-metric__bar-fill" data-level={level} style={{ width: `${barDisplayPct}%` }} />
+        </div>
+      )}
       <div className="menu-metric__row">
         <span className="menu-metric__pct">
-          {replacesPercent ? resetText : `${Math.round(displayPct)}% ${displayLabel}`}
+          {isInformational
+            ? resetText ?? "—"
+            : replacesPercent
+              ? resetText
+              : `${Math.round(displayPct)}% ${displayLabel}`}
         </span>
-        {resetText && !replacesPercent && (
+        {!isInformational && resetText && !replacesPercent && (
           <span className="menu-metric__reset">{resetText}</span>
         )}
       </div>
-      {snap.isExhausted && (
+      {!isInformational && snap.isExhausted && (
         <div className="menu-metric__exhausted">{exhaustedLabel}</div>
       )}
-      {paceView.kind === "budget" && (
+      {!isInformational && paceView.kind === "budget" && (
         <div className="menu-metric__budget">
           <button
             type="button"
@@ -387,7 +394,7 @@ function MetricRow({
           {expanded && <PaceDetailsChart snap={snap} t={t} />}
         </div>
       )}
-      {paceView.kind === "reserve" && (
+      {!isInformational && paceView.kind === "reserve" && (
         <div className="menu-metric__row menu-metric__reserve">
           <span className="menu-metric__pct">{Math.round(paceView.percent)}% {t("PanelReserveSuffix")}</span>
           {reserveDescription && (
