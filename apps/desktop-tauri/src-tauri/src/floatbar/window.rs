@@ -13,6 +13,22 @@ const FLOATBAR_DEFAULT_WIDTH_H: f64 = 360.0;
 const FLOATBAR_DEFAULT_HEIGHT_H: f64 = 36.0;
 const FLOATBAR_DEFAULT_WIDTH_V: f64 = 80.0;
 const FLOATBAR_DEFAULT_HEIGHT_V: f64 = 280.0;
+const WINDOWS_MINIMIZED_COORDINATE: i32 = -32_000;
+const WINDOWS_MAX_SCALE_FACTOR: i32 = 5;
+
+/// Windows parks minimized windows at (-32000, -32000). Geometry is stored in
+/// logical pixels, so HiDPI scaling can turn that sentinel into an equal pair
+/// as small as (-6400, -6400) at the maximum supported 500% scale.
+fn is_windows_minimized_position(x: i32, y: i32) -> bool {
+    let scaled_limit = WINDOWS_MINIMIZED_COORDINATE / WINDOWS_MAX_SCALE_FACTOR;
+    (WINDOWS_MINIMIZED_COORDINATE..=scaled_limit).contains(&x)
+        && (WINDOWS_MINIMIZED_COORDINATE..=scaled_limit).contains(&y)
+        && x.abs_diff(y) <= 1
+}
+
+fn should_remember_position(is_minimized: bool, x: i32, y: i32) -> bool {
+    !is_minimized && !is_windows_minimized_position(x, y)
+}
 
 /// Initial dimensions (logical pixels) for the floating bar given an
 /// orientation string. Unknown values fall back to horizontal so callers
@@ -84,7 +100,9 @@ pub fn show(
     // Restore prior geometry if we have one. Otherwise, taskbar style opens
     // near the bottom while the original floating style keeps its top-center
     // placement.
-    if let Some(g) = geometry_store::load_entry(FLOATBAR_LABEL) {
+    if let Some(g) = geometry_store::load_entry(FLOATBAR_LABEL)
+        .filter(|g| !is_windows_minimized_position(g.x, g.y))
+    {
         let _ = win.set_position(LogicalPosition::new(g.x as f64, g.y as f64));
         if let (Some(w), Some(h)) = (g.width, g.height) {
             let _ = win.set_size(LogicalSize::new(w as f64, h as f64));
@@ -138,6 +156,10 @@ pub fn remember_geometry<R: tauri::Runtime, M: WindowGeometry<R>>(window: &M) {
     let Ok(pos) = window.outer_position() else {
         return;
     };
+    let is_minimized = window.is_minimized().unwrap_or(false);
+    if !should_remember_position(is_minimized, pos.x, pos.y) {
+        return;
+    }
     let Ok(size) = window.outer_size() else {
         return;
     };
@@ -162,6 +184,7 @@ pub trait WindowGeometry<R: tauri::Runtime> {
     fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>>;
     fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>>;
     fn scale_factor(&self) -> tauri::Result<f64>;
+    fn is_minimized(&self) -> tauri::Result<bool>;
 }
 
 impl<R: tauri::Runtime> WindowGeometry<R> for tauri::WebviewWindow<R> {
@@ -174,6 +197,9 @@ impl<R: tauri::Runtime> WindowGeometry<R> for tauri::WebviewWindow<R> {
     fn scale_factor(&self) -> tauri::Result<f64> {
         tauri::WebviewWindow::scale_factor(self)
     }
+    fn is_minimized(&self) -> tauri::Result<bool> {
+        tauri::WebviewWindow::is_minimized(self)
+    }
 }
 
 impl<R: tauri::Runtime> WindowGeometry<R> for tauri::Window<R> {
@@ -185,6 +211,9 @@ impl<R: tauri::Runtime> WindowGeometry<R> for tauri::Window<R> {
     }
     fn scale_factor(&self) -> tauri::Result<f64> {
         tauri::Window::scale_factor(self)
+    }
+    fn is_minimized(&self) -> tauri::Result<bool> {
+        tauri::Window::is_minimized(self)
     }
 }
 
@@ -406,5 +435,26 @@ mod tests {
             initial_size("diagonal"),
             (FLOATBAR_DEFAULT_WIDTH_H, FLOATBAR_DEFAULT_HEIGHT_H)
         );
+    }
+
+    #[test]
+    fn windows_minimized_positions_are_not_restored() {
+        assert!(is_windows_minimized_position(-32_000, -32_000));
+        assert!(is_windows_minimized_position(-16_000, -16_000));
+        assert!(is_windows_minimized_position(-6_400, -6_400));
+    }
+
+    #[test]
+    fn legitimate_negative_monitor_positions_are_preserved() {
+        assert!(!is_windows_minimized_position(-3_840, 0));
+        assert!(!is_windows_minimized_position(-8_000, -4_000));
+        assert!(!is_windows_minimized_position(-5_000, -5_000));
+    }
+
+    #[test]
+    fn minimized_or_parked_positions_are_not_remembered() {
+        assert!(!should_remember_position(true, 100, 100));
+        assert!(!should_remember_position(false, -32_000, -32_000));
+        assert!(should_remember_position(false, -3_840, 100));
     }
 }
