@@ -14,19 +14,15 @@ const FLOATBAR_DEFAULT_HEIGHT_H: f64 = 36.0;
 const FLOATBAR_DEFAULT_WIDTH_V: f64 = 80.0;
 const FLOATBAR_DEFAULT_HEIGHT_V: f64 = 280.0;
 const WINDOWS_MINIMIZED_COORDINATE: i32 = -32_000;
-const WINDOWS_MAX_SCALE_FACTOR: i32 = 5;
 
-/// Windows parks minimized windows at (-32000, -32000). Geometry is stored in
-/// logical pixels, so HiDPI scaling can turn that sentinel into an equal pair
-/// as small as (-6400, -6400) at the maximum supported 500% scale.
+/// Windows parks minimized windows at the exact physical coordinate pair
+/// (-32000, -32000). Keep this strict so legitimate negative monitor origins
+/// are never mistaken for minimized geometry.
 fn is_windows_minimized_position(x: i32, y: i32) -> bool {
-    let scaled_limit = WINDOWS_MINIMIZED_COORDINATE / WINDOWS_MAX_SCALE_FACTOR;
-    (WINDOWS_MINIMIZED_COORDINATE..=scaled_limit).contains(&x)
-        && (WINDOWS_MINIMIZED_COORDINATE..=scaled_limit).contains(&y)
-        && x.abs_diff(y) <= 1
+    x == WINDOWS_MINIMIZED_COORDINATE && y == WINDOWS_MINIMIZED_COORDINATE
 }
 
-fn should_remember_position(is_minimized: bool, x: i32, y: i32) -> bool {
+fn should_remember_physical_position(is_minimized: bool, x: i32, y: i32) -> bool {
     !is_minimized && !is_windows_minimized_position(x, y)
 }
 
@@ -151,7 +147,7 @@ pub fn remember_geometry<R: tauri::Runtime, M: WindowGeometry<R>>(window: &M) {
         return;
     };
     let is_minimized = window.is_minimized().unwrap_or(false);
-    if !should_remember_position(is_minimized, pos.x, pos.y) {
+    if !should_remember_physical_position(is_minimized, pos.x, pos.y) {
         return;
     }
     let Ok(size) = window.outer_size() else {
@@ -427,23 +423,26 @@ mod tests {
     }
 
     #[test]
-    fn windows_minimized_positions_are_not_restored() {
+    fn windows_minimized_position_is_not_restored() {
         assert!(is_windows_minimized_position(-32_000, -32_000));
-        assert!(is_windows_minimized_position(-16_000, -16_000));
-        assert!(is_windows_minimized_position(-6_400, -6_400));
     }
 
     #[test]
     fn legitimate_negative_monitor_positions_are_preserved() {
         assert!(!is_windows_minimized_position(-3_840, 0));
-        assert!(!is_windows_minimized_position(-8_000, -4_000));
-        assert!(!is_windows_minimized_position(-5_000, -5_000));
+        assert!(!is_windows_minimized_position(-8_000, -8_000));
+        assert!(!is_windows_minimized_position(-16_000, -16_000));
     }
 
     #[test]
-    fn minimized_or_parked_positions_are_not_remembered() {
-        assert!(!should_remember_position(true, 100, 100));
-        assert!(!should_remember_position(false, -32_000, -32_000));
-        assert!(should_remember_position(false, -3_840, 100));
+    fn minimized_or_parked_physical_positions_are_not_remembered() {
+        assert!(!should_remember_physical_position(true, 100, 100));
+        assert!(!should_remember_physical_position(false, -32_000, -32_000));
+        assert!(should_remember_physical_position(false, -3_840, 100));
+    }
+
+    #[test]
+    fn physical_multi_monitor_origin_is_remembered() {
+        assert!(should_remember_physical_position(false, -8_000, -8_000));
     }
 }
