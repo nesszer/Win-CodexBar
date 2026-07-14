@@ -46,8 +46,17 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
     }
     match event {
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-            window::remember_geometry(window);
+            // Visibility recovery loads style only if it actually relocates.
+            // Always reassert topmost on geometry change; shell-event path
+            // in topmost_guard stays overlap-gated.
+            let relocated = window::ensure_visible_on_active_monitor(window, None);
+            if !relocated {
+                window::remember_geometry(window);
+            }
             if let Some(floatbar) = window.app_handle().get_webview_window(FLOATBAR_LABEL) {
+                if relocated {
+                    window::apply_no_activate(&floatbar);
+                }
                 window::apply_always_on_top(&floatbar);
             }
         }
@@ -92,6 +101,7 @@ pub fn apply_state(app: &tauri::AppHandle, settings: &Settings) {
     } else if !settings.float_bar_enabled && open {
         let _ = window::hide(app);
     } else if let Some(w) = app.get_webview_window(FLOATBAR_LABEL) {
+        window::ensure_visible_on_active_monitor(&w, &settings.float_bar_style);
         window::apply_no_activate(&w);
         window::apply_opacity(&w, settings.float_bar_opacity);
         window::apply_click_through(&w, settings.float_bar_click_through);
