@@ -58,6 +58,7 @@ pub struct SettingsUpdate {
     pub float_bar_dark_text: Option<bool>,
     pub float_bar_show_reset_inline: Option<bool>,
     pub float_bar_show_cost: Option<bool>,
+    pub promote_tray_icon: Option<bool>,
 }
 
 impl SettingsUpdate {
@@ -79,6 +80,10 @@ impl SettingsUpdate {
 
     fn rebuilds_tray_menu(&self) -> bool {
         self.float_bar_enabled.is_some() || self.ui_language.is_some()
+    }
+
+    pub fn changes_tray_promotion(&self) -> bool {
+        self.promote_tray_icon.is_some()
     }
 
     fn refreshes_tray_presentation(&self) -> bool {
@@ -185,6 +190,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.show_all_token_accounts_in_menu {
             settings.show_all_token_accounts_in_menu = v;
+        }
+        if let Some(v) = self.promote_tray_icon {
+            settings.promote_tray_icon = v;
         }
         self
     }
@@ -350,6 +358,8 @@ pub async fn update_settings(
     let clear_local_usage_cache = patch.codex_custom_sessions_dirs.is_some();
     let rebuild_tray_menu = patch.rebuilds_tray_menu();
     let refresh_tray_presentation = patch.refreshes_tray_presentation();
+    let tray_promotion_changed = patch.changes_tray_promotion();
+    let previous_promoted = settings.promote_tray_icon;
     let previous_language = settings.ui_language;
 
     patch.validate_shortcut_change(&app, &settings.global_shortcut)?;
@@ -371,6 +381,13 @@ pub async fn update_settings(
     if refresh_tray_presentation {
         crate::tray_bridge::refresh_tray_presentation(&app);
     }
+    if tray_promotion_changed {
+        let new_promoted = settings.promote_tray_icon;
+        if new_promoted || crate::tray_visibility::should_write_demotion(previous_promoted, new_promoted) {
+            crate::tray_visibility::apply_promotion(new_promoted);
+        }
+    }
+
     // Notify other windows (PopOut dashboard, tray, float bar) so they re-read
     // settings live — e.g. the Display tab's window-scale slider takes effect
     // immediately instead of only after the PopOut is reopened.

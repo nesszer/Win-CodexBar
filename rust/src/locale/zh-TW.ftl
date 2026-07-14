@@ -667,3 +667,6 @@ ZedApiTitle = Zed API
 ZedApiUrlLabel = API URL
 ZedApiUrlPlaceholder = https://cloud.zed.dev/client/users/me
 ZedApiUrlHelp = 選用。留空則使用預設的 Zed Cloud API URL。
+PromoteTrayIconLabel = 釘選到工作列（Windows 11）
+PromoteTrayIconHelper = 一律在工作列顯示 CodexBar 圖示，而非隱藏於溢位區域
+PromoteTrayIconUnsupportedHint = 此作業系統不支援此功能。請在 Windows 設定 > 工作列中，從 ^ 溢位區域手動拖出圖示以釘選。

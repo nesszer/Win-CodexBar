@@ -667,3 +667,6 @@ ZedApiTitle = Zed API
 ZedApiUrlLabel = API URL
 ZedApiUrlPlaceholder = https://cloud.zed.dev/client/users/me
 ZedApiUrlHelp = 可选。留空则使用默认的 Zed Cloud API URL。
+PromoteTrayIconLabel = 固定到任务栏（Windows 11）
+PromoteTrayIconHelper = 始终将 CodexBar 图标显示在任务栏上，而不是隐藏在溢出区域中
+PromoteTrayIconUnsupportedHint = 此操作系统不支持该功能。请在 Windows 设置 > 任务栏 中将图标从 ^ 溢出区域手动拖出固定。

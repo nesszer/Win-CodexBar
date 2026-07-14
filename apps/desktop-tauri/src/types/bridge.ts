@@ -46,6 +46,14 @@ export type ThemePreference = "auto" | "light" | "dark";
 export type MenuBarDisplayMode = "minimal" | "compact" | "detailed";
 export type FloatBarOrientation = "horizontal" | "vertical";
 export type FloatBarStyle = "floating" | "taskbar";
+
+export type TrayVisibilitySupport = "supported" | "unsupportedOs";
+export type TrayVisibilityState = "promoted" | "notPromoted" | "entryNotFound" | "unknown";
+
+export interface TrayVisibilityStatusDto {
+  support: TrayVisibilitySupport;
+  state: TrayVisibilityState;
+}
 export type ProofProviderId =
   | "codex"
   | "claude"
@@ -265,6 +273,8 @@ export interface SettingsSnapshot {
   floatBarShowResetInline: boolean;
   /** When true, scan and render local cost summaries. */
   floatBarShowCost: boolean;
+  /** Promote the tray icon out of the Windows hidden-icons overflow (Win11 only). */
+  promoteTrayIcon?: boolean;
 }
 
 /** Partial settings object — only include fields you want to change. */
@@ -319,6 +329,7 @@ export interface SettingsUpdate {
   floatBarDarkText?: boolean;
   floatBarShowResetInline?: boolean;
   floatBarShowCost?: boolean;
+  promoteTrayIcon?: boolean;
 }
 
 export interface UsageThresholdOverride {

@@ -16,6 +16,7 @@ mod surface;
 mod surface_target;
 mod tray_bridge;
 mod tray_menu;
+mod tray_visibility;
 mod window_positioner;
 
 use std::sync::Mutex;
@@ -215,6 +216,7 @@ fn main() {
             commands::get_locale_strings,
             commands::set_ui_language,
             commands::open_path,
+            tray_visibility::tray_visibility_status,
             floatbar::show_float_bar,
             floatbar::hide_float_bar,
             floatbar::set_float_bar_opacity,

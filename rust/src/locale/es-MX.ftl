@@ -588,3 +588,6 @@ PredictivePaceWarningTitle = Aviso de ritmo de { "{}" } ({ "{}" })
 PredictivePaceWarningBody = La cuota puede agotarse en { "{}" }
 ShowResetWhenExhausted = Mostrar reinicio al agotar la cuota
 ShowResetWhenExhaustedHelper = Reemplaza el porcentaje agotado con la cuenta regresiva del reinicio
+PromoteTrayIconLabel = Anclar a la barra de tareas (Windows 11)
+PromoteTrayIconHelper = Mostrar siempre el icono de CodexBar en la barra de tareas en lugar del área de desbordamiento
+PromoteTrayIconUnsupportedHint = No disponible en este sistema operativo. Arrastra el icono fuera del área ^ en Configuración de Windows > Barra de tareas para anclarlo manualmente.

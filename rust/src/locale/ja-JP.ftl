@@ -667,3 +667,6 @@ ZedApiTitle = Zed API
 ZedApiUrlHelp = 任意。既定の Zed Cloud API URL を使用する場合は空欄にします。
 ZedApiUrlLabel = API URL
 ZedApiUrlPlaceholder = https://cloud.zed.dev/client/users/me
+PromoteTrayIconLabel = タスクバーにピン留め (Windows 11)
+PromoteTrayIconHelper = CodexBar のアイコンを常にタスクバーに表示します（通知領域のオーバーフローに隠れません）
+PromoteTrayIconUnsupportedHint = このオペレーティングシステムでは利用できません。Windows の設定 > タスクバー でアイコンを ^ オーバーフローから手動でピン留めしてください。

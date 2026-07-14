@@ -227,6 +227,11 @@ pub struct Settings {
     /// When true, show local cost summaries in the floating bar.
     #[serde(default)]
     pub float_bar_show_cost: bool,
+
+    /// Promote the tray icon out of the Windows hidden-icons overflow area.
+    /// Only has effect on Windows 11 (build ≥ 22000); silently ignored elsewhere.
+    #[serde(default)]
+    pub promote_tray_icon: bool,
 }
 
 fn default_window_scale_percent() -> u16 {
@@ -411,6 +416,7 @@ impl Default for Settings {
             float_bar_dark_text: false,
             float_bar_show_reset_inline: false,
             float_bar_show_cost: false,
+            promote_tray_icon: false,
         }
     }
 }

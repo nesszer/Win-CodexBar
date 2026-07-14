@@ -667,3 +667,6 @@ ZedApiTitle = Zed API
 ZedApiUrlLabel = API URL
 ZedApiUrlPlaceholder = https://cloud.zed.dev/client/users/me
 ZedApiUrlHelp = Optional. Leave blank for the default Zed Cloud API URL.
+PromoteTrayIconLabel = Pin to Taskbar (Windows 11)
+PromoteTrayIconHelper = Always show the CodexBar icon on the taskbar instead of inside the overflow chevron
+PromoteTrayIconUnsupportedHint = Not available on this operating system. Drag the icon out of the ^ overflow area in Windows Settings > Taskbar to pin it manually.

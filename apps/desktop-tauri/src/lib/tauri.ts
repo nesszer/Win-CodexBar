@@ -33,6 +33,7 @@ import type {
   AgentSession,
   AgentSessionDiscoveryResult,
   SessionFocusResult,
+  TrayVisibilityStatusDto,
 } from "../types/bridge";
 
 export function getBootstrapState(): Promise<BootstrapState> {
@@ -55,6 +56,10 @@ export function updateSettings(
   patch: SettingsUpdate,
 ): Promise<SettingsSnapshot> {
   return invoke<SettingsSnapshot>("update_settings", { patch });
+}
+
+export function getTrayVisibilityStatus(): Promise<TrayVisibilityStatusDto> {
+  return invoke<TrayVisibilityStatusDto>("tray_visibility_status");
 }
 
 export function listAgentSessions(): Promise<AgentSessionDiscoveryResult> {

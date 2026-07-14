@@ -292,6 +292,25 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
+    // Apply tray promotion on startup. The NotifyIconSettings entry is created
+    // by Windows only after the icon is first registered, so on the very first
+    // run the subkey may not exist yet — apply_promotion tolerates that
+    // (returns EntryNotFound, logs a debug message). A one-time retry task is
+    // spawned so that subsequent refreshes of the icon on first-run also work.
+    let promote = codexbar::settings::Settings::load().promote_tray_icon;
+    if promote {
+        crate::tray_visibility::apply_promotion(true);
+        let app_handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let still_promote = codexbar::settings::Settings::load().promote_tray_icon;
+            if still_promote {
+                crate::tray_visibility::apply_promotion(true);
+            }
+            drop(app_handle);
+        });
+    }
+
     Ok(())
 }
 

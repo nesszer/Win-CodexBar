@@ -693,6 +693,11 @@ export const ALL_LOCALE_KEYS = [
   "ZedApiUrlLabel",
   "ZedApiUrlPlaceholder",
   "ZedApiUrlHelp",
+
+  // Tray icon visibility (Windows 11 hidden-icons overflow)
+  "PromoteTrayIconLabel",
+  "PromoteTrayIconHelper",
+  "PromoteTrayIconUnsupportedHint",
 ] as const;
 
 export type LocaleKey = (typeof ALL_LOCALE_KEYS)[number];

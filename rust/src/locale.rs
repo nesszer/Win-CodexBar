@@ -945,6 +945,11 @@ locale_keys! {
     ZedApiUrlLabel,
     ZedApiUrlPlaceholder,
     ZedApiUrlHelp,
+
+    // Tray icon visibility (Windows 11 hidden-icons overflow)
+    PromoteTrayIconLabel,
+    PromoteTrayIconHelper,
+    PromoteTrayIconUnsupportedHint,
 }
 
 #[cfg(test)]

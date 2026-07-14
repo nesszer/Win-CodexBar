@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
 import { Field, Select, Toggle } from "../../../components/FormControls";
-import type { MenuBarDisplayMode, TrayIconMode } from "../../../types/bridge";
+import type { MenuBarDisplayMode, TrayIconMode, TrayVisibilityStatusDto } from "../../../types/bridge";
 import type { TabProps } from "../../Settings";
 import { FloatBarSettingsSection } from "../../../floatbar";
+import { getTrayVisibilityStatus } from "../../../lib/tauri";
 
 function clampWindowScalePercent(value: number): number {
   return Math.min(250, Math.max(100, Number.isFinite(value) ? value : 100));
@@ -19,6 +20,13 @@ export default function DisplayTab({
   const [windowScaleDraft, setWindowScaleDraft] = useState(() =>
     clampWindowScalePercent(settings.windowScalePercent),
   );
+  const [trayVisibility, setTrayVisibility] = useState<TrayVisibilityStatusDto | null>(null);
+
+  useEffect(() => {
+    getTrayVisibilityStatus()
+      .then(setTrayVisibility)
+      .catch(() => setTrayVisibility(null));
+  }, []);
 
   useEffect(() => {
     setWindowScaleDraft(clampWindowScalePercent(settings.windowScalePercent));
@@ -98,6 +106,21 @@ export default function DisplayTab({
               onChange={(v) =>
                 set({ menuBarDisplayMode: v as MenuBarDisplayMode })
               }
+            />
+          </Field>
+          <Field
+            label={t("PromoteTrayIconLabel")}
+            description={
+              trayVisibility?.support === "supported"
+                ? t("PromoteTrayIconHelper")
+                : t("PromoteTrayIconUnsupportedHint")
+            }
+            leading
+          >
+            <Toggle
+              checked={settings.promoteTrayIcon ?? false}
+              disabled={saving || trayVisibility?.support !== "supported"}
+              onChange={(v) => set({ promoteTrayIcon: v })}
             />
           </Field>
         </div>
