@@ -1,9 +1,10 @@
 export function formatEta(seconds: number): string {
-  const minutes = Math.max(0, Math.round(seconds / 60));
-  if (minutes < 60) return `${minutes}m`;
+  const totalSeconds = Math.max(0, seconds);
+  if (totalSeconds < 60 * 60) return `${Math.round(totalSeconds / 60)}m`;
 
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h`;
+  if (totalSeconds < 24 * 60 * 60) {
+    return `${Math.round(totalSeconds / 60 / 60)}h`;
+  }
 
-  return `${Math.round(hours / 24)}d`;
+  return `${Math.round(totalSeconds / 60 / 60 / 24)}d`;
 }
