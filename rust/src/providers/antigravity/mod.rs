@@ -24,6 +24,12 @@ pub struct AntigravityProvider {
     metadata: ProviderMetadata,
 }
 
+/// Return a regex that matches `--<flag> <value>` or `--<flag>=<value>`.
+fn flag_re(flag: &str) -> Regex {
+    Regex::new(&format!(r"--{f}(?:\s+|\s*=\s*)(\S+)", f = flag))
+        .expect("valid flag pattern")
+}
+
 impl AntigravityProvider {
     pub fn new() -> Self {
         Self {
@@ -73,21 +79,11 @@ impl AntigravityProvider {
     }
 
     fn parse_process_info(stdout: &str) -> Option<ProcessInfo> {
-        // Parse command line for CSRF token and port — compiled once
-        static CSRF_RE: OnceLock<Regex> = OnceLock::new();
-        static EXT_CSRF_RE: OnceLock<Regex> = OnceLock::new();
-        static PORT_RE: OnceLock<Regex> = OnceLock::new();
-        static HTTPS_PORT_RE: OnceLock<Regex> = OnceLock::new();
-        let csrf_regex = CSRF_RE
-            .get_or_init(|| Regex::new(r"--csrf_token\s+([a-f0-9-]+)").expect("valid regex"));
-        let ext_csrf_regex = EXT_CSRF_RE.get_or_init(|| {
-            Regex::new(r"--extension_server_csrf_token\s+([a-f0-9-]+)").expect("valid regex")
-        });
-        let port_regex = PORT_RE
-            .get_or_init(|| Regex::new(r"--extension_server_port\s+(\d+)").expect("valid regex"));
-        let https_port_regex = HTTPS_PORT_RE.get_or_init(|| {
-            Regex::new(r"--https_server_port\s+(\d+)").expect("valid regex")
-        });
+        // Shared argument parser: handles `--flag value` and `--flag=value` forms
+        let csrf_re = flag_re("csrf_token");
+        let ext_csrf_re = flag_re("extension_server_csrf_token");
+        let port_re = flag_re("extension_server_port");
+        let https_port_re = flag_re("https_server_port");
 
         for line in stdout.lines() {
             if line.contains("--csrf_token") {
@@ -98,22 +94,22 @@ impl AntigravityProvider {
                     None => (None, line),
                 };
 
-                let csrf_token = csrf_regex
+                let csrf_token = csrf_re
                     .captures(line)
                     .and_then(|c| c.get(1))
                     .map(|m| m.as_str().to_string());
 
-                let ext_csrf_token = ext_csrf_regex
+                let ext_csrf_token = ext_csrf_re
                     .captures(line)
                     .and_then(|c| c.get(1))
                     .map(|m| m.as_str().to_string());
 
-                let port = port_regex
+                let port = port_re
                     .captures(line)
                     .and_then(|c| c.get(1))
                     .and_then(|m| m.as_str().parse::<u16>().ok())
                     .or_else(|| {
-                        https_port_regex
+                        https_port_re
                             .captures(line)
                             .and_then(|c| c.get(1))
                             .and_then(|m| m.as_str().parse::<u16>().ok())
@@ -743,6 +739,18 @@ mod tests {
         assert_eq!(process.pid, Some(34564));
         assert_eq!(process.extension_port, None);
         assert_eq!(process.csrf_token, "aabbccdd-1122-3344-5566-778899001122");
+    }
+
+    #[test]
+    fn parses_equals_form_args() {
+        let output = "34564\tC:\\Users\\test\\AppData\\Local\\Programs\\Antigravity\\resources\\bin\\language_server.exe --csrf_token=68dda2fb-6b26-40c0-aeef-b9a628615714 --https_server_port=61999";
+
+        let process = AntigravityProvider::parse_process_info(output)
+            .expect("process info should be detected");
+
+        assert_eq!(process.pid, Some(34564));
+        assert_eq!(process.extension_port, Some(61999));
+        assert_eq!(process.csrf_token, "68dda2fb-6b26-40c0-aeef-b9a628615714");
     }
 
     fn make_response(models: Vec<(&str, f64)>) -> UserStatusResponse {
