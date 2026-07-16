@@ -51,6 +51,7 @@ pub fn show(
         apply_always_on_top(&window);
         window.show().map_err(|e| e.to_string())?;
         apply_always_on_top(&window);
+        super::topmost_guard::set_active(true);
         return Ok(());
     }
 
@@ -109,15 +110,20 @@ pub fn show(
     apply_always_on_top(&win);
     win.show().map_err(|e| e.to_string())?;
     apply_always_on_top(&win);
+    super::topmost_guard::set_active(true);
     Ok(())
 }
 
 /// Hide / destroy the floating bar.
 pub fn hide(app: &tauri::AppHandle) -> Result<(), String> {
+    super::topmost_guard::set_active(false);
     if let Some(window) = app.get_webview_window(FLOATBAR_LABEL) {
         // Persist position before closing so it reopens in place.
         remember_geometry(&window);
-        window.close().map_err(|e| e.to_string())?;
+        if let Err(error) = window.close() {
+            super::topmost_guard::set_active(true);
+            return Err(error.to_string());
+        }
     }
     Ok(())
 }
@@ -228,7 +234,12 @@ pub fn apply_always_on_top(window: &tauri::WebviewWindow) {
             const SWP_NOMOVE: u32 = 0x0002;
             const SWP_NOACTIVATE: u32 = 0x0010;
             let flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE;
-            SetWindowPos(h.hwnd.get(), HWND_TOPMOST, 0, 0, 0, 0, flags);
+            if SetWindowPos(h.hwnd.get(), HWND_TOPMOST, 0, 0, 0, 0, flags) == 0 {
+                tracing::warn!(
+                    error = %std::io::Error::last_os_error(),
+                    "failed to restore floatbar topmost z-order"
+                );
+            }
         }
     }
 }

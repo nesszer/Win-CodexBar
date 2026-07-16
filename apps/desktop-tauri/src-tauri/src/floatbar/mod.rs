@@ -6,6 +6,7 @@
 //! shell only needs to call into the small public API exported here.
 
 mod commands;
+mod topmost_guard;
 mod window;
 
 pub use commands::*;
@@ -15,10 +16,15 @@ pub use window::FLOATBAR_LABEL;
 use codexbar::settings::Settings;
 use tauri::{Emitter, Manager};
 
-/// Reopen the floating bar on app start if it was enabled previously.
+/// Install the native z-order guard and reopen the floating bar on app start
+/// if it was enabled previously.
 ///
-/// Called once from `main.rs::setup`. No-op when the setting is off.
+/// Called once from `main.rs::setup` so the Windows event hooks are registered
+/// on the thread that owns Tauri's message loop.
 pub fn install(app: &tauri::AppHandle) {
+    // Install the Windows shell hooks from Tauri's setup thread, which owns a
+    // message loop and therefore can receive out-of-context WinEvents.
+    topmost_guard::install(app);
     let persisted = Settings::load();
     if persisted.float_bar_enabled {
         let _ = window::show(
@@ -39,11 +45,13 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
         return false;
     }
     match event {
-        tauri::WindowEvent::Moved(_)
-        | tauri::WindowEvent::Resized(_)
-        | tauri::WindowEvent::CloseRequested { .. } => {
+        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
             window::remember_geometry(window);
+            if let Some(floatbar) = window.app_handle().get_webview_window(FLOATBAR_LABEL) {
+                window::apply_always_on_top(&floatbar);
+            }
         }
+        tauri::WindowEvent::CloseRequested { .. } => window::remember_geometry(window),
         _ => {}
     }
     true
