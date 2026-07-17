@@ -8,6 +8,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::{Client, Url};
 use serde::Deserialize;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::browser::cookies::get_cookie_header;
 use crate::core::{
@@ -23,6 +25,12 @@ const KIMI_COOKIE_DOMAINS: [&str; 2] = ["www.kimi.com", "kimi.moonshot.cn"];
 const KIMI_CODE_API_BASE: &str = "https://api.kimi.com";
 const KIMI_CODE_API_KEY_ENV: &str = "KIMI_CODE_API_KEY";
 const KIMI_CODE_BASE_URL_ENV: &str = "KIMI_CODE_BASE_URL";
+const KIMI_CODE_HOME_ENV: &str = "KIMI_CODE_HOME";
+const KIMI_CODE_OAUTH_HOST_ENV: &str = "KIMI_CODE_OAUTH_HOST";
+const KIMI_OAUTH_HOST_ENV: &str = "KIMI_OAUTH_HOST";
+const KIMI_CODE_CLI_PLATFORM: &str = "kimi_code_cli";
+/// CLI access tokens must remain valid for at least this long to be reused.
+const KIMI_CODE_CREDENTIAL_MIN_TTL_SECS: f64 = 60.0;
 
 #[derive(Debug, Deserialize)]
 struct KimiCodeApiUsageResponse {
@@ -230,6 +238,8 @@ impl KimiProvider {
     async fn fetch_via_code_api(
         &self,
         api_key: Option<&str>,
+        identity_headers: Option<&[(&str, String)]>,
+        login_method: &str,
     ) -> Result<UsageSnapshot, ProviderError> {
         let api_key = Self::code_api_key(api_key)?;
         let base_url = Self::code_api_base_url()?;
@@ -239,14 +249,21 @@ impl KimiProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        let resp = client
+        let mut request = client
             .get(endpoint)
             .header("Authorization", format!("Bearer {api_key}"))
-            .header("Accept", "application/json")
-            .send()
-            .await?;
+            .header("Accept", "application/json");
+        if let Some(headers) = identity_headers {
+            for (name, value) in headers {
+                request = request.header(*name, value);
+            }
+        }
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let resp = request.send().await?;
+
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+            || resp.status() == reqwest::StatusCode::FORBIDDEN
+        {
             return Err(ProviderError::AuthRequired);
         }
         if !resp.status().is_success() {
@@ -259,27 +276,72 @@ impl KimiProvider {
         let json: KimiCodeApiUsageResponse = resp.json().await.map_err(|e| {
             ProviderError::Parse(format!("Failed to parse Kimi Code API response: {e}"))
         })?;
-        Self::snapshot_from_code_api_response(json)
+        let mut snapshot = Self::snapshot_from_code_api_response(json)?;
+        snapshot.login_method = Some(login_method.to_string());
+        Ok(snapshot)
     }
 
     fn code_api_key(explicit: Option<&str>) -> Result<String, ProviderError> {
         if let Some(key) = explicit.map(str::trim).filter(|key| !key.is_empty()) {
             return Ok(key.to_string());
         }
-        std::env::var(KIMI_CODE_API_KEY_ENV)
-            .map(|key| key.trim().to_string())
-            .ok()
-            .filter(|key| !key.is_empty())
-            .ok_or(ProviderError::AuthRequired)
+        cleaned_env(KIMI_CODE_API_KEY_ENV).ok_or(ProviderError::AuthRequired)
     }
 
     fn code_api_base_url() -> Result<Url, ProviderError> {
-        let raw = std::env::var(KIMI_CODE_BASE_URL_ENV)
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| KIMI_CODE_API_BASE.to_string());
+        let raw =
+            cleaned_env(KIMI_CODE_BASE_URL_ENV).unwrap_or_else(|| KIMI_CODE_API_BASE.to_string());
         crate::providers::validated_https_url(&raw, "Kimi Code API base")
+    }
+
+    /// Whether env base/OAuth overrides mean we must not reuse CLI-owned credentials.
+    fn has_code_endpoint_override() -> bool {
+        cleaned_env(KIMI_CODE_BASE_URL_ENV).is_some()
+            || cleaned_env(KIMI_CODE_OAUTH_HOST_ENV).is_some()
+            || cleaned_env(KIMI_OAUTH_HOST_ENV).is_some()
+    }
+
+    /// Home for Kimi Code CLI state (`%USERPROFILE%\.kimi-code` or `KIMI_CODE_HOME`).
+    fn kimi_code_home() -> Option<PathBuf> {
+        if let Some(override_home) = cleaned_env(KIMI_CODE_HOME_ENV) {
+            return Some(PathBuf::from(override_home));
+        }
+        dirs::home_dir().map(|home| home.join(".kimi-code"))
+    }
+
+    /// Read-only access to a still-fresh Kimi Code CLI access token.
+    ///
+    /// Never refreshes or rewrites CLI-owned `credentials/kimi-code.json`.
+    /// Skips when `KIMI_CODE_BASE_URL` / OAuth host overrides are set.
+    fn kimi_code_cli_access_token(now_unix: f64) -> Option<String> {
+        if Self::has_code_endpoint_override() {
+            return None;
+        }
+        let home = Self::kimi_code_home()?;
+        let credential = read_kimi_code_credential(&home)?;
+        let token = cleaned_owned(credential.access_token)?;
+        if !is_kimi_code_credential_fresh(credential.expires_at, now_unix) {
+            return None;
+        }
+        Some(token)
+    }
+
+    fn kimi_code_cli_identity_headers(home: &Path) -> Vec<(&'static str, String)> {
+        let device_id =
+            read_kimi_code_device_id(home).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let version = env!("CARGO_PKG_VERSION").to_string();
+        let os_name = std::env::consts::OS;
+        let arch = std::env::consts::ARCH;
+        let model = format!("{os_name} {arch}");
+        vec![
+            ("User-Agent", format!("CodexBar/{version}")),
+            ("X-Msh-Platform", KIMI_CODE_CLI_PLATFORM.to_string()),
+            ("X-Msh-Version", version),
+            ("X-Msh-Device-Name", "codexbar".to_string()),
+            ("X-Msh-Device-Model", ascii_header_value(&model)),
+            ("X-Msh-Os-Version", ascii_header_value(os_name)),
+            ("X-Msh-Device-Id", device_id),
+        ]
     }
 
     fn code_api_usage_endpoint(base_url: &Url) -> Result<Url, ProviderError> {
@@ -529,17 +591,48 @@ impl Provider for KimiProvider {
         match ctx.source_mode {
             SourceMode::Auto => {
                 if Self::code_api_key(ctx.api_key.as_deref()).is_ok() {
-                    let usage = self.fetch_via_code_api(ctx.api_key.as_deref()).await?;
-                    Ok(ProviderFetchResult::new(usage, "code-api"))
-                } else {
-                    let usage = self
-                        .fetch_via_web(ctx.manual_cookie_header.as_deref())
-                        .await?;
-                    Ok(ProviderFetchResult::new(usage, "web"))
+                    match self
+                        .fetch_via_code_api(ctx.api_key.as_deref(), None, "Code API")
+                        .await
+                    {
+                        Ok(usage) => return Ok(ProviderFetchResult::new(usage, "code-api")),
+                        Err(err) => {
+                            tracing::debug!(
+                                error = %err,
+                                "Kimi Code API key fetch failed; trying CLI credential / web"
+                            );
+                        }
+                    }
                 }
+
+                if let Some(cli_token) = Self::kimi_code_cli_access_token(unix_now_secs()) {
+                    let home = Self::kimi_code_home().unwrap_or_default();
+                    let headers = Self::kimi_code_cli_identity_headers(&home);
+                    match self
+                        .fetch_via_code_api(Some(&cli_token), Some(&headers), "Kimi Code CLI")
+                        .await
+                    {
+                        Ok(usage) => {
+                            return Ok(ProviderFetchResult::new(usage, "code-cli"));
+                        }
+                        Err(err) => {
+                            tracing::debug!(
+                                error = %err,
+                                "Kimi Code CLI credential fetch failed; falling back to web"
+                            );
+                        }
+                    }
+                }
+
+                let usage = self
+                    .fetch_via_web(ctx.manual_cookie_header.as_deref())
+                    .await?;
+                Ok(ProviderFetchResult::new(usage, "web"))
             }
             SourceMode::OAuth => {
-                let usage = self.fetch_via_code_api(ctx.api_key.as_deref()).await?;
+                let usage = self
+                    .fetch_via_code_api(ctx.api_key.as_deref(), None, "Code API")
+                    .await?;
                 Ok(ProviderFetchResult::new(usage, "code-api"))
             }
             SourceMode::Web => {
@@ -642,6 +735,88 @@ fn timestamp_from_number(raw: i64) -> Option<DateTime<Utc>> {
     DateTime::from_timestamp(seconds, 0)
 }
 
+
+fn cleaned_env(key: &str) -> Option<String> {
+    std::env::var(key).ok().and_then(cleaned_owned)
+}
+
+fn cleaned_owned(raw: impl AsRef<str>) -> Option<String> {
+    let mut value = raw.as_ref().trim().to_string();
+    if value.is_empty() {
+        return None;
+    }
+    let quoted = (value.starts_with('"') && value.ends_with('"'))
+        || (value.starts_with('\'') && value.ends_with('\''));
+    if quoted {
+        value = value[1..value.len().saturating_sub(1)].trim().to_string();
+    }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct KimiCodeCredentialFile {
+    #[serde(default, alias = "accessToken")]
+    access_token: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    refresh_token: Option<String>,
+    #[serde(default, alias = "expiresAt")]
+    expires_at: Option<serde_json::Value>,
+}
+
+fn read_kimi_code_credential(home: &Path) -> Option<KimiCodeCredentialFile> {
+    let path = home.join("credentials").join("kimi-code.json");
+    let data = std::fs::read(path).ok()?;
+    serde_json::from_slice(&data).ok()
+}
+
+fn read_kimi_code_device_id(home: &Path) -> Option<String> {
+    let path = home.join("device_id");
+    let raw = std::fs::read_to_string(path).ok()?;
+    cleaned_owned(raw)
+}
+
+fn is_kimi_code_credential_fresh(expires_at: Option<serde_json::Value>, now_unix: f64) -> bool {
+    let Some(expires) = value_as_f64(expires_at.as_ref()) else {
+        return false;
+    };
+    if !expires.is_finite() {
+        return false;
+    }
+    // Support both seconds and millisecond epoch values.
+    let expires_secs = if expires > 10_000_000_000.0 {
+        expires / 1000.0
+    } else {
+        expires
+    };
+    expires_secs > now_unix + KIMI_CODE_CREDENTIAL_MIN_TTL_SECS
+}
+
+fn unix_now_secs() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+fn ascii_header_value(raw: &str) -> String {
+    let ascii: String = raw
+        .chars()
+        .filter(|c| matches!(c, ' '..='~'))
+        .collect::<String>()
+        .trim()
+        .to_string();
+    if ascii.is_empty() {
+        "unknown".to_string()
+    } else {
+        ascii
+    }
+}
+
 fn format_usage_amount(value: f64) -> String {
     if (value.fract()).abs() < f64::EPSILON {
         format!("{}", value as i64)
@@ -654,6 +829,33 @@ fn format_usage_amount(value: f64) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn write_temp_kimi_code_home(
+        access_token: &str,
+        expires_at: Option<serde_json::Value>,
+    ) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let credentials = dir.path().join("credentials");
+        std::fs::create_dir_all(&credentials).expect("mkdir credentials");
+        let mut payload = serde_json::Map::new();
+        payload.insert("access_token".into(), json!(access_token));
+        payload.insert("refresh_token".into(), json!("refresh"));
+        if let Some(expires) = expires_at {
+            payload.insert("expires_at".into(), expires);
+        }
+        std::fs::write(
+            credentials.join("kimi-code.json"),
+            serde_json::to_vec_pretty(&serde_json::Value::Object(payload)).unwrap(),
+        )
+        .expect("write credentials");
+        dir
+    }
 
     #[test]
     fn code_api_usage_endpoint_normalizes_base_paths() {
@@ -784,5 +986,102 @@ mod tests {
         assert_eq!(code_7d.title, "Code 7-day");
         assert_eq!(code_7d.window.window_minutes, Some(10080));
         assert!((code_7d.window.used_percent - 9.46).abs() < 0.0001);
+    }
+
+    #[test]
+    fn reuses_fresh_cli_credential_without_rewriting_file() {
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let now = 1_800_000_000.0_f64;
+        let home = write_temp_kimi_code_home("oauth-token", Some(json!(now + 3600.0)));
+        let cred_path = home.path().join("credentials").join("kimi-code.json");
+        let original = std::fs::read(&cred_path).unwrap();
+        let original_modified = std::fs::metadata(&cred_path).unwrap().modified().unwrap();
+
+        // SAFETY: guarded by env_lock for process-wide env mutation in tests.
+        unsafe {
+            std::env::remove_var(KIMI_CODE_BASE_URL_ENV);
+            std::env::remove_var(KIMI_CODE_OAUTH_HOST_ENV);
+            std::env::remove_var(KIMI_OAUTH_HOST_ENV);
+            std::env::set_var(KIMI_CODE_HOME_ENV, home.path());
+        }
+
+        let token = KimiProvider::kimi_code_cli_access_token(now);
+        assert_eq!(token.as_deref(), Some("oauth-token"));
+
+        let after = std::fs::read(&cred_path).unwrap();
+        let after_modified = std::fs::metadata(&cred_path).unwrap().modified().unwrap();
+        assert_eq!(after, original);
+        assert_eq!(after_modified, original_modified);
+
+        let headers = KimiProvider::kimi_code_cli_identity_headers(home.path());
+        assert!(
+            headers
+                .iter()
+                .any(|(k, v)| *k == "X-Msh-Platform" && v == KIMI_CODE_CLI_PLATFORM)
+        );
+
+        unsafe {
+            std::env::remove_var(KIMI_CODE_HOME_ENV);
+        }
+    }
+
+    #[test]
+    fn rejects_expired_or_missing_expiry_cli_credentials() {
+        let now = 1_800_000_000.0_f64;
+        for expires in [Some(json!(now + 30.0)), None, Some(json!("not-a-time"))] {
+            let home = write_temp_kimi_code_home("oauth", expires);
+            let cred = read_kimi_code_credential(home.path()).expect("credential present");
+            assert!(!is_kimi_code_credential_fresh(cred.expires_at, now));
+        }
+
+        let home = write_temp_kimi_code_home("oauth", Some(json!(now + 120.0)));
+        let cred = read_kimi_code_credential(home.path()).unwrap();
+        assert!(is_kimi_code_credential_fresh(cred.expires_at, now));
+    }
+
+    #[test]
+    fn skips_cli_credential_when_endpoint_overrides_present() {
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let now = 1_800_000_000.0_f64;
+        let home = write_temp_kimi_code_home("oauth-token", Some(json!(now + 3600.0)));
+
+        unsafe {
+            std::env::set_var(KIMI_CODE_HOME_ENV, home.path());
+            std::env::set_var(KIMI_CODE_BASE_URL_ENV, "https://proxy.example.com/kimi");
+        }
+        assert!(KimiProvider::has_code_endpoint_override());
+        assert!(KimiProvider::kimi_code_cli_access_token(now).is_none());
+
+        unsafe {
+            std::env::remove_var(KIMI_CODE_BASE_URL_ENV);
+            std::env::set_var(KIMI_CODE_OAUTH_HOST_ENV, "https://oauth.example.com");
+        }
+        assert!(KimiProvider::kimi_code_cli_access_token(now).is_none());
+
+        unsafe {
+            std::env::remove_var(KIMI_CODE_OAUTH_HOST_ENV);
+            std::env::remove_var(KIMI_CODE_HOME_ENV);
+        }
+    }
+
+    #[test]
+    fn credential_freshness_accepts_millisecond_expiry() {
+        let now = 1_800_000_000.0_f64;
+        assert!(is_kimi_code_credential_fresh(
+            Some(json!((now + 3600.0) * 1000.0)),
+            now
+        ));
+    }
+
+    #[test]
+    fn cleaned_env_strips_quotes() {
+        assert_eq!(cleaned_owned("  \"token\"  ").as_deref(), Some("token"));
+        assert_eq!(cleaned_owned("'token'").as_deref(), Some("token"));
+        assert!(cleaned_owned("   ").is_none());
+    }
+
+    #[test]
+    fn credential_freshness_requires_sixty_second_margin() {
+        assert!((KIMI_CODE_CREDENTIAL_MIN_TTL_SECS - 60.0).abs() < f64::EPSILON);
     }
 }

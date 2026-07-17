@@ -126,7 +126,10 @@ impl KiroProvider {
         let cli_path = Self::which_kiro()
             .ok_or_else(|| ProviderError::NotInstalled("kiro-cli not found".to_string()))?;
 
-        // Run the usage command
+        // Run the usage command.
+        // Windows intentionally uses pipe-first (stdout/stderr Stdio::piped) rather than a dual
+        // ConPTY path: kiro-cli `/usage` under --no-interactive emits parseable text on pipes, and
+        // a second ConPTY probe would add flaky process-lifetime cost without better quota data.
         #[cfg(windows)]
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
