@@ -4,6 +4,7 @@ use super::{
     NamedRateWindowSnapshot, ProviderSummary, ProviderUsageSnapshot, provider_cookie_source_lookup,
     provider_region_lookup, validate_external_url, validate_surface_target,
 };
+use crate::state::AppState;
 use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
 use codexbar::core::{
@@ -694,6 +695,35 @@ fn provider_cache_upsert_replaces_existing_provider() {
     assert_eq!(cache.len(), 1);
     assert_eq!(cache[0].provider_id, "codex");
     assert_eq!(cache[0].error.as_deref(), Some("new"));
+}
+
+#[test]
+fn provider_cache_prunes_disabled_providers() {
+    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        cost: None,
+        wayfinder_usage: None,
+        source_label: "CLI".to_string(),
+    };
+    let codex = ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result);
+    let claude_meta = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let claude =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &claude_meta, &result);
+
+    let mut cache = vec![codex, claude];
+    super::prune_provider_cache_to_enabled(&mut cache, &[ProviderId::Codex]);
+
+    assert_eq!(cache.len(), 1);
+    assert_eq!(cache[0].provider_id, "codex");
+}
+
+#[test]
+fn superseded_refresh_generation_is_not_current() {
+    let mut state = AppState::new();
+    state.provider_refresh_generation = 3;
+    assert!(super::is_current_provider_refresh_generation(&state, 3));
+    assert!(!super::is_current_provider_refresh_generation(&state, 2));
 }
 
 #[test]

@@ -602,9 +602,26 @@ fn codex_cost_from_rates(
 pub struct CostUsagePricing;
 
 impl CostUsagePricing {
+    /// Sentinel model key for model-less Codex token events.
+    ///
+    /// Usage remains visible under this key but is never priced as a real model
+    /// (including catalog collisions with a generic "unknown" entry).
+    pub const CODEX_UNATTRIBUTED_MODEL: &'static str = "unknown";
+
+    /// True when `model` is the unattributed / model-less sentinel.
+    pub fn is_codex_unattributed_model(model: &str) -> bool {
+        Self::normalize_codex_model(model) == Self::CODEX_UNATTRIBUTED_MODEL
+    }
+
     /// Normalize a Codex model name for pricing lookup
     pub fn normalize_codex_model(raw: &str) -> String {
         let mut trimmed = raw.trim().to_string();
+        if trimmed.is_empty()
+            || trimmed.eq_ignore_ascii_case("unknown")
+            || trimmed.eq_ignore_ascii_case("unpriced")
+        {
+            return Self::CODEX_UNATTRIBUTED_MODEL.to_string();
+        }
 
         // Remove "openai/" prefix
         if let Some(rest) = trimmed.strip_prefix("openai/") {
@@ -685,6 +702,11 @@ impl CostUsagePricing {
         output_tokens: u64,
     ) -> Option<f64> {
         let key = Self::normalize_codex_model(model);
+        // Model-less / deliberately unattributed usage stays unpriced even if a
+        // pricing catalog later contains a colliding generic entry.
+        if key == Self::CODEX_UNATTRIBUTED_MODEL {
+            return None;
+        }
         if let Some(pricing) = CODEX_PRICING.get(key.as_str()) {
             let (input_rate, cache_read_rate, output_rate) =
                 if input_tokens > CODEX_LONG_CONTEXT_THRESHOLD {

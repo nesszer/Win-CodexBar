@@ -374,6 +374,15 @@ pub async fn update_settings(
         crate::commands::clear_provider_local_usage_cache();
     }
 
+    if refresh_provider_data {
+        // Invalidate any in-flight publish work and drop disabled providers from
+        // the live cache before a follow-up refresh starts.
+        let enabled_ids = settings.get_enabled_provider_ids();
+        let state = app.state::<Mutex<AppState>>();
+        let _ =
+            crate::commands::invalidate_provider_refresh_and_prune_disabled(&state, &enabled_ids);
+    }
+
     crate::floatbar::after_settings_saved(&app, &float_bar_patch, &settings, notify_float_bar);
     if rebuild_tray_menu {
         crate::tray_bridge::rebuild_tray_menu(&app);
@@ -383,7 +392,9 @@ pub async fn update_settings(
     }
     if tray_promotion_changed {
         let new_promoted = settings.promote_tray_icon;
-        if new_promoted || crate::tray_visibility::should_write_demotion(previous_promoted, new_promoted) {
+        if new_promoted
+            || crate::tray_visibility::should_write_demotion(previous_promoted, new_promoted)
+        {
             crate::tray_visibility::apply_promotion(new_promoted);
         }
     }

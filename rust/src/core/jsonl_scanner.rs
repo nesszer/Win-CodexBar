@@ -14,6 +14,50 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+/// Maximum retained Codex JSONL line size (upstream session-metadata bound).
+const CODEX_JSONL_MAX_LINE_BYTES: usize = 256 * 1024;
+
+/// Default scanner-side refresh debounce (upstream CostUsageScanner).
+pub const DEFAULT_COST_SCAN_REFRESH_MIN_INTERVAL_SECS: u64 = 60;
+
+/// Options for a cost scan pass.
+///
+/// App-driven callers (Tauri refresh / menu open) already own their own TTL, so
+/// they use [`CostScanOptions::app_driven`] to bypass the scanner debounce and
+/// avoid pinning a stale disk-cache snapshot for the full token-cost TTL
+/// (upstream issue #2089).
+#[derive(Debug, Clone, Copy)]
+pub struct CostScanOptions {
+    /// Minimum seconds between disk-cache-backed full inspections.
+    /// Set to 0 to force a fresh scan (app-driven / forceRefresh).
+    pub refresh_min_interval_secs: u64,
+}
+
+impl Default for CostScanOptions {
+    fn default() -> Self {
+        Self {
+            refresh_min_interval_secs: DEFAULT_COST_SCAN_REFRESH_MIN_INTERVAL_SECS,
+        }
+    }
+}
+
+impl CostScanOptions {
+    /// App-driven or forced refresh: skip the scanner debounce entirely.
+    pub fn app_driven() -> Self {
+        Self {
+            refresh_min_interval_secs: 0,
+        }
+    }
+
+    /// Whether a prior scan at `last_scan_unix_ms` is still within the debounce window.
+    pub fn should_skip_scan(&self, last_scan_unix_ms: i64, now_unix_ms: i64) -> bool {
+        let refresh_ms = (self.refresh_min_interval_secs as i64).saturating_mul(1000);
+        refresh_ms > 0
+            && last_scan_unix_ms > 0
+            && now_unix_ms.saturating_sub(last_scan_unix_ms) <= refresh_ms
+    }
+}
+
 /// Cache for scanned file data
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CostUsageCache {
@@ -113,6 +157,11 @@ pub struct JsonlScanner;
 struct CodexParserState {
     current_model: Option<String>,
     previous_totals: Option<CodexTotals>,
+    /// High watermark of observed cumulative totals (never lowered). Used for
+    /// Ultra interleaved-lineage containment (issue #2037 Phase 1).
+    totals_watermark: Option<CodexTotals>,
+    /// Latched once any cumulative component drops below the watermark.
+    saw_interleaved_totals: bool,
     records: Vec<CodexUsageRecord>,
 }
 
@@ -188,7 +237,9 @@ impl CodexParserState {
     fn new(initial_model: Option<String>, initial_totals: Option<CodexTotals>) -> Self {
         Self {
             current_model: initial_model,
-            previous_totals: initial_totals,
+            previous_totals: initial_totals.clone(),
+            totals_watermark: initial_totals,
+            saw_interleaved_totals: false,
             records: Vec::new(),
         }
     }
@@ -222,8 +273,9 @@ impl CodexParserState {
     fn process_fast_event(&mut self, event: CodexFastEvent<'_>, range: &CostUsageDayRange) {
         match event {
             CodexFastEvent::TurnContext { model } => {
-                if let Some(model) = model.filter(|model| !model.is_empty()) {
-                    self.current_model = Some(model.to_string());
+                // Explicit blank model evidence clears stale turn context.
+                if let Some(raw) = model {
+                    self.current_model = model_evidence(raw).map(str::to_string);
                 }
             }
             CodexFastEvent::TokenCount { timestamp, payload } => {
@@ -243,18 +295,34 @@ impl CodexParserState {
     }
 
     fn update_current_model(&mut self, obj: &Value) {
-        if let Some(model) = obj
-            .get("model")
-            .or_else(|| obj.get("payload").and_then(|payload| payload.get("model")))
-            .or_else(|| {
-                obj.get("payload")
-                    .and_then(|payload| payload.get("info"))
-                    .and_then(|info| info.get("model"))
-            })
-            .and_then(|v| v.as_str())
-        {
-            self.current_model = Some(model.to_string());
+        let candidates = [
+            obj.get("model").and_then(|v| v.as_str()),
+            obj.get("payload")
+                .and_then(|payload| payload.get("model"))
+                .and_then(|v| v.as_str()),
+            obj.get("payload")
+                .and_then(|payload| payload.get("model_name"))
+                .and_then(|v| v.as_str()),
+            obj.get("payload")
+                .and_then(|payload| payload.get("info"))
+                .and_then(|info| info.get("model"))
+                .and_then(|v| v.as_str()),
+            obj.get("payload")
+                .and_then(|payload| payload.get("info"))
+                .and_then(|info| info.get("model_name"))
+                .and_then(|v| v.as_str()),
+        ];
+        // Only rewrite current_model when the turn_context actually carries a
+        // model field (including blank, which clears stale attribution).
+        let has_key = candidates.iter().any(|c| c.is_some());
+        if !has_key {
+            return;
         }
+        self.current_model = candidates
+            .into_iter()
+            .flatten()
+            .find_map(model_evidence)
+            .map(str::to_string);
     }
 
     fn record_token_count(&mut self, obj: &Value, day_key: String) {
@@ -269,7 +337,7 @@ impl CodexParserState {
         }
 
         let info = payload.get("info");
-        let model = self.token_model(info, payload, obj);
+        let model = self.resolve_token_model(info, payload, obj);
         self.record_usage(day_key, &model, delta_input, delta_cached, delta_output);
     }
 
@@ -282,13 +350,20 @@ impl CodexParserState {
             return;
         }
 
-        let model = payload
+        let event_model = payload
             .info
             .as_ref()
             .and_then(|info| info.model.or(info.model_name))
             .or(payload.model)
-            .or(self.current_model.as_deref())
-            .unwrap_or("gpt-5")
+            .and_then(model_evidence);
+        // Prefer current turn_context model over a conflicting event model,
+        // matching upstream precedence. Fall back to unattributed (not gpt-5).
+        let model = self
+            .current_model
+            .as_deref()
+            .and_then(model_evidence)
+            .or(event_model)
+            .unwrap_or(CostUsagePricing::CODEX_UNATTRIBUTED_MODEL)
             .to_string();
         self.record_usage(day_key, &model, delta_input, delta_cached, delta_output);
     }
@@ -303,14 +378,19 @@ impl CodexParserState {
         });
     }
 
-    fn token_model(&self, info: Option<&Value>, payload: &Value, obj: &Value) -> String {
-        info.and_then(|i| i.get("model").or(i.get("model_name")))
+    fn resolve_token_model(&self, info: Option<&Value>, payload: &Value, obj: &Value) -> String {
+        let event_model = info
+            .and_then(|i| i.get("model").or(i.get("model_name")))
             .or_else(|| payload.get("model"))
             .or_else(|| obj.get("model"))
             .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .or_else(|| self.current_model.clone())
-            .unwrap_or_else(|| "gpt-5".to_string())
+            .and_then(model_evidence);
+        self.current_model
+            .as_deref()
+            .and_then(model_evidence)
+            .or(event_model)
+            .unwrap_or(CostUsagePricing::CODEX_UNATTRIBUTED_MODEL)
+            .to_string()
     }
 
     fn token_deltas(&mut self, payload: &Value) -> Option<(i32, i32, i32)> {
@@ -354,24 +434,141 @@ impl CodexParserState {
 
     fn total_usage_delta(&mut self, total: &Value) -> (i32, i32, i32) {
         let totals = read_token_totals(total);
-        let previous = self.previous_totals.as_ref();
-        let delta_input = (totals.input - previous.map_or(0, |t| t.input)).max(0);
-        let delta_cached = (totals.cached - previous.map_or(0, |t| t.cached)).max(0);
-        let delta_output = (totals.output - previous.map_or(0, |t| t.output)).max(0);
-
-        self.previous_totals = Some(totals);
-        (delta_input, delta_cached, delta_output)
+        self.apply_totals_delta(totals)
     }
 
     fn fast_total_usage_delta(&mut self, total: CodexFastTotals) -> (i32, i32, i32) {
         let totals = codex_totals_from_fast(total);
-        let previous = self.previous_totals.as_ref();
-        let delta_input = (totals.input - previous.map_or(0, |t| t.input)).max(0);
-        let delta_cached = (totals.cached - previous.map_or(0, |t| t.cached)).max(0);
-        let delta_output = (totals.output - previous.map_or(0, |t| t.output)).max(0);
+        self.apply_totals_delta(totals)
+    }
 
-        self.previous_totals = Some(totals);
-        (delta_input, delta_cached, delta_output)
+    fn apply_totals_delta(&mut self, totals: CodexTotals) -> (i32, i32, i32) {
+        self.latch_if_below_watermark(&totals);
+
+        let delta = if self.saw_interleaved_totals {
+            contained_total_delta(
+                self.totals_watermark.as_ref(),
+                self.previous_totals.as_ref(),
+                &totals,
+            )
+        } else {
+            let previous = self.previous_totals.as_ref();
+            CodexTotals {
+                input: (totals.input - previous.map_or(0, |t| t.input)).max(0),
+                cached: (totals.cached - previous.map_or(0, |t| t.cached)).max(0),
+                output: (totals.output - previous.map_or(0, |t| t.output)).max(0),
+            }
+        };
+
+        self.previous_totals = Some(totals.clone());
+        self.raise_watermark(&totals);
+        (delta.input, delta.cached, delta.output)
+    }
+
+    fn latch_if_below_watermark(&mut self, totals: &CodexTotals) {
+        let Some(water) = self.totals_watermark.as_ref() else {
+            return;
+        };
+        if totals.input < water.input
+            || totals.cached < water.cached
+            || totals.output < water.output
+        {
+            self.saw_interleaved_totals = true;
+        }
+    }
+
+    fn raise_watermark(&mut self, totals: &CodexTotals) {
+        self.totals_watermark = Some(match self.totals_watermark.as_ref() {
+            Some(water) => CodexTotals {
+                input: water.input.max(totals.input),
+                cached: water.cached.max(totals.cached),
+                output: water.output.max(totals.output),
+            },
+            None => totals.clone(),
+        });
+    }
+}
+
+fn model_evidence(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
+/// When interleaved Ultra lineages reset cumulative counters, only count growth
+/// above the historical high watermark so rewound branches do not re-add work.
+fn contained_total_delta(
+    watermark: Option<&CodexTotals>,
+    counted: Option<&CodexTotals>,
+    current: &CodexTotals,
+) -> CodexTotals {
+    let water = watermark.cloned().unwrap_or(CodexTotals {
+        input: 0,
+        cached: 0,
+        output: 0,
+    });
+    let counted = counted.cloned().unwrap_or(CodexTotals {
+        input: 0,
+        cached: 0,
+        output: 0,
+    });
+
+    let component = |water: i32, counted: i32, current: i32| -> i32 {
+        if current >= water {
+            (current - water.max(counted)).max(0)
+        } else {
+            (current - counted).max(0)
+        }
+    };
+
+    CodexTotals {
+        input: component(water.input, counted.input, current.input),
+        cached: component(water.cached, counted.cached, current.cached),
+        output: component(water.output, counted.output, current.output),
+    }
+}
+
+/// Read one JSONL line, discarding content when it exceeds `max_bytes`.
+/// Returns `(line_without_newline, bytes_consumed_including_newline)`.
+fn read_bounded_jsonl_line<R: BufRead>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> std::io::Result<Option<(Vec<u8>, usize)>> {
+    let mut line = Vec::new();
+    let mut saw_bytes = false;
+    let mut discarding = false;
+    let mut consumed_total = 0;
+
+    loop {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
+            return Ok(
+                saw_bytes.then_some((if discarding { Vec::new() } else { line }, consumed_total))
+            );
+        }
+        let newline = chunk.iter().position(|byte| *byte == b'\n');
+        let segment_end = newline.unwrap_or(chunk.len());
+        let segment = &chunk[..segment_end];
+        saw_bytes = true;
+
+        if !discarding {
+            let remaining = max_bytes.saturating_sub(line.len());
+            if segment.len() <= remaining {
+                line.extend_from_slice(segment);
+            } else {
+                line.clear();
+                discarding = true;
+            }
+        }
+
+        let consumed = segment_end + usize::from(newline.is_some());
+        reader.consume(consumed);
+        consumed_total += consumed;
+        if newline.is_some() {
+            return Ok(Some((
+                if discarding { Vec::new() } else { line },
+                consumed_total,
+            )));
+        }
     }
 }
 
@@ -599,12 +796,18 @@ impl JsonlScanner {
         let mut parser = CodexParserState::new(initial_model, initial_totals);
         let mut parsed_bytes = start_offset;
 
-        let mut line = String::new();
-        while reader.read_line(&mut line)? > 0 {
-            parsed_bytes += line.len() as i64;
-            parser.process_line(&line, range);
-
-            line.clear();
+        while let Some((line_bytes, consumed)) =
+            read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)?
+        {
+            parsed_bytes += consumed as i64;
+            if line_bytes.is_empty() {
+                continue;
+            }
+            let Ok(line) = std::str::from_utf8(&line_bytes) else {
+                continue;
+            };
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            parser.process_line(line, range);
         }
 
         Ok(CodexParseResult {
@@ -613,6 +816,15 @@ impl JsonlScanner {
             last_model: parser.current_model,
             last_totals: parser.previous_totals,
         })
+    }
+
+    /// Whether a cached scan should be reused under `options` (issue #2089).
+    pub fn should_skip_cached_scan(
+        cache: &CostUsageCache,
+        options: CostScanOptions,
+        now_unix_ms: i64,
+    ) -> bool {
+        options.should_skip_scan(cache.last_scan_unix_ms, now_unix_ms)
     }
 
     /// Load cache from disk
@@ -819,5 +1031,175 @@ mod tests {
         assert_eq!(record.day_key, "2026-05-31");
         assert_eq!(record.model, "gpt-5.5");
         assert_eq!((record.input, record.cached, record.output), (45, 12, 8));
+    }
+
+    #[test]
+    fn codex_parser_discards_oversized_line_and_recovers_next_record() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp file");
+        let padding = "x".repeat(CODEX_JSONL_MAX_LINE_BYTES);
+        writeln!(
+            file,
+            r#"{{"timestamp":"2026-05-31T10:00:00Z","type":"turn_context","payload":{{"model":"{padding}"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"timestamp":"2026-05-31T10:00:01Z","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{{"input_tokens":9,"cached_input_tokens":2,"output_tokens":1}}}}}}}}"#
+        )
+        .unwrap();
+
+        let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+        let parsed = JsonlScanner::parse_codex_file(
+            file.path(),
+            &CostUsageDayRange::new(day, day),
+            0,
+            None,
+            None,
+        )
+        .expect("parse");
+
+        assert_eq!(parsed.records.len(), 1);
+        assert_eq!(
+            parsed.records[0].model,
+            CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
+        );
+        assert_eq!(
+            (
+                parsed.records[0].input,
+                parsed.records[0].cached,
+                parsed.records[0].output
+            ),
+            (9, 2, 1)
+        );
+    }
+
+    #[test]
+    fn bounded_jsonl_reader_accepts_exact_limit_without_retaining_larger_input() {
+        let mut input = vec![b'x'; CODEX_JSONL_MAX_LINE_BYTES];
+        input.push(b'\n');
+        input.extend_from_slice(b"{\"type\":\"event_msg\"}\n");
+        let mut reader = BufReader::with_capacity(64 * 1024, std::io::Cursor::new(input));
+
+        let (exact, _) = read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)
+            .expect("read")
+            .expect("line");
+        let (later, _) = read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)
+            .expect("read")
+            .expect("line");
+
+        assert_eq!(exact.len(), CODEX_JSONL_MAX_LINE_BYTES);
+        assert_eq!(later, br#"{"type":"event_msg"}"#);
+    }
+
+    #[test]
+    fn codex_turn_context_wins_over_conflicting_event_model() {
+        let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+        let range = CostUsageDayRange::new(day, day);
+        let mut parser = CodexParserState::new(None, None);
+        parser.process_line(
+            r#"{"timestamp":"2026-05-31T10:00:00Z","type":"turn_context","payload":{"model":"gpt-5.5"}}"#,
+            &range,
+        );
+        parser.process_line(
+            r#"{"timestamp":"2026-05-31T10:00:01Z","type":"event_msg","payload":{"type":"token_count","model":"gpt-5.6-sol","info":{"last_token_usage":{"input_tokens":5,"cached_input_tokens":1,"output_tokens":2}}}}"#,
+            &range,
+        );
+
+        assert_eq!(parser.records[0].model, "gpt-5.5");
+    }
+
+    #[test]
+    fn codex_blank_context_clears_stale_model_and_emits_unattributed_usage() {
+        let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+        let range = CostUsageDayRange::new(day, day);
+        let mut parser = CodexParserState::new(Some("gpt-5.5".to_string()), None);
+        parser.process_line(
+            r#"{"timestamp":"2026-05-31T10:00:00Z","type":"turn_context","payload":{"model":" "}}"#,
+            &range,
+        );
+        parser.process_line(
+            r#"{"timestamp":"2026-05-31T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":5,"cached_input_tokens":1,"output_tokens":2}}}}"#,
+            &range,
+        );
+
+        assert_eq!(
+            parser.records[0].model,
+            CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
+        );
+    }
+
+    #[test]
+    fn codex_model_less_token_event_uses_unpriced_sentinel() {
+        let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+        let range = CostUsageDayRange::new(day, day);
+        let mut parser = CodexParserState::new(None, None);
+        parser.process_line(
+            r#"{"timestamp":"2026-05-31T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":2}}}}"#,
+            &range,
+        );
+
+        assert_eq!(parser.records.len(), 1);
+        assert_eq!(
+            parser.records[0].model,
+            CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
+        );
+    }
+
+    #[test]
+    fn interleaved_lineage_totals_never_exceed_high_watermark_growth() {
+        let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+        let range = CostUsageDayRange::new(day, day);
+        let mut parser = CodexParserState::new(Some("gpt-5.6-sol".to_string()), None);
+
+        parser.process_line(
+            r#"{"timestamp":"2026-05-31T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":20}}}}"#,
+            &range,
+        );
+        parser.process_line(
+            r#"{"timestamp":"2026-05-31T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":5,"cached_input_tokens":0,"output_tokens":1}}}}"#,
+            &range,
+        );
+        parser.process_line(
+            r#"{"timestamp":"2026-05-31T10:00:03Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":101,"cached_input_tokens":0,"output_tokens":21}}}}"#,
+            &range,
+        );
+
+        let total_input: i32 = parser.records.iter().map(|r| r.input).sum();
+        let total_output: i32 = parser.records.iter().map(|r| r.output).sum();
+        assert!(
+            total_input <= 101,
+            "input inflated to {total_input}, expected <= 101"
+        );
+        assert!(
+            total_output <= 21,
+            "output inflated to {total_output}, expected <= 21"
+        );
+    }
+
+    #[test]
+    fn cost_scan_options_app_driven_bypasses_debounce() {
+        let debounced = CostScanOptions::default();
+        let forced = CostScanOptions::app_driven();
+        let last = 1_000_000_i64;
+        let now = last + 1_000; // 1s later, within 60s window
+
+        assert!(debounced.should_skip_scan(last, now));
+        assert!(!forced.should_skip_scan(last, now));
+        assert!(!debounced.should_skip_scan(last, last + 61_000));
+
+        let cache = CostUsageCache {
+            last_scan_unix_ms: last,
+            ..Default::default()
+        };
+        assert!(JsonlScanner::should_skip_cached_scan(
+            &cache,
+            CostScanOptions::default(),
+            now
+        ));
+        assert!(!JsonlScanner::should_skip_cached_scan(
+            &cache,
+            CostScanOptions::app_driven(),
+            now
+        ));
     }
 }

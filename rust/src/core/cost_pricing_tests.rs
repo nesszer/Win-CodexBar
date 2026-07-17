@@ -11,6 +11,24 @@ fn test_normalize_codex_model() {
         CostUsagePricing::normalize_codex_model("gpt-5-codex"),
         "gpt-5"
     );
+    assert_eq!(
+        CostUsagePricing::normalize_codex_model(""),
+        CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
+    );
+    assert_eq!(
+        CostUsagePricing::normalize_codex_model("unknown"),
+        CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
+    );
+}
+
+#[test]
+fn unattributed_codex_usage_stays_unpriced() {
+    assert!(
+        CostUsagePricing::codex_cost_usd(CostUsagePricing::CODEX_UNATTRIBUTED_MODEL, 1_000, 0, 500)
+            .is_none()
+    );
+    assert!(CostUsagePricing::is_codex_unattributed_model("unknown"));
+    assert!(CostUsagePricing::is_codex_unattributed_model("  "));
 }
 
 #[test]
