@@ -117,18 +117,31 @@ fn intersects_any_monitor(
     })
 }
 
-/// Move a FloatBar that no longer intersects an active monitor onto the
-/// primary monitor. This covers both stale geometry from a disconnected
-/// display and Windows parking the live window at (-32000, -32000) when a
-/// monitor is powered off.
-///
-/// `style` is only needed when relocation runs. Pass `Some` when the caller
-/// already has settings; pass `None` on hot event paths so settings are loaded
-/// only if a move is required. Returns `true` when the window was relocated
-/// (and good geometry was persisted).
-pub(super) fn ensure_visible_on_active_monitor<R: tauri::Runtime, M: WindowGeometry<R>>(
+/// Probe: live window sits on no connected display (parked, disconnected
+/// monitor, etc.). Returns `false` when geometry cannot be read so callers
+/// do not treat "unknown" as recovery-needed.
+pub(super) fn is_off_all_monitors<R: tauri::Runtime, M: WindowGeometry<R>>(window: &M) -> bool {
+    let Ok(position) = window.outer_position() else {
+        return false;
+    };
+    let Ok(size) = window.outer_size() else {
+        return false;
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return false;
+    };
+    if monitors.is_empty() {
+        return false;
+    }
+    !intersects_any_monitor(position, size, &monitors)
+}
+
+/// Recover: unminimize if needed, place on the primary work area using
+/// `style` for top/bottom, and persist the recovered geometry. Callers must
+/// supply style (settings stay out of this module).
+pub(super) fn recover_onto_primary<R: tauri::Runtime, M: WindowGeometry<R>>(
     window: &M,
-    style: Option<&str>,
+    style: &str,
 ) -> bool {
     let Ok(position) = window.outer_position() else {
         return false;
@@ -139,10 +152,6 @@ pub(super) fn ensure_visible_on_active_monitor<R: tauri::Runtime, M: WindowGeome
     let Ok(monitors) = window.available_monitors() else {
         return false;
     };
-    if intersects_any_monitor(position, size, &monitors) {
-        return false;
-    }
-
     let target_monitor = window
         .primary_monitor()
         .ok()
@@ -152,16 +161,9 @@ pub(super) fn ensure_visible_on_active_monitor<R: tauri::Runtime, M: WindowGeome
         return false;
     };
 
-    // Style is only for fallback aesthetics; load settings only on this rare path.
-    let style_owned;
-    let style = match style {
-        Some(s) => s,
-        None => {
-            style_owned = codexbar::settings::Settings::load().float_bar_style;
-            style_owned.as_str()
-        }
-    };
-
+    // Placement uses the work area so recovery lands in a usable desktop
+    // region; visibility probes use full monitor bounds (see
+    // `intersects_any_monitor`).
     let work_area = target_monitor.work_area();
     let target = fallback_physical_position(
         work_area.position,
@@ -179,10 +181,25 @@ pub(super) fn ensure_visible_on_active_monitor<R: tauri::Runtime, M: WindowGeome
     if window.set_physical_position(target).is_err() {
         return false;
     }
-    // Atomic: persist recovered geometry in the same call so the event path
-    // does not rely on a synthetic Moved to re-save.
+    // Atomic: persist recovered geometry here so event handlers never need
+    // a synthetic Moved to re-save, and never persist the old off-screen pos.
     remember_geometry(window);
     true
+}
+
+/// Move a FloatBar that no longer intersects an active monitor onto the
+/// primary monitor. Returns `true` when the window was relocated.
+///
+/// Prefer calling [`is_off_all_monitors`] then [`recover_onto_primary`] when
+/// style comes from settings so the hot path can skip `Settings::load`.
+pub(super) fn ensure_visible_on_active_monitor<R: tauri::Runtime, M: WindowGeometry<R>>(
+    window: &M,
+    style: &str,
+) -> bool {
+    if !is_off_all_monitors(window) {
+        return false;
+    }
+    recover_onto_primary(window, style)
 }
 
 /// Initial dimensions (logical pixels) for the floating bar given an
@@ -216,11 +233,12 @@ pub fn show(
     click_through: bool,
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(FLOATBAR_LABEL) {
-        apply_no_activate(&window);
         apply_opacity(&window, opacity);
         apply_click_through(&window, click_through);
+        let _ = ensure_visible_on_active_monitor(&window, style);
+        // Re-assert after possible unminimize/relocate so focus stays off.
+        apply_no_activate(&window);
         apply_always_on_top(&window);
-        ensure_visible_on_active_monitor(&window, Some(style));
         window.show().map_err(|e| e.to_string())?;
         apply_always_on_top(&window);
         super::topmost_guard::set_active(true);
@@ -273,11 +291,11 @@ pub fn show(
         let _ = win.set_position(LogicalPosition::new(x, y));
     }
 
-    ensure_visible_on_active_monitor(&win, Some(style));
+    let _ = ensure_visible_on_active_monitor(&win, style);
 
-    apply_no_activate(&win);
     apply_opacity(&win, opacity);
     apply_click_through(&win, click_through);
+    apply_no_activate(&win);
     apply_always_on_top(&win);
     win.show().map_err(|e| e.to_string())?;
     apply_always_on_top(&win);
@@ -316,6 +334,13 @@ pub fn remember_geometry<R: tauri::Runtime, M: WindowGeometry<R>>(window: &M) {
     let Ok(size) = window.outer_size() else {
         return;
     };
+    // Never re-poison the store with a position that is off every display
+    // (failed recovery, transient shell state, etc.).
+    if let Ok(monitors) = window.available_monitors() {
+        if !monitors.is_empty() && !intersects_any_monitor(pos, size, &monitors) {
+            return;
+        }
+    }
     let scale = window.scale_factor().unwrap_or(1.0);
     geometry_store::save_entry(
         FLOATBAR_LABEL,
