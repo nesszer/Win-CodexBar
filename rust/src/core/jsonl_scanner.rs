@@ -20,12 +20,13 @@ const CODEX_JSONL_MAX_LINE_BYTES: usize = 256 * 1024;
 /// Default scanner-side refresh debounce (upstream CostUsageScanner).
 pub const DEFAULT_COST_SCAN_REFRESH_MIN_INTERVAL_SECS: u64 = 60;
 
-/// Options for a cost scan pass.
+/// Options for a cost scan pass (disk-cache-backed full inspections).
 ///
-/// App-driven callers (Tauri refresh / menu open) already own their own TTL, so
-/// they use [`CostScanOptions::app_driven`] to bypass the scanner debounce and
-/// avoid pinning a stale disk-cache snapshot for the full token-cost TTL
-/// (upstream issue #2089).
+/// **Windows note:** the production [`crate::cost_scanner::CostScanner`] path
+/// does not load/save [`CostUsageCache`] today — it always full-walks sessions.
+/// These options are ready for the cache path (and unit-tested) so app-driven
+/// callers can pass [`CostScanOptions::app_driven`] once that path is wired
+/// (upstream issue #2089). Until then they do not change runtime freshness.
 #[derive(Debug, Clone, Copy)]
 pub struct CostScanOptions {
     /// Minimum seconds between disk-cache-backed full inspections.
@@ -514,9 +515,12 @@ fn contained_total_delta(
 
     let component = |water: i32, counted: i32, current: i32| -> i32 {
         if current >= water {
+            // Only growth above the historical high watermark counts.
             (current - water.max(counted)).max(0)
         } else {
-            (current - counted).max(0)
+            // Below watermark: rewind / interleaved lineage — do not re-add
+            // mid-range climbs that would inflate totals after a fork reset.
+            0
         }
     };
 
@@ -1173,6 +1177,36 @@ mod tests {
         assert!(
             total_output <= 21,
             "output inflated to {total_output}, expected <= 21"
+        );
+    }
+
+    #[test]
+    fn interleaved_lineage_mid_range_climb_below_watermark_does_not_readd() {
+        // 100 → 5 (rewind) → 80 (mid-range below water) → 101 (above water).
+        // Phase-1 containment: do not re-add the 5→80 climb; only growth above
+        // the historical high watermark counts.
+        let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+        let range = CostUsageDayRange::new(day, day);
+        let mut parser = CodexParserState::new(Some("gpt-5.6-sol".to_string()), None);
+
+        for (input, output) in [(100, 20), (5, 1), (80, 10), (101, 21)] {
+            parser.process_line(
+                &format!(
+                    r#"{{"timestamp":"2026-05-31T10:00:0{input}Z","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":{input},"cached_input_tokens":0,"output_tokens":{output}}}}}}}"#
+                ),
+                &range,
+            );
+        }
+
+        let total_input: i32 = parser.records.iter().map(|r| r.input).sum();
+        let total_output: i32 = parser.records.iter().map(|r| r.output).sum();
+        assert!(
+            total_input <= 101,
+            "mid-range climb re-added input to {total_input}, expected <= 101"
+        );
+        assert!(
+            total_output <= 21,
+            "mid-range climb re-added output to {total_output}, expected <= 21"
         );
     }
 

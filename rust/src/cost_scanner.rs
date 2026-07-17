@@ -1,6 +1,10 @@
 //! Local cost-usage scanner for Codex and Claude
 //!
-//! Scans local JSONL log files to aggregate token usage and calculate costs
+//! Scans local JSONL log files to aggregate token usage and calculate costs.
+//!
+//! Note: this path always full-walks session files. The disk-cache /
+//! [`crate::core::CostScanOptions`] debounce API in `jsonl_scanner` is not
+//! wired here yet (upstream #2089); app-level TTL still owns refresh pacing.
 
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
 use serde::Deserialize;

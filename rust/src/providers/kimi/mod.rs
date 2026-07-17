@@ -327,21 +327,25 @@ impl KimiProvider {
     }
 
     fn kimi_code_cli_identity_headers(home: &Path) -> Vec<(&'static str, String)> {
-        let device_id =
-            read_kimi_code_device_id(home).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        // Only send device id when the CLI file exists — never mint a fresh UUID
+        // per fetch (unstable fingerprinting toward Moonshot).
+        let device_id = read_kimi_code_device_id(home);
         let version = env!("CARGO_PKG_VERSION").to_string();
         let os_name = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
         let model = format!("{os_name} {arch}");
-        vec![
+        let mut headers = vec![
             ("User-Agent", format!("CodexBar/{version}")),
             ("X-Msh-Platform", KIMI_CODE_CLI_PLATFORM.to_string()),
             ("X-Msh-Version", version),
             ("X-Msh-Device-Name", "codexbar".to_string()),
             ("X-Msh-Device-Model", ascii_header_value(&model)),
             ("X-Msh-Os-Version", ascii_header_value(os_name)),
-            ("X-Msh-Device-Id", device_id),
-        ]
+        ];
+        if let Some(device_id) = device_id {
+            headers.push(("X-Msh-Device-Id", device_id));
+        }
+        headers
     }
 
     fn code_api_usage_endpoint(base_url: &Url) -> Result<Url, ProviderError> {
@@ -735,7 +739,6 @@ fn timestamp_from_number(raw: i64) -> Option<DateTime<Utc>> {
     DateTime::from_timestamp(seconds, 0)
 }
 
-
 fn cleaned_env(key: &str) -> Option<String> {
     std::env::var(key).ok().and_then(cleaned_owned)
 }
@@ -750,11 +753,7 @@ fn cleaned_owned(raw: impl AsRef<str>) -> Option<String> {
     if quoted {
         value = value[1..value.len().saturating_sub(1)].trim().to_string();
     }
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
+    if value.is_empty() { None } else { Some(value) }
 }
 
 #[derive(Debug, Deserialize)]
