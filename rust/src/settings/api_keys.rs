@@ -470,5 +470,16 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             config_file_path: None,
             dashboard_url: None,
         },
+        ProviderConfigInfo {
+            id: ProviderId::Factory,
+            name: "Droid (Factory)",
+            requires_api_key: true,
+            api_key_env_var: Some("FACTORY_API_KEY"),
+            api_key_help: Some(
+                "Get your API key from Factory → Settings → API Keys. Optional fallback: %USERPROFILE%\\.factory\\.env. Auto mode tries the key first, then browser cookies.",
+            ),
+            config_file_path: Some("%USERPROFILE%\\.factory\\.env"),
+            dashboard_url: Some("https://app.factory.ai/settings/api-keys"),
+        },
     ]
 }

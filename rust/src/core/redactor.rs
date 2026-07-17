@@ -54,7 +54,7 @@ fn json_secret_regex() -> &'static Regex {
 fn api_key_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:sk|ghp|gho|github_pat|zai|nanogpt|openrouter)-[A-Za-z0-9_\-]{8,}\b")
+        Regex::new(r"(?i)\b(?:sk|ghp|gho|github_pat|zai|nanogpt|openrouter|fk)-[A-Za-z0-9_\-]{8,}\b")
             .expect("Invalid API key regex")
     })
 }
@@ -238,5 +238,13 @@ mod tests {
         assert!(!redacted.contains("other-secret"));
         assert!(redacted.contains(r#""api_key":"[REDACTED]""#));
         assert!(redacted.contains(r#""client_secret":"[REDACTED]""#));
+    }
+
+    #[test]
+    fn redacts_factory_api_keys() {
+        let input = "Factory key fk-test-key-abcdef";
+        let redacted = SecretRedactor::redact(input);
+        assert!(!redacted.contains("fk-test-key"));
+        assert_eq!(redacted, "Factory key [REDACTED]");
     }
 }
