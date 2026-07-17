@@ -185,64 +185,52 @@ impl OpenCodeProvider {
             return Ok(snapshot);
         }
 
-        // Fall back to regex-based parsing
-        let rolling = self.extract_usage_regex(text, "rollingUsage")?;
-        let weekly = self.extract_usage_regex(text, "weeklyUsage")?;
-
-        let primary = RateWindow::with_details(
-            rolling.0,
-            Some(300), // 5 hours
-            Some(now + chrono::Duration::seconds(rolling.1)),
-            None,
-        );
-
-        let secondary = RateWindow::with_details(
-            weekly.0,
-            Some(10080), // 7 days
-            Some(now + chrono::Duration::seconds(weekly.1)),
-            None,
-        );
-
-        let mut usage = UsageSnapshot::new(primary)
-            .with_secondary(secondary)
-            .with_login_method("OpenCode");
-        if let Some(renews_at) = self.extract_renewal_regex(text) {
-            usage = usage.with_extra_rate_window(
-                "renewal",
-                "Renews",
-                RateWindow::with_details(0.0, None, Some(renews_at), None),
-            );
-        }
-
-        Ok(usage)
+        // Fall back to regex-based parsing. Require at least one window —
+        // plans may omit rolling or weekly without being unparseable.
+        let rolling = self.extract_usage_regex(text, "rollingUsage").ok();
+        let weekly = self.extract_usage_regex(text, "weeklyUsage").ok();
+        self.snapshot_from_windows(rolling, weekly, now, self.extract_renewal_regex(text))
+            .ok_or_else(|| {
+                ProviderError::Parse("Missing usage percent (rolling or weekly)".into())
+            })
     }
 
-    /// Parse usage from JSON response
-    fn parse_usage_json(&self, json: &Value, now: DateTime<Utc>) -> Option<UsageSnapshot> {
-        let renews_at = self.find_datetime(json, &["renewAt", "renew_at"]);
+    /// Build a snapshot from optional rolling/weekly windows.
+    /// Rolling is preferred as primary; weekly-only becomes primary.
+    fn snapshot_from_windows(
+        &self,
+        rolling: Option<(f64, i64)>,
+        weekly: Option<(f64, i64)>,
+        now: DateTime<Utc>,
+        renews_at: Option<DateTime<Utc>>,
+    ) -> Option<UsageSnapshot> {
+        let primary = match (rolling, weekly) {
+            (Some(r), _) => RateWindow::with_details(
+                r.0,
+                Some(300), // 5 hours rolling
+                Some(now + chrono::Duration::seconds(r.1)),
+                None,
+            ),
+            (None, Some(w)) => RateWindow::with_details(
+                w.0,
+                Some(10080), // weekly used as sole window
+                Some(now + chrono::Duration::seconds(w.1)),
+                None,
+            ),
+            (None, None) => return None,
+        };
 
-        // Look for rollingUsage and weeklyUsage
-        let rolling =
-            self.find_usage_window(json, &["rollingUsage", "rolling", "rolling_usage"])?;
-        let weekly = self.find_usage_window(json, &["weeklyUsage", "weekly", "weekly_usage"])?;
-
-        let primary = RateWindow::with_details(
-            rolling.0,
-            Some(300),
-            Some(now + chrono::Duration::seconds(rolling.1)),
-            None,
-        );
-
-        let secondary = RateWindow::with_details(
-            weekly.0,
-            Some(10080),
-            Some(now + chrono::Duration::seconds(weekly.1)),
-            None,
-        );
-
-        let mut usage = UsageSnapshot::new(primary)
-            .with_secondary(secondary)
-            .with_login_method("OpenCode");
+        let mut usage = UsageSnapshot::new(primary).with_login_method("OpenCode");
+        if rolling.is_some()
+            && let Some(w) = weekly
+        {
+            usage = usage.with_secondary(RateWindow::with_details(
+                w.0,
+                Some(10080),
+                Some(now + chrono::Duration::seconds(w.1)),
+                None,
+            ));
+        }
         if let Some(renews_at) = renews_at {
             usage = usage.with_extra_rate_window(
                 "renewal",
@@ -250,8 +238,19 @@ impl OpenCodeProvider {
                 RateWindow::with_details(0.0, None, Some(renews_at), None),
             );
         }
-
         Some(usage)
+    }
+
+    /// Parse usage from JSON response
+    fn parse_usage_json(&self, json: &Value, now: DateTime<Utc>) -> Option<UsageSnapshot> {
+        let renews_at = self.find_datetime(json, &["renewAt", "renew_at"]);
+
+        let rolling =
+            self.find_usage_window(json, &["rollingUsage", "rolling", "rolling_usage"]);
+        let weekly =
+            self.find_usage_window(json, &["weeklyUsage", "weekly", "weekly_usage"]);
+
+        self.snapshot_from_windows(rolling, weekly, now, renews_at)
     }
 
     /// Find usage window in JSON by keys
@@ -419,10 +418,16 @@ impl OpenCodeProvider {
         Self::date_from_value(&Value::String(raw.to_string()))
     }
 
-    /// Extract usage via regex patterns
+    /// Extract usage via regex patterns (JS-object and JSON-ish payloads).
     fn extract_usage_regex(&self, text: &str, prefix: &str) -> Result<(f64, i64), ProviderError> {
-        let percent_pattern = format!(r"{}[^}}]*?usagePercent\s*:\s*([0-9]+(?:\.[0-9]+)?)", prefix);
-        let reset_pattern = format!(r"{}[^}}]*?resetInSec\s*:\s*([0-9]+)", prefix);
+        // Allow optional quotes around the window key and percent field names,
+        // and accept the same percent aliases used by `window_percent`.
+        let percent_pattern = format!(
+            r#"{prefix}[^}}]{{0,500}}?(?:"usagePercent"|usagePercent|"usedPercent"|usedPercent|"percent"|percent)\s*[:=]\s*"?([0-9]+(?:\.[0-9]+)?)"?"#
+        );
+        let reset_pattern = format!(
+            r#"{prefix}[^}}]{{0,500}}?(?:"resetInSec"|resetInSec|"resetInSeconds"|resetInSeconds)\s*[:=]\s*"?([0-9]+)"?"#
+        );
 
         let percent = self
             .extract_number(&percent_pattern, text)
@@ -570,5 +575,49 @@ mod tests {
         let payload = serde_json::json!({ "resetAt": i64::MAX });
 
         assert_eq!(OpenCodeProvider::window_reset_seconds(&payload), None);
+    }
+
+    #[test]
+    fn parses_weekly_only_json_without_rolling() {
+        let provider = OpenCodeProvider::new();
+        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
+        let payload = serde_json::json!({
+            "weeklyUsage": { "usagePercent": 76.0, "resetInSec": 86400 }
+        });
+
+        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
+        assert!((snap.primary.used_percent - 76.0).abs() < f64::EPSILON);
+        assert!(snap.secondary.is_none());
+    }
+
+    #[test]
+    fn parses_rolling_only_json_without_weekly() {
+        let provider = OpenCodeProvider::new();
+        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
+        let payload = serde_json::json!({
+            "rollingUsage": { "usagePercent": 12.5, "resetInSec": 600 }
+        });
+
+        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
+        assert!((snap.primary.used_percent - 12.5).abs() < f64::EPSILON);
+        assert!(snap.secondary.is_none());
+    }
+
+    #[test]
+    fn regex_accepts_json_quoted_usage_percent() {
+        let provider = OpenCodeProvider::new();
+        let text = r#"{"rollingUsage":{"usagePercent":33.0,"resetInSec":120},"weeklyUsage":{"usagePercent":80}}"#;
+        let snap = provider.parse_subscription(text).expect("snapshot");
+        assert!((snap.primary.used_percent - 33.0).abs() < f64::EPSILON);
+        assert!((snap.secondary.as_ref().unwrap().used_percent - 80.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn regex_weekly_only_does_not_error_on_missing_rolling() {
+        let provider = OpenCodeProvider::new();
+        // Not valid JSON for serde (trailing noise) so we exercise regex path.
+        let text = r#"weeklyUsage: { usagePercent: 55, resetInSec: 99 } not-json"#;
+        let snap = provider.parse_subscription(text).expect("snapshot");
+        assert!((snap.primary.used_percent - 55.0).abs() < f64::EPSILON);
     }
 }
