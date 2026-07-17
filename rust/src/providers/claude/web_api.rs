@@ -616,7 +616,12 @@ impl ClaudeWebApiFetcher {
 ///
 /// A genuine idle session (object present, 0% used) is NOT marked informational.
 fn synthetic_no_session_primary() -> RateWindow {
-    let mut window = RateWindow::with_details(0.0, Some(300), None, None);
+    let mut window = RateWindow::with_details(
+        0.0,
+        Some(300),
+        None,
+        Some("No active 5h session".to_string()),
+    );
     window.is_informational = true;
     window
 }
@@ -679,6 +684,10 @@ mod tests {
         assert!(placeholder.is_informational);
         assert_eq!(placeholder.window_minutes, Some(300));
         assert!((placeholder.used_percent - 0.0).abs() < f64::EPSILON);
+        assert_eq!(
+            placeholder.reset_description.as_deref(),
+            Some("No active 5h session")
+        );
 
         // Real idle session (object present at 0%) stays unflagged.
         let idle = ClaudeWebApiFetcher::new().to_rate_window(

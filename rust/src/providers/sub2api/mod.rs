@@ -29,6 +29,8 @@ struct ParsedUsage {
     plan_name: Option<String>,
     unit: String,
     balance: Option<f64>,
+    /// Top-level remaining (wallet-ish) when balance/quota are absent.
+    remaining: Option<f64>,
     quota: Option<ParsedQuota>,
     rate_limits: Vec<ParsedRateLimit>,
     subscription: Option<ParsedSubscription>,
@@ -77,11 +79,9 @@ struct UsageResponse {
     mode: Option<String>,
     #[serde(rename = "isValid", default)]
     is_valid: Option<bool>,
-    #[allow(dead_code)]
-    status: Option<String>,
     #[serde(rename = "planName")]
     plan_name: Option<String>,
-    #[allow(dead_code)]
+    /// Wallet-ish remaining when balance/quota are absent.
     remaining: Option<f64>,
     unit: Option<String>,
     balance: Option<f64>,
@@ -153,7 +153,7 @@ impl Sub2ApiProvider {
                 display_name: "sub2api",
                 session_label: "Quota",
                 weekly_label: "Weekly quota",
-                supports_opus: true,
+                supports_opus: false,
                 supports_credits: false,
                 default_enabled: false,
                 is_primary: false,
@@ -338,7 +338,7 @@ pub(crate) fn validated_sub2api_base_url(raw: &str) -> Result<Url, ProviderError
 
 fn is_loopback_host(host: &str) -> bool {
     let normalized = host.trim_end_matches('.').to_ascii_lowercase();
-    if normalized == "localhost" || normalized == "localhost." {
+    if normalized == "localhost" {
         return true;
     }
     let ip_candidate = normalized
@@ -414,6 +414,7 @@ fn parse_usage_response(response: UsageResponse) -> ParsedUsage {
         plan_name: response.plan_name,
         unit: unit.clone(),
         balance: response.balance,
+        remaining: response.remaining.filter(|r| r.is_finite()),
         quota: response.quota.map(|q| ParsedQuota {
             limit: q.limit,
             used: q.used,
@@ -472,53 +473,101 @@ fn parse_date(raw: Option<&str>) -> Option<DateTime<Utc>> {
 }
 
 fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
-    let kind = if parsed.subscription.is_some() {
-        Kind::Subscription
-    } else if parsed.quota.is_some() || !parsed.rate_limits.is_empty() {
-        Kind::KeyQuota
-    } else if parsed.balance.is_some() {
-        Kind::Wallet
-    } else {
-        Kind::Unknown
-    };
-
+    let kind = classify_usage_kind(&parsed);
     let mut cost: Option<CostSnapshot> = None;
-    let mut primary: Option<RateWindow> = None;
-    let mut secondary: Option<RateWindow> = None;
-    let mut tertiary: Option<RateWindow> = None;
 
-    if let Some(sub) = &parsed.subscription {
-        primary = rate_window_from_usage(
-            sub.daily_usage_usd,
-            sub.daily_limit_usd,
-            Some(24 * 60),
-            &parsed.unit,
-        );
-        secondary = rate_window_from_usage(
-            sub.weekly_usage_usd,
-            sub.weekly_limit_usd,
-            Some(7 * 24 * 60),
-            &parsed.unit,
-        );
-        tertiary = rate_window_from_usage(
-            sub.monthly_usage_usd,
-            sub.monthly_limit_usd,
-            Some(30 * 24 * 60),
-            &parsed.unit,
-        );
-    } else if let Some(quota) = &parsed.quota {
-        primary = Some(RateWindow::with_details(
-            used_percent(quota.used, quota.limit),
-            None,
-            None,
-            Some(amount_description(quota.used, quota.limit, &quota.unit)),
-        ));
-    }
+    let mut snapshot = match kind {
+        Kind::Subscription => {
+            let sub = parsed
+                .subscription
+                .as_ref()
+                .expect("subscription kind requires subscription payload");
+            let primary = rate_window_from_usage(
+                sub.daily_usage_usd,
+                sub.daily_limit_usd,
+                Some(24 * 60),
+                &parsed.unit,
+            )
+            .or_else(|| informational_usage_window(sub.daily_usage_usd, "day", &parsed.unit));
+            let secondary = rate_window_from_usage(
+                sub.weekly_usage_usd,
+                sub.weekly_limit_usd,
+                Some(7 * 24 * 60),
+                &parsed.unit,
+            )
+            .or_else(|| informational_usage_window(sub.weekly_usage_usd, "week", &parsed.unit));
+            let tertiary = rate_window_from_usage(
+                sub.monthly_usage_usd,
+                sub.monthly_limit_usd,
+                Some(30 * 24 * 60),
+                &parsed.unit,
+            )
+            .or_else(|| informational_usage_window(sub.monthly_usage_usd, "month", &parsed.unit));
 
-    let mut snapshot = match primary {
-        Some(window) => UsageSnapshot::new(window),
-        None if kind == Kind::Wallet => {
-            let balance = parsed.balance.unwrap_or(0.0);
+            let mut snap = UsageSnapshot::new(
+                primary.unwrap_or_else(|| RateWindow::informational("Subscription active")),
+            );
+            if let Some(secondary) = secondary {
+                snap = snap.with_secondary(secondary);
+            }
+            if let Some(tertiary) = tertiary {
+                snap = snap.with_tertiary(tertiary);
+            }
+            // Surface wallet balance alongside subscription when present.
+            if let Some(balance) = parsed.balance {
+                cost = Some(
+                    CostSnapshot::new(0.0, normalize_currency(&parsed.unit), "balance")
+                        .with_limit(balance.max(0.0)),
+                );
+            }
+            snap
+        }
+        Kind::KeyQuota => {
+            let mut snap = if let Some(quota) = &parsed.quota {
+                UsageSnapshot::new(RateWindow::with_details(
+                    used_percent(quota.used, quota.limit),
+                    None,
+                    None,
+                    Some(amount_description(quota.used, quota.limit, &quota.unit)),
+                ))
+            } else if let Some(first) = parsed.rate_limits.first() {
+                // Rate-limit-only payload: promote the first window to primary.
+                UsageSnapshot::new(RateWindow::with_details(
+                    used_percent(first.used, first.limit),
+                    window_minutes(&first.window),
+                    first.reset_at,
+                    Some(amount_description(first.used, first.limit, &parsed.unit)),
+                ))
+            } else {
+                UsageSnapshot::new(RateWindow::informational("Key quota"))
+            };
+            let skip_first_rate_limit = parsed.quota.is_none() && !parsed.rate_limits.is_empty();
+            for (idx, rate_limit) in parsed.rate_limits.iter().enumerate() {
+                if skip_first_rate_limit && idx == 0 {
+                    continue;
+                }
+                snap = snap.with_extra_rate_window(
+                    rate_limit.window.clone(),
+                    rate_limit_title(&rate_limit.window),
+                    RateWindow::with_details(
+                        used_percent(rate_limit.used, rate_limit.limit),
+                        window_minutes(&rate_limit.window),
+                        rate_limit.reset_at,
+                        Some(amount_description(
+                            rate_limit.used,
+                            rate_limit.limit,
+                            &parsed.unit,
+                        )),
+                    ),
+                );
+            }
+            snap
+        }
+        Kind::Wallet => {
+            let balance = parsed
+                .balance
+                .or_else(|| wallet_remaining(&parsed))
+                .unwrap_or(0.0);
             let description = format!("{} balance", currency_string(balance, &parsed.unit));
             cost = Some(
                 CostSnapshot::new(0.0, normalize_currency(&parsed.unit), "balance")
@@ -526,39 +575,59 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
             );
             UsageSnapshot::new(RateWindow::informational(description))
         }
-        None => UsageSnapshot::new(RateWindow::informational("No quota data")),
+        Kind::Unknown => {
+            // Prefer any totals over a blank "No quota data" row.
+            if let Some(today) = &parsed.today {
+                UsageSnapshot::new(RateWindow::informational(totals_description(
+                    today,
+                    &parsed.unit,
+                )))
+            } else if let Some(total) = &parsed.total {
+                UsageSnapshot::new(RateWindow::informational(totals_description(
+                    total,
+                    &parsed.unit,
+                )))
+            } else {
+                UsageSnapshot::new(RateWindow::informational("No quota data"))
+            }
+        }
     };
 
-    if let Some(secondary) = secondary {
-        snapshot = snapshot.with_secondary(secondary);
-    }
-    if let Some(tertiary) = tertiary {
-        snapshot = snapshot.with_tertiary(tertiary);
-    }
-
-    for rate_limit in &parsed.rate_limits {
-        snapshot = snapshot.with_extra_rate_window(
-            rate_limit.window.clone(),
-            rate_limit_title(&rate_limit.window),
-            RateWindow::with_details(
-                used_percent(rate_limit.used, rate_limit.limit),
-                window_minutes(&rate_limit.window),
-                rate_limit.reset_at,
-                Some(amount_description(
-                    rate_limit.used,
-                    rate_limit.limit,
-                    &parsed.unit,
-                )),
-            ),
-        );
+    // Rate-limit extras for subscription/wallet kinds that also ship them.
+    if kind != Kind::KeyQuota {
+        for rate_limit in &parsed.rate_limits {
+            snapshot = snapshot.with_extra_rate_window(
+                rate_limit.window.clone(),
+                rate_limit_title(&rate_limit.window),
+                RateWindow::with_details(
+                    used_percent(rate_limit.used, rate_limit.limit),
+                    window_minutes(&rate_limit.window),
+                    rate_limit.reset_at,
+                    Some(amount_description(
+                        rate_limit.used,
+                        rate_limit.limit,
+                        &parsed.unit,
+                    )),
+                ),
+            );
+        }
     }
 
     if let Some(today) = &parsed.today {
-        snapshot = snapshot.with_extra_rate_window(
-            "today",
-            "Today",
-            RateWindow::informational(totals_description(today, &parsed.unit)),
-        );
+        // Avoid duplicating the primary informational totals row.
+        let already_primary = kind == Kind::Unknown
+            && snapshot
+                .primary
+                .reset_description
+                .as_deref()
+                .is_some_and(|d| d == totals_description(today, &parsed.unit));
+        if !already_primary {
+            snapshot = snapshot.with_extra_rate_window(
+                "today",
+                "Today",
+                RateWindow::informational(totals_description(today, &parsed.unit)),
+            );
+        }
     }
     if let Some(total) = &parsed.total {
         snapshot = snapshot.with_extra_rate_window(
@@ -568,10 +637,18 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
         );
     }
 
+    // Plan is a tier/login label, not organization identity.
     if let Some(plan) = parsed.plan_name.as_ref().filter(|p| !p.trim().is_empty()) {
-        snapshot = snapshot
-            .with_organization(plan.clone())
-            .with_login_method(plan.clone());
+        let mut login = plan.clone();
+        if !parsed.mode.is_empty()
+            && parsed.mode != "unknown"
+            && !plan.eq_ignore_ascii_case(&parsed.mode)
+        {
+            login = format!("{plan} ({})", parsed.mode);
+        }
+        snapshot = snapshot.with_login_method(login);
+    } else if !parsed.mode.is_empty() && parsed.mode != "unknown" {
+        snapshot = snapshot.with_login_method(parsed.mode.clone());
     }
 
     let expires = parsed
@@ -592,14 +669,41 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
         );
     }
 
-    // Surface mode/kind lightly without a dedicated schema field.
-    let _ = (kind, parsed.mode);
-
     let mut result = ProviderFetchResult::new(snapshot, "api");
     if let Some(cost) = cost {
         result = result.with_cost(cost);
     }
     result
+}
+
+fn classify_usage_kind(parsed: &ParsedUsage) -> Kind {
+    if parsed.subscription.is_some() {
+        Kind::Subscription
+    } else if parsed.quota.is_some() || !parsed.rate_limits.is_empty() {
+        Kind::KeyQuota
+    } else if parsed.balance.is_some() || wallet_remaining(parsed).is_some() {
+        Kind::Wallet
+    } else {
+        Kind::Unknown
+    }
+}
+
+/// Top-level remaining as a wallet signal only when quota/subscription are absent.
+fn wallet_remaining(parsed: &ParsedUsage) -> Option<f64> {
+    if parsed.quota.is_some() || parsed.subscription.is_some() {
+        return None;
+    }
+    parsed.remaining.filter(|r| r.is_finite())
+}
+
+fn informational_usage_window(usage: f64, period: &str, unit: &str) -> Option<RateWindow> {
+    if !usage.is_finite() {
+        return None;
+    }
+    Some(RateWindow::informational(format!(
+        "{} used / {period}",
+        currency_string(usage, unit)
+    )))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -794,17 +898,54 @@ mod tests {
             (result.usage.secondary.as_ref().unwrap().used_percent - 25.0).abs() < f64::EPSILON
         );
         assert!((result.usage.tertiary.as_ref().unwrap().used_percent - 30.0).abs() < f64::EPSILON);
+        assert!(result.usage.account_organization.is_none());
         assert_eq!(
-            result.usage.account_organization.as_deref(),
-            Some("Claude Team")
+            result.usage.login_method.as_deref(),
+            Some("Claude Team (unrestricted)")
         );
-        assert_eq!(result.usage.login_method.as_deref(), Some("Claude Team"));
         assert!(
             result
                 .usage
                 .extra_rate_windows
                 .iter()
                 .any(|w| w.id == "expires")
+        );
+    }
+
+    #[test]
+    fn subscription_without_limits_shows_usage_not_empty() {
+        let json = r#"
+        {
+          "mode": "unrestricted",
+          "planName": "Soft plan",
+          "unit": "USD",
+          "subscription": {
+            "daily_usage_usd": 2.5,
+            "weekly_usage_usd": 10,
+            "monthly_usage_usd": 30
+          },
+          "balance": 12.0
+        }
+        "#;
+        let result = snapshot_from_parsed(parse_usage_body(json).unwrap());
+        assert!(result.usage.primary.is_informational);
+        assert!(
+            result
+                .usage
+                .primary
+                .reset_description
+                .as_deref()
+                .is_some_and(|d| d.contains("$2.50") && d.contains("day"))
+        );
+        assert!(result.cost.is_some());
+        assert_eq!(result.cost.as_ref().unwrap().limit, Some(12.0));
+        assert!(result.usage.account_organization.is_none());
+        assert!(
+            result
+                .usage
+                .login_method
+                .as_deref()
+                .is_some_and(|m| m.starts_with("Soft plan"))
         );
     }
 
@@ -864,7 +1005,10 @@ mod tests {
             result.usage.primary.reset_description.as_deref(),
             Some("$42.50 balance")
         );
-        assert_eq!(result.usage.login_method.as_deref(), Some("Wallet plan"));
+        assert_eq!(
+            result.usage.login_method.as_deref(),
+            Some("Wallet plan (unrestricted)")
+        );
         let cost = result.cost.unwrap();
         assert_eq!(cost.limit, Some(42.5));
         assert_eq!(cost.period, "balance");

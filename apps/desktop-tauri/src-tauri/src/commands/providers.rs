@@ -49,6 +49,9 @@ pub(crate) fn build_fetch_context(
             "off" if has_kimi_code_api_key && usage_source == SourceMode::Auto => {
                 (SourceMode::Auto, None)
             }
+            // Droid/Factory: cookie-off must never scrape browser cookies. Map to
+            // Cli (API-only in the provider) so Auto does not fall through to web.
+            "off" if id == ProviderId::Factory => (SourceMode::Cli, None),
             "off" => (SourceMode::Cli, None),
             "manual" => {
                 let cookie_header = active_token_cookie.or(stored_cookie);
@@ -163,12 +166,18 @@ pub(crate) fn prune_provider_cache_to_enabled(
 }
 
 /// Invalidate in-flight publish work and remove disabled providers from cache.
+///
+/// Also clears the refresh lock so a follow-up force refresh can start immediately
+/// (otherwise `begin_provider_refresh` no-ops while a superseded batch still holds
+/// `is_refreshing`, and newly enabled providers never get a replacement run).
 pub(crate) fn invalidate_provider_refresh_and_prune_disabled(
     state: &tauri::State<'_, Mutex<AppState>>,
     enabled_ids: &[ProviderId],
 ) -> Result<(), String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     guard.provider_refresh_generation = guard.provider_refresh_generation.wrapping_add(1);
+    guard.is_refreshing = false;
+    guard.provider_refresh_started_at = None;
     prune_provider_cache_to_enabled(&mut guard.provider_cache, enabled_ids);
     // Drop transient-failure counters for providers that left the enabled set.
     guard
@@ -221,7 +230,11 @@ async fn do_refresh_providers_with_policy(
     let handles = spawn_provider_refreshes(app, &inputs, generation);
     await_provider_refreshes(handles).await;
 
-    let error_count = finish_provider_refresh(&state, generation)?;
+    let Some(error_count) = finish_provider_refresh(&state, generation)? else {
+        // Superseded by a newer generation (or invalidate). Do not clear UI
+        // "refreshing" for a dead batch or stamp tray from incomplete work.
+        return Ok(());
+    };
     update_tray_and_notifications(app, &state, &inputs.settings, &inputs.token_accounts)?;
 
     events::emit_refresh_complete(app, enabled_count, error_count);
@@ -443,35 +456,29 @@ async fn await_provider_refreshes(handles: Vec<tokio::task::JoinHandle<()>>) {
     }
 }
 
+/// Finish a refresh batch. Returns `None` when `generation` was superseded
+/// (do not emit complete / tray updates for dead work). Returns `Some(error_count)`
+/// when this batch still owns the generation and the lock was released.
 fn finish_provider_refresh(
     state: &tauri::State<'_, Mutex<AppState>>,
     generation: u64,
-) -> Result<usize, String> {
+) -> Result<Option<usize>, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
-    // Always release the refresh lock when this batch ends so a later
-    // invalidate (enablement change) cannot leave is_refreshing stuck.
-    if guard.is_refreshing
-        && (is_current_provider_refresh_generation(&guard, generation)
-            || guard.provider_refresh_started_at.is_some())
-    {
-        // Only clear the lock if we still own it or no newer refresh has begun
-        // (newer begin bumps generation AND sets is_refreshing under the same
-        // ownership — currently concurrent begin is blocked).
-        if is_current_provider_refresh_generation(&guard, generation) {
-            guard.is_refreshing = false;
-            guard.provider_refresh_started_at = None;
-            guard.provider_cache_updated_at = Some(std::time::Instant::now());
-        } else {
-            // Superseded: release lock without stamping a "fresh" cache time.
-            guard.is_refreshing = false;
-            guard.provider_refresh_started_at = None;
-        }
+    if !is_current_provider_refresh_generation(&guard, generation) {
+        // A newer begin or invalidate owns the lock/generation. Do not clear
+        // is_refreshing — that would race a live successor batch.
+        return Ok(None);
     }
-    Ok(guard
-        .provider_cache
-        .iter()
-        .filter(|s| s.error.is_some())
-        .count())
+    guard.is_refreshing = false;
+    guard.provider_refresh_started_at = None;
+    guard.provider_cache_updated_at = Some(std::time::Instant::now());
+    Ok(Some(
+        guard
+            .provider_cache
+            .iter()
+            .filter(|s| s.error.is_some())
+            .count(),
+    ))
 }
 
 fn update_tray_and_notifications(
@@ -572,14 +579,8 @@ fn quota_notification_account_identity(
     {
         return format!("org:{}", org.to_ascii_lowercase());
     }
-    if let Some(plan) = snapshot
-        .plan_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return format!("plan:{}", plan.to_ascii_lowercase());
-    }
+    // Do not fall back to plan_name/login_method — those are display tiers and
+    // flicker across refreshes, re-arming still-hot windows for a new identity.
     String::new()
 }
 
@@ -785,10 +786,8 @@ mod predictive_warning_tests {
         );
 
         snapshot.account_organization = None;
-        assert_eq!(
-            quota_notification_account_identity(&snapshot, None),
-            "plan:pro"
-        );
+        // plan_name/login_method is not a stable ownership key — fall through to "".
+        assert_eq!(quota_notification_account_identity(&snapshot, None), "");
 
         snapshot.plan_name = None;
         assert_eq!(quota_notification_account_identity(&snapshot, None), "");

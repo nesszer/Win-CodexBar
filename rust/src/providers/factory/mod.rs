@@ -276,7 +276,10 @@ pub(crate) fn parse_factory_dotenv_key(contents: &str) -> Option<String> {
         if key.trim() != FACTORY_API_KEY_ENV {
             continue;
         }
-        return clean_factory_secret(Some(value));
+        // Empty assignment (`FACTORY_API_KEY=`) must not short-circuit a later real key.
+        if let Some(secret) = clean_factory_secret(Some(value)) {
+            return Some(secret);
+        }
     }
     None
 }
@@ -577,8 +580,11 @@ impl FactoryProvider {
     }
 
     fn usage_snapshot_from_response(usage_data: &FactoryUsageResponse) -> UsageSnapshot {
-        // Prefer nested upstream `usage` block when present.
-        if let Some(nested) = &usage_data.usage {
+        // Prefer nested upstream `usage` only when it carries usable data.
+        // An empty `usage: {}` must not suppress populated top-level windows.
+        if let Some(nested) = &usage_data.usage
+            && nested_usage_has_data(nested)
+        {
             let standard_percent = nested
                 .standard
                 .as_ref()
@@ -656,10 +662,10 @@ impl FactoryProvider {
     }
 
     async fn fetch_auto(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
-        // API-first only when a key is resolvable (upstream Auto strategy).
-        if resolve_factory_api_key(ctx.api_key.as_deref()).is_some() {
-            match self.fetch_api_result(ctx).await {
-                Ok(result) => return Ok(result),
+        // Resolve once — do not double-load store/dotenv for the API branch.
+        if let Some(api_key) = resolve_factory_api_key(ctx.api_key.as_deref()) {
+            match self.fetch_via_api(&api_key).await {
+                Ok(usage) => return Ok(ProviderFetchResult::new(usage, "api")),
                 Err(err) if factory_api_error_is_recoverable(&err) => {
                     tracing::debug!(
                         "Droid API path failed ({}); falling back to web cookies",
@@ -671,6 +677,16 @@ impl FactoryProvider {
         }
         self.fetch_web_result(ctx).await
     }
+}
+
+fn nested_usage_has_data(nested: &FactoryUsageNested) -> bool {
+    let window_has = |w: &FactoryTokenUsage| {
+        w.user_tokens.is_some()
+            || w.total_allowance.is_some()
+            || w.used_ratio.is_some_and(|r| r.is_finite())
+    };
+    nested.standard.as_ref().is_some_and(window_has)
+        || nested.premium.as_ref().is_some_and(window_has)
 }
 
 fn snapshot_from_billing_limits(
@@ -736,8 +752,11 @@ impl Provider for FactoryProvider {
         tracing::debug!("Fetching Droid (Factory) usage");
 
         match ctx.source_mode {
-            // Auto + legacy Cli alias: API key first, then web cookies.
-            SourceMode::Auto | SourceMode::Cli => self.fetch_auto(ctx).await,
+            // Auto: API key first, then web cookies (when cookie path is allowed).
+            SourceMode::Auto => self.fetch_auto(ctx).await,
+            // Cli = cookie-off / no-browser path from the shell: API key only.
+            // Never fall through to browser cookie scrape.
+            SourceMode::Cli => self.fetch_api_result(ctx).await,
             // Win maps explicit API-token sources to OAuth (sub2api pattern).
             SourceMode::OAuth => self.fetch_api_result(ctx).await,
             SourceMode::Web => self.fetch_web_result(ctx).await,
@@ -754,7 +773,7 @@ impl Provider for FactoryProvider {
     }
 
     fn supports_cli(&self) -> bool {
-        // Upstream treats legacy cli as Auto; keep available for persisted configs.
+        // Shell maps cookie-source "off" to Cli; Factory treats Cli as API-only.
         true
     }
 }
@@ -799,6 +818,16 @@ mod tests {
             )
             .as_deref(),
             Some("fk-quoted")
+        );
+        // Empty assignment must not short-circuit a later real key.
+        assert_eq!(
+            parse_factory_dotenv_key("FACTORY_API_KEY=\nFACTORY_API_KEY=fk-real\n").as_deref(),
+            Some("fk-real")
+        );
+        assert_eq!(
+            parse_factory_dotenv_key("FACTORY_API_KEY=\"\"\nFACTORY_API_KEY='fk-later'\n")
+                .as_deref(),
+            Some("fk-later")
         );
     }
 
@@ -898,6 +927,28 @@ mod tests {
         let snap = FactoryProvider::usage_snapshot_from_response(&parsed);
         assert!((snap.primary.used_percent - 30.0).abs() < f64::EPSILON);
         assert!((snap.secondary.unwrap().used_percent - 10.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn empty_nested_usage_falls_through_to_top_level() {
+        let body = r#"{
+          "usage": {},
+          "standard": { "used": 40.0, "allowance": 100.0 },
+          "premium": { "used": 5.0, "allowance": 50.0 }
+        }"#;
+        let parsed: FactoryUsageResponse = serde_json::from_str(body).unwrap();
+        let snap = FactoryProvider::usage_snapshot_from_response(&parsed);
+        assert!((snap.primary.used_percent - 40.0).abs() < f64::EPSILON);
+        assert!((snap.secondary.unwrap().used_percent - 10.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn available_sources_do_not_advertise_cli() {
+        let sources = FactoryProvider::new().available_sources();
+        assert!(!sources.contains(&SourceMode::Cli));
+        assert!(sources.contains(&SourceMode::Auto));
+        assert!(sources.contains(&SourceMode::OAuth));
+        assert!(sources.contains(&SourceMode::Web));
     }
 
     #[test]
