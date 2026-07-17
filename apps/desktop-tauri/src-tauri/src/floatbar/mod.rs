@@ -19,11 +19,9 @@ use tauri::{Emitter, Manager};
 /// Install the native z-order guard and reopen the floating bar on app start
 /// if it was enabled previously.
 ///
-/// Called once from `main.rs::setup` so the Windows event hooks are registered
-/// on the thread that owns Tauri's message loop.
+/// Called once from `main.rs::setup` so the guard has the app handle before
+/// the floatbar is shown.
 pub fn install(app: &tauri::AppHandle) {
-    // Install the Windows shell hooks from Tauri's setup thread, which owns a
-    // message loop and therefore can receive out-of-context WinEvents.
     topmost_guard::install(app);
     let persisted = Settings::load();
     if persisted.float_bar_enabled {
@@ -47,8 +45,8 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
     match event {
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
             // Probe first (no I/O). Load style only when recovery runs.
-            // Always reassert topmost on geometry change; shell-event path
-            // in topmost_guard stays overlap-gated.
+            // Always reassert topmost on geometry change; the visibility-scoped
+            // topmost_guard timer stays overlap-gated.
             let relocated = if window::is_off_all_monitors(window) {
                 let style = Settings::load().float_bar_style;
                 window::recover_onto_primary(window, &style)
@@ -64,6 +62,9 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
             }
         }
         tauri::WindowEvent::CloseRequested { .. } => window::remember_geometry(window),
+        tauri::WindowEvent::Destroyed => {
+            topmost_guard::set_active(false);
+        }
         _ => {}
     }
     true

@@ -96,12 +96,25 @@ impl NotificationType {
             NotificationType::SessionRestored => "✅",
         }
     }
+
+    fn is_threshold_toast(self) -> bool {
+        matches!(
+            self,
+            NotificationType::HighUsage
+                | NotificationType::CriticalUsage
+                | NotificationType::Exhausted
+        )
+    }
 }
+
+/// Dedupe identity for threshold toasts. `window` is the rate window id
+/// (`"session"`, `"weekly"`, …) so session and weekly budgets arm independently.
+type ThresholdKey = (ProviderId, String, NotificationType);
 
 /// Notification manager
 pub struct NotificationManager {
     /// Track which notifications have been sent to avoid spam
-    sent_notifications: std::collections::HashSet<(ProviderId, NotificationType)>,
+    sent_notifications: std::collections::HashSet<ThresholdKey>,
     /// Track previous session percent for depleted/restored transitions
     previous_session_percent: std::collections::HashMap<ProviderId, f64>,
     predictive_warning_keys: std::collections::HashSet<PredictiveWarningKey>,
@@ -236,15 +249,17 @@ impl NotificationManager {
         } else if used_percent >= thresholds.high {
             Some(NotificationType::HighUsage)
         } else {
-            // Reset notifications if usage dropped
-            self.sent_notifications.retain(|(p, _)| *p != provider);
+            // Clear only this window's threshold toasts so a cool session cannot
+            // re-arm a still-hot weekly (or vice versa) on the next poll.
+            self.sent_notifications
+                .retain(|(p, w, t)| *p != provider || w != window || !t.is_threshold_toast());
             None
         };
 
         if let Some(notif_type) = notification_type {
-            let key = (provider, notif_type);
+            let key = (provider, window.to_string(), notif_type);
             if !self.sent_notifications.contains(&key) {
-                self.send_notification(provider, used_percent, notif_type, settings);
+                self.send_notification(provider, window, used_percent, notif_type, settings);
                 self.sent_notifications.insert(key);
             }
         }
@@ -257,7 +272,7 @@ impl NotificationManager {
         description: &str,
         settings: &Settings,
     ) {
-        let key = (provider, NotificationType::StatusIssue);
+        let key = (provider, String::new(), NotificationType::StatusIssue);
         if !self.sent_notifications.contains(&key) {
             self.send_status_notification(provider, description, settings);
             self.sent_notifications.insert(key);
@@ -267,7 +282,7 @@ impl NotificationManager {
     /// Clear status issue notification (when resolved)
     pub fn clear_status_issue(&mut self, provider: ProviderId) {
         self.sent_notifications
-            .remove(&(provider, NotificationType::StatusIssue));
+            .remove(&(provider, String::new(), NotificationType::StatusIssue));
     }
 
     /// Check session quota transitions (depleted/restored)
@@ -299,16 +314,21 @@ impl NotificationManager {
             );
             self.show_toast(title, &body);
             play_alert(AlertSound::Error, settings);
-            self.sent_notifications
-                .insert((provider, NotificationType::SessionDepleted));
+            self.sent_notifications.insert((
+                provider,
+                "session".to_string(),
+                NotificationType::SessionDepleted,
+            ));
         }
         // Check for restored transition: was depleted, now is not
         else if previous_percent >= DEPLETED_THRESHOLD && current_percent < DEPLETED_THRESHOLD {
             // Only notify restored if we previously sent a depleted notification
-            if self
-                .sent_notifications
-                .contains(&(provider, NotificationType::SessionDepleted))
-            {
+            let depleted_key = (
+                provider,
+                "session".to_string(),
+                NotificationType::SessionDepleted,
+            );
+            if self.sent_notifications.contains(&depleted_key) {
                 let title = NotificationType::SessionRestored.title();
                 let body = format!(
                     "{} session restored. Session quota is available again.",
@@ -316,8 +336,7 @@ impl NotificationManager {
                 );
                 self.show_toast(title, &body);
                 play_alert(AlertSound::Success, settings);
-                self.sent_notifications
-                    .remove(&(provider, NotificationType::SessionDepleted));
+                self.sent_notifications.remove(&depleted_key);
             }
         }
 
@@ -330,31 +349,49 @@ impl NotificationManager {
     fn send_notification(
         &self,
         provider: ProviderId,
+        window: &str,
         used_percent: f64,
         notif_type: NotificationType,
         settings: &Settings,
     ) {
         let title = notif_type.title();
-        let body = Self::notification_body(provider, used_percent, notif_type);
+        let body = Self::notification_body(provider, window, used_percent, notif_type);
         self.show_toast(title, &body);
         play_alert(Self::alert_sound_for(notif_type), settings);
     }
 
+    fn window_label(window: &str) -> &str {
+        match window {
+            "session" => "session",
+            "weekly" => "weekly",
+            other if !other.is_empty() => other,
+            _ => "usage",
+        }
+    }
+
     fn notification_body(
         provider: ProviderId,
+        window: &str,
         used_percent: f64,
         notif_type: NotificationType,
     ) -> String {
         let provider_name = provider.display_name();
+        let window_label = Self::window_label(window);
         match notif_type {
             NotificationType::HighUsage => {
-                format!("{provider_name} usage at {used_percent:.0}% - approaching limit")
+                format!(
+                    "{provider_name} {window_label} usage at {used_percent:.0}% - approaching limit"
+                )
             }
             NotificationType::CriticalUsage => {
-                format!("{provider_name} usage at {used_percent:.0}% - critically high!")
+                format!(
+                    "{provider_name} {window_label} usage at {used_percent:.0}% - critically high!"
+                )
             }
             NotificationType::Exhausted => {
-                format!("{provider_name} usage limit exhausted ({used_percent:.0}%)")
+                format!(
+                    "{provider_name} {window_label} usage limit exhausted ({used_percent:.0}%)"
+                )
             }
             NotificationType::StatusIssue => format!("{provider_name} is experiencing issues"),
             NotificationType::SessionDepleted => {
@@ -685,5 +722,79 @@ mod tests {
             &reset,
             &pace(false, Some(3600.0)),
         ));
+    }
+
+    #[test]
+    fn session_below_high_does_not_rearm_weekly_high_toast() {
+        // Repro for #198: session cool + weekly hot on every refresh used to
+        // clear all provider keys on the session call, then re-fire weekly.
+        let mut manager = NotificationManager::new();
+        let settings = Settings::default();
+        assert!(settings.show_notifications);
+        assert!((settings.high_usage_threshold - 70.0).abs() < f64::EPSILON);
+
+        let weekly_key = (
+            ProviderId::Claude,
+            "weekly".to_string(),
+            NotificationType::HighUsage,
+        );
+
+        manager.check_and_notify(ProviderId::Claude, "session", 20.0, &settings);
+        manager.check_and_notify(ProviderId::Claude, "weekly", 76.0, &settings);
+        assert!(manager.sent_notifications.contains(&weekly_key));
+
+        // Simulate several refresh cycles: session still cool, weekly still hot.
+        for _ in 0..5 {
+            manager.check_and_notify(ProviderId::Claude, "session", 20.0, &settings);
+            manager.check_and_notify(ProviderId::Claude, "weekly", 76.0, &settings);
+        }
+        assert_eq!(
+            manager
+                .sent_notifications
+                .iter()
+                .filter(|key| key == &&weekly_key)
+                .count(),
+            1,
+            "weekly high toast must arm only once while still above threshold"
+        );
+
+        // Drop weekly below high → re-arm allowed on next climb.
+        manager.check_and_notify(ProviderId::Claude, "weekly", 50.0, &settings);
+        assert!(!manager.sent_notifications.contains(&weekly_key));
+        manager.check_and_notify(ProviderId::Claude, "weekly", 76.0, &settings);
+        assert!(manager.sent_notifications.contains(&weekly_key));
+    }
+
+    #[test]
+    fn threshold_keys_isolate_session_and_weekly() {
+        let mut manager = NotificationManager::new();
+        let settings = Settings::default();
+
+        manager.check_and_notify(ProviderId::Claude, "session", 75.0, &settings);
+        manager.check_and_notify(ProviderId::Claude, "weekly", 75.0, &settings);
+
+        assert!(manager.sent_notifications.contains(&(
+            ProviderId::Claude,
+            "session".to_string(),
+            NotificationType::HighUsage,
+        )));
+        assert!(manager.sent_notifications.contains(&(
+            ProviderId::Claude,
+            "weekly".to_string(),
+            NotificationType::HighUsage,
+        )));
+
+        // Cool only session; weekly stays armed.
+        manager.check_and_notify(ProviderId::Claude, "session", 10.0, &settings);
+        assert!(!manager.sent_notifications.contains(&(
+            ProviderId::Claude,
+            "session".to_string(),
+            NotificationType::HighUsage,
+        )));
+        assert!(manager.sent_notifications.contains(&(
+            ProviderId::Claude,
+            "weekly".to_string(),
+            NotificationType::HighUsage,
+        )));
     }
 }
