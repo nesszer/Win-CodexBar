@@ -1,5 +1,32 @@
 # Changelog
 
+## [Windows] 0.43.0 - 2026-07-17
+
+### Added
+- Add the sub2api provider (group-key gateway usage, subscription, and wallet).
+- Add Factory/Droid API-key Auto with web-cookie fallback, dotenv key resolution, and token-rate-limits billing.
+- Reuse fresh Kimi Code CLI OAuth credentials read-only when no API key is configured.
+- Treat Claude web null five-hour session as an informational placeholder (no phantom 0% quota).
+- Promote the tray icon out of the Windows 11 hidden-icons overflow when enabled.
+- Toggle the tray flyout from the global shortcut.
+
+### Changed
+- Scope quota threshold and session-depleted notifications by account identity.
+- Improve cost-scan freshness: unattributed model pricing, 256 KiB JSONL line bounds, and Ultra lineage watermark containment.
+- Port remaining upstream 0.43.0 residuals (Claude passive-probe env, nested Factory usage shapes).
+- Migrate CI workflows to Blacksmith runners.
+- Complete zh-CN / zh-TW / ja-JP localization coverage and wire remaining frontend strings into the locale system.
+
+### Fixed
+- Prevent stale provider publish after enablement changes (refresh generation ownership).
+- Honor Factory cookie-source off (API-only; no browser scrape).
+- Avoid re-arming still-hot notifications from volatile plan/login identity strings.
+- Skip informational primaries in Session and Automatic tray metrics.
+- Fix FloatBar recovery after minimize, monitor disconnect, and taskbar z-order races.
+- Fix weekly toast spam, OpenCode usage parse, Antigravity 2.0 port detection, Z.ai quota parsing, and predicted exhaustion display.
+
+---
+
 ## [Windows] 0.42.0 - 2026-07-12
 
 ### Added
