@@ -310,12 +310,14 @@ impl ClaudeWebApiFetcher {
         // Step 4: Fetch account info - optional
         let account = self.get_account_info(&headers).await.ok();
 
-        // Build the result
+        // Build the result. When five_hour is null (enterprise/credit accounts with no live
+        // session), emit a fixed 5h 0% placeholder and mark it informational so notifications
+        // and automatic metrics can skip the phantom session lane.
         let primary = usage
             .five_hour
             .as_ref()
             .map(|w| self.to_rate_window(w, Some(300))) // 5 hours = 300 minutes
-            .unwrap_or_else(|| RateWindow::new(0.0));
+            .unwrap_or_else(synthetic_no_session_primary);
 
         let secondary = usage
             .seven_day
@@ -610,6 +612,15 @@ impl ClaudeWebApiFetcher {
     }
 }
 
+/// Synthetic 5h session placeholder for Claude web when `five_hour` is null.
+///
+/// A genuine idle session (object present, 0% used) is NOT marked informational.
+fn synthetic_no_session_primary() -> RateWindow {
+    let mut window = RateWindow::with_details(0.0, Some(300), None, None);
+    window.is_informational = true;
+    window
+}
+
 impl Default for ClaudeWebApiFetcher {
     fn default() -> Self {
         Self::new()
@@ -660,6 +671,24 @@ mod tests {
         let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
 
         assert!((rate.used_percent - 23.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn null_five_hour_session_is_informational_placeholder() {
+        let placeholder = super::synthetic_no_session_primary();
+        assert!(placeholder.is_informational);
+        assert_eq!(placeholder.window_minutes, Some(300));
+        assert!((placeholder.used_percent - 0.0).abs() < f64::EPSILON);
+
+        // Real idle session (object present at 0%) stays unflagged.
+        let idle = ClaudeWebApiFetcher::new().to_rate_window(
+            &UsageWindow {
+                utilization: Some(0.0),
+                resets_at: None,
+            },
+            Some(300),
+        );
+        assert!(!idle.is_informational);
     }
 
     #[test]

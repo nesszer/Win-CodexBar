@@ -233,14 +233,23 @@ fn claude_cli_environment_error(lowered: &str) -> Option<ProviderError> {
     None
 }
 
+/// Environment overrides for passive Claude CLI PTY probes.
+fn claude_passive_probe_env(
+    mut base: std::collections::HashMap<String, String>,
+) -> std::collections::HashMap<String, String> {
+    // Passive status/usage probes must not mutate or update the user's Claude CLI installation.
+    base.insert("NO_COLOR".to_string(), "1".to_string());
+    base.insert("DISABLE_AUTOUPDATER".to_string(), "1".to_string());
+    base
+}
+
 async fn run_claude_pty_probe(
     claude_path: std::path::PathBuf,
     working_directory: std::path::PathBuf,
     probe: ClaudePtyProbeOptions,
 ) -> Result<String, ProviderError> {
     tokio::task::spawn_blocking(move || {
-        let mut env = TtyCommandRunner::enriched_environment();
-        env.insert("NO_COLOR".to_string(), "1".to_string());
+        let env = claude_passive_probe_env(TtyCommandRunner::enriched_environment());
 
         let mut options = TtyCommandOptions::new()
             .with_timeout(probe.timeout_secs)
@@ -913,8 +922,16 @@ fn clean_plan_name(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use chrono::{DateTime, Utc};
+    use std::collections::HashMap;
 
     use super::*;
+
+    #[test]
+    fn passive_probe_env_disables_autoupdater_and_color() {
+        let env = claude_passive_probe_env(HashMap::new());
+        assert_eq!(env.get("DISABLE_AUTOUPDATER").map(String::as_str), Some("1"));
+        assert_eq!(env.get("NO_COLOR").map(String::as_str), Some("1"));
+    }
 
     #[test]
     fn parses_current_cli_usage_screen() {

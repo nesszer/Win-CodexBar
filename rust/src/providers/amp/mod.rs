@@ -260,6 +260,46 @@ impl Provider for AmpProvider {
     }
 }
 
+/// Parse Amp Free percentage lines from CLI/display text (upstream 0.42.1+ shape).
+///
+/// Matches lines like:
+/// - `Amp Free: 72% remaining today`
+/// - `Amp Free: 72% remaining (resets daily)`
+///
+/// Returns **used** percent (100 - remaining). Not wired into the live fetch path:
+/// Win Amp currently uses the Sourcegraph Cody API schema, which does not emit this text.
+/// Kept as a pure helper for future CLI/text integration and parity tests.
+pub fn parse_amp_free_percent_remaining(text: &str) -> Option<f64> {
+    for line in text.lines() {
+        let line = line.trim();
+        let lower = line.to_ascii_lowercase();
+        if !lower.starts_with("amp free:") {
+            continue;
+        }
+        let rest = line["amp free:".len()..].trim();
+        // Prefer percentage form over dollar `$used / $quota remaining`.
+        let Some(percent_idx) = rest.find('%') else {
+            continue;
+        };
+        let number_part = rest[..percent_idx].trim();
+        // Reject dollar amounts mistaken for percentages (e.g. "$12 remaining").
+        if number_part.contains('$') {
+            continue;
+        }
+        let after = rest[percent_idx + 1..].trim().to_ascii_lowercase();
+        if !after.starts_with("remaining") {
+            continue;
+        }
+        let remaining: f64 = number_part.replace(',', "").parse().ok()?;
+        if !remaining.is_finite() {
+            continue;
+        }
+        let clamped = remaining.clamp(0.0, 100.0);
+        return Some(100.0 - clamped);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,6 +309,32 @@ mod tests {
         assert_eq!(
             AmpProvider::new().metadata().dashboard_url,
             Some("https://ampcode.com/settings/usage")
+        );
+    }
+
+    #[test]
+    fn parses_amp_free_percent_remaining_today() {
+        let text = "Signed in as user@example.com\nAmp Free: 72% remaining today\n";
+        assert_eq!(parse_amp_free_percent_remaining(text), Some(28.0));
+    }
+
+    #[test]
+    fn parses_amp_free_percent_resets_daily() {
+        let text = "Amp Free: 100% remaining (resets daily)";
+        assert_eq!(parse_amp_free_percent_remaining(text), Some(0.0));
+    }
+
+    #[test]
+    fn ignores_dollar_remaining_form() {
+        let text = "Amp Free: $4.20 / $10 remaining (replenishes +$1 / hour)";
+        assert_eq!(parse_amp_free_percent_remaining(text), None);
+    }
+
+    #[test]
+    fn returns_none_when_amp_free_missing() {
+        assert_eq!(
+            parse_amp_free_percent_remaining("Individual credits: $3 remaining"),
+            None
         );
     }
 }

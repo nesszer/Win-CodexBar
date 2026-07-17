@@ -680,11 +680,21 @@ fn automatic_metric_percent(
             snapshot.secondary.as_ref().map(|w| w.used_percent),
             extra_rate_window_percent(snapshot),
         ]),
+        // Claude web may emit an informational 5h 0% placeholder when five_hour is null;
+        // prefer the weekly lane so the tray does not show a phantom session.
+        Some(ProviderId::Claude) if snapshot.primary.is_informational => snapshot
+            .secondary
+            .as_ref()
+            .map(|w| w.used_percent)
+            .or(Some(snapshot.primary.used_percent)),
         _ => Some(snapshot.primary.used_percent),
     }
 }
 
 fn average_metric_percent(snapshot: &crate::commands::ProviderUsageSnapshot) -> Option<f64> {
+    if snapshot.primary.is_informational {
+        return snapshot.secondary.as_ref().map(|w| w.used_percent);
+    }
     let secondary = snapshot.secondary.as_ref()?;
     Some((snapshot.primary.used_percent + secondary.used_percent) / 2.0)
 }

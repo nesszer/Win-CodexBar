@@ -424,13 +424,24 @@ fn notify_usage_thresholds(
             if snapshot.error.is_none()
                 && let Some(&provider) = cli_map.get(snapshot.provider_id.as_str())
             {
-                guard.notification_manager.check_and_notify(
-                    provider,
-                    "session",
-                    snapshot.primary.used_percent,
-                    settings,
-                );
-                if let Some(weekly) = &snapshot.secondary {
+                // Skip session notifications for synthetic/no-session placeholders
+                // (e.g. Claude web five_hour: null → informational 5h 0%).
+                if !snapshot.primary.is_informational {
+                    guard.notification_manager.check_and_notify(
+                        provider,
+                        "session",
+                        snapshot.primary.used_percent,
+                        settings,
+                    );
+                    guard.notification_manager.check_session_transition(
+                        provider,
+                        snapshot.primary.used_percent,
+                        settings,
+                    );
+                }
+                if let Some(weekly) = &snapshot.secondary
+                    && !weekly.is_informational
+                {
                     guard.notification_manager.check_and_notify(
                         provider,
                         "weekly",
@@ -438,11 +449,6 @@ fn notify_usage_thresholds(
                         settings,
                     );
                 }
-                guard.notification_manager.check_session_transition(
-                    provider,
-                    snapshot.primary.used_percent,
-                    settings,
-                );
                 notify_predictive_pace(
                     &mut guard.notification_manager,
                     provider,
@@ -499,6 +505,9 @@ fn notify_predictive_pace(
         let Some(window) = window else {
             continue;
         };
+        if window.is_informational {
+            continue;
+        }
         let rate_window = RateWindow::with_details(
             window.used_percent,
             window.window_minutes,
