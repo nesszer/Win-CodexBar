@@ -459,5 +459,16 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             config_file_path: None,
             dashboard_url: Some("https://crossmodel.ai"),
         },
+        ProviderConfigInfo {
+            id: ProviderId::Sub2Api,
+            name: "sub2api",
+            requires_api_key: true,
+            api_key_env_var: Some("SUB2API_API_KEY + SUB2API_BASE_URL"),
+            api_key_help: Some(
+                "Paste a group API key and set the base URL in provider extras or SUB2API_BASE_URL. HTTPS required (loopback HTTP allowed for local dev).",
+            ),
+            config_file_path: None,
+            dashboard_url: None,
+        },
     ]
 }

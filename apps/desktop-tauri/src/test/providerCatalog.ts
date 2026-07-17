@@ -55,4 +55,5 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["crossmodel", "CrossModel"],
   ["qoder", "Qoder"],
   ["sakana", "Sakana AI"],
+  ["sub2api", "sub2api"],
 ];

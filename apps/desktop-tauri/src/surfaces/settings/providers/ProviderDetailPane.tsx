@@ -556,6 +556,7 @@ function CredentialsDispatcher({
     case "devin":
     case "opencodego":
     case "zed":
+    case "sub2api":
       return <OpenAiExtras providerId={providerId} t={t} />;
     default:
       return null;

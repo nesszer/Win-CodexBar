@@ -111,6 +111,7 @@ export type ProofProviderId =
   | "crossmodel"
   | "qoder"
   | "sakana"
+  | "sub2api"
   | "wayfinder";
 
 export type TrayPanelSurfaceTarget = { kind: "summary" };

@@ -41,6 +41,7 @@ import perplexity from "./icons/ProviderIcon-perplexity.svg?raw";
 import qoder from "./icons/ProviderIcon-qoder.svg?raw";
 import sakana from "./icons/ProviderIcon-sakana.svg?raw";
 import stepfun from "./icons/ProviderIcon-stepfun.svg?raw";
+import sub2api from "./icons/ProviderIcon-sub2api.svg?raw";
 import t3chat from "./icons/ProviderIcon-t3chat.svg?raw";
 import venice from "./icons/ProviderIcon-venice.svg?raw";
 import vertexai from "./icons/ProviderIcon-vertexai.svg?raw";
@@ -112,6 +113,7 @@ const RAW: Record<string, string> = {
   qoder: tint(qoder),
   sakana: tint(sakana),
   stepfun: tint(stepfun),
+  sub2api: tint(sub2api),
   t3chat: tint(t3chat),
   venice: tint(venice),
   vertexai: tint(vertexai),
@@ -177,6 +179,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   qoder:       { id: "qoder",       brandColor: "#2563eb", fallbackLetter: "Q", svgPath: RAW.qoder },
   sakana:      { id: "sakana",      brandColor: "#0ea5e9", fallbackLetter: "S", svgPath: RAW.sakana },
   stepfun:     { id: "stepfun",     brandColor: "#999999", fallbackLetter: "S", svgPath: RAW.stepfun },
+  sub2api:     { id: "sub2api",     brandColor: "#2dc6d8", fallbackLetter: "S", svgPath: RAW.sub2api },
   venice:      { id: "venice",      brandColor: "#111827", fallbackLetter: "V", svgPath: RAW.venice },
   openaiapi:   { id: "openaiapi",   brandColor: "#10a37f", fallbackLetter: "O" },
   chutes:      { id: "chutes",      brandColor: "#ff5c35", fallbackLetter: "C" },
@@ -219,6 +222,8 @@ const ALIASES: Record<string, string> = {
   "sakana-ai": "sakana",
   "step fun": "stepfun",
   "step-fun": "stepfun",
+  "sub-2-api": "sub2api",
+  "sub 2 api": "sub2api",
   "openai api": "openaiapi",
   "openai-api": "openaiapi",
   "azure openai": "azureopenai",

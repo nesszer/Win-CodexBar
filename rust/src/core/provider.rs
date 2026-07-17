@@ -67,6 +67,7 @@ pub enum ProviderId {
     CrossModel,
     Qoder,
     Sakana,
+    Sub2Api,
     Wayfinder,
 }
 
@@ -130,6 +131,7 @@ impl ProviderId {
             ProviderId::CrossModel,
             ProviderId::Qoder,
             ProviderId::Sakana,
+            ProviderId::Sub2Api,
             ProviderId::Wayfinder,
         ]
     }
@@ -193,6 +195,7 @@ impl ProviderId {
             ProviderId::CrossModel => "crossmodel",
             ProviderId::Qoder => "qoder",
             ProviderId::Sakana => "sakana",
+            ProviderId::Sub2Api => "sub2api",
             ProviderId::Wayfinder => "wayfinder",
         }
     }
@@ -256,6 +259,7 @@ impl ProviderId {
             ProviderId::CrossModel => "CrossModel",
             ProviderId::Qoder => "Qoder",
             ProviderId::Sakana => "Sakana AI",
+            ProviderId::Sub2Api => "sub2api",
             ProviderId::Wayfinder => "Wayfinder",
         }
     }
@@ -324,6 +328,7 @@ impl ProviderId {
             ProviderId::Devin => None,
             ProviderId::Zed => None,
             ProviderId::CrossModel => None,
+            ProviderId::Sub2Api => None,
             ProviderId::Wayfinder => None,
         }
     }
@@ -394,6 +399,7 @@ impl ProviderId {
             "crossmodel" | "cross-model" | "cross model" => Some(ProviderId::CrossModel),
             "qoder" => Some(ProviderId::Qoder),
             "sakana" | "sakana-ai" | "sakana ai" => Some(ProviderId::Sakana),
+            "sub2api" | "sub-2-api" | "sub 2 api" => Some(ProviderId::Sub2Api),
             "wayfinder" => Some(ProviderId::Wayfinder),
             _ => None,
         }
@@ -617,6 +623,7 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("llm-proxy", ProviderId::LLMProxy);
     map.insert("cross-model", ProviderId::CrossModel);
     map.insert("sakana-ai", ProviderId::Sakana);
+    map.insert("sub-2-api", ProviderId::Sub2Api);
     map
 }
 
@@ -627,7 +634,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 57);
+        assert_eq!(all.len(), 58);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -664,6 +671,7 @@ mod tests {
         assert!(all.contains(&ProviderId::CrossModel));
         assert!(all.contains(&ProviderId::Qoder));
         assert!(all.contains(&ProviderId::Sakana));
+        assert!(all.contains(&ProviderId::Sub2Api));
         assert!(all.contains(&ProviderId::Wayfinder));
     }
 

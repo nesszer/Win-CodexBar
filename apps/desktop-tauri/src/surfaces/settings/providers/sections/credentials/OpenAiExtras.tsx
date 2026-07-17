@@ -131,6 +131,13 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
           placeholder: t("ZedApiUrlPlaceholder"),
           help: t("ZedApiUrlHelp"),
         };
+      case "sub2api":
+        return {
+          title: t("Sub2ApiTitle"),
+          label: t("Sub2ApiBaseUrlLabel"),
+          placeholder: t("Sub2ApiBaseUrlPlaceholder"),
+          help: t("Sub2ApiBaseUrlHelp"),
+        };
       default:
         return null;
     }

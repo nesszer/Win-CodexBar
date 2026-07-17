@@ -32,7 +32,15 @@ pub fn validate_provider_workspace_value(
         }),
         ProviderId::Zed => validate_zed_url(trimmed),
         ProviderId::LiteLLM => validate_token_endpoint(trimmed, "LiteLLM base URL", |_| true),
+        ProviderId::Sub2Api => validate_sub2api_base_url(trimmed),
         _ => Ok(trimmed.to_string()),
+    }
+}
+
+fn validate_sub2api_base_url(raw: &str) -> Result<String, String> {
+    match crate::providers::sub2api::validated_sub2api_base_url(raw) {
+        Ok(url) => Ok(url.to_string().trim_end_matches('/').to_string()),
+        Err(err) => Err(err.to_string()),
     }
 }
 
@@ -185,6 +193,29 @@ mod tests {
                 "accepted {value}"
             );
         }
+    }
+
+    #[test]
+    fn validates_sub2api_base_url() {
+        assert_eq!(
+            validate_provider_workspace_value(ProviderId::Sub2Api, "https://api.example.com/")
+                .unwrap(),
+            "https://api.example.com"
+        );
+        assert!(
+            validate_provider_workspace_value(ProviderId::Sub2Api, "http://127.0.0.1:8080").is_ok()
+        );
+        assert!(
+            validate_provider_workspace_value(ProviderId::Sub2Api, "http://api.example.com")
+                .is_err()
+        );
+        assert!(
+            validate_provider_workspace_value(
+                ProviderId::Sub2Api,
+                "https://user:pass@api.example.com"
+            )
+            .is_err()
+        );
     }
 
     #[test]
