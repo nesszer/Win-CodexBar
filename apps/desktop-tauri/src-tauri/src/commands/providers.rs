@@ -150,6 +150,37 @@ pub(crate) fn upsert_provider_cache(
     }
 }
 
+/// Drop cached snapshots for providers that are no longer enabled.
+pub(crate) fn prune_provider_cache_to_enabled(
+    cache: &mut Vec<ProviderUsageSnapshot>,
+    enabled_ids: &[ProviderId],
+) {
+    cache.retain(|snapshot| {
+        enabled_ids
+            .iter()
+            .any(|id| id.cli_name() == snapshot.provider_id)
+    });
+}
+
+/// Invalidate in-flight publish work and remove disabled providers from cache.
+pub(crate) fn invalidate_provider_refresh_and_prune_disabled(
+    state: &tauri::State<'_, Mutex<AppState>>,
+    enabled_ids: &[ProviderId],
+) -> Result<(), String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    guard.provider_refresh_generation = guard.provider_refresh_generation.wrapping_add(1);
+    prune_provider_cache_to_enabled(&mut guard.provider_cache, enabled_ids);
+    // Drop transient-failure counters for providers that left the enabled set.
+    guard
+        .transient_provider_failure_counts
+        .retain(|id, _| enabled_ids.contains(id));
+    Ok(())
+}
+
+pub(crate) fn is_current_provider_refresh_generation(guard: &AppState, generation: u64) -> bool {
+    guard.provider_refresh_generation == generation
+}
+
 /// Core refresh logic, usable from both the Tauri command and tray menu actions.
 pub(crate) async fn do_refresh_providers(app: &tauri::AppHandle) -> Result<(), String> {
     do_refresh_providers_with_policy(app, true).await
@@ -165,11 +196,18 @@ async fn do_refresh_providers_with_policy(
 ) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
 
-    if !begin_provider_refresh(&state, force)? {
+    let Some(generation) = begin_provider_refresh(&state, force)? else {
         return Ok(());
-    }
+    };
 
     let inputs = ProviderRefreshInputs::load();
+    // Ensure cache only contains currently enabled providers for this generation.
+    if let Ok(mut guard) = state.lock()
+        && is_current_provider_refresh_generation(&guard, generation)
+    {
+        prune_provider_cache_to_enabled(&mut guard.provider_cache, &inputs.enabled_ids);
+    }
+
     events::emit_refresh_started(
         app,
         inputs
@@ -180,10 +218,10 @@ async fn do_refresh_providers_with_policy(
     );
     let enabled_count = inputs.enabled_ids.len();
 
-    let handles = spawn_provider_refreshes(app, &inputs);
+    let handles = spawn_provider_refreshes(app, &inputs, generation);
     await_provider_refreshes(handles).await;
 
-    let error_count = finish_provider_refresh(&state)?;
+    let error_count = finish_provider_refresh(&state, generation)?;
     update_tray_and_notifications(app, &state, &inputs.settings, &inputs.token_accounts)?;
 
     events::emit_refresh_complete(app, enabled_count, error_count);
@@ -195,18 +233,20 @@ async fn do_refresh_providers_with_policy(
 fn begin_provider_refresh(
     state: &tauri::State<'_, Mutex<AppState>>,
     force: bool,
-) -> Result<bool, String> {
+) -> Result<Option<u64>, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     if guard.is_refreshing {
-        return Ok(false);
+        return Ok(None);
     }
     if provider_cache_can_skip_refresh(&guard, force) {
-        return Ok(false);
+        return Ok(None);
     }
 
+    guard.provider_refresh_generation = guard.provider_refresh_generation.wrapping_add(1);
+    let generation = guard.provider_refresh_generation;
     guard.is_refreshing = true;
     guard.provider_refresh_started_at = Some(std::time::Instant::now());
-    Ok(true)
+    Ok(Some(generation))
 }
 
 fn provider_cache_can_skip_refresh(guard: &AppState, force: bool) -> bool {
@@ -247,6 +287,7 @@ impl ProviderRefreshInputs {
 fn spawn_provider_refreshes(
     app: &tauri::AppHandle,
     inputs: &ProviderRefreshInputs,
+    generation: u64,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let mut handles = Vec::with_capacity(inputs.enabled_ids.len());
     let fetch_permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES));
@@ -267,25 +308,43 @@ fn spawn_provider_refreshes(
             let Ok(_permit) = fetch_permits.acquire_owned().await else {
                 return;
             };
-            refresh_provider(app_handle, id, ctx).await;
+            refresh_provider(app_handle, id, ctx, generation).await;
         }));
     }
 
     handles
 }
 
-async fn refresh_provider(app: tauri::AppHandle, id: ProviderId, ctx: FetchContext) {
+async fn refresh_provider(
+    app: tauri::AppHandle,
+    id: ProviderId,
+    ctx: FetchContext,
+    generation: u64,
+) {
     let snapshot = fetch_provider_snapshot(id, ctx).await;
 
     let state = app.state::<Mutex<AppState>>();
-    let snapshot = if let Ok(mut guard) = state.lock() {
-        let snapshot = preserve_last_good_transient_failure(&mut guard, id, snapshot);
-        upsert_provider_cache(&mut guard.provider_cache, snapshot.clone());
-        snapshot
+    let published = if let Ok(mut guard) = state.lock() {
+        if !is_current_provider_refresh_generation(&guard, generation) {
+            tracing::debug!(
+                provider = id.cli_name(),
+                generation,
+                current = guard.provider_refresh_generation,
+                "dropping superseded provider refresh result"
+            );
+            None
+        } else {
+            let snapshot = preserve_last_good_transient_failure(&mut guard, id, snapshot);
+            upsert_provider_cache(&mut guard.provider_cache, snapshot.clone());
+            Some(snapshot)
+        }
     } else {
-        snapshot
+        None
     };
-    events::emit_provider_updated(&app, &snapshot);
+
+    if let Some(snapshot) = published {
+        events::emit_provider_updated(&app, &snapshot);
+    }
 }
 
 pub(super) fn preserve_last_good_transient_failure(
@@ -384,11 +443,30 @@ async fn await_provider_refreshes(handles: Vec<tokio::task::JoinHandle<()>>) {
     }
 }
 
-fn finish_provider_refresh(state: &tauri::State<'_, Mutex<AppState>>) -> Result<usize, String> {
+fn finish_provider_refresh(
+    state: &tauri::State<'_, Mutex<AppState>>,
+    generation: u64,
+) -> Result<usize, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
-    guard.is_refreshing = false;
-    guard.provider_cache_updated_at = Some(std::time::Instant::now());
-    guard.provider_refresh_started_at = None;
+    // Always release the refresh lock when this batch ends so a later
+    // invalidate (enablement change) cannot leave is_refreshing stuck.
+    if guard.is_refreshing
+        && (is_current_provider_refresh_generation(&guard, generation)
+            || guard.provider_refresh_started_at.is_some())
+    {
+        // Only clear the lock if we still own it or no newer refresh has begun
+        // (newer begin bumps generation AND sets is_refreshing under the same
+        // ownership — currently concurrent begin is blocked).
+        if is_current_provider_refresh_generation(&guard, generation) {
+            guard.is_refreshing = false;
+            guard.provider_refresh_started_at = None;
+            guard.provider_cache_updated_at = Some(std::time::Instant::now());
+        } else {
+            // Superseded: release lock without stamping a "fresh" cache time.
+            guard.is_refreshing = false;
+            guard.provider_refresh_started_at = None;
+        }
+    }
     Ok(guard
         .provider_cache
         .iter()

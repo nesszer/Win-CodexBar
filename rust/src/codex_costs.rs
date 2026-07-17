@@ -101,29 +101,46 @@ fn add_codex_tokens_to_summary(
         return None;
     }
 
+    let model_key = if CostUsagePricing::is_codex_unattributed_model(model) {
+        CostUsagePricing::CODEX_UNATTRIBUTED_MODEL.to_string()
+    } else {
+        model.to_string()
+    };
+
+    // Unattributed usage is visible but never priced and must not trigger a
+    // models.dev catalog refresh (it is deliberately unpriced, not "unknown yet").
+    if CostUsagePricing::is_codex_unattributed_model(&model_key) {
+        summary.input_tokens += tokens.input;
+        summary.cached_tokens += tokens.cached;
+        summary.output_tokens += tokens.output;
+        summary.by_model.entry(model_key.clone()).or_insert(0.0);
+        add_tokens(
+            summary.by_model_tokens.entry(model_key).or_default(),
+            tokens,
+        );
+        return Some(0.0);
+    }
+
     let uses_fallback_pricing =
-        CostUsagePricing::codex_cost_usd(model, tokens.input, tokens.cached, tokens.output)
+        CostUsagePricing::codex_cost_usd(&model_key, tokens.input, tokens.cached, tokens.output)
             .is_none();
-    let cost = codex_cost_usd(model, tokens.input, tokens.cached, tokens.output);
+    let cost = codex_cost_usd(&model_key, tokens.input, tokens.cached, tokens.output);
     if uses_fallback_pricing {
-        summary.unknown_models.insert(model.to_string());
+        summary.unknown_models.insert(model_key.clone());
     }
 
     summary.input_tokens += tokens.input;
     summary.cached_tokens += tokens.cached;
     summary.output_tokens += tokens.output;
-    *summary.by_model.entry(model.to_string()).or_insert(0.0) += cost;
+    *summary.by_model.entry(model_key.clone()).or_insert(0.0) += cost;
 
-    let speed_bucket = codex_speed_bucket(model);
+    let speed_bucket = codex_speed_bucket(&model_key);
     *summary
         .by_speed
         .entry(speed_bucket.to_string())
         .or_insert(0.0) += cost;
     add_tokens(
-        summary
-            .by_model_tokens
-            .entry(model.to_string())
-            .or_default(),
+        summary.by_model_tokens.entry(model_key).or_default(),
         tokens,
     );
     add_tokens(
@@ -142,6 +159,9 @@ fn codex_records_cost(records: &[CodexUsageRecord], range: &CostUsageDayRange) -
     for record in records.iter().filter(|record| {
         CostUsageDayRange::is_in_range(&record.day_key, &range.since_key, &range.until_key)
     }) {
+        if CostUsagePricing::is_codex_unattributed_model(&record.model) {
+            continue;
+        }
         let tokens = CodexTokenCounts::from_values(record.input, record.cached, record.output);
         if !tokens.is_empty() {
             total_cost += codex_cost_usd(&record.model, tokens.input, tokens.cached, tokens.output);
@@ -165,6 +185,9 @@ fn codex_speed_bucket(model: &str) -> &'static str {
 }
 
 fn codex_cost_usd(model: &str, input: u64, cached: u64, output: u64) -> f64 {
+    if CostUsagePricing::is_codex_unattributed_model(model) {
+        return 0.0;
+    }
     if let Some(cost) = CostUsagePricing::codex_cost_usd(model, input, cached, output) {
         return cost;
     }
@@ -244,6 +267,34 @@ mod tests {
         assert!(has_tokens);
         assert_eq!(summary.input_tokens, 400_000);
         assert!((cost - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn model_less_codex_usage_is_visible_but_unpriced() {
+        let target = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+        let range = CostUsageDayRange::new(target, target);
+        let records = vec![CodexUsageRecord {
+            day_key: "2026-05-31".to_string(),
+            model: CostUsagePricing::CODEX_UNATTRIBUTED_MODEL.to_string(),
+            input: 55_000_000,
+            cached: 0,
+            output: 0,
+        }];
+        let mut summary = CostSummary::default();
+
+        let (cost, has_tokens) = add_codex_records_to_summary(&mut summary, &records, &range);
+
+        assert!(has_tokens);
+        assert_eq!(cost, 0.0);
+        assert_eq!(summary.input_tokens, 55_000_000);
+        assert_eq!(
+            summary
+                .by_model
+                .get(CostUsagePricing::CODEX_UNATTRIBUTED_MODEL)
+                .copied(),
+            Some(0.0)
+        );
+        assert!(summary.unknown_models.is_empty());
     }
 
     #[test]
