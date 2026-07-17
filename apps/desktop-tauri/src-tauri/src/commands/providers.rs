@@ -424,17 +424,24 @@ fn notify_usage_thresholds(
             if snapshot.error.is_none()
                 && let Some(&provider) = cli_map.get(snapshot.provider_id.as_str())
             {
+                let token_account_id = token_accounts
+                    .get(&provider)
+                    .and_then(ProviderAccountData::active_account)
+                    .map(|account| account.id);
+                let account = quota_notification_account_identity(snapshot, token_account_id);
                 // Skip session notifications for synthetic/no-session placeholders
                 // (e.g. Claude web five_hour: null → informational 5h 0%).
                 if !snapshot.primary.is_informational {
                     guard.notification_manager.check_and_notify(
                         provider,
+                        &account,
                         "session",
                         snapshot.primary.used_percent,
                         settings,
                     );
                     guard.notification_manager.check_session_transition(
                         provider,
+                        &account,
                         snapshot.primary.used_percent,
                         settings,
                     );
@@ -444,6 +451,7 @@ fn notify_usage_thresholds(
                 {
                     guard.notification_manager.check_and_notify(
                         provider,
+                        &account,
                         "weekly",
                         weekly.used_percent,
                         settings,
@@ -459,6 +467,42 @@ fn notify_usage_thresholds(
             }
         }
     }
+}
+
+/// Stable account discriminator for threshold/session toast dedupe.
+/// Prefer token-account id, then email, org, plan; empty for single-account lanes.
+fn quota_notification_account_identity(
+    snapshot: &ProviderUsageSnapshot,
+    token_account_id: Option<uuid::Uuid>,
+) -> String {
+    if let Some(id) = token_account_id {
+        return format!("token-account:{}", id.as_hyphenated());
+    }
+    if let Some(email) = snapshot
+        .account_email
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return email.to_ascii_lowercase();
+    }
+    if let Some(org) = snapshot
+        .account_organization
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return format!("org:{}", org.to_ascii_lowercase());
+    }
+    if let Some(plan) = snapshot
+        .plan_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return format!("plan:{}", plan.to_ascii_lowercase());
+    }
+    String::new()
 }
 
 fn notify_predictive_pace(
@@ -630,5 +674,45 @@ mod predictive_warning_tests {
             predictive_warning_identity(ProviderId::Codex, "cli", Some("  "), None),
             None
         );
+    }
+
+    fn empty_snapshot() -> ProviderUsageSnapshot {
+        let metadata = codexbar::core::instantiate_provider(ProviderId::Claude)
+            .metadata()
+            .clone();
+        ProviderUsageSnapshot::from_error(ProviderId::Claude, &metadata, "unused".to_string())
+    }
+
+    #[test]
+    fn quota_notification_account_identity_prefers_token_then_email() {
+        let account_id = uuid::Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
+        let mut snapshot = empty_snapshot();
+        snapshot.account_email = Some("Person@Example.com".to_string());
+        snapshot.account_organization = Some("Acme Org".to_string());
+        snapshot.plan_name = Some("Pro".to_string());
+
+        assert_eq!(
+            quota_notification_account_identity(&snapshot, Some(account_id)),
+            "token-account:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        );
+        assert_eq!(
+            quota_notification_account_identity(&snapshot, None),
+            "person@example.com"
+        );
+
+        snapshot.account_email = None;
+        assert_eq!(
+            quota_notification_account_identity(&snapshot, None),
+            "org:acme org"
+        );
+
+        snapshot.account_organization = None;
+        assert_eq!(
+            quota_notification_account_identity(&snapshot, None),
+            "plan:pro"
+        );
+
+        snapshot.plan_name = None;
+        assert_eq!(quota_notification_account_identity(&snapshot, None), "");
     }
 }
