@@ -674,6 +674,7 @@ RefreshInterval15Min = 15分
 RefreshInterval1Hour = 1時間
 RefreshInterval30Min = 30分
 RefreshIntervalManual = 手動
+RefreshIntervalAdaptive = アダプティブ
 SavedCookiesHint = ブラウザー認証を使用するプロバイダー向けの手動 Cookie 設定です。Cookie の自動抽出を利用できない場合に使用されます。
 SettingsWindowTitle = CodexBar 設定
 StackedBarChartAriaLabel = 積み上げ棒グラフ

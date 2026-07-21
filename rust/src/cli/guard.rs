@@ -314,6 +314,7 @@ async fn fetch_guard_outcome(
         workspace_id: None,
         api_region: None,
         gateway_url: None,
+        auto_prefer_web: false,
     };
 
     match provider.fetch_usage(&ctx).await {
@@ -324,9 +325,7 @@ async fn fetch_guard_outcome(
             };
             match guard_remaining_headroom(rate_window) {
                 Some(remaining) => GuardFetchOutcome::Available(remaining),
-                None => {
-                    GuardFetchOutcome::Unavailable(GuardUnavailableReason::WindowUnavailable)
-                }
+                None => GuardFetchOutcome::Unavailable(GuardUnavailableReason::WindowUnavailable),
             }
         }
         Err(_) => GuardFetchOutcome::Unavailable(GuardUnavailableReason::FetchFailed),
@@ -514,7 +513,10 @@ mod tests {
 
     #[test]
     fn known_provider_accepted() {
-        assert_eq!(resolve_guard_provider("claude").unwrap(), ProviderId::Claude);
+        assert_eq!(
+            resolve_guard_provider("claude").unwrap(),
+            ProviderId::Claude
+        );
         assert_eq!(resolve_guard_provider("codex").unwrap(), ProviderId::Codex);
     }
 

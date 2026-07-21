@@ -40,6 +40,7 @@ import type { SettingsSnapshot } from "../../../types/bridge";
 const settings: SettingsSnapshot = {
   enabledProviders: [],
   refreshIntervalSecs: 300,
+    adaptiveRefresh: false,
   refreshAllProvidersOnMenuOpen: false,
   startAtLogin: false,
   startMinimized: false,

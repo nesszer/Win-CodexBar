@@ -652,6 +652,7 @@ BootstrapFailed = 引导失败
 LoadingShellContract = 正在加载外壳协议…
 LoadingShellContractHint = 正在等待 Rust 桥接描述服务商、界面和设置。
 RefreshIntervalManual = 手动
+RefreshIntervalAdaptive = 自适应
 RefreshInterval15Min = 15 分钟
 RefreshInterval30Min = 30 分钟
 RefreshInterval1Hour = 1 小时

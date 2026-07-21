@@ -216,6 +216,7 @@ fn build_usage_fetch_context(args: &UsageArgs, source_mode: SourceMode) -> Fetch
         workspace_id: None,
         api_region: None,
         gateway_url: None,
+        auto_prefer_web: false,
     }
 }
 
@@ -312,10 +313,7 @@ fn resolve_cli_api_key(
             find_token_account(&data, account_ref)?
         } else {
             data.active_account().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No active token account for {}",
-                    provider_id.display_name()
-                )
+                anyhow::anyhow!("No active token account for {}", provider_id.display_name())
             })?
         };
         if let Some(env) = TokenAccountSupport::env_override(provider_id, &account.token)

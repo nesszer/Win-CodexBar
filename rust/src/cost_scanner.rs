@@ -445,19 +445,50 @@ where
     };
 
     let mut counted = 0;
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
+    // Use read_until so a final incomplete line (no trailing newline) is still
+    // processed when it is valid UTF-8 JSON, and so a single bad line does not
+    // stop the walk the way `lines().map_while(Result::ok)` would.
+    for_each_jsonl_text_line(BufReader::new(file), |line| {
         if is_cancelled(cancel) {
-            break;
+            return false;
         }
-        if let Ok(event) = serde_json::from_str::<ClaudeEvent>(&line)
+        if let Ok(event) = serde_json::from_str::<ClaudeEvent>(line)
             && let Some(record) = claude_usage_record_from_event(&event)
             && should_count_claude_record(&record, cutoff, seen)
         {
             counted += 1;
             on_record(&record);
         }
-    }
+        true
+    });
     counted
+}
+
+/// Walk JSONL text lines from `reader`, including a final incomplete line at EOF.
+/// Continues past invalid UTF-8 segments. `on_line` returns `false` to stop early.
+fn for_each_jsonl_text_line<R, F>(mut reader: R, mut on_line: F)
+where
+    R: BufRead,
+    F: FnMut(&str) -> bool,
+{
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+        while matches!(buf.last(), Some(b'\n' | b'\r')) {
+            buf.pop();
+        }
+        let Ok(line) = std::str::from_utf8(&buf) else {
+            continue;
+        };
+        if !on_line(line) {
+            break;
+        }
+    }
 }
 
 fn claude_usage_record_from_event(event: &ClaudeEvent) -> Option<ClaudeUsageRecord> {
@@ -956,5 +987,23 @@ mod tests {
 
         let _ = std::fs::remove_file(&file_a);
         let _ = std::fs::remove_file(&file_b);
+    }
+
+    #[test]
+    fn claude_scan_counts_final_incomplete_jsonl_line() {
+        let path =
+            std::env::temp_dir().join(format!("codexbar-claude-tail-{}.jsonl", std::process::id()));
+        let ts = (Utc::now() - Duration::hours(1))
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        // No trailing newline — the last (only) record must still be counted.
+        let body = claude_transcript_line(&ts, "requestId", "req_tail", "msg_tail");
+        std::fs::write(&path, body.as_bytes()).unwrap();
+
+        let cutoff = Utc::now() - Duration::days(1);
+        let mut seen = HashSet::new();
+        let counted = for_each_claude_usage_record(&path, &cutoff, &mut seen, None, |_| {});
+        assert_eq!(counted, 1, "incomplete final JSONL line must be processed");
+        let _ = std::fs::remove_file(&path);
     }
 }

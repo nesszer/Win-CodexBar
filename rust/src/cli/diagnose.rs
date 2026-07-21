@@ -181,6 +181,7 @@ async fn collect_provider_diagnostic(
         gateway_url: settings
             .provider_config(provider_id)
             .and_then(|config| config.gateway_url.clone()),
+        auto_prefer_web: false,
     };
 
     let fetch_result = provider.fetch_usage(&ctx).await;

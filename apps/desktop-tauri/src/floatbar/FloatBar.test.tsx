@@ -92,6 +92,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
   return {
     enabledProviders: ["claude", "codex"],
     refreshIntervalSecs: 300,
+    adaptiveRefresh: false,
     refreshAllProvidersOnMenuOpen: false,
     startAtLogin: false,
     startMinimized: false,

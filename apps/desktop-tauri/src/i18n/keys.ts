@@ -674,6 +674,7 @@ export const ALL_LOCALE_KEYS = [
 
   // Tauri desktop shell — Refresh interval + provider display names
   "RefreshIntervalManual",
+  "RefreshIntervalAdaptive",
   "RefreshInterval15Min",
   "RefreshInterval30Min",
   "RefreshInterval1Hour",

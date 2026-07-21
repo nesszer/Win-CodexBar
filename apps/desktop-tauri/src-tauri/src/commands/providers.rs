@@ -110,6 +110,9 @@ pub(crate) fn build_fetch_context(
     let api_region = settings.api_region(id).trim().to_string();
     let gateway_url = (id == ProviderId::Wayfinder && !settings.gateway_url(id).is_empty())
         .then(|| settings.gateway_url(id).to_string());
+    // Local-first Auto providers (OpenCode Go) flip to web-first when a
+    // token account or manual cookie source scopes the session to web creds.
+    let auto_prefer_web = token_override.is_some() || cookie_source == "manual";
 
     FetchContext {
         source_mode,
@@ -118,6 +121,7 @@ pub(crate) fn build_fetch_context(
         workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
         api_region: (!api_region.is_empty()).then_some(api_region),
         gateway_url,
+        auto_prefer_web,
         ..FetchContext::default()
     }
 }

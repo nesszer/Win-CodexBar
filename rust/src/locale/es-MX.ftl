@@ -365,6 +365,11 @@ SectionSavedAccounts = Cuentas guardadas
 SectionAddAccount = Agregar cuenta
 RefreshIntervalLabel = Intervalo de actualización
 RefreshIntervalHelper = Segundos entre actualizaciones automáticas de proveedores (0 = manual).
+RefreshIntervalAdaptive = Adaptativo
+RefreshIntervalManual = Manual
+RefreshInterval15Min = 15 minutos
+RefreshInterval30Min = 30 minutos
+RefreshInterval1Hour = 1 hora
 RefreshAllProvidersOnMenuOpen = Actualizar al abrir el menú
 RefreshAllProvidersOnMenuOpenHelper = Fuerza la actualización de proveedores habilitados cada vez que se abre el menú de bandeja.
 SoundVolumeHelper = Volumen para sonidos de alerta de umbral (0–100).

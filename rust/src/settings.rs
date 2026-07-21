@@ -38,8 +38,13 @@ pub struct Settings {
     /// Enabled provider IDs (by CLI name)
     pub enabled_providers: HashSet<String>,
 
-    /// Refresh interval in seconds (0 = manual only)
+    /// Refresh interval in seconds (0 = manual only).
+    /// Ignored when [`Self::adaptive_refresh`] is true.
     pub refresh_interval_secs: u64,
+
+    /// When true, ignore the fixed interval and use adaptive refresh delays.
+    #[serde(default)]
+    pub adaptive_refresh: bool,
 
     /// Force-refresh enabled providers whenever the tray/menu surface opens.
     #[serde(default)]
@@ -372,6 +377,7 @@ impl Default for Settings {
         Self {
             enabled_providers: enabled,
             refresh_interval_secs: 300, // 5 minutes
+            adaptive_refresh: false,
             refresh_all_providers_on_menu_open: false,
             start_minimized: false,
             start_at_login: false,

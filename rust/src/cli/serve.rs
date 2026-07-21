@@ -276,6 +276,7 @@ async fn usage_response(provider: Option<&str>) -> String {
         workspace_id: None,
         api_region: None,
         gateway_url: None,
+        auto_prefer_web: false,
     };
 
     let mut results = Vec::new();
