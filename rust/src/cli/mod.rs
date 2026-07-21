@@ -13,6 +13,7 @@ pub mod autostart;
 pub mod config;
 pub mod cost;
 pub mod diagnose;
+pub mod guard;
 pub mod serve;
 pub mod sessions;
 pub mod tty_runner;
@@ -24,10 +25,15 @@ use clap::{Parser, Subcommand};
 pub mod exit_codes {
     pub const SUCCESS: i32 = 0;
     pub const UNEXPECTED_FAILURE: i32 = 1;
+    /// Guard: remaining quota below `--min-remaining` threshold.
+    pub const GUARD_BLOCKED: i32 = 1;
     pub const PROVIDER_MISSING: i32 = 2;
     pub const PARSE_ERROR: i32 = 3;
     pub const CLI_TIMEOUT: i32 = 4;
+    /// Invalid CLI arguments (`EX_USAGE`).
     pub const USAGE_ERROR: i32 = 64;
+    /// Quota could not be checked (`EX_UNAVAILABLE`); used by `codexbar guard`.
+    pub const UNAVAILABLE: i32 = 69;
 }
 
 /// CodexBar - Monitor AI provider usage limits
@@ -114,6 +120,9 @@ pub enum Commands {
 
     /// Print local token cost usage (Claude + Codex) without web/CLI access
     Cost(cost::CostArgs),
+
+    /// Gate automation on one provider's remaining quota
+    Guard(guard::GuardArgs),
 
     /// Export safe provider diagnostics as JSON
     Diagnose(diagnose::DiagnoseArgs),

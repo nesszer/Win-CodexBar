@@ -95,6 +95,7 @@ fn dispatch_command(rt: &Runtime, command: Option<Commands>) -> i32 {
     match command {
         Some(Commands::Usage(args)) => run_categorized(rt, cli::usage::run(args)),
         Some(Commands::Cost(args)) => run_categorized(rt, cli::cost::run(args)),
+        Some(Commands::Guard(args)) => rt.block_on(cli::guard::run(args)),
         Some(Commands::Diagnose(args)) => run_categorized(rt, cli::diagnose::run(args)),
         Some(Commands::Sessions(args)) => run_categorized(rt, cli::sessions::run(args)),
         Some(Commands::Serve(args)) => run_unexpected(rt, cli::serve::run(args)),
