@@ -90,6 +90,7 @@ export type ProofProviderId =
   | "codebuff"
   | "deepseek"
   | "deepinfra"
+  | "aiand"
   | "zenmux"
   | "clinepass"
   | "longcat"

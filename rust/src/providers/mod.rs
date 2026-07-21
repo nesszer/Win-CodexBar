@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 pub mod abacus;
+pub mod aiand;
 pub mod alibaba;
 pub mod alibabatokenplan;
 pub mod amp;
@@ -69,6 +70,7 @@ pub mod zenmux;
 
 // Re-export provider implementations
 pub use abacus::AbacusProvider;
+pub use aiand::AiAndProvider;
 pub use alibaba::{AlibabaProvider, AlibabaRegion};
 pub use alibabatokenplan::AlibabaTokenPlanProvider;
 pub use amp::AmpProvider;

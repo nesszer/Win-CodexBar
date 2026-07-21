@@ -38,7 +38,7 @@ import AgentSessions from "../components/AgentSessions";
 const HAS_DASHBOARD = new Set([
   "abacus", "alibaba", "alibabatokenplan", "amp", "augment",
   "azureopenai", "bedrock", "claude", "codex", "codebuff",
-  "commandcode", "copilot", "crof", "crossmodel", "cursor", "deepgram", "deepinfra", "deepseek", "zenmux", "clinepass", "longcat", "neuralwatt",
+  "aiand", "commandcode", "copilot", "crof", "crossmodel", "cursor", "deepgram", "deepinfra", "deepseek", "zenmux", "clinepass", "longcat", "neuralwatt",
   "doubao", "elevenlabs", "factory", "gemini", "grok", "groq",
   "infini", "jetbrains", "kilo", "kimi", "kimik2", "kiro", "manus",
   "mimo", "minimax", "mistral", "nanogpt", "ollama", "openaiapi",
