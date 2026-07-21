@@ -318,6 +318,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match resolve_menu_action(id) {
         Some(MenuAction::Transition(request)) => {
+            crate::auto_refresh::note_menu_open();
             match resolve_menu_transition_dispatch(id, request) {
                 // Pass None so default_surface_position can use remembered PopOut
                 // geometry first, then fall back to tray/current-monitor placement.
@@ -346,6 +347,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             // Pass None: open_or_focus falls back to the tray-anchored
             // default position (same placement chain the old TrayPanel
             // transition used) when no explicit position is given.
+            crate::auto_refresh::note_menu_open();
             let _ = shell::flyout_window::open_or_focus(app, None);
         }
         Some(MenuAction::Refresh) => {

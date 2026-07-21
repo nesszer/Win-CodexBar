@@ -636,6 +636,7 @@ BootstrapFailed = Bootstrap failed
 LoadingShellContract = Loading shell contract…
 LoadingShellContractHint = Waiting for the Rust bridge to describe providers, surfaces, and settings.
 RefreshIntervalManual = Manual
+RefreshIntervalAdaptive = Adaptive
 RefreshInterval15Min = 15 minutes
 RefreshInterval30Min = 30 minutes
 RefreshInterval1Hour = 1 hour

@@ -16,6 +16,8 @@ use super::*;
 pub(super) struct RawSettings {
     enabled_providers: HashSet<String>,
     refresh_interval_secs: u64,
+    #[serde(default)]
+    adaptive_refresh: bool,
     refresh_all_providers_on_menu_open: bool,
     start_minimized: bool,
     start_at_login: bool,
@@ -151,6 +153,7 @@ impl Default for RawSettings {
         Self {
             enabled_providers: s.enabled_providers,
             refresh_interval_secs: s.refresh_interval_secs,
+            adaptive_refresh: s.adaptive_refresh,
             refresh_all_providers_on_menu_open: s.refresh_all_providers_on_menu_open,
             start_minimized: s.start_minimized,
             start_at_login: s.start_at_login,
@@ -441,6 +444,7 @@ impl From<RawSettings> for Settings {
         Settings {
             enabled_providers: raw.enabled_providers,
             refresh_interval_secs: raw.refresh_interval_secs,
+            adaptive_refresh: raw.adaptive_refresh,
             refresh_all_providers_on_menu_open: raw.refresh_all_providers_on_menu_open,
             start_minimized: raw.start_minimized,
             start_at_login: raw.start_at_login,

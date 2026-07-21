@@ -18,6 +18,7 @@ const FALLBACK_LANGUAGE_OPTIONS: LanguageOption[] = [
 
 const REFRESH_CADENCE_OPTIONS: { value: string; labelKey: LocaleKey }[] = [
   { value: "0", labelKey: "RefreshIntervalManual" },
+  { value: "adaptive", labelKey: "RefreshIntervalAdaptive" },
   { value: "60", labelKey: "RefreshInterval1Min" },
   { value: "300", labelKey: "RefreshInterval5Min" },
   { value: "900", labelKey: "RefreshInterval15Min" },
@@ -310,13 +311,26 @@ export default function GeneralTab({
             description={t("RefreshIntervalHelper")}
           >
             <Select
-              value={String(settings.refreshIntervalSecs)}
+              value={
+                settings.adaptiveRefresh
+                  ? "adaptive"
+                  : String(settings.refreshIntervalSecs)
+              }
               disabled={saving}
               options={REFRESH_CADENCE_OPTIONS.map((o) => ({
                 value: o.value,
                 label: t(o.labelKey),
               }))}
-              onChange={(v) => set({ refreshIntervalSecs: Number(v) })}
+              onChange={(v) => {
+                if (v === "adaptive") {
+                  set({ adaptiveRefresh: true });
+                  return;
+                }
+                set({
+                  adaptiveRefresh: false,
+                  refreshIntervalSecs: Number(v),
+                });
+              }}
             />
           </Field>
           <Field

@@ -543,6 +543,10 @@ pub struct FetchContext {
 
     /// Optional provider gateway URL, used by local gateway-backed providers.
     pub gateway_url: Option<String>,
+
+    /// When true, Auto mode prefers web before local (token-account scope,
+    /// manual cookie source, etc.). Workspace overrides are checked separately.
+    pub auto_prefer_web: bool,
 }
 
 impl Default for FetchContext {
@@ -557,6 +561,7 @@ impl Default for FetchContext {
             workspace_id: None,
             api_region: None,
             gateway_url: None,
+            auto_prefer_web: false,
         }
     }
 }

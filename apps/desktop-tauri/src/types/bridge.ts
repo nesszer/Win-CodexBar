@@ -222,6 +222,7 @@ export interface SettingsSnapshot {
   enabledProviders: string[];
   providerOrder?: string[];
   refreshIntervalSecs: number;
+  adaptiveRefresh: boolean;
   refreshAllProvidersOnMenuOpen: boolean;
   startAtLogin: boolean;
   startMinimized: boolean;
@@ -287,6 +288,7 @@ export interface SettingsSnapshot {
 export interface SettingsUpdate {
   enabledProviders?: string[];
   refreshIntervalSecs?: number;
+  adaptiveRefresh?: boolean;
   refreshAllProvidersOnMenuOpen?: boolean;
   startAtLogin?: boolean;
   startMinimized?: boolean;

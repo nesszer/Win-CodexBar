@@ -1,8 +1,11 @@
 //! OpenCode Go provider implementation
 //!
 //! Separate workspace surface that shares the `opencode.ai` cookie domain with
-//! the OpenCode provider. Resolves the workspace ID, then scrapes the `/go`
-//! usage page for rolling/weekly/monthly windows.
+//! the OpenCode provider. Auto prefers local SQLite usage (upstream #2316)
+//! unless a workspace override scopes the fetch to web first; Web is cookie
+//! scrape only; Cli is local-only.
+
+mod local;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -31,9 +34,9 @@ impl OpenCodeGoProvider {
             metadata: ProviderMetadata {
                 id: ProviderId::OpenCodeGo,
                 display_name: "OpenCode Go",
-                session_label: "Rolling",
+                session_label: "5-hour",
                 weekly_label: "Weekly",
-                supports_opus: false,
+                supports_opus: true,
                 supports_credits: false,
                 default_enabled: false,
                 is_primary: false,
@@ -193,7 +196,11 @@ impl OpenCodeGoProvider {
                 // Regex path only matches direct percent field names — fraction
                 // heuristic is safe here (upstream #2331). used/limit computed
                 // percents must not use this path without a separate gate.
-                let p = if (0.0..=1.0).contains(&p) { p * 100.0 } else { p };
+                let p = if (0.0..=1.0).contains(&p) {
+                    p * 100.0
+                } else {
+                    p
+                };
                 return Some((p.clamp(0.0, 100.0), reset.max(0)));
             }
 
@@ -388,35 +395,38 @@ impl Provider for OpenCodeGoProvider {
         tracing::debug!("Fetching OpenCode Go usage");
 
         match ctx.source_mode {
-            SourceMode::Auto | SourceMode::Web => {
-                if let Some(ref cookie_header) = ctx.manual_cookie_header {
-                    return self
-                        .fetch_with_cookies(cookie_header, ctx.workspace_id.as_deref())
-                        .await;
-                }
-
-                match crate::providers::browser_cookie_header(&["opencode.ai"]) {
-                    Ok(cookie_header) => match self
-                        .fetch_with_cookies(&cookie_header, ctx.workspace_id.as_deref())
-                        .await
-                    {
+            SourceMode::Auto => {
+                // Local-first unless workspace/token scope asks for web first
+                // (manual cookie source is already mapped to Web by the shell).
+                if Self::auto_prefers_web_first(ctx) {
+                    match self.fetch_web(ctx).await {
                         Ok(result) => return Ok(result),
-                        Err(ProviderError::AuthRequired) => {}
+                        Err(e) if Self::web_error_allows_local_fallback(&e) => {
+                            tracing::debug!(
+                                "OpenCode Go web failed in scoped Auto; trying local: {e}"
+                            );
+                        }
                         Err(e) => return Err(e),
-                    },
-                    Err(ProviderError::NoCookies) => {}
-                    Err(e) => return Err(e),
+                    }
+                    return self.fetch_local();
                 }
 
-                Err(ProviderError::AuthRequired)
+                match self.fetch_local() {
+                    Ok(result) => return Ok(result),
+                    Err(e) => {
+                        tracing::debug!("OpenCode Go local failed in Auto; trying web: {e}");
+                    }
+                }
+                self.fetch_web(ctx).await
             }
-            SourceMode::Cli => Err(ProviderError::UnsupportedSource(SourceMode::Cli)),
+            SourceMode::Web => self.fetch_web(ctx).await,
+            SourceMode::Cli => self.fetch_local(),
             SourceMode::OAuth => Err(ProviderError::UnsupportedSource(SourceMode::OAuth)),
         }
     }
 
     fn available_sources(&self) -> Vec<SourceMode> {
-        vec![SourceMode::Auto, SourceMode::Web]
+        vec![SourceMode::Auto, SourceMode::Web, SourceMode::Cli]
     }
 
     fn supports_web(&self) -> bool {
@@ -424,7 +434,56 @@ impl Provider for OpenCodeGoProvider {
     }
 
     fn supports_cli(&self) -> bool {
-        false
+        true
+    }
+}
+
+impl OpenCodeGoProvider {
+    /// Auto prefers web when a workspace override or active token-account scope
+    /// is present (upstream `requiresScopedWebStrategy`).
+    fn auto_prefers_web_first(ctx: &FetchContext) -> bool {
+        if ctx
+            .workspace_id
+            .as_deref()
+            .is_some_and(|id| !id.trim().is_empty())
+        {
+            return true;
+        }
+        // Shell sets this when a token account is active for cookie/web scope.
+        ctx.auto_prefer_web
+    }
+
+    fn web_error_allows_local_fallback(err: &ProviderError) -> bool {
+        matches!(
+            err,
+            ProviderError::AuthRequired
+                | ProviderError::NoCookies
+                | ProviderError::Timeout
+                | ProviderError::Network(_)
+                | ProviderError::Parse(_)
+                | ProviderError::Other(_)
+        )
+    }
+
+    fn fetch_local(&self) -> Result<ProviderFetchResult, ProviderError> {
+        local::fetch_local_usage(Utc::now()).map(|snap| snap.to_fetch_result())
+    }
+
+    async fn fetch_web(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+        if let Some(ref cookie_header) = ctx.manual_cookie_header {
+            return self
+                .fetch_with_cookies(cookie_header, ctx.workspace_id.as_deref())
+                .await;
+        }
+
+        match crate::providers::browser_cookie_header(&["opencode.ai"]) {
+            Ok(cookie_header) => {
+                self.fetch_with_cookies(&cookie_header, ctx.workspace_id.as_deref())
+                    .await
+            }
+            Err(ProviderError::NoCookies) => Err(ProviderError::AuthRequired),
+            Err(e) => Err(e),
+        }
     }
 }
 
