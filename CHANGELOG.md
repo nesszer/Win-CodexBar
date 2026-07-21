@@ -1,5 +1,35 @@
 # Changelog
 
+## [Windows] 0.45.2 - 2026-07-21
+
+Windows port of upstream CodexBar **0.43.0 → 0.45.2** (providers, CLI, cost, and settings surfaces).
+macOS-only shell polish (menu-bar layout editor, widgets, full hooks UI chrome) remains deferred.
+
+### Added
+- Providers: ZenMux, ClinePass, LongCat, Neuralwatt, DeepInfra, and ai& (30-day spend from logs).
+- Doubao: `arkcli usage plan` path with Coding / Agent / team plan windows.
+- OpenRouter: multi-key token accounts and CLI `usage --account`.
+- OpenCode Go: local-first Auto from `opencode.db` (web-first when scoped).
+- CLI: `codexbar guard` quota automation gates; `codexbar hooks list|enable|disable|test`.
+- CLI serve: optional `--host`, `--dashboard-token` / `CODEXBAR_DASHBOARD_TOKEN`, and `--allow-plain-http` for LAN binds.
+- Settings: Usage & Spend tab (7d/30d) with sanitized PNG share-card export.
+- Settings: Adaptive refresh cadence (activity/power-aware) with Windows coding-agent process detection.
+- External hooks: opt-in `hooks.json` runner (no shell) with threshold-crossing dispatch.
+- Cost: OMP (`~/.omp`) and pi-compatible (`~/.pi`) agent session logs without double-counting.
+- Cursor: dashboard usage-events token-cost (per-model API-rate windows + metered totals).
+
+### Changed
+- Soft-remove Kimi K2 and CrossModel (deprecated labels; hidden unless already enabled; CLI still resolves).
+- Prefer active OpenRouter token-account keys over stored single API keys.
+
+### Fixed
+- Claude: prefer `weekly_all` over misleading `seven_day.utilization`; last-good CLI usage on parse fail; probe session-id reuse (#210, #216).
+- OpenCode: do not rescale sub-1% computed usage to 100% (#211, #215 / upstream #2331).
+- Cursor: map Cli to web cookie path; clamp plan usage at 100% (#212, #217 / upstream #2255).
+- Cost scanner: process incomplete final JSONL lines for Claude transcripts.
+
+---
+
 ## [Windows] 0.43.0 - 2026-07-17
 
 ### Added
