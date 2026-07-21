@@ -89,6 +89,7 @@ export type ProofProviderId =
   | "mistral"
   | "codebuff"
   | "deepseek"
+  | "deepinfra"
   | "windsurf"
   | "manus"
   | "mimo"

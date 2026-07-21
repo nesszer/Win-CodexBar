@@ -340,6 +340,7 @@ const PROVIDER_ACCOUNT_NAMES: &[(ProviderId, &str)] = &[
     (ProviderId::Bedrock, "bedrock-aws-credentials"),
     (ProviderId::Codebuff, "codebuff-api-token"),
     (ProviderId::DeepSeek, "deepseek-api-token"),
+    (ProviderId::DeepInfra, "deepinfra-api-token"),
     (ProviderId::Windsurf, "windsurf-local-cache"),
     (ProviderId::Manus, "manus-cookie"),
     (ProviderId::MiMo, "mimo-cookie"),
