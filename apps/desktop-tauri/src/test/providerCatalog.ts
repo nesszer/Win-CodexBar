@@ -33,6 +33,7 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["bedrock", "AWS Bedrock"],
   ["codebuff", "Codebuff"],
   ["deepseek", "DeepSeek"],
+  ["deepinfra", "DeepInfra"],
   ["windsurf", "Windsurf"],
   ["manus", "Manus"],
   ["mimo", "Xiaomi MiMo"],

@@ -17,6 +17,7 @@ import crof from "./icons/ProviderIcon-crof.svg?raw";
 import crossmodel from "./icons/ProviderIcon-crossmodel.svg?raw";
 import cursor from "./icons/ProviderIcon-cursor.svg?raw";
 import deepgram from "./icons/ProviderIcon-deepgram.svg?raw";
+import deepinfra from "./icons/ProviderIcon-deepinfra.svg?raw";
 import deepseek from "./icons/ProviderIcon-deepseek.svg?raw";
 import doubao from "./icons/ProviderIcon-doubao.svg?raw";
 import elevenlabs from "./icons/ProviderIcon-elevenlabs.svg?raw";
@@ -89,6 +90,7 @@ const RAW: Record<string, string> = {
   crossmodel: tint(crossmodel),
   cursor: tint(cursor),
   deepgram: tint(deepgram),
+  deepinfra: tint(deepinfra),
   deepseek: tint(deepseek),
   doubao: tint(doubao),
   elevenlabs: tint(elevenlabs),
@@ -139,6 +141,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   copilot:     { id: "copilot",     brandColor: "#a855f7", fallbackLetter: "⬡", svgPath: RAW.copilot },
   cursor:      { id: "cursor",      brandColor: "#00bfa5", fallbackLetter: "▸", svgPath: RAW.cursor },
   deepgram:    { id: "deepgram",    brandColor: "#13ef93", fallbackLetter: "D", svgPath: RAW.deepgram },
+  deepinfra:   { id: "deepinfra",   brandColor: "#2a3275", fallbackLetter: "D", svgPath: RAW.deepinfra },
   deepseek:    { id: "deepseek",    brandColor: "#527df0", fallbackLetter: "D", svgPath: RAW.deepseek },
   elevenlabs:  { id: "elevenlabs",  brandColor: "#111827", fallbackLetter: "E", svgPath: RAW.elevenlabs },
   factory:     { id: "factory",     brandColor: "#ff6b35", fallbackLetter: "◎", svgPath: RAW.factory },
@@ -211,6 +214,9 @@ const ALIASES: Record<string, string> = {
   manicode: "codebuff",
   "deep seek": "deepseek",
   "deep-seek": "deepseek",
+  "deep infra": "deepinfra",
+  "deep-infra": "deepinfra",
+  di: "deepinfra",
   codeium: "windsurf",
   "xiaomi mimo": "mimo",
   xiaomimimo: "mimo",
