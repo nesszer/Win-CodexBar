@@ -209,6 +209,16 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: false,
                 cookie_name: None,
             }),
+            ProviderId::AiAnd => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple ai& API keys.",
+                placeholder: "API key from console.aiand.com",
+                injection: TokenInjection::Environment {
+                    key: "AIAND_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
             ProviderId::ZenMux => Some(TokenAccountSupport {
                 title: "API keys",
                 subtitle: "Store multiple ZenMux Management API keys.",

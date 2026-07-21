@@ -25,11 +25,18 @@ pub(crate) fn build_provider_summaries(settings: &Settings) -> Vec<ProviderSumma
         .iter()
         .enumerate()
         .filter_map(|(idx, id)| {
-            by_id.get(id).map(|p| ProviderSummary {
-                id: id.clone(),
-                display_name: p.display_name().to_string(),
-                enabled: settings.enabled_providers.contains(id),
-                order: idx as u32,
+            by_id.get(id).and_then(|p| {
+                let enabled = settings.enabled_providers.contains(id);
+                // Soft-removed providers (upstream #2254) stay hidden unless already enabled.
+                if p.is_deprecated() && !enabled {
+                    return None;
+                }
+                Some(ProviderSummary {
+                    id: id.clone(),
+                    display_name: p.display_name().to_string(),
+                    enabled,
+                    order: idx as u32,
+                })
             })
         })
         .collect()

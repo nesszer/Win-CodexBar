@@ -311,6 +311,15 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://deepinfra.com/dash"),
         },
         ProviderConfigInfo {
+            id: ProviderId::AiAnd,
+            name: "ai&",
+            requires_api_key: true,
+            api_key_env_var: Some("AIAND_API_KEY"),
+            api_key_help: Some("Get your API key from console.aiand.com."),
+            config_file_path: None,
+            dashboard_url: Some("https://console.aiand.com"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::ZenMux,
             name: "ZenMux",
             requires_api_key: true,

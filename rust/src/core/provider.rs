@@ -46,6 +46,7 @@ pub enum ProviderId {
     Codebuff,
     DeepSeek,
     DeepInfra,
+    AiAnd,
     Windsurf,
     Manus,
     MiMo,
@@ -115,6 +116,7 @@ impl ProviderId {
             ProviderId::Codebuff,
             ProviderId::DeepSeek,
             ProviderId::DeepInfra,
+            ProviderId::AiAnd,
             ProviderId::Windsurf,
             ProviderId::Manus,
             ProviderId::MiMo,
@@ -184,6 +186,7 @@ impl ProviderId {
             ProviderId::Codebuff => "codebuff",
             ProviderId::DeepSeek => "deepseek",
             ProviderId::DeepInfra => "deepinfra",
+            ProviderId::AiAnd => "aiand",
             ProviderId::Windsurf => "windsurf",
             ProviderId::Manus => "manus",
             ProviderId::MiMo => "mimo",
@@ -232,7 +235,8 @@ impl ProviderId {
             ProviderId::Augment => "Augment",
             ProviderId::OpenCode => "OpenCode",
             ProviderId::Kimi => "Kimi",
-            ProviderId::KimiK2 => "Kimi K2",
+            // Soft-removed (upstream #2254); still resolvable via CLI for legacy configs.
+            ProviderId::KimiK2 => "Kimi K2 (removed)",
             ProviderId::Amp => "Amp",
             ProviderId::Warp => "Warp",
             ProviderId::Ollama => "Ollama",
@@ -253,6 +257,7 @@ impl ProviderId {
             ProviderId::Codebuff => "Codebuff",
             ProviderId::DeepSeek => "DeepSeek",
             ProviderId::DeepInfra => "DeepInfra",
+            ProviderId::AiAnd => "ai&",
             ProviderId::Windsurf => "Windsurf",
             ProviderId::Manus => "Manus",
             ProviderId::MiMo => "Xiaomi MiMo",
@@ -272,7 +277,8 @@ impl ProviderId {
             ProviderId::Poe => "Poe",
             ProviderId::Devin => "Devin",
             ProviderId::Zed => "Zed",
-            ProviderId::CrossModel => "CrossModel",
+            // Soft-removed (upstream #2254); still resolvable via CLI for legacy configs.
+            ProviderId::CrossModel => "CrossModel (removed)",
             ProviderId::Qoder => "Qoder",
             ProviderId::Sakana => "Sakana AI",
             ProviderId::Sub2Api => "sub2api",
@@ -334,6 +340,7 @@ impl ProviderId {
             ProviderId::Codebuff => None,
             ProviderId::DeepSeek => None,
             ProviderId::DeepInfra => None,
+            ProviderId::AiAnd => None,
             ProviderId::Windsurf => None,
             ProviderId::Doubao => None,
             ProviderId::Crof => None,
@@ -375,7 +382,9 @@ impl ProviderId {
             "augment" => Some(ProviderId::Augment),
             "opencode" => Some(ProviderId::OpenCode),
             "kimi" | "moonshot" => Some(ProviderId::Kimi),
-            "kimik2" | "kimi-k2" | "kimi k2" | "k2" => Some(ProviderId::KimiK2),
+            "kimik2" | "kimi-k2" | "kimi k2" | "k2" | "kimi k2 (removed)" => {
+                Some(ProviderId::KimiK2)
+            }
             "amp" | "sourcegraph" => Some(ProviderId::Amp),
             "warp" | "warp-ai" | "warp-terminal" => Some(ProviderId::Warp),
             "ollama" => Some(ProviderId::Ollama),
@@ -399,6 +408,7 @@ impl ProviderId {
             "codebuff" | "manicode" => Some(ProviderId::Codebuff),
             "deepseek" | "deep-seek" | "ds" => Some(ProviderId::DeepSeek),
             "deepinfra" | "deep-infra" | "di" => Some(ProviderId::DeepInfra),
+            "aiand" | "ai&" | "ai-and" | "ai and" => Some(ProviderId::AiAnd),
             "windsurf" | "codeium" => Some(ProviderId::Windsurf),
             "manus" => Some(ProviderId::Manus),
             "mimo" | "xiaomi" | "xiaomimimo" | "xiaomi-mimo" | "xiaomi mimo" => {
@@ -422,7 +432,9 @@ impl ProviderId {
             "poe" => Some(ProviderId::Poe),
             "devin" => Some(ProviderId::Devin),
             "zed" | "zed-ai" => Some(ProviderId::Zed),
-            "crossmodel" | "cross-model" | "cross model" => Some(ProviderId::CrossModel),
+            "crossmodel" | "cross-model" | "cross model" | "crossmodel (removed)" => {
+                Some(ProviderId::CrossModel)
+            }
             "qoder" => Some(ProviderId::Qoder),
             "sakana" | "sakana-ai" | "sakana ai" => Some(ProviderId::Sakana),
             "sub2api" | "sub-2-api" | "sub 2 api" => Some(ProviderId::Sub2Api),
@@ -433,6 +445,14 @@ impl ProviderId {
             "neuralwatt" | "neural-watt" | "nw" | "neural" => Some(ProviderId::Neuralwatt),
             _ => None,
         }
+    }
+
+    /// Soft-removed providers (upstream #2254: Kimi K2 + CrossModel).
+    ///
+    /// Modules and CLI resolution stay so existing configs and `--provider kimik2`
+    /// still work. Settings UI hides them unless already enabled in settings.
+    pub fn is_deprecated(&self) -> bool {
+        matches!(self, ProviderId::KimiK2 | ProviderId::CrossModel)
     }
 }
 
@@ -614,6 +634,8 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("ds", ProviderId::DeepSeek);
     map.insert("deep-infra", ProviderId::DeepInfra);
     map.insert("di", ProviderId::DeepInfra);
+    map.insert("ai&", ProviderId::AiAnd);
+    map.insert("ai-and", ProviderId::AiAnd);
     map.insert("codeium", ProviderId::Windsurf);
     map.insert("google", ProviderId::Gemini);
     map.insert("agy", ProviderId::Antigravity);
@@ -666,7 +688,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 59);
+        assert_eq!(all.len(), 64);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -682,6 +704,7 @@ mod tests {
         assert!(all.contains(&ProviderId::Codebuff));
         assert!(all.contains(&ProviderId::DeepSeek));
         assert!(all.contains(&ProviderId::DeepInfra));
+        assert!(all.contains(&ProviderId::AiAnd));
         assert!(all.contains(&ProviderId::Windsurf));
         assert!(all.contains(&ProviderId::Manus));
         assert!(all.contains(&ProviderId::MiMo));
@@ -710,6 +733,38 @@ mod tests {
         assert!(all.contains(&ProviderId::ClinePass));
         assert!(all.contains(&ProviderId::LongCat));
         assert!(all.contains(&ProviderId::Neuralwatt));
+    }
+
+    #[test]
+    fn deprecated_providers_are_kimik2_and_crossmodel() {
+        assert!(ProviderId::KimiK2.is_deprecated());
+        assert!(ProviderId::CrossModel.is_deprecated());
+        assert!(!ProviderId::Kimi.is_deprecated());
+        assert!(!ProviderId::AiAnd.is_deprecated());
+        assert!(
+            ProviderId::KimiK2
+                .display_name()
+                .contains("(removed)")
+        );
+        assert!(
+            ProviderId::CrossModel
+                .display_name()
+                .contains("(removed)")
+        );
+        assert_eq!(ProviderId::from_cli_name("kimik2"), Some(ProviderId::KimiK2));
+        assert_eq!(
+            ProviderId::from_cli_name("crossmodel"),
+            Some(ProviderId::CrossModel)
+        );
+    }
+
+    #[test]
+    fn aiand_cli_aliases_resolve() {
+        assert_eq!(ProviderId::from_cli_name("aiand"), Some(ProviderId::AiAnd));
+        assert_eq!(ProviderId::from_cli_name("ai&"), Some(ProviderId::AiAnd));
+        assert_eq!(ProviderId::from_cli_name("ai-and"), Some(ProviderId::AiAnd));
+        assert_eq!(ProviderId::AiAnd.cli_name(), "aiand");
+        assert_eq!(ProviderId::AiAnd.display_name(), "ai&");
     }
 
     #[test]

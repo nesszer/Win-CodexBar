@@ -230,6 +230,7 @@ function providerSourceHintShort(
     case "nanogpt":
     case "warp":
     case "deepinfra":
+    case "aiand":
     case "zenmux":
     case "clinepass":
     case "neuralwatt":
