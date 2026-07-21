@@ -190,8 +190,33 @@ impl OpenCodeGoProvider {
                 let reset = Self::extract_number(&reset_pattern, text)
                     .map(|n| n as i64)
                     .unwrap_or(0);
-                let p = if p <= 1.0 { p * 100.0 } else { p };
+                // Regex path only matches direct percent field names — fraction
+                // heuristic is safe here (upstream #2331). used/limit computed
+                // percents must not use this path without a separate gate.
+                let p = if (0.0..=1.0).contains(&p) { p * 100.0 } else { p };
                 return Some((p.clamp(0.0, 100.0), reset.max(0)));
+            }
+
+            // Computed used/limit (already 0..100) — do not apply fraction *100.
+            let used_pattern = format!(
+                r#"{}[^}}]*?(?:used|usage|consumed)\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)"#,
+                name
+            );
+            let limit_pattern = format!(
+                r#"{}[^}}]*?(?:limit|total|allowance)\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)"#,
+                name
+            );
+            if let (Some(used), Some(limit)) = (
+                Self::extract_number(&used_pattern, text),
+                Self::extract_number(&limit_pattern, text),
+            ) {
+                if limit > 0.0 {
+                    let reset = Self::extract_number(&reset_pattern, text)
+                        .map(|n| n as i64)
+                        .unwrap_or(0);
+                    let p = (used / limit) * 100.0;
+                    return Some((p.clamp(0.0, 100.0), reset.max(0)));
+                }
             }
         }
         None
@@ -430,6 +455,17 @@ mod tests {
     }
 
     #[test]
+    fn sub_one_percent_computed_used_limit_is_not_rescaled() {
+        let text = r#"
+            rollingUsage: { used: 1, limit: 100, resetInSec: 600 }
+            weeklyUsage: { used: 1, limit: 200, resetInSec: 86400 }
+        "#;
+        let snap = OpenCodeGoProvider::parse_usage_text(text).unwrap();
+        assert!((snap.primary.used_percent - 1.0).abs() < 0.001);
+        assert!((snap.secondary.as_ref().unwrap().used_percent - 0.5).abs() < 0.001);
+    }
+
+    #[test]
     fn parses_usage_blocks() {
         let text = r#"
             rollingUsage: { usagePercent: 42.5, resetInSec: 3600 }
@@ -439,7 +475,7 @@ mod tests {
         let snap = OpenCodeGoProvider::parse_usage_text(text).unwrap();
         assert!((snap.primary.used_percent - 42.5).abs() < 0.001);
         let secondary = snap.secondary.expect("weekly");
-        // 0.13 normalized as fraction → 13%
+        // usagePercent: 0.13 is a direct fraction → 13%
         assert!((secondary.used_percent - 13.0).abs() < 0.001);
         let tertiary = snap.tertiary.expect("monthly");
         assert!((tertiary.used_percent - 7.0).abs() < 0.001);

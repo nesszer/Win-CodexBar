@@ -29,7 +29,7 @@ const PERCENT_KEYS: &[&str] = &[
     "utilization",
     "utilizationPercent",
     "utilization_percent",
-    "usage",
+    // Note: raw "usage" is often a token count — handled via used/limit only.
 ];
 
 /// Keys to look for when parsing reset time in seconds
@@ -470,25 +470,37 @@ impl OpenCodeUsageFetcher {
 
     /// Parse a window object into (percent, reset_in_sec)
     fn parse_window(json: &serde_json::Value, _now: DateTime<Utc>) -> Option<(f64, i64)> {
-        let percent = PERCENT_KEYS
+        // Direct percent field (may be 0..1 fraction or 0..100).
+        let direct = PERCENT_KEYS
             .iter()
             .find_map(|k| json.get(k).and_then(|v| v.as_f64()));
+        let percent_is_direct = direct.is_some();
+
+        let percent = direct.or_else(|| {
+            // Computed used/limit is already 0..100 — never apply fraction rescale (#2331).
+            let used = ["used", "usage", "consumed", "count", "usedTokens"]
+                .iter()
+                .find_map(|k| json.get(*k).and_then(|v| v.as_f64()));
+            let limit = ["limit", "total", "allowance"]
+                .iter()
+                .find_map(|k| json.get(*k).and_then(|v| v.as_f64()));
+            match (used, limit) {
+                (Some(u), Some(l)) if l > 0.0 => Some((u / l) * 100.0),
+                _ => None,
+            }
+        })?;
 
         let reset_in = RESET_IN_KEYS
             .iter()
-            .find_map(|k| json.get(k).and_then(|v| v.as_i64()));
+            .find_map(|k| json.get(k).and_then(|v| v.as_i64()))
+            .unwrap_or(0);
 
-        match (percent, reset_in) {
-            (Some(p), Some(r)) => {
-                let normalized_percent = if (0.0..=1.0).contains(&p) {
-                    p * 100.0
-                } else {
-                    p.clamp(0.0, 100.0)
-                };
-                Some((normalized_percent, r.max(0)))
-            }
-            _ => None,
-        }
+        let normalized_percent = if percent_is_direct && (0.0..=1.0).contains(&percent) {
+            percent * 100.0
+        } else {
+            percent.clamp(0.0, 100.0)
+        };
+        Some((normalized_percent.clamp(0.0, 100.0), reset_in.max(0)))
     }
 
     fn find_datetime(json: &serde_json::Value, keys: &[&str]) -> Option<DateTime<Utc>> {

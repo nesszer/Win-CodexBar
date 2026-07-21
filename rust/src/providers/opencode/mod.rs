@@ -345,7 +345,10 @@ impl OpenCodeProvider {
     }
 
     fn window_percent(obj: &Value) -> Option<f64> {
-        let percent_keys = [
+        // Direct percent fields may arrive as 0..1 fractions or 0..100 percents.
+        // Upstream #2331: only apply the *100 heuristic to *direct* fields — never to
+        // a computed used/limit ratio (already 0..100; e.g. used=1, limit=100 → 1.0).
+        const DIRECT_PERCENT_KEYS: &[&str] = &[
             "usagePercent",
             "usedPercent",
             "percentUsed",
@@ -356,25 +359,35 @@ impl OpenCodeProvider {
             "utilization",
             "utilizationPercent",
             "utilization_percent",
-            "usage",
             "value",
         ];
 
-        Self::first_f64(obj, &percent_keys)
-            .map(|val| if val <= 1.0 { val * 100.0 } else { val })
-            .or_else(|| Self::percent_from_used_limit(obj))
+        if let Some(val) = Self::first_f64(obj, DIRECT_PERCENT_KEYS) {
+            let scaled = if (0.0..=1.0).contains(&val) {
+                val * 100.0
+            } else {
+                val
+            };
+            return Some(scaled);
+        }
+        Self::percent_from_used_limit(obj)
     }
 
     fn percent_from_used_limit(obj: &Value) -> Option<f64> {
         let used = obj
             .get("used")
             .or(obj.get("usage"))
+            .or(obj.get("consumed"))
+            .or(obj.get("count"))
+            .or(obj.get("usedTokens"))
             .and_then(|v| v.as_f64());
         let limit = obj
             .get("limit")
             .or(obj.get("total"))
+            .or(obj.get("allowance"))
             .and_then(|v| v.as_f64());
         match (used, limit) {
+            // Already 0..100 — do not run the direct-fraction *100 heuristic.
             (Some(used), Some(limit)) if limit > 0.0 => Some((used / limit) * 100.0),
             _ => None,
         }
@@ -718,6 +731,39 @@ mod tests {
         assert!((snap.primary.used_percent - 11.0).abs() < f64::EPSILON);
         // 0.25 fraction scales to 25%
         assert!((snap.secondary.as_ref().unwrap().used_percent - 25.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn sub_one_percent_computed_used_limit_is_not_rescaled_to_100() {
+        // Upstream #2331: used=1, limit=100 → 1%, not 100% (false exhausted).
+        let provider = OpenCodeProvider::new();
+        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
+        let payload = serde_json::json!({
+            "rollingUsage": { "used": 1, "limit": 100, "resetInSec": 600 },
+            "weeklyUsage": { "used": 1, "limit": 200, "resetInSec": 86400 }
+        });
+        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
+        assert!(
+            (snap.primary.used_percent - 1.0).abs() < 0.001,
+            "primary {}",
+            snap.primary.used_percent
+        );
+        assert!(
+            (snap.secondary.as_ref().unwrap().used_percent - 0.5).abs() < 0.001,
+            "secondary {}",
+            snap.secondary.as_ref().unwrap().used_percent
+        );
+    }
+
+    #[test]
+    fn direct_fractional_usage_percent_still_scales() {
+        let provider = OpenCodeProvider::new();
+        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
+        let payload = serde_json::json!({
+            "rollingUsage": { "usagePercent": 0.25, "resetInSec": 600 }
+        });
+        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
+        assert!((snap.primary.used_percent - 25.0).abs() < 0.001);
     }
 
     #[test]
