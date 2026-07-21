@@ -4,9 +4,10 @@ use clap::Args;
 use serde::Serialize;
 
 use crate::core::{
-    CostSnapshot, FetchContext, ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsagePace,
-    UsageSnapshot, instantiate_provider,
+    CostSnapshot, FetchContext, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    TokenAccountStore, TokenAccountSupport, UsagePace, UsageSnapshot, instantiate_provider,
 };
+use crate::settings::ApiKeys;
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel, fetch_provider_status};
 
 pub const PROVIDER_ARG_HELP: &str = "Provider to query (for example: codex, claude, gemini, antigravity/agy, nanogpt, deepseek, codebuff, windsurf, all, both)";
@@ -44,6 +45,10 @@ pub struct UsageArgs {
     /// Fetch all token accounts where supported
     #[arg(long = "all-accounts")]
     pub all_accounts: bool,
+
+    /// Token-account label or 1-based index (requires a single provider)
+    #[arg(long = "account")]
+    pub account: Option<String>,
 
     /// Data source: auto, oauth, web, cli
     #[arg(long, default_value = "auto", value_parser = ["auto", "web", "cli", "oauth"])]
@@ -155,6 +160,8 @@ struct UsageCommand {
     brief: bool,
     fetch_status: bool,
     pretty: bool,
+    /// Optional token-account label/index for a single-provider fetch.
+    account: Option<String>,
     ctx: FetchContext,
 }
 
@@ -163,6 +170,9 @@ impl UsageCommand {
         let format = effective_format(&args);
         let source_mode = SourceMode::parse(&args.source).unwrap_or(SourceMode::Auto);
         let providers = ProviderSelection::from_arg(args.provider.as_deref())?.as_list();
+        if args.account.is_some() && providers.len() != 1 {
+            anyhow::bail!("--account requires a single --provider (not all/both)");
+        }
 
         Ok(Self {
             format,
@@ -171,6 +181,7 @@ impl UsageCommand {
             brief: args.brief,
             fetch_status: args.status,
             pretty: args.pretty,
+            account: args.account.clone(),
             ctx: build_usage_fetch_context(&args, source_mode),
         })
     }
@@ -272,13 +283,74 @@ async fn fetch_provider_result(
     let status_future = command
         .fetch_status
         .then(|| fetch_provider_status(provider_id.cli_name()));
-    let result = provider.fetch_usage(&command.ctx).await?;
+    let mut ctx = command.ctx.clone();
+    if ctx.api_key.is_none() {
+        ctx.api_key = resolve_cli_api_key(provider_id, command.account.as_deref())?;
+    }
+    let result = provider.fetch_usage(&ctx).await?;
     let status = if let Some(fut) = status_future {
         fut.await
     } else {
         None
     };
     Ok((result, status))
+}
+
+/// Resolve an API key from token accounts (active or `--account`) then stored keys.
+///
+/// Token-account env injection takes precedence over `api_keys.json` so multi-key
+/// providers (OpenRouter, z.ai, ...) honor the selected labeled account.
+fn resolve_cli_api_key(
+    provider_id: ProviderId,
+    account_ref: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    if TokenAccountSupport::is_supported(provider_id)
+        && let Ok(data) = TokenAccountStore::new().load_provider(provider_id)
+        && !data.accounts.is_empty()
+    {
+        let account = if let Some(account_ref) = account_ref {
+            find_token_account(&data, account_ref)?
+        } else {
+            data.active_account().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No active token account for {}",
+                    provider_id.display_name()
+                )
+            })?
+        };
+        if let Some(env) = TokenAccountSupport::env_override(provider_id, &account.token)
+            && let Some(key) = env.into_values().next()
+        {
+            return Ok(Some(key));
+        }
+    }
+
+    Ok(ApiKeys::load()
+        .get(provider_id.cli_name())
+        .map(|s| s.to_string()))
+}
+
+fn find_token_account<'a>(
+    data: &'a crate::core::ProviderAccountData,
+    account_ref: &str,
+) -> anyhow::Result<&'a crate::core::TokenAccount> {
+    if let Ok(idx) = account_ref.parse::<usize>()
+        && idx > 0
+        && idx <= data.accounts.len()
+    {
+        return Ok(&data.accounts[idx - 1]);
+    }
+    if let Some(account) = data
+        .accounts
+        .iter()
+        .find(|a| a.label.eq_ignore_ascii_case(account_ref))
+    {
+        return Ok(account);
+    }
+    anyhow::bail!(
+        "Account '{}' not found. Use 'codexbar account list <provider>' to see accounts.",
+        account_ref
+    )
 }
 
 fn render_text_error(provider_id: ProviderId, error_msg: &str, use_color: bool) -> String {
@@ -573,9 +645,28 @@ fn render_progress_bar(percent: f64, width: usize, use_color: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{ProviderAccountData, TokenAccount, TokenAccountSupport};
 
     fn fetch_result(usage: UsageSnapshot) -> ProviderFetchResult {
         ProviderFetchResult::new(usage, "test")
+    }
+
+    #[test]
+    fn openrouter_account_ref_resolves_labeled_key() {
+        let mut data = ProviderAccountData::new();
+        data.add_account(TokenAccount::new("Personal", "sk-or-v1-personal"));
+        data.add_account(TokenAccount::new("Work", "sk-or-v1-work"));
+        data.set_active(0);
+
+        let work = find_token_account(&data, "Work").unwrap();
+        let env = TokenAccountSupport::env_override(ProviderId::OpenRouter, &work.token).unwrap();
+        assert_eq!(
+            env.get("OPENROUTER_API_KEY").map(String::as_str),
+            Some("sk-or-v1-work")
+        );
+
+        let by_index = find_token_account(&data, "2").unwrap();
+        assert_eq!(by_index.token, "sk-or-v1-work");
     }
 
     #[test]
