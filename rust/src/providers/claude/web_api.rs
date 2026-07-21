@@ -319,10 +319,13 @@ impl ClaudeWebApiFetcher {
             .map(|w| self.to_rate_window(w, Some(300))) // 5 hours = 300 minutes
             .unwrap_or_else(synthetic_no_session_primary);
 
-        let secondary = usage
-            .seven_day
-            .as_ref()
-            .map(|w| self.to_rate_window(w, Some(10080))); // 7 days = 10080 minutes
+        // Prefer limits[] weekly_all over legacy seven_day (same as OAuth path).
+        let secondary = super::scoped_weekly::weekly_all_window(&usage.limits).or_else(|| {
+            usage
+                .seven_day
+                .as_ref()
+                .map(|w| self.to_rate_window(w, Some(10080))) // 7 days = 10080 minutes
+        });
 
         let model_specific = usage
             .seven_day_opus
@@ -362,10 +365,10 @@ impl ClaudeWebApiFetcher {
                     .extra_rate_windows
                     .push(NamedRateWindow::new(id, title, window));
             }
-            snapshot
-                .extra_rate_windows
-                .extend(super::scoped_weekly::scoped_weekly_windows(&usage.limits));
         }
+        snapshot
+            .extra_rate_windows
+            .extend(super::scoped_weekly::scoped_weekly_windows(&usage.limits));
 
         if let Some(ref acc) = account {
             if let Some(ref email) = acc.email_address {

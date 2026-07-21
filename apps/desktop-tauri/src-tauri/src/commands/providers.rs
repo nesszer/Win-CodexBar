@@ -33,7 +33,7 @@ pub(crate) fn build_fetch_context(
     let has_kimi_code_api_key =
         id == ProviderId::Kimi && api_key.as_deref().is_some_and(|key| !key.trim().is_empty());
 
-    let (source_mode, cookie_header) = if id.cookie_domain().is_none() {
+    let (mut source_mode, mut cookie_header) = if id.cookie_domain().is_none() {
         let source_mode = if active_token_env.is_some() {
             SourceMode::OAuth
         } else {
@@ -82,6 +82,28 @@ pub(crate) fn build_fetch_context(
             _ => (usage_source, stored_cookie),
         }
     };
+
+    // Cookie-web providers (Cursor, OpenCode, …) reject SourceMode::Cli. The shell
+    // historically mapped "manual + no cookie" to Cli, which surfaces as
+    // "Source mode 'Cli' not supported". Remap to Web and try browser cookies
+    // unless the user explicitly disabled cookies ("off").
+    if source_mode == SourceMode::Cli
+        && cookie_source != "off"
+        && !instantiate_provider(id).supports_cli()
+    {
+        if cookie_header
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(|s| s.is_empty())
+        {
+            cookie_header = provider_cookie_domain(id, settings).and_then(|domain| {
+                codexbar::browser::cookies::get_cookie_header(domain)
+                    .ok()
+                    .filter(|h| !h.is_empty())
+            });
+        }
+        source_mode = SourceMode::Web;
+    }
 
     let workspace_id = settings.workspace_id(id).trim().to_string();
     let api_region = settings.api_region(id).trim().to_string();

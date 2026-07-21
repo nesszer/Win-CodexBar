@@ -54,11 +54,7 @@ pub(super) fn scoped_weekly_windows(limits: &[ScopedWeeklyLimit]) -> Vec<NamedRa
             if slug.is_empty() || !seen.insert(slug.clone()) {
                 return None;
             }
-            let resets_at = limit
-                .resets_at
-                .as_deref()
-                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-                .map(|value| value.with_timezone(&Utc));
+            let resets_at = limit_resets_at(limit);
             Some(NamedRateWindow::new(
                 format!("claude-weekly-scoped-{slug}"),
                 format!("{title} only"),
@@ -66,6 +62,38 @@ pub(super) fn scoped_weekly_windows(limits: &[ScopedWeeklyLimit]) -> Vec<NamedRa
             ))
         })
         .collect()
+}
+
+/// All-models weekly window from `limits[]` (`kind == "weekly_all"`).
+///
+/// Prefer this over legacy `seven_day.utilization` when Anthropic migrates
+/// weekly totals into the limits array (avoids phantom 100% from stale fields).
+pub(super) fn weekly_all_window(limits: &[ScopedWeeklyLimit]) -> Option<RateWindow> {
+    limits.iter().find_map(|limit| {
+        let kind = limit.kind.as_deref()?;
+        if !matches!(kind, "weekly_all" | "all_models" | "weekly_models") {
+            return None;
+        }
+        if limit.group.as_deref().is_some_and(|g| g != "weekly") {
+            return None;
+        }
+        let percent = limit.percent.filter(|value| value.is_finite())?;
+        let resets_at = limit_resets_at(limit);
+        Some(RateWindow::with_details(
+            percent.clamp(0.0, 100.0),
+            Some(7 * 24 * 60),
+            resets_at,
+            None,
+        ))
+    })
+}
+
+fn limit_resets_at(limit: &ScopedWeeklyLimit) -> Option<DateTime<Utc>> {
+    limit
+        .resets_at
+        .as_deref()
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc))
 }
 
 #[cfg(test)]
@@ -101,5 +129,25 @@ mod tests {
         .unwrap();
 
         assert!(scoped_weekly_windows(&limits).is_empty());
+    }
+
+    #[test]
+    fn weekly_all_prefers_limits_percent_over_stale_seven_day() {
+        let limits: Vec<ScopedWeeklyLimit> = serde_json::from_str(
+            r#"[
+                {"kind":"weekly_all","group":"weekly","percent":1,"resets_at":"2026-07-26T22:59:59Z"},
+                {"kind":"weekly_scoped","group":"weekly","percent":2,"scope":{"model":{"display_name":"Fable"}}}
+            ]"#,
+        )
+        .unwrap();
+
+        let weekly = weekly_all_window(&limits).expect("weekly_all");
+        assert!((weekly.used_percent - 1.0).abs() < f64::EPSILON);
+        assert_eq!(weekly.window_minutes, Some(7 * 24 * 60));
+        assert!(weekly.resets_at.is_some());
+
+        let scoped = scoped_weekly_windows(&limits);
+        assert_eq!(scoped.len(), 1);
+        assert!((scoped[0].window.used_percent - 2.0).abs() < f64::EPSILON);
     }
 }

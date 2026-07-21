@@ -362,12 +362,16 @@ impl ClaudeOAuthFetcher {
 
         let mut usage = UsageSnapshot::new(primary);
 
-        // Secondary: 7-day window
-        if let Some(weekly) = response
-            .seven_day
-            .as_ref()
-            .and_then(|w| Self::to_rate_window(w, Some(10080)))
-        {
+        // Secondary: prefer limits[] weekly_all over legacy seven_day (avoids
+        // phantom 100% when Anthropic leaves seven_day.utilization stale).
+        if let Some(weekly) = super::scoped_weekly::weekly_all_window(&response.limits).or_else(
+            || {
+                response
+                    .seven_day
+                    .as_ref()
+                    .and_then(|w| Self::to_rate_window(w, Some(10080)))
+            },
+        ) {
             usage = usage.with_secondary(weekly);
         }
 
@@ -386,26 +390,18 @@ impl ClaudeOAuthFetcher {
             usage = usage.with_model_specific(sonnet);
         }
 
-        let extra_windows = [(
-            "claude-routines",
-            "Daily Routines",
-            response
-                .seven_day_routines
-                .as_ref()
-                .and_then(|w| Self::to_rate_window(w, Some(10080))),
-        )];
-        for (id, title, window) in extra_windows {
-            if let Some(window) = window {
-                usage
-                    .extra_rate_windows
-                    .push(NamedRateWindow::new(id, title, window));
-            }
+        if let Some(window) = response
+            .seven_day_routines
+            .as_ref()
+            .and_then(|w| Self::to_rate_window(w, Some(10080)))
+        {
             usage
                 .extra_rate_windows
-                .extend(super::scoped_weekly::scoped_weekly_windows(
-                    &response.limits,
-                ));
+                .push(NamedRateWindow::new("claude-routines", "Daily Routines", window));
         }
+        usage
+            .extra_rate_windows
+            .extend(super::scoped_weekly::scoped_weekly_windows(&response.limits));
 
         // Login method from rate limit tier or default
         if let Some(ref tier) = credentials.rate_limit_tier {
@@ -538,6 +534,53 @@ mod tests {
             .expect("Fable scoped weekly limit");
         assert_eq!(scoped.title, "Fable only");
         assert_eq!(scoped.window.used_percent, 7.0);
+    }
+
+    #[test]
+    fn weekly_all_limit_wins_over_stale_seven_day_utilization() {
+        let response: OAuthUsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": {"utilization": 8.0, "resets_at": "2026-07-20T04:29:59Z"},
+                "seven_day": {"utilization": 1.0, "resets_at": "2026-07-26T22:59:59Z"},
+                "limits": [
+                    {
+                        "kind": "weekly_all",
+                        "group": "weekly",
+                        "percent": 1,
+                        "resets_at": "2026-07-26T22:59:59Z"
+                    },
+                    {
+                        "kind": "weekly_scoped",
+                        "group": "weekly",
+                        "percent": 2,
+                        "resets_at": "2026-07-26T22:59:59Z",
+                        "scope": {"model": {"display_name": "Fable"}}
+                    }
+                ]
+            }"#,
+        )
+        .expect("oauth body with weekly_all");
+
+        let credentials = ClaudeOAuthCredentials {
+            access_token: "token".to_string(),
+            refresh_token: None,
+            expires_at: None,
+            scopes: vec![],
+            rate_limit_tier: Some("default_claude_max_5x".to_string()),
+        };
+        let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+
+        assert!((usage.primary.used_percent - 8.0).abs() < f64::EPSILON);
+        // seven_day.utilization 1.0 would normalize to 100%; weekly_all wins.
+        assert!((usage.secondary.expect("weekly").used_percent - 1.0).abs() < f64::EPSILON);
+        assert_eq!(
+            usage
+                .extra_rate_windows
+                .iter()
+                .filter(|w| w.id.starts_with("claude-weekly-scoped-"))
+                .count(),
+            1
+        );
     }
 
     #[test]

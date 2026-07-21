@@ -293,8 +293,47 @@ fn fetch_context_defaults_to_manual_cookies_without_browser_import() {
         &token_accounts,
     );
 
+    // Cursor does not support Cli; empty manual cookie remaps to Web (browser attempt).
+    assert_eq!(ctx.source_mode, SourceMode::Web);
+}
+
+#[test]
+fn fetch_context_cursor_cookie_off_stays_cli() {
+    let mut settings = Settings::default();
+    settings.set_cookie_source(ProviderId::Cursor, "off");
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::Cursor,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    // Explicit cookie-off keeps Cli (no browser scrape).
     assert_eq!(ctx.source_mode, SourceMode::Cli);
     assert!(ctx.manual_cookie_header.is_none());
+}
+
+#[test]
+fn fetch_context_opencode_empty_manual_remaps_to_web() {
+    let settings = Settings::default();
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::OpenCode,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Web);
 }
 
 #[test]

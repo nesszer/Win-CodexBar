@@ -187,10 +187,27 @@ impl OpenCodeProvider {
 
         // Fall back to regex-based parsing. Require at least one window —
         // plans may omit rolling or weekly without being unparseable.
-        let rolling = self.extract_usage_regex(text, "rollingUsage").ok();
-        let weekly = self.extract_usage_regex(text, "weeklyUsage").ok();
+        let rolling = self
+            .extract_usage_regex(text, "rollingUsage")
+            .or_else(|_| self.extract_usage_regex(text, "fiveHourUsage"))
+            .or_else(|_| self.extract_usage_regex(text, "sessionUsage"))
+            .ok();
+        let weekly = self
+            .extract_usage_regex(text, "weeklyUsage")
+            .or_else(|_| self.extract_usage_regex(text, "weekUsage"))
+            .or_else(|_| self.extract_usage_regex(text, "sevenDayUsage"))
+            .ok();
         self.snapshot_from_windows(rolling, weekly, now, self.extract_renewal_regex(text))
             .ok_or_else(|| {
+                let has_usage_hint = text.contains("usagePercent")
+                    || text.contains("usedPercent")
+                    || text.contains("rolling")
+                    || text.contains("weekly");
+                tracing::debug!(
+                    body_len = text.len(),
+                    has_usage_hint,
+                    "OpenCode subscription body missing rolling/weekly usage windows"
+                );
                 ProviderError::Parse("Missing usage percent (rolling or weekly)".into())
             })
     }
@@ -243,12 +260,45 @@ impl OpenCodeProvider {
 
     /// Parse usage from JSON response
     fn parse_usage_json(&self, json: &Value, now: DateTime<Utc>) -> Option<UsageSnapshot> {
-        let renews_at = self.find_datetime(json, &["renewAt", "renew_at"]);
+        // Prefer nested billing/subscription/data roots when present.
+        for root_key in ["data", "subscription", "billing", "result", "payload"] {
+            if let Some(nested) = json.get(root_key)
+                && let Some(snapshot) = self.parse_usage_json(nested, now)
+            {
+                return Some(snapshot);
+            }
+        }
 
-        let rolling =
-            self.find_usage_window(json, &["rollingUsage", "rolling", "rolling_usage"]);
-        let weekly =
-            self.find_usage_window(json, &["weeklyUsage", "weekly", "weekly_usage"]);
+        let renews_at = self.find_datetime(json, &["renewAt", "renew_at", "renewsAt"]);
+
+        let rolling = self.find_usage_window(
+            json,
+            &[
+                "rollingUsage",
+                "rolling",
+                "rolling_usage",
+                "fiveHourUsage",
+                "five_hour",
+                "fiveHour",
+                "sessionUsage",
+                "session",
+                "rateLimit5h",
+                "rate_limit_5h",
+            ],
+        );
+        let weekly = self.find_usage_window(
+            json,
+            &[
+                "weeklyUsage",
+                "weekly",
+                "weekly_usage",
+                "weekUsage",
+                "sevenDayUsage",
+                "seven_day",
+                "rateLimitWeekly",
+                "rate_limit_weekly",
+            ],
+        );
 
         self.snapshot_from_windows(rolling, weekly, now, renews_at)
     }
@@ -263,9 +313,16 @@ impl OpenCodeProvider {
             }
         }
 
-        // Try nested search
+        // Try nested search (depth-limited by recursion over objects only).
         if let Some(obj) = json.as_object() {
-            for (_, value) in obj {
+            for (child_key, value) in obj {
+                // Skip huge unrelated trees that often appear next to usage.
+                if matches!(
+                    child_key.as_str(),
+                    "history" | "invoices" | "members" | "logs" | "events"
+                ) {
+                    continue;
+                }
                 if let Some(window) = self.find_usage_window(value, keys) {
                     return Some(window);
                 }
@@ -277,6 +334,11 @@ impl OpenCodeProvider {
 
     /// Parse a usage window object
     fn parse_window(&self, obj: &Value) -> Option<(f64, i64)> {
+        // Bare number: treat as percent used (0–1 fractions scaled).
+        if let Some(n) = obj.as_f64() {
+            let percent = if n <= 1.0 { n * 100.0 } else { n };
+            return Some((percent.clamp(0.0, 100.0), 0));
+        }
         let percent = Self::window_percent(obj)?;
         let reset_sec = Self::window_reset_seconds(obj).unwrap_or(0);
         Some((percent.clamp(0.0, 100.0), reset_sec.max(0)))
@@ -288,12 +350,14 @@ impl OpenCodeProvider {
             "usedPercent",
             "percentUsed",
             "percent",
+            "pct",
             "usage_percent",
             "used_percent",
             "utilization",
             "utilizationPercent",
             "utilization_percent",
             "usage",
+            "value",
         ];
 
         Self::first_f64(obj, &percent_keys)
@@ -619,5 +683,40 @@ mod tests {
         let text = r#"weeklyUsage: { usagePercent: 55, resetInSec: 99 } not-json"#;
         let snap = provider.parse_subscription(text).expect("snapshot");
         assert!((snap.primary.used_percent - 55.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parses_nested_data_subscription_shape() {
+        let provider = OpenCodeProvider::new();
+        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
+        let payload = serde_json::json!({
+            "data": {
+                "subscription": {
+                    "rollingUsage": { "usedPercent": 18.5, "resetInSeconds": 1200 },
+                    "weeklyUsage": { "percentUsed": 42, "resetsInSec": 86400 }
+                }
+            }
+        });
+        let snap = provider
+            .parse_usage_json(&payload, now)
+            .expect("nested snapshot");
+        assert!((snap.primary.used_percent - 18.5).abs() < f64::EPSILON);
+        assert!((snap.secondary.as_ref().unwrap().used_percent - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parses_five_hour_and_week_aliases() {
+        let provider = OpenCodeProvider::new();
+        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
+        let payload = serde_json::json!({
+            "fiveHourUsage": { "pct": 11, "resetInSec": 300 },
+            "weekUsage": { "value": 0.25, "resetInSec": 7200 }
+        });
+        let snap = provider
+            .parse_usage_json(&payload, now)
+            .expect("alias snapshot");
+        assert!((snap.primary.used_percent - 11.0).abs() < f64::EPSILON);
+        // 0.25 fraction scales to 25%
+        assert!((snap.secondary.as_ref().unwrap().used_percent - 25.0).abs() < f64::EPSILON);
     }
 }
