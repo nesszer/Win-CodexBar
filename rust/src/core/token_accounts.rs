@@ -199,6 +199,16 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: false,
                 cookie_name: None,
             }),
+            ProviderId::DeepInfra => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple DeepInfra API keys.",
+                placeholder: "API key from deepinfra.com/dash",
+                injection: TokenInjection::Environment {
+                    key: "DEEPINFRA_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
             ProviderId::Copilot => Some(TokenAccountSupport {
                 title: "GitHub accounts",
                 subtitle: "Store GitHub OAuth tokens for Copilot plan usage.",

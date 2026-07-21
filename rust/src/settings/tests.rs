@@ -374,6 +374,7 @@ fn test_api_key_provider_catalog_includes_token_providers() {
         ProviderId::Bedrock,
         ProviderId::Codebuff,
         ProviderId::DeepSeek,
+        ProviderId::DeepInfra,
         ProviderId::ElevenLabs,
         ProviderId::Deepgram,
         ProviderId::Grok,
