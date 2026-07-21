@@ -114,7 +114,7 @@ fn release_url(channel: UpdateChannel) -> String {
 }
 
 fn update_client() -> Option<reqwest::Client> {
-    reqwest::Client::builder()
+    crate::core::apply_app_proxy(reqwest::Client::builder())
         .user_agent("CodexBar")
         .build()
         .ok()
@@ -303,7 +303,7 @@ fn expected_update_sha256(update_info: &UpdateInfo) -> Result<&str, String> {
 }
 
 fn update_http_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+    crate::core::apply_app_proxy(reqwest::Client::builder())
         .user_agent("CodexBar")
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))

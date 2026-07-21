@@ -256,6 +256,11 @@ export interface SettingsSnapshot {
   agentSessionSshHosts?: string[];
   /** Master switch for external hooks (hooks.json next to settings). */
   hooksEnabled?: boolean;
+  /** Route provider HTTPS through a user HTTP(S) proxy (#235). */
+  httpProxyEnabled?: boolean;
+  httpProxyUrl?: string;
+  httpProxyUsername?: string;
+  httpProxyPassword?: string;
   uiLanguage: Language;
   theme: ThemePreference;
   /** 100..=250 — clamped server-side. */
@@ -322,6 +327,10 @@ export interface SettingsUpdate {
   agentSessionsEnabled?: boolean;
   agentSessionSshHosts?: string[];
   hooksEnabled?: boolean;
+  httpProxyEnabled?: boolean;
+  httpProxyUrl?: string;
+  httpProxyUsername?: string;
+  httpProxyPassword?: string;
   uiLanguage?: Language;
   theme?: ThemePreference;
   windowScalePercent?: number;

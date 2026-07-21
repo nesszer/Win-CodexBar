@@ -164,6 +164,22 @@ pub struct Settings {
     #[serde(default)]
     pub hooks_enabled: bool,
 
+    /// Route provider/app HTTPS through a user-configured HTTP(S) proxy (#235).
+    #[serde(default)]
+    pub http_proxy_enabled: bool,
+
+    /// Proxy base URL, e.g. `http://127.0.0.1:7890`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub http_proxy_url: String,
+
+    /// Optional proxy basic-auth username.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub http_proxy_username: String,
+
+    /// Optional proxy basic-auth password (stored in local settings.json).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub http_proxy_password: String,
+
     /// Automatically download updates in the background
     #[serde(default)]
     pub auto_download_updates: bool,
@@ -410,6 +426,10 @@ impl Default for Settings {
             agent_sessions_enabled: false,
             agent_session_ssh_hosts: Vec::new(),
             hooks_enabled: false,
+            http_proxy_enabled: false,
+            http_proxy_url: String::new(),
+            http_proxy_username: String::new(),
+            http_proxy_password: String::new(),
             auto_download_updates: false, // Require explicit opt-in for background downloads
             install_updates_on_quit: false, // Don't auto-install on quit by default
             ui_language: Language::default(), // English by default

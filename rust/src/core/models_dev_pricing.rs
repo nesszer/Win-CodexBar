@@ -792,7 +792,7 @@ async fn refresh_unknown_models_at(
 }
 
 async fn refresh_catalog(now: SystemTime, cache_root: Option<&Path>) -> bool {
-    let Ok(client) = reqwest::Client::builder()
+    let Ok(client) = crate::core::apply_app_proxy(reqwest::Client::builder())
         .timeout(Duration::from_secs(20))
         .build()
     else {
