@@ -143,21 +143,23 @@ impl CursorApi {
                         .or_else(|| plan.breakdown.as_ref().and_then(|b| b.total))
                         .unwrap_or(0) as f64;
 
+                    // Upstream #2255: clamp plan usage at 100% when included usage
+                    // exceeds the plan limit (overage must not paint >100% bars).
                     let percent = if let Some(percent) = plan.total_percent_used {
-                        percent
+                        clamp_percent(percent)
                     } else if limit_cents > 0.0 {
-                        (used_cents / limit_cents) * 100.0
+                        clamp_percent((used_cents / limit_cents) * 100.0)
                     } else {
                         0.0
                     };
 
-                    let secondary = plan
-                        .auto_percent_used
-                        .map(|v| RateWindow::with_details(v, None, billing_end, None));
+                    let secondary = plan.auto_percent_used.map(|v| {
+                        RateWindow::with_details(clamp_percent(v), None, billing_end, None)
+                    });
 
-                    let model_specific = plan
-                        .api_percent_used
-                        .map(|v| RateWindow::with_details(v, None, billing_end, None));
+                    let model_specific = plan.api_percent_used.map(|v| {
+                        RateWindow::with_details(clamp_percent(v), None, billing_end, None)
+                    });
 
                     let cost = Self::on_demand_cost(individual.on_demand.as_ref(), billing_end)
                         .or_else(|| {
@@ -264,8 +266,15 @@ impl CursorApi {
                     .map(|remaining| remaining + usage.used.unwrap_or(0))
             })
             .unwrap_or(0) as f64;
-        (limit > 0.0).then_some(used / limit * 100.0)
+        (limit > 0.0).then_some(clamp_percent(used / limit * 100.0))
     }
+}
+
+fn clamp_percent(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+    value.clamp(0.0, 100.0)
 }
 
 impl Default for CursorApi {
@@ -414,6 +423,29 @@ mod tests {
 
         assert!(cost.is_some());
         assert_eq!(plan_type.as_deref(), Some("Cursor Pro"));
+    }
+
+    #[test]
+    fn clamps_plan_usage_percent_at_100_when_over_limit() {
+        // Upstream #2255: included usage past limit must not paint >100%.
+        let json = r#"{
+            "membershipType": "pro",
+            "individualUsage": {
+                "plan": {
+                    "used": 6000,
+                    "limit": 5000,
+                    "totalPercentUsed": 120.0,
+                    "autoPercentUsed": 110.0,
+                    "apiPercentUsed": 105.0
+                }
+            }
+        }"#;
+        let summary = parse_summary(json);
+        let (primary, secondary, model_specific, _, _, _) =
+            api().build_result(summary, None).unwrap();
+        assert!((primary.used_percent - 100.0).abs() < 0.01);
+        assert!((secondary.unwrap().used_percent - 100.0).abs() < 0.01);
+        assert!((model_specific.unwrap().used_percent - 100.0).abs() < 0.01);
     }
 
     #[test]
