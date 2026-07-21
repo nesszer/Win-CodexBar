@@ -70,6 +70,10 @@ pub enum ProviderId {
     Sakana,
     Sub2Api,
     Wayfinder,
+    ZenMux,
+    ClinePass,
+    LongCat,
+    Neuralwatt,
 }
 
 impl ProviderId {
@@ -135,6 +139,10 @@ impl ProviderId {
             ProviderId::Sakana,
             ProviderId::Sub2Api,
             ProviderId::Wayfinder,
+            ProviderId::ZenMux,
+            ProviderId::ClinePass,
+            ProviderId::LongCat,
+            ProviderId::Neuralwatt,
         ]
     }
 
@@ -200,6 +208,10 @@ impl ProviderId {
             ProviderId::Sakana => "sakana",
             ProviderId::Sub2Api => "sub2api",
             ProviderId::Wayfinder => "wayfinder",
+            ProviderId::ZenMux => "zenmux",
+            ProviderId::ClinePass => "clinepass",
+            ProviderId::LongCat => "longcat",
+            ProviderId::Neuralwatt => "neuralwatt",
         }
     }
 
@@ -265,6 +277,10 @@ impl ProviderId {
             ProviderId::Sakana => "Sakana AI",
             ProviderId::Sub2Api => "sub2api",
             ProviderId::Wayfinder => "Wayfinder",
+            ProviderId::ZenMux => "ZenMux",
+            ProviderId::ClinePass => "ClinePass",
+            ProviderId::LongCat => "LongCat",
+            ProviderId::Neuralwatt => "Neuralwatt",
         }
     }
 
@@ -302,6 +318,7 @@ impl ProviderId {
             ProviderId::Grok => Some("grok.com"),
             ProviderId::Qoder => Some("qoder.com"),
             ProviderId::Sakana => Some("console.sakana.ai"),
+            ProviderId::LongCat => Some("longcat.chat"),
             // Token-based providers (don't use cookies)
             ProviderId::Copilot => None,
             ProviderId::Zai => None,
@@ -335,6 +352,9 @@ impl ProviderId {
             ProviderId::CrossModel => None,
             ProviderId::Sub2Api => None,
             ProviderId::Wayfinder => None,
+            ProviderId::ZenMux => None,
+            ProviderId::ClinePass => None,
+            ProviderId::Neuralwatt => None,
         }
     }
 
@@ -407,6 +427,10 @@ impl ProviderId {
             "sakana" | "sakana-ai" | "sakana ai" => Some(ProviderId::Sakana),
             "sub2api" | "sub-2-api" | "sub 2 api" => Some(ProviderId::Sub2Api),
             "wayfinder" => Some(ProviderId::Wayfinder),
+            "zenmux" | "zen-mux" => Some(ProviderId::ZenMux),
+            "clinepass" | "cline-pass" | "cline" => Some(ProviderId::ClinePass),
+            "longcat" | "long-cat" | "lc" => Some(ProviderId::LongCat),
+            "neuralwatt" | "neural-watt" | "nw" | "neural" => Some(ProviderId::Neuralwatt),
             _ => None,
         }
     }
@@ -682,6 +706,10 @@ mod tests {
         assert!(all.contains(&ProviderId::Sakana));
         assert!(all.contains(&ProviderId::Sub2Api));
         assert!(all.contains(&ProviderId::Wayfinder));
+        assert!(all.contains(&ProviderId::ZenMux));
+        assert!(all.contains(&ProviderId::ClinePass));
+        assert!(all.contains(&ProviderId::LongCat));
+        assert!(all.contains(&ProviderId::Neuralwatt));
     }
 
     #[test]
