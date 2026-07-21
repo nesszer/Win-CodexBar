@@ -82,6 +82,10 @@ pub struct Cli {
     #[arg(long = "all-accounts")]
     pub all_accounts: bool,
 
+    /// Token-account label or 1-based index (requires a single provider)
+    #[arg(long = "account")]
+    pub account: Option<String>,
+
     /// Skip credits line in output
     #[arg(long = "no-credits")]
     pub no_credits: bool,
@@ -152,6 +156,7 @@ impl Cli {
             pretty: self.pretty,
             status: self.status,
             all_accounts: self.all_accounts,
+            account: self.account.clone(),
             source: self.source.clone(),
             web_timeout: self.web_timeout,
             web_debug_dump_html: self.web_debug_dump_html,

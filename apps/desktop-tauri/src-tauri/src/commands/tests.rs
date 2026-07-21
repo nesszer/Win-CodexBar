@@ -580,6 +580,51 @@ fn fetch_context_token_account_takes_precedence_over_manual_cookie() {
 }
 
 #[test]
+fn fetch_context_openrouter_token_account_overrides_stored_api_key() {
+    let settings = Settings::default();
+    let cookies = ManualCookies::default();
+    let mut api_keys = ApiKeys::default();
+    api_keys.set("openrouter", "sk-or-v1-stored-decoy", None);
+    let mut token_accounts = HashMap::new();
+    let mut data = ProviderAccountData::new();
+    data.add_account(TokenAccount::new("Personal", "sk-or-v1-personal"));
+    data.add_account(TokenAccount::new("Work", "sk-or-v1-work"));
+    data.set_active(1);
+    token_accounts.insert(ProviderId::OpenRouter, data);
+
+    let ctx = super::build_fetch_context(
+        ProviderId::OpenRouter,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::OAuth);
+    assert!(ctx.manual_cookie_header.is_none());
+    assert_eq!(ctx.api_key.as_deref(), Some("sk-or-v1-work"));
+}
+
+#[test]
+fn fetch_context_openrouter_falls_back_to_stored_api_key_without_token_accounts() {
+    let settings = Settings::default();
+    let cookies = ManualCookies::default();
+    let mut api_keys = ApiKeys::default();
+    api_keys.set("openrouter", "sk-or-v1-stored", None);
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::OpenRouter,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.api_key.as_deref(), Some("sk-or-v1-stored"));
+}
+
+#[test]
 fn provider_region_set_rejects_non_regional_provider() {
     let mut s = Settings::default();
     let err = super::provider_region_set(&mut s, "claude", "global".into()).unwrap_err();
