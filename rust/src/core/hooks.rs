@@ -242,8 +242,31 @@ impl HooksConfig {
         serde_json::from_str(content.trim_start_matches('\u{feff}')).unwrap_or_default()
     }
 
+    /// Persist config to the standard hooks.json path (creates parent dirs).
+    pub fn save(&self) -> Result<PathBuf, String> {
+        let path = Self::path().ok_or_else(|| "config directory unavailable".to_string())?;
+        self.save_to(&path)?;
+        Ok(path)
+    }
+
+    pub fn save_to(&self, path: &Path) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("create hooks dir: {e}"))?;
+        }
+        let body = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, body).map_err(|e| format!("write hooks.json: {e}"))
+    }
+
     pub fn matching_rules(&self, event: &HookEvent) -> Vec<&HookRule> {
         if !self.enabled || self.events.len() > Self::MAX_RULES {
+            return Vec::new();
+        }
+        self.events.iter().filter(|rule| rule.matches(event)).collect()
+    }
+
+    /// Rules that match the event ignoring the top-level `enabled` flag (for `hooks test`).
+    pub fn matching_rules_ignoring_master_switch(&self, event: &HookEvent) -> Vec<&HookRule> {
+        if self.events.len() > Self::MAX_RULES {
             return Vec::new();
         }
         self.events.iter().filter(|rule| rule.matches(event)).collect()

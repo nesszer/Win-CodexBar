@@ -691,3 +691,6 @@ ZedApiUrlPlaceholder = https://cloud.zed.dev/client/users/me
 PromoteTrayIconLabel = タスクバーにピン留め (Windows 11)
 PromoteTrayIconHelper = CodexBar のアイコンを常にタスクバーに表示します（通知領域のオーバーフローに隠れません）
 PromoteTrayIconUnsupportedHint = このオペレーティングシステムでは利用できません。Windows の設定 > タスクバー でアイコンを ^ オーバーフローから手動でピン留めしてください。
+UsageSpendShare = Export share card (PNG)
+UsageSpendShareEmpty = Nothing to export yet.
+UsageSpendShareFailed = Could not create the share card image.

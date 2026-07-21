@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 mod auto_refresh;
+mod coding_activity;
 mod commands;
 mod events;
 mod floatbar;

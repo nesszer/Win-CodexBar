@@ -691,3 +691,6 @@ Sub2ApiBaseUrlHelp = Deployment URL for GET /v1/usage. Use HTTPS, or loopback HT
 PromoteTrayIconLabel = Pin to Taskbar (Windows 11)
 PromoteTrayIconHelper = Always show the CodexBar icon on the taskbar instead of inside the overflow chevron
 PromoteTrayIconUnsupportedHint = Not available on this operating system. Drag the icon out of the ^ overflow area in Windows Settings > Taskbar to pin it manually.
+UsageSpendShare = Export share card (PNG)
+UsageSpendShareEmpty = Nothing to export yet.
+UsageSpendShareFailed = Could not create the share card image.

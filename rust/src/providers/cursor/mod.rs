@@ -3,6 +3,7 @@
 //! Fetches usage data from Cursor's API using browser cookies
 
 mod api;
+mod token_cost;
 
 use async_trait::async_trait;
 
@@ -38,30 +39,44 @@ impl CursorProvider {
         }
     }
 
-    async fn fetch_usage_parts(
+    async fn fetch_web_usage(
         &self,
         ctx: &FetchContext,
-    ) -> Result<api::CursorUsageResult, ProviderError> {
-        match ctx.source_mode {
-            // Cli is only ever set by the shell for "no cookie yet"; treat it as
-            // web so empty-manual users get browser cookie attempt (or AuthRequired)
-            // instead of "Source mode 'Cli' not supported" (#212).
-            SourceMode::Auto | SourceMode::Web | SourceMode::Cli => {
-                self.fetch_web_usage_parts(ctx).await
-            }
-            SourceMode::OAuth => Err(ProviderError::UnsupportedSource(ctx.source_mode)),
-        }
-    }
-
-    async fn fetch_web_usage_parts(
-        &self,
-        ctx: &FetchContext,
-    ) -> Result<api::CursorUsageResult, ProviderError> {
-        if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
-            self.api.fetch_usage_with_cookie_header(cookie_header).await
+    ) -> Result<
+        (
+            api::CursorUsageResult,
+            Option<token_cost::CursorTokenCostReport>,
+        ),
+        ProviderError,
+    > {
+        let cookie_header = if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
+            cookie_header.to_string()
         } else {
-            self.api.fetch_usage().await
-        }
+            crate::providers::browser_cookie_header(&["cursor.com", "cursor.sh"])?
+        };
+
+        let usage = self
+            .api
+            .fetch_usage_with_cookie_header(&cookie_header)
+            .await?;
+
+        // Best-effort token-cost page; never fail the main usage fetch.
+        let token_report = match token_cost::fetch_token_cost_report(
+            self.api.client(),
+            &cookie_header,
+            Some(token_cost::default_since()),
+            Some(chrono::Utc::now()),
+        )
+        .await
+        {
+            Ok(report) => Some(report),
+            Err(err) => {
+                tracing::debug!("Cursor token-cost events unavailable: {err}");
+                None
+            }
+        };
+
+        Ok((usage, token_report))
     }
 
     fn build_usage_snapshot(
@@ -70,6 +85,7 @@ impl CursorProvider {
         model_specific: Option<RateWindow>,
         email: Option<String>,
         plan_type: Option<String>,
+        token_report: Option<&token_cost::CursorTokenCostReport>,
     ) -> UsageSnapshot {
         let mut usage = UsageSnapshot::new(primary);
         if let Some(sec) = secondary {
@@ -84,10 +100,22 @@ impl CursorProvider {
         if let Some(plan) = plan_type {
             usage = usage.with_login_method(plan);
         }
+        if let Some(report) = token_report {
+            for window in report.to_extra_windows() {
+                usage.extra_rate_windows.push(window);
+            }
+        }
         usage
     }
 
-    fn build_fetch_result(usage: UsageSnapshot, cost: Option<CostSnapshot>) -> ProviderFetchResult {
+    fn build_fetch_result(
+        usage: UsageSnapshot,
+        cost: Option<CostSnapshot>,
+        token_report: Option<&token_cost::CursorTokenCostReport>,
+    ) -> ProviderFetchResult {
+        let cost = token_report
+            .and_then(|r| r.merge_into_cost(cost.clone()))
+            .or(cost);
         let mut result = ProviderFetchResult::new(usage, "web");
         if let Some(c) = cost {
             result = result.with_cost(c);
@@ -115,21 +143,37 @@ impl Provider for CursorProvider {
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Fetching Cursor usage via web API");
 
-        match self.fetch_usage_parts(ctx).await {
-            Ok((primary, secondary, model_specific, cost, email, plan_type)) => {
-                let usage = Self::build_usage_snapshot(
-                    primary,
-                    secondary,
-                    model_specific,
-                    email,
-                    plan_type,
-                );
-                Ok(Self::build_fetch_result(usage, cost))
+        match ctx.source_mode {
+            // Cli is only ever set by the shell for "no cookie yet"; treat it as
+            // web so empty-manual users get browser cookie attempt (or AuthRequired)
+            // instead of "Source mode 'Cli' not supported" (#212).
+            SourceMode::Auto | SourceMode::Web | SourceMode::Cli => {
+                match self.fetch_web_usage(ctx).await {
+                    Ok((
+                        (primary, secondary, model_specific, cost, email, plan_type),
+                        token_report,
+                    )) => {
+                        let usage = Self::build_usage_snapshot(
+                            primary,
+                            secondary,
+                            model_specific,
+                            email,
+                            plan_type,
+                            token_report.as_ref(),
+                        );
+                        Ok(Self::build_fetch_result(
+                            usage,
+                            cost,
+                            token_report.as_ref(),
+                        ))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Cursor API fetch failed: {}", e);
+                        Err(e)
+                    }
+                }
             }
-            Err(e) => {
-                tracing::warn!("Cursor API fetch failed: {}", e);
-                Err(e)
-            }
+            SourceMode::OAuth => Err(ProviderError::UnsupportedSource(ctx.source_mode)),
         }
     }
 
