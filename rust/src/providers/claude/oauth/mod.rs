@@ -584,6 +584,70 @@ mod tests {
     }
 
     #[test]
+    fn issue_210_reporter_shape_secondary_is_one_percent_not_one_hundred() {
+        // Mirrors the reporter JSON: session 8%, fable 2%, all-models should be 1%
+        // while seven_day.utilization is the stale 1.0 (would display as 100%).
+        let response: OAuthUsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": {
+                    "utilization": 8.0,
+                    "resets_at": "2026-07-20T04:29:59.671218Z"
+                },
+                "seven_day": {
+                    "utilization": 1.0,
+                    "resets_at": "2026-07-26T22:59:59.671246Z"
+                },
+                "limits": [
+                    {
+                        "kind": "weekly_all",
+                        "group": "weekly",
+                        "percent": 1.0,
+                        "resets_at": "2026-07-26T22:59:59.671595Z"
+                    },
+                    {
+                        "kind": "weekly_scoped",
+                        "group": "weekly",
+                        "percent": 2.0,
+                        "resets_at": "2026-07-26T22:59:59.671595Z",
+                        "scope": {
+                            "model": {
+                                "id": "claude-fable",
+                                "display_name": "Fable"
+                            }
+                        }
+                    }
+                ]
+            }"#,
+        )
+        .expect("issue 210 body");
+
+        let credentials = ClaudeOAuthCredentials {
+            access_token: "token".to_string(),
+            refresh_token: None,
+            expires_at: None,
+            scopes: vec![],
+            rate_limit_tier: Some("default_claude_max_5x".to_string()),
+        };
+        let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+
+        assert_eq!(usage.login_method.as_deref(), Some("Claude Max 5x"));
+        assert!((usage.primary.used_percent - 8.0).abs() < f64::EPSILON);
+        let weekly = usage.secondary.expect("secondary weekly");
+        assert!(
+            (weekly.used_percent - 1.0).abs() < f64::EPSILON,
+            "secondary was {}, expected 1% (not 100%)",
+            weekly.used_percent
+        );
+        assert!((weekly.used_percent - 100.0).abs() > 1.0);
+        let fable = usage
+            .extra_rate_windows
+            .iter()
+            .find(|w| w.title.contains("Fable"))
+            .expect("Fable only window");
+        assert!((fable.window.used_percent - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn parses_retry_after_seconds() {
         let header = HeaderValue::from_static("17");
         let duration = ClaudeOAuthFetcher::retry_after_duration(Some(&header));

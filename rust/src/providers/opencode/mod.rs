@@ -719,4 +719,50 @@ mod tests {
         // 0.25 fraction scales to 25%
         assert!((snap.secondary.as_ref().unwrap().used_percent - 25.0).abs() < f64::EPSILON);
     }
+
+    #[test]
+    fn parse_subscription_accepts_realistic_server_fn_body() {
+        let provider = OpenCodeProvider::new();
+        // Shape closer to a live server-fn payload: nested under result/data.
+        let body = r#"{
+          "result": {
+            "data": {
+              "rollingUsage": { "usagePercent": 33.0, "resetInSec": 1800 },
+              "weeklyUsage": { "usagePercent": 12.5, "resetInSec": 604800 },
+              "renewAt": "2026-08-01T00:00:00Z"
+            }
+          }
+        }"#;
+        let snap = provider
+            .parse_subscription(body)
+            .expect("server-fn body should parse end-to-end");
+        assert!((snap.primary.used_percent - 33.0).abs() < f64::EPSILON);
+        assert!((snap.secondary.as_ref().unwrap().used_percent - 12.5).abs() < f64::EPSILON);
+        assert_eq!(snap.login_method.as_deref(), Some("OpenCode"));
+    }
+
+    #[tokio::test]
+    async fn web_mode_without_cookies_is_auth_not_unsupported() {
+        let provider = OpenCodeProvider::new();
+        let ctx = FetchContext {
+            source_mode: SourceMode::Web,
+            manual_cookie_header: None,
+            ..FetchContext::default()
+        };
+        let err = provider
+            .fetch_usage(&ctx)
+            .await
+            .expect_err("no cookies available");
+        assert!(
+            !matches!(err, ProviderError::UnsupportedSource(_)),
+            "got UnsupportedSource: {err}"
+        );
+        assert!(
+            matches!(
+                err,
+                ProviderError::AuthRequired | ProviderError::NoCookies | ProviderError::Other(_)
+            ),
+            "got: {err}"
+        );
+    }
 }

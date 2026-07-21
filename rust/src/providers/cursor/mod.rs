@@ -43,10 +43,13 @@ impl CursorProvider {
         ctx: &FetchContext,
     ) -> Result<api::CursorUsageResult, ProviderError> {
         match ctx.source_mode {
-            SourceMode::Auto | SourceMode::Web => self.fetch_web_usage_parts(ctx).await,
-            SourceMode::Cli | SourceMode::OAuth => {
-                Err(ProviderError::UnsupportedSource(ctx.source_mode))
+            // Cli is only ever set by the shell for "no cookie yet"; treat it as
+            // web so empty-manual users get browser cookie attempt (or AuthRequired)
+            // instead of "Source mode 'Cli' not supported" (#212).
+            SourceMode::Auto | SourceMode::Web | SourceMode::Cli => {
+                self.fetch_web_usage_parts(ctx).await
             }
+            SourceMode::OAuth => Err(ProviderError::UnsupportedSource(ctx.source_mode)),
         }
     }
 
@@ -136,5 +139,48 @@ impl Provider for CursorProvider {
 
     fn supports_web(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::FetchContext;
+
+    #[tokio::test]
+    async fn cli_mode_does_not_return_unsupported_source() {
+        let provider = CursorProvider::new();
+        let ctx = FetchContext {
+            source_mode: SourceMode::Cli,
+            manual_cookie_header: None,
+            ..FetchContext::default()
+        };
+        let err = provider
+            .fetch_usage(&ctx)
+            .await
+            .expect_err("no cookies on this machine");
+        // Must not be UnsupportedSource — that was the user-visible #212 bug.
+        assert!(
+            !matches!(err, ProviderError::UnsupportedSource(_)),
+            "unexpected UnsupportedSource: {err}"
+        );
+        assert!(
+            matches!(
+                err,
+                ProviderError::NoCookies | ProviderError::AuthRequired | ProviderError::Other(_)
+            ),
+            "expected cookie/auth style error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_mode_still_unsupported() {
+        let provider = CursorProvider::new();
+        let ctx = FetchContext {
+            source_mode: SourceMode::OAuth,
+            ..FetchContext::default()
+        };
+        let err = provider.fetch_usage(&ctx).await.expect_err("oauth unsupported");
+        assert!(matches!(err, ProviderError::UnsupportedSource(SourceMode::OAuth)));
     }
 }
