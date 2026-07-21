@@ -197,6 +197,26 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
         </div>
       </section>
 
+      {/* -- External hooks --------------------------------------- */}
+      <section className="settings-section">
+        <h3 className="settings-section__title">{t("HooksTitle")}</h3>
+        <p className="settings-section__caption">{t("HooksCaption")}</p>
+        <div className="settings-section__group">
+          <Field
+            label={t("HooksEnableLabel")}
+            description={t("HooksEnableHelper")}
+            leading
+          >
+            <Toggle
+              checked={settings.hooksEnabled ?? false}
+              disabled={saving}
+              onChange={(v) => set({ hooksEnabled: v })}
+            />
+          </Field>
+        </div>
+        <p className="settings-section__hint">{t("HooksConfigPathHint")}</p>
+      </section>
+
       {/* ── Keychain access ──────────────────────────────────────── */}
       <section className="settings-section">
         <h3 className="settings-section__title settings-section__title--bold">

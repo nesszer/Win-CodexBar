@@ -168,7 +168,12 @@ impl CursorApi {
                             })
                         })
                         .unwrap_or_else(|| {
-                            let mut cost = CostSnapshot::new(used_cents / 100.0, "USD", "Monthly");
+                            // Plan-included spend (cents → USD) when on-demand is off.
+                            let mut cost = CostSnapshot::new(
+                                used_cents / 100.0,
+                                "USD",
+                                plan_period_label(summary.billing_cycle_start.as_deref()),
+                            );
                             if limit_cents > 0.0 {
                                 cost = cost.with_limit(limit_cents / 100.0);
                             }
@@ -246,7 +251,9 @@ impl CursorApi {
             return None;
         }
 
-        let mut cost = CostSnapshot::new(used_cents / 100.0, "USD", "Monthly");
+        // usage-summary exposes on-demand spend in cents for the billing cycle.
+        // Label it explicitly so the tray/detail cost line is not a vague "Monthly".
+        let mut cost = CostSnapshot::new(used_cents / 100.0, "USD", "On-demand (billing cycle)");
         if limit_cents > 0.0 {
             cost = cost.with_limit(limit_cents / 100.0);
         }
@@ -275,6 +282,14 @@ fn clamp_percent(value: f64) -> f64 {
         return 0.0;
     }
     value.clamp(0.0, 100.0)
+}
+
+/// Period label for plan-included spend from usage-summary (no new network calls).
+fn plan_period_label(billing_cycle_start: Option<&str>) -> String {
+    match billing_cycle_start {
+        Some(start) if !start.is_empty() => format!("Plan (since {start})"),
+        _ => "Plan (billing cycle)".to_string(),
+    }
 }
 
 impl Default for CursorApi {
@@ -549,7 +564,28 @@ mod tests {
         let cost = cost.expect("cost should exist from on-demand usage");
         assert!((cost.used - 3.5).abs() < 0.01);
         assert_eq!(cost.limit, Some(10.0));
-        assert_eq!(cost.period, "Monthly");
+        assert_eq!(cost.period, "On-demand (billing cycle)");
+    }
+
+    #[test]
+    fn plan_cost_period_uses_billing_cycle_start() {
+        let json = r#"{
+            "billingCycleStart": "2026-03-01T00:00:00Z",
+            "billingCycleEnd": "2026-04-01T00:00:00Z",
+            "membershipType": "pro",
+            "individualUsage": {
+                "plan": {
+                    "used": 2500,
+                    "limit": 5000
+                }
+            }
+        }"#;
+        let summary = parse_summary(json);
+        let (_, _, _, cost, _, _) = api().build_result(summary, None).unwrap();
+        let cost = cost.expect("plan cost");
+        assert!((cost.used - 25.0).abs() < 0.01);
+        assert_eq!(cost.limit, Some(50.0));
+        assert_eq!(cost.period, "Plan (since 2026-03-01T00:00:00Z)");
     }
 
     #[test]

@@ -155,6 +155,10 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_session_ssh_hosts: Vec<String>,
 
+    /// Master switch for external hooks (`hooks.json` next to settings).
+    #[serde(default)]
+    pub hooks_enabled: bool,
+
     /// Automatically download updates in the background
     #[serde(default)]
     pub auto_download_updates: bool,
@@ -399,6 +403,7 @@ impl Default for Settings {
             codex_custom_sessions_dirs: Vec::new(),
             agent_sessions_enabled: false,
             agent_session_ssh_hosts: Vec::new(),
+            hooks_enabled: false,
             auto_download_updates: false, // Require explicit opt-in for background downloads
             install_updates_on_quit: false, // Don't auto-install on quit by default
             ui_language: Language::default(), // English by default

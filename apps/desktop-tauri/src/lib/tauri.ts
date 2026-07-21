@@ -34,6 +34,7 @@ import type {
   AgentSessionDiscoveryResult,
   SessionFocusResult,
   TrayVisibilityStatusDto,
+  UsageSpendSummary,
 } from "../types/bridge";
 
 export function getBootstrapState(): Promise<BootstrapState> {
@@ -247,6 +248,10 @@ export function getProviderLocalUsageSummary(
   providerId: string,
 ): Promise<ProviderLocalUsageSummary | null> {
   return invoke<ProviderLocalUsageSummary | null>("get_provider_local_usage_summary", { providerId });
+}
+
+export function getUsageSpendSummary(): Promise<UsageSpendSummary> {
+  return invoke<UsageSpendSummary>("get_usage_spend_summary");
 }
 
 // ── Token account bridge ─────────────────────────────────────────────

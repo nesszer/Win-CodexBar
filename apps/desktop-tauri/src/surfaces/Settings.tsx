@@ -16,6 +16,7 @@ import DisplayTab from "./settings/tabs/DisplayTab";
 import AdvancedTab from "./settings/tabs/AdvancedTab";
 import AboutTab from "./settings/tabs/AboutTab";
 import ProvidersTab from "./settings/tabs/ProvidersTab";
+import UsageSpendTab from "./settings/tabs/UsageSpendTab";
 
 // ── tab types ────────────────────────────────────────────────────────
 
@@ -80,6 +81,12 @@ const TabIcons: Record<SettingsTab, ReactElement> = {
       <rect x="9" y="9" width="5" height="5" rx="1" />
     </Svg>
   ),
+  usageSpend: (
+    <Svg>
+      <path d="M2 12.5V4.5h12v8" />
+      <path d="M4.5 10V8M7.5 10V6.5M10.5 10V7.2M13 10V5.5" />
+    </Svg>
+  ),
   advanced: (
     <Svg>
       <path d="M2 4h8M2 8h5M2 12h10" />
@@ -103,6 +110,7 @@ export const TAB_META: { id: SettingsTab; labelKey: LocaleKey }[] = [
   { id: "notifications", labelKey: "TabNotifications" },
   { id: "menuBar", labelKey: "TabMenuBar" },
   { id: "menu", labelKey: "TabMenu" },
+  { id: "usageSpend", labelKey: "TabUsageSpend" },
   { id: "advanced", labelKey: "TabAdvanced" },
   { id: "about", labelKey: "TabAbout" },
 ];
@@ -266,6 +274,9 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
         )}
         {activeTab === "menu" && (
           <DisplayTab mode="menu" settings={settings} set={set} saving={saving} />
+        )}
+        {activeTab === "usageSpend" && (
+          <UsageSpendTab settings={settings} set={set} saving={saving} />
         )}
         {activeTab === "advanced" && (
           <AdvancedTab settings={settings} set={set} saving={saving} />

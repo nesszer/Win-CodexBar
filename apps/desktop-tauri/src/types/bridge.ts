@@ -6,6 +6,7 @@ export type SettingsTabId =
   | "notifications"
   | "menuBar"
   | "menu"
+  | "usageSpend"
   | "advanced"
   | "about";
 
@@ -251,6 +252,8 @@ export interface SettingsSnapshot {
   codexCustomSessionsDirs: string[];
   agentSessionsEnabled?: boolean;
   agentSessionSshHosts?: string[];
+  /** Master switch for external hooks (hooks.json next to settings). */
+  hooksEnabled?: boolean;
   uiLanguage: Language;
   theme: ThemePreference;
   /** 100..=250 — clamped server-side. */
@@ -315,6 +318,7 @@ export interface SettingsUpdate {
   codexCustomSessionsDirs?: string[];
   agentSessionsEnabled?: boolean;
   agentSessionSshHosts?: string[];
+  hooksEnabled?: boolean;
   uiLanguage?: Language;
   theme?: ThemePreference;
   windowScalePercent?: number;
@@ -341,6 +345,20 @@ export interface SettingsUpdate {
 export interface UsageThresholdOverride {
   high?: number;
   critical?: number;
+}
+
+/** One provider row for Settings → Usage & Spend. */
+export interface UsageSpendRow {
+  providerId: string;
+  displayName: string;
+  sevenDay: number | null;
+  thirtyDay: number | null;
+  currency: string;
+  source: string;
+}
+
+export interface UsageSpendSummary {
+  rows: UsageSpendRow[];
 }
 
 export interface BootstrapState {

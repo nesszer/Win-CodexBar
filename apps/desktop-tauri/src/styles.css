@@ -5236,6 +5236,28 @@ html:has(.menu-surface--tray) {
   line-height: 1.4;
 }
 
+/* Usage & Spend table */
+.usage-spend-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-body);
+}
+.usage-spend-table th,
+.usage-spend-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+.usage-spend-table th {
+  font-weight: 600;
+  color: var(--text-secondary, #a1a1a6);
+  font-size: var(--font-caption);
+}
+.usage-spend-table__source {
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+}
+
 /* About update controls block */
 .about-update-controls {
   display: flex;

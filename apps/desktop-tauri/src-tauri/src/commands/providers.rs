@@ -617,6 +617,13 @@ fn notify_usage_thresholds(
                         snapshot.primary.used_percent,
                         settings,
                     );
+                    dispatch_quota_hooks(
+                        settings,
+                        provider,
+                        &account,
+                        "session",
+                        snapshot.primary.used_percent,
+                    );
                 }
                 if let Some(weekly) = &snapshot.secondary
                     && !weekly.is_informational
@@ -627,6 +634,13 @@ fn notify_usage_thresholds(
                         "weekly",
                         weekly.used_percent,
                         settings,
+                    );
+                    dispatch_quota_hooks(
+                        settings,
+                        provider,
+                        &account,
+                        "weekly",
+                        weekly.used_percent,
                     );
                 }
                 notify_predictive_pace(
@@ -639,6 +653,35 @@ fn notify_usage_thresholds(
             }
         }
     }
+}
+
+fn dispatch_quota_hooks(
+    settings: &Settings,
+    provider: ProviderId,
+    account: &str,
+    window: &str,
+    used_percent: f64,
+) {
+    if !settings.hooks_enabled {
+        return;
+    }
+    let thresholds = settings.usage_thresholds(provider, window);
+    let account = if settings.hide_personal_info {
+        None
+    } else if account.is_empty() {
+        None
+    } else {
+        Some(account)
+    };
+    codexbar::core::emit_quota_threshold_hooks(
+        true,
+        provider.cli_name(),
+        window,
+        used_percent,
+        thresholds.high,
+        thresholds.critical,
+        account,
+    );
 }
 
 /// Stable account discriminator for threshold/session toast dedupe.
