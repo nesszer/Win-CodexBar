@@ -209,6 +209,36 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: false,
                 cookie_name: None,
             }),
+            ProviderId::ZenMux => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple ZenMux Management API keys.",
+                placeholder: "Management API key",
+                injection: TokenInjection::Environment {
+                    key: "ZENMUX_MANAGEMENT_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            ProviderId::ClinePass => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple ClinePass API keys.",
+                placeholder: "API key",
+                injection: TokenInjection::Environment {
+                    key: "CLINEPASS_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            ProviderId::Neuralwatt => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple Neuralwatt API keys.",
+                placeholder: "API key",
+                injection: TokenInjection::Environment {
+                    key: "NEURALWATT_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
             // Upstream 0.45 #2271: labeled OpenRouter API keys via token accounts.
             ProviderId::OpenRouter => Some(TokenAccountSupport {
                 title: "API keys",
@@ -267,6 +297,7 @@ impl TokenAccountSupport {
             | ProviderId::Devin
             | ProviderId::Zed
             | ProviderId::CrossModel
+            | ProviderId::LongCat
             | ProviderId::Wayfinder => None,
         }
     }

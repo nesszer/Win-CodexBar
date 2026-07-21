@@ -311,6 +311,37 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://deepinfra.com/dash"),
         },
         ProviderConfigInfo {
+            id: ProviderId::ZenMux,
+            name: "ZenMux",
+            requires_api_key: true,
+            api_key_env_var: Some("ZENMUX_MANAGEMENT_API_KEY"),
+            api_key_help: Some(
+                "Use a ZenMux Management API key (not an inference key). Also accepts ZENMUX_API_KEY.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://zenmux.ai/platform/management"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::ClinePass,
+            name: "ClinePass",
+            requires_api_key: true,
+            api_key_env_var: Some("CLINEPASS_API_KEY"),
+            api_key_help: Some(
+                "Get your API key from Cline / ClinePass. Also accepts CLINE_API_KEY.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://app.cline.bot/dashboard/subscription?personal=true"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Neuralwatt,
+            name: "Neuralwatt",
+            requires_api_key: true,
+            api_key_env_var: Some("NEURALWATT_API_KEY"),
+            api_key_help: Some("Get your API key from portal.neuralwatt.com."),
+            config_file_path: None,
+            dashboard_url: Some("https://portal.neuralwatt.com/dashboard"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Doubao,
             name: "Doubao / Volcengine Ark",
             requires_api_key: true,
