@@ -79,7 +79,7 @@ pub fn get_status_page_url(provider: &str) -> Option<&'static str> {
 
 /// Fetch status from a Statuspage.io-based status page
 pub async fn fetch_statuspage_io(url: &str) -> Result<ProviderStatus, String> {
-    let client = reqwest::Client::builder()
+    let client = crate::core::apply_app_proxy(reqwest::Client::builder())
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
@@ -131,7 +131,7 @@ pub async fn fetch_statuspage_io(url: &str) -> Result<ProviderStatus, String> {
 
 /// Fetch status with components from a Statuspage.io-based status page
 pub async fn fetch_statuspage_io_components(url: &str) -> Result<ProviderStatus, String> {
-    let client = reqwest::Client::builder()
+    let client = crate::core::apply_app_proxy(reqwest::Client::builder())
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;

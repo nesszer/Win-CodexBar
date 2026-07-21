@@ -114,6 +114,14 @@ pub(super) struct RawSettings {
     agent_session_ssh_hosts: Vec<String>,
     #[serde(default)]
     hooks_enabled: bool,
+    #[serde(default)]
+    http_proxy_enabled: bool,
+    #[serde(default)]
+    http_proxy_url: String,
+    #[serde(default)]
+    http_proxy_username: String,
+    #[serde(default)]
+    http_proxy_password: String,
     auto_download_updates: bool,
     install_updates_on_quit: bool,
     ui_language: Language,
@@ -216,6 +224,10 @@ impl Default for RawSettings {
             agent_sessions_enabled: s.agent_sessions_enabled,
             agent_session_ssh_hosts: s.agent_session_ssh_hosts,
             hooks_enabled: s.hooks_enabled,
+            http_proxy_enabled: s.http_proxy_enabled,
+            http_proxy_url: s.http_proxy_url,
+            http_proxy_username: s.http_proxy_username,
+            http_proxy_password: s.http_proxy_password,
             auto_download_updates: s.auto_download_updates,
             install_updates_on_quit: s.install_updates_on_quit,
             ui_language: s.ui_language,
@@ -486,6 +498,10 @@ impl From<RawSettings> for Settings {
             agent_sessions_enabled: raw.agent_sessions_enabled,
             agent_session_ssh_hosts: raw.agent_session_ssh_hosts,
             hooks_enabled: raw.hooks_enabled,
+            http_proxy_enabled: raw.http_proxy_enabled,
+            http_proxy_url: raw.http_proxy_url,
+            http_proxy_username: raw.http_proxy_username,
+            http_proxy_password: raw.http_proxy_password,
             auto_download_updates: raw.auto_download_updates,
             install_updates_on_quit: raw.install_updates_on_quit,
             ui_language: raw.ui_language,

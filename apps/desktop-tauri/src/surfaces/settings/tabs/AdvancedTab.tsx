@@ -197,6 +197,68 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
         </div>
       </section>
 
+      {/* -- Network proxy ---------------------------------------- */}
+      <section className="settings-section">
+        <h3 className="settings-section__title">{t("NetworkProxyTitle")}</h3>
+        <p className="settings-section__caption">{t("NetworkProxyCaption")}</p>
+        <div className="settings-section__group">
+          <Field
+            label={t("NetworkProxyEnableLabel")}
+            description={t("NetworkProxyEnableHelper")}
+            leading
+          >
+            <Toggle
+              checked={settings.httpProxyEnabled ?? false}
+              disabled={saving}
+              onChange={(v) => set({ httpProxyEnabled: v })}
+            />
+          </Field>
+          <Field
+            label={t("NetworkProxyUrlLabel")}
+            description={t("NetworkProxyUrlHelper")}
+          >
+            <input
+              type="text"
+              className="text-input"
+              value={settings.httpProxyUrl ?? ""}
+              placeholder="http://127.0.0.1:7890"
+              disabled={saving || !settings.httpProxyEnabled}
+              onChange={(event) => set({ httpProxyUrl: event.target.value })}
+              onBlur={(event) =>
+                set({ httpProxyUrl: event.target.value.trim() })
+              }
+            />
+          </Field>
+          <Field label={t("NetworkProxyUserLabel")}>
+            <input
+              type="text"
+              className="text-input"
+              value={settings.httpProxyUsername ?? ""}
+              autoComplete="off"
+              disabled={saving || !settings.httpProxyEnabled}
+              onChange={(event) =>
+                set({ httpProxyUsername: event.target.value })
+              }
+            />
+          </Field>
+          <Field
+            label={t("NetworkProxyPasswordLabel")}
+            description={t("NetworkProxyPasswordHelper")}
+          >
+            <input
+              type="password"
+              className="text-input"
+              value={settings.httpProxyPassword ?? ""}
+              autoComplete="new-password"
+              disabled={saving || !settings.httpProxyEnabled}
+              onChange={(event) =>
+                set({ httpProxyPassword: event.target.value })
+              }
+            />
+          </Field>
+        </div>
+      </section>
+
       {/* -- External hooks --------------------------------------- */}
       <section className="settings-section">
         <h3 className="settings-section__title">{t("HooksTitle")}</h3>

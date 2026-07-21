@@ -40,6 +40,10 @@ pub struct SettingsUpdate {
     pub agent_sessions_enabled: Option<bool>,
     pub agent_session_ssh_hosts: Option<Vec<String>>,
     pub hooks_enabled: Option<bool>,
+    pub http_proxy_enabled: Option<bool>,
+    pub http_proxy_url: Option<String>,
+    pub http_proxy_username: Option<String>,
+    pub http_proxy_password: Option<String>,
     pub ui_language: Option<String>,
     pub theme: Option<String>,
     pub window_scale_percent: Option<u16>,
@@ -257,6 +261,18 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.hooks_enabled {
             settings.hooks_enabled = v;
+        }
+        if let Some(v) = self.http_proxy_enabled {
+            settings.http_proxy_enabled = v;
+        }
+        if let Some(v) = self.http_proxy_url.clone() {
+            settings.http_proxy_url = v.trim().to_string();
+        }
+        if let Some(v) = self.http_proxy_username.clone() {
+            settings.http_proxy_username = v.trim().to_string();
+        }
+        if let Some(v) = self.http_proxy_password.clone() {
+            settings.http_proxy_password = v;
         }
         if let Some(v) = self.install_updates_on_quit {
             settings.install_updates_on_quit = v;
