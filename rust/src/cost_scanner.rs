@@ -253,6 +253,16 @@ impl CostScanner {
             }
         }
 
+        // OMP / pi-compatible agent sessions (upstream #2269). Dedup by entry id.
+        let mut seen_pi = HashSet::new();
+        crate::pi_session_cost::scan_pi_compatible_into(
+            &mut summary,
+            crate::pi_session_cost::PiMappedProvider::Codex,
+            self.days,
+            cancel,
+            &mut seen_pi,
+        );
+
         summary
     }
 
@@ -264,10 +274,6 @@ impl CostScanner {
     /// Scan Claude local logs, stopping early when the caller cancels the scan.
     pub fn scan_claude_with_cancel(&self, cancel: Option<&AtomicBool>) -> CostSummary {
         let projects_dir = self.get_claude_projects_dir();
-        if !projects_dir.exists() {
-            return CostSummary::default();
-        }
-
         let mut summary = CostSummary::default();
         let today = Utc::now().date_naive();
         let start_date = today - Duration::days(self.days as i64);
@@ -278,17 +284,29 @@ impl CostScanner {
 
         // Walk through projects directory, de-duplicating usage records
         // that appear across multiple files.
-        let mut seen = HashSet::new();
-        let mut handle_file = |path: &Path| {
-            let counted =
-                for_each_claude_usage_record(path, &cutoff, &mut seen, cancel, |record| {
-                    add_claude_record_to_summary(&mut summary, record);
-                });
-            if counted > 0 {
-                summary.sessions_count += 1;
-            }
-        };
-        self.walk_claude_files(&projects_dir, &cutoff, cancel, &mut handle_file);
+        if projects_dir.exists() {
+            let mut seen = HashSet::new();
+            let mut handle_file = |path: &Path| {
+                let counted =
+                    for_each_claude_usage_record(path, &cutoff, &mut seen, cancel, |record| {
+                        add_claude_record_to_summary(&mut summary, record);
+                    });
+                if counted > 0 {
+                    summary.sessions_count += 1;
+                }
+            };
+            self.walk_claude_files(&projects_dir, &cutoff, cancel, &mut handle_file);
+        }
+
+        // OMP / pi-compatible anthropic rows, deduped across shared files.
+        let mut seen_pi = HashSet::new();
+        crate::pi_session_cost::scan_pi_compatible_into(
+            &mut summary,
+            crate::pi_session_cost::PiMappedProvider::Claude,
+            self.days,
+            cancel,
+            &mut seen_pi,
+        );
 
         summary
     }
@@ -610,6 +628,9 @@ pub fn has_cost_usage_sources() -> bool {
         .iter()
         .any(|dir| dir.exists())
         || scanner.get_claude_projects_dir().exists()
+        || crate::pi_session_cost::pi_compatible_session_roots(dirs::home_dir())
+            .iter()
+            .any(|dir| dir.exists())
 }
 
 /// Get daily cost history for the last N days
