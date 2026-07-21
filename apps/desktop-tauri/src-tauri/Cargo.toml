@@ -1,6 +1,6 @@
 [package]
 name = "codexbar-desktop-tauri"
-version = "0.43.0"
+version = "0.45.2"
 edition = "2024"
 publish = false
 
