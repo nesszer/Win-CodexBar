@@ -84,6 +84,8 @@ fn claude_plan_label(tier: &str) -> String {
     }
 }
 
+const CLAUDE_PROBE_SESSION_ID_FILE: &str = ".codexbar-session-id";
+
 fn claude_usage_probe_dir() -> Result<std::path::PathBuf, ProviderError> {
     let base = dirs::data_local_dir()
         .or_else(dirs::home_dir)
@@ -98,6 +100,48 @@ fn claude_usage_probe_dir() -> Result<std::path::PathBuf, ProviderError> {
         ))
     })?;
     Ok(dir)
+}
+
+/// Persist and reuse one probe session id so repeated `/usage` PTY launches do
+/// not register a fresh empty Claude account session each refresh (upstream #2263).
+fn load_or_create_probe_session_id(probe_dir: &std::path::Path) -> String {
+    let path = probe_dir.join(CLAUDE_PROBE_SESSION_ID_FILE);
+    if let Ok(raw) = std::fs::read_to_string(&path) {
+        let trimmed = raw.trim();
+        if uuid::Uuid::parse_str(trimmed).is_ok() {
+            return trimmed.to_ascii_lowercase();
+        }
+    }
+    let id = uuid::Uuid::new_v4().to_string().to_ascii_lowercase();
+    if let Err(err) = std::fs::write(&path, &id) {
+        tracing::debug!(error = %err, "failed to persist Claude probe session id");
+    }
+    id
+}
+
+/// Claude treats `--session-id` as create-only when a local transcript JSONL
+/// already exists for that id. Clear probe-dir jsonl leftovers before reuse.
+fn cleanup_probe_session_jsonl(probe_dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(probe_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+fn claude_probe_launch_args(session_id: &str) -> Vec<String> {
+    vec![
+        "--setting-sources".to_string(),
+        "user".to_string(),
+        "--allowed-tools".to_string(),
+        String::new(),
+        "--session-id".to_string(),
+        session_id.to_string(),
+    ]
 }
 
 struct ClaudePtyProbeOptions {
@@ -249,6 +293,8 @@ async fn run_claude_pty_probe(
     probe: ClaudePtyProbeOptions,
 ) -> Result<String, ProviderError> {
     tokio::task::spawn_blocking(move || {
+        cleanup_probe_session_jsonl(&working_directory);
+        let session_id = load_or_create_probe_session_id(&working_directory);
         let env = claude_passive_probe_env(TtyCommandRunner::enriched_environment());
 
         let mut options = TtyCommandOptions::new()
@@ -257,7 +303,7 @@ async fn run_claude_pty_probe(
             .with_script_char_delay(probe.script_char_delay_secs)
             .with_script_line_delay(probe.script_line_delay_secs)
             .with_working_directory(working_directory)
-            .with_extra_args(vec!["--setting-sources".to_string(), "user".to_string()]);
+            .with_extra_args(claude_probe_launch_args(&session_id));
         if let Some(idle) = probe.idle_timeout_secs {
             options = options.with_idle_timeout(idle);
         }
@@ -931,6 +977,29 @@ mod tests {
         let env = claude_passive_probe_env(HashMap::new());
         assert_eq!(env.get("DISABLE_AUTOUPDATER").map(String::as_str), Some("1"));
         assert_eq!(env.get("NO_COLOR").map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn probe_session_id_is_reused_from_probe_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = load_or_create_probe_session_id(dir.path());
+        let second = load_or_create_probe_session_id(dir.path());
+        assert_eq!(first, second);
+        assert!(uuid::Uuid::parse_str(&first).is_ok());
+        let args = claude_probe_launch_args(&first);
+        assert!(args.windows(2).any(|w| w[0] == "--session-id" && w[1] == first));
+        assert!(args.windows(2).any(|w| w[0] == "--allowed-tools" && w[1].is_empty()));
+    }
+
+    #[test]
+    fn probe_session_jsonl_cleanup_removes_transcript_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let jsonl = dir.path().join("session.jsonl");
+        std::fs::write(&jsonl, "{}").unwrap();
+        std::fs::write(dir.path().join("keep.txt"), "x").unwrap();
+        cleanup_probe_session_jsonl(dir.path());
+        assert!(!jsonl.exists());
+        assert!(dir.path().join("keep.txt").exists());
     }
 
     #[test]

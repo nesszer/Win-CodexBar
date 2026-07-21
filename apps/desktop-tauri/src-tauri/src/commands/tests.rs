@@ -857,6 +857,68 @@ fn claude_repeated_auth_failure_surfaces_error() {
 }
 
 #[test]
+fn claude_cli_parse_failure_keeps_last_good_every_time() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
+        cost: None,
+        wayfinder_usage: None,
+        source_label: "CLI".to_string(),
+    };
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let err = ProviderUsageSnapshot::from_error(
+        ProviderId::Claude,
+        &metadata,
+        "Parse error: Empty output from Claude CLI".to_string(),
+    );
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good.clone());
+
+    let first = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        err.clone(),
+    );
+    let second = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        err,
+    );
+
+    assert_eq!(first.error, None);
+    assert_eq!(first.primary.used_percent, 17.0);
+    // Parse failures keep last-good on every refresh (upstream #2247), unlike one-shot auth.
+    assert_eq!(second.error, None);
+    assert_eq!(second.primary.used_percent, 17.0);
+}
+
+#[test]
+fn claude_hard_credentials_missing_does_not_preserve_stale() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
+        cost: None,
+        wayfinder_usage: None,
+        source_label: "OAuth".to_string(),
+    };
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let err = ProviderUsageSnapshot::from_error(
+        ProviderId::Claude,
+        &metadata,
+        "OAuth error: Claude OAuth credentials not found. Run `claude` to authenticate.".to_string(),
+    );
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good);
+
+    let out = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        err,
+    );
+    assert!(out.error.is_some());
+}
+
+#[test]
 fn claude_error_message_removes_upstream_swift_cancellation() {
     let message = super::friendly_provider_error(
         ProviderId::Claude,

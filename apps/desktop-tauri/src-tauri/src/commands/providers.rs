@@ -392,7 +392,23 @@ pub(super) fn preserve_last_good_transient_failure(
         return snapshot;
     }
 
-    if id != ProviderId::Claude || !is_transient_claude_auth_error(snapshot.error.as_deref()) {
+    if id != ProviderId::Claude {
+        guard.transient_provider_failure_counts.remove(&id);
+        return snapshot;
+    }
+
+    let error = snapshot.error.as_deref();
+    // Hard auth loss / subscription-unavailable answers should not keep stale bars.
+    if is_hard_claude_auth_loss(error) {
+        guard.transient_provider_failure_counts.remove(&id);
+        return snapshot;
+    }
+
+    let preservable = is_transient_claude_auth_error(error)
+        || is_claude_cli_usage_parse_failure(error)
+        || is_claude_cli_rate_limit_failure(error)
+        || is_claude_timeout_failure(error);
+    if !preservable {
         guard.transient_provider_failure_counts.remove(&id);
         return snapshot;
     }
@@ -406,15 +422,24 @@ pub(super) fn preserve_last_good_transient_failure(
         return snapshot;
     };
 
+    // Parse / rate-limit / timeout: keep last-good every time (upstream #2247).
+    // Transient auth (unauthorized-ish) still only preserves once so real logout surfaces.
+    let parse_or_rate = is_claude_cli_usage_parse_failure(error)
+        || is_claude_cli_rate_limit_failure(error)
+        || is_claude_timeout_failure(error);
+
     let count = guard
         .transient_provider_failure_counts
         .entry(id)
         .or_insert(0);
-    if *count == 0 {
-        *count = 1;
+    if parse_or_rate || *count == 0 {
+        if !parse_or_rate {
+            *count = 1;
+        }
         tracing::warn!(
             provider = id.cli_name(),
-            "preserving last good provider snapshot after transient auth failure"
+            error = error.unwrap_or(""),
+            "preserving last good Claude snapshot after transient failure"
         );
         previous
     } else {
@@ -431,7 +456,46 @@ fn is_transient_claude_auth_error(error: Option<&str>) -> bool {
     lower.contains("unauthorized")
         || lower.contains("authentication required")
         || lower.contains("auth required")
-        || lower.contains("oauth")
+}
+
+fn is_hard_claude_auth_loss(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    // Credentials truly missing / login required — clear stale usage.
+    lower.contains("credentials not found")
+        || lower.contains("run `claude` to authenticate")
+        || (lower.contains("not installed") && lower.contains("claude"))
+        || (lower.contains("subscription") && lower.contains("unavailable"))
+}
+
+fn is_claude_cli_usage_parse_failure(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    lower.contains("parse error")
+        || lower.contains("empty output")
+        || lower.contains("missing current session")
+        || lower.contains("treated /usage as a normal prompt")
+        || lower.contains("local activity stats")
+        || lower.contains("could not parse")
+}
+
+fn is_claude_cli_rate_limit_failure(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    lower.contains("rate limit") || lower.contains("rate_limit") || lower.contains("ratelimited")
+}
+
+fn is_claude_timeout_failure(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    error.eq_ignore_ascii_case("timeout") || error.to_ascii_lowercase().contains("timed out")
 }
 
 async fn fetch_provider_snapshot(id: ProviderId, ctx: FetchContext) -> ProviderUsageSnapshot {
