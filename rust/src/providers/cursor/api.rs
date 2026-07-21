@@ -31,6 +31,10 @@ impl CursorApi {
         }
     }
 
+    pub(super) fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
     /// Fetch usage information from Cursor API
     /// Returns (primary, secondary, model_specific, cost, email, plan_type)
     pub async fn fetch_usage(&self) -> Result<CursorUsageResult, ProviderError> {

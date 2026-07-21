@@ -58,10 +58,6 @@ pub fn install(app: tauri::AppHandle) {
                         .unwrap_or(now);
                     if now >= scheduled_at {
                         let _ = crate::commands::do_refresh_providers_if_stale(&app).await;
-                        // Treat a completed refresh as a weak activity signal while adaptive.
-                        if adaptive {
-                            note_coding_activity();
-                        }
                         let next_interval =
                             resolve_refresh_interval(&Settings::load()).unwrap_or(interval);
                         schedule = Some((
@@ -71,6 +67,14 @@ pub fn install(app: tauri::AppHandle) {
                         ));
                     }
                 }
+            }
+            // Sample coding-agent processes on each poll while Adaptive is on
+            // so delays can drop to the 5m coding-activity cap without waiting
+            // for a refresh tick.
+            if ADAPTIVE_ACTIVE.load(Ordering::Relaxed)
+                && crate::coding_activity::coding_agent_process_active()
+            {
+                note_coding_activity();
             }
             tokio::time::sleep(AUTO_REFRESH_POLL_INTERVAL).await;
         }

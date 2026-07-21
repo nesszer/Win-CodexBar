@@ -14,6 +14,7 @@ pub mod config;
 pub mod cost;
 pub mod diagnose;
 pub mod guard;
+pub mod hooks;
 pub mod serve;
 pub mod sessions;
 pub mod tty_runner;
@@ -145,6 +146,9 @@ pub enum Commands {
 
     /// Configuration utilities
     Config(config::ConfigArgs),
+
+    /// List, enable, disable, or test external hooks
+    Hooks(hooks::HooksArgs),
 }
 
 impl Cli {

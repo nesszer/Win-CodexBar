@@ -102,6 +102,7 @@ fn dispatch_command(rt: &Runtime, command: Option<Commands>) -> i32 {
         Some(Commands::Autostart(args)) => run_unexpected(rt, cli::autostart::run(args)),
         Some(Commands::Account(args)) => run_unexpected(rt, cli::account::run(args)),
         Some(Commands::Config(args)) => run_unexpected(rt, cli::config::run(args)),
+        Some(Commands::Hooks(args)) => run_unexpected(rt, cli::hooks::run(args)),
         None => missing_subcommand(),
     }
 }

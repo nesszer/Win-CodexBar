@@ -691,3 +691,6 @@ Sub2ApiBaseUrlHelp = Deployment URL for GET /v1/usage. Use HTTPS, or loopback HT
 PromoteTrayIconLabel = 釘選到工作列（Windows 11）
 PromoteTrayIconHelper = 一律在工作列顯示 CodexBar 圖示，而非隱藏於溢位區域
 PromoteTrayIconUnsupportedHint = 此作業系統不支援此功能。請在 Windows 設定 > 工作列中，從 ^ 溢位區域手動拖出圖示以釘選。
+UsageSpendShare = Export share card (PNG)
+UsageSpendShareEmpty = Nothing to export yet.
+UsageSpendShareFailed = Could not create the share card image.
