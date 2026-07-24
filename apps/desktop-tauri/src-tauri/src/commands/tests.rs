@@ -924,11 +924,8 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
         ProviderId::Claude,
         err.clone(),
     );
-    let second = super::providers::preserve_last_good_transient_failure(
-        &mut state,
-        ProviderId::Claude,
-        err,
-    );
+    let second =
+        super::providers::preserve_last_good_transient_failure(&mut state, ProviderId::Claude, err);
 
     assert_eq!(first.error, None);
     assert_eq!(first.primary.used_percent, 17.0);
@@ -950,16 +947,14 @@ fn claude_hard_credentials_missing_does_not_preserve_stale() {
     let err = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
-        "OAuth error: Claude OAuth credentials not found. Run `claude` to authenticate.".to_string(),
+        "OAuth error: Claude OAuth credentials not found. Run `claude` to authenticate."
+            .to_string(),
     );
     let mut state = crate::state::AppState::new();
     state.provider_cache.push(good);
 
-    let out = super::providers::preserve_last_good_transient_failure(
-        &mut state,
-        ProviderId::Claude,
-        err,
-    );
+    let out =
+        super::providers::preserve_last_good_transient_failure(&mut state, ProviderId::Claude, err);
     assert!(out.error.is_some());
 }
 

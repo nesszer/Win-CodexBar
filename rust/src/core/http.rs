@@ -14,18 +14,19 @@ use super::http_proxy::apply_app_proxy;
 /// When Settings → Advanced HTTP proxy is enabled, the global proxy is applied
 /// here so provider refreshes pick it up on the next `instantiate_provider`.
 pub fn credentialed_http_client_builder() -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::custom(|attempt| {
-        let previous = attempt.previous();
-        let Some(last_url) = previous.last() else {
-            return attempt.follow();
-        };
+    let builder =
+        reqwest::Client::builder().redirect(reqwest::redirect::Policy::custom(|attempt| {
+            let previous = attempt.previous();
+            let Some(last_url) = previous.last() else {
+                return attempt.follow();
+            };
 
-        if is_same_origin(last_url, attempt.url()) {
-            attempt.follow()
-        } else {
-            attempt.stop()
-        }
-    }));
+            if is_same_origin(last_url, attempt.url()) {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        }));
     apply_app_proxy(builder)
 }
 

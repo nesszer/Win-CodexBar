@@ -209,7 +209,11 @@ fn snapshot_from_subscription(value: &serde_json::Value) -> Result<UsageSnapshot
     } else if plan.is_empty() {
         Some(capitalize(status))
     } else {
-        Some(format!("{} plan · {}", capitalize(plan), capitalize(status)))
+        Some(format!(
+            "{} plan · {}",
+            capitalize(plan),
+            capitalize(status)
+        ))
     };
 
     let mut snap = UsageSnapshot::new(quota_window(&env.data.quota_5_hour, 5 * 60))

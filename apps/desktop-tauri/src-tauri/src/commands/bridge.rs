@@ -574,10 +574,7 @@ pub(crate) fn provider_catalog_for(settings: &Settings) -> Vec<ProviderCatalogEn
         .provider_display_order()
         .into_iter()
         .filter(|provider| {
-            !provider.is_deprecated()
-                || settings
-                    .enabled_providers
-                    .contains(provider.cli_name())
+            !provider.is_deprecated() || settings.enabled_providers.contains(provider.cli_name())
         })
         .map(|provider| ProviderCatalogEntry {
             id: provider.cli_name().to_string(),

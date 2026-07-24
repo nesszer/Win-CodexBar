@@ -424,8 +424,12 @@ fn decode_coding_plan_usage(bytes: &[u8]) -> Result<CodingPlanResult, ProviderEr
 }
 
 fn coding_plan_snapshot(usage: CodingPlanResult) -> UsageSnapshot {
-    let primary = coding_plan_window(&usage, &["session", "5-hour", "five_hour", "5h"], Some(5 * 60))
-        .unwrap_or_else(|| RateWindow::new(0.0));
+    let primary = coding_plan_window(
+        &usage,
+        &["session", "5-hour", "five_hour", "5h"],
+        Some(5 * 60),
+    )
+    .unwrap_or_else(|| RateWindow::new(0.0));
     let mut snapshot = UsageSnapshot::new(primary);
     if let Some(weekly) = coding_plan_window(&usage, &["weekly", "week"], Some(7 * 24 * 60)) {
         snapshot = snapshot.with_secondary(weekly);
@@ -926,7 +930,9 @@ impl Provider for DoubaoProvider {
                 if resolve_arkcli_binary().is_some() {
                     match fetch_arkcli_usage() {
                         Ok(snap) => return Ok(ProviderFetchResult::new(snap, "arkcli")),
-                        Err(ProviderError::AuthRequired) => return Err(ProviderError::AuthRequired),
+                        Err(ProviderError::AuthRequired) => {
+                            return Err(ProviderError::AuthRequired);
+                        }
                         Err(ProviderError::NotInstalled(_)) => {}
                         Err(_) => {
                             // Fall through to request-header probe if configured.

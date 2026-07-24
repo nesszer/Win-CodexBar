@@ -154,12 +154,7 @@ mod tests {
 
     #[test]
     fn accepts_explicit_basic_auth_fields() {
-        let s = HttpProxySettings::from_parts(
-            true,
-            "http://proxy.local:8080",
-            "alice",
-            "secret",
-        );
+        let s = HttpProxySettings::from_parts(true, "http://proxy.local:8080", "alice", "secret");
         assert!(resolve_proxy(&s).unwrap().is_some());
     }
 

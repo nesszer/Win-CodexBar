@@ -170,7 +170,9 @@ impl DeepInfraProvider {
         let checklist = self
             .fetch_json::<ChecklistResponse>(CHECKLIST_URL, &api_key)
             .await?;
-        let usage = self.fetch_json::<UsageResponse>(USAGE_URL, &api_key).await?;
+        let usage = self
+            .fetch_json::<UsageResponse>(USAGE_URL, &api_key)
+            .await?;
         let snapshot = DeepInfraSnapshot::from_responses(&checklist, &usage);
 
         let mut result = ProviderFetchResult::new(snapshot.to_usage_snapshot(), "api");
@@ -210,9 +212,9 @@ impl DeepInfraProvider {
             )));
         }
 
-        resp.json().await.map_err(|e| {
-            ProviderError::Parse(format!("Failed to parse DeepInfra response: {e}"))
-        })
+        resp.json()
+            .await
+            .map_err(|e| ProviderError::Parse(format!("Failed to parse DeepInfra response: {e}")))
     }
 }
 

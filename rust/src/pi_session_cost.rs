@@ -79,7 +79,10 @@ fn apply_entry(summary: &mut CostSummary, entry: &PiEntry) {
     summary.cached_tokens += entry.cache_read + entry.cache_create;
     summary.total_cost_usd += entry.cost;
     *summary.by_model.entry(entry.model.clone()).or_insert(0.0) += entry.cost;
-    let tokens = summary.by_model_tokens.entry(entry.model.clone()).or_default();
+    let tokens = summary
+        .by_model_tokens
+        .entry(entry.model.clone())
+        .or_default();
     tokens.input_tokens += entry.input;
     tokens.output_tokens += entry.output;
     tokens.cached_tokens += entry.cache_read + entry.cache_create;
@@ -233,14 +236,27 @@ fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<P
         .cloned()
         .unwrap_or(Value::Null);
 
-    let input = num(&usage, &["input", "inputTokens", "input_tokens", "promptTokens"]);
+    let input = num(
+        &usage,
+        &["input", "inputTokens", "input_tokens", "promptTokens"],
+    );
     let output = num(
         &usage,
-        &["output", "outputTokens", "output_tokens", "completionTokens"],
+        &[
+            "output",
+            "outputTokens",
+            "output_tokens",
+            "completionTokens",
+        ],
     );
     let cache_read = num(
         &usage,
-        &["cacheRead", "cache_read", "cache_read_input_tokens", "cached"],
+        &[
+            "cacheRead",
+            "cache_read",
+            "cache_read_input_tokens",
+            "cached",
+        ],
     );
     let cache_create = num(
         &usage,
@@ -379,7 +395,11 @@ mod tests {
     #[test]
     fn session_roots_include_pi_and_omp() {
         let roots = pi_compatible_session_roots(Some(PathBuf::from("/home/user")));
-        assert!(roots.iter().any(|p| p.ends_with(".pi/agent/sessions") || p.ends_with(".pi\\agent\\sessions")));
+        assert!(
+            roots
+                .iter()
+                .any(|p| p.ends_with(".pi/agent/sessions") || p.ends_with(".pi\\agent\\sessions"))
+        );
         assert!(roots.iter().any(|p| p.ends_with(".omp/agent/sessions") || p.ends_with(".omp\\agent\\sessions")));
     }
 }

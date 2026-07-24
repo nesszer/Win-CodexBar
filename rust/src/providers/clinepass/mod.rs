@@ -54,9 +54,7 @@ impl ClinePassProvider {
                 supports_credits: false,
                 default_enabled: false,
                 is_primary: false,
-                dashboard_url: Some(
-                    "https://app.cline.bot/dashboard/subscription?personal=true",
-                ),
+                dashboard_url: Some("https://app.cline.bot/dashboard/subscription?personal=true"),
                 status_page_url: None,
             },
             client: crate::core::credentialed_http_client_builder()

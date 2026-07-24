@@ -161,11 +161,7 @@ impl Provider for CursorProvider {
                             plan_type,
                             token_report.as_ref(),
                         );
-                        Ok(Self::build_fetch_result(
-                            usage,
-                            cost,
-                            token_report.as_ref(),
-                        ))
+                        Ok(Self::build_fetch_result(usage, cost, token_report.as_ref()))
                     }
                     Err(e) => {
                         tracing::warn!("Cursor API fetch failed: {}", e);
@@ -224,7 +220,13 @@ mod tests {
             source_mode: SourceMode::OAuth,
             ..FetchContext::default()
         };
-        let err = provider.fetch_usage(&ctx).await.expect_err("oauth unsupported");
-        assert!(matches!(err, ProviderError::UnsupportedSource(SourceMode::OAuth)));
+        let err = provider
+            .fetch_usage(&ctx)
+            .await
+            .expect_err("oauth unsupported");
+        assert!(matches!(
+            err,
+            ProviderError::UnsupportedSource(SourceMode::OAuth)
+        ));
     }
 }

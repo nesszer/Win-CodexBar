@@ -25,7 +25,11 @@ struct UsageEventsPage {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct UsageEvent {
-    #[serde(default, deserialize_with = "deserialize_opt_i64", rename = "timestamp")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_opt_i64",
+        rename = "timestamp"
+    )]
     timestamp_ms: Option<i64>,
     model: Option<String>,
     token_usage: Option<EventTokenUsage>,
@@ -211,7 +215,10 @@ fn summarize_events(events: &[UsageEvent]) -> CursorTokenCostReport {
             Some(c) => metered_cents += c,
             None => {
                 // cursorTokenFee is sometimes the only metered field.
-                if let Some(fee) = event.cursor_token_fee.filter(|v| v.is_finite() && *v >= 0.0) {
+                if let Some(fee) = event
+                    .cursor_token_fee
+                    .filter(|v| v.is_finite() && *v >= 0.0)
+                {
                     metered_cents += fee;
                 } else {
                     metered_complete = false;

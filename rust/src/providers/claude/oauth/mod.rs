@@ -364,14 +364,14 @@ impl ClaudeOAuthFetcher {
 
         // Secondary: prefer limits[] weekly_all over legacy seven_day (avoids
         // phantom 100% when Anthropic leaves seven_day.utilization stale).
-        if let Some(weekly) = super::scoped_weekly::weekly_all_window(&response.limits).or_else(
-            || {
+        if let Some(weekly) =
+            super::scoped_weekly::weekly_all_window(&response.limits).or_else(|| {
                 response
                     .seven_day
                     .as_ref()
                     .and_then(|w| Self::to_rate_window(w, Some(10080)))
-            },
-        ) {
+            })
+        {
             usage = usage.with_secondary(weekly);
         }
 
@@ -395,13 +395,17 @@ impl ClaudeOAuthFetcher {
             .as_ref()
             .and_then(|w| Self::to_rate_window(w, Some(10080)))
         {
-            usage
-                .extra_rate_windows
-                .push(NamedRateWindow::new("claude-routines", "Daily Routines", window));
+            usage.extra_rate_windows.push(NamedRateWindow::new(
+                "claude-routines",
+                "Daily Routines",
+                window,
+            ));
         }
         usage
             .extra_rate_windows
-            .extend(super::scoped_weekly::scoped_weekly_windows(&response.limits));
+            .extend(super::scoped_weekly::scoped_weekly_windows(
+                &response.limits,
+            ));
 
         // Login method from rate limit tier or default
         if let Some(ref tier) = credentials.rate_limit_tier {

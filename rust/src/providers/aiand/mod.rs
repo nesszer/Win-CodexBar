@@ -116,7 +116,11 @@ impl AiAndSnapshot {
 
     fn to_cost_snapshot(&self) -> Option<CostSnapshot> {
         self.last_30_days_spend.as_ref().map(|spend| {
-            CostSnapshot::new(spend.amount, spend.currency_code.clone(), self.period_label())
+            CostSnapshot::new(
+                spend.amount,
+                spend.currency_code.clone(),
+                self.period_label(),
+            )
         })
     }
 }
@@ -242,9 +246,9 @@ impl AiAndProvider {
             )));
         }
 
-        resp.json().await.map_err(|e| {
-            ProviderError::Parse(format!("Could not parse ai& usage: {e}"))
-        })
+        resp.json()
+            .await
+            .map_err(|e| ProviderError::Parse(format!("Could not parse ai& usage: {e}")))
     }
 }
 
@@ -331,9 +335,7 @@ mod tests {
     ) -> String {
         let rows: Vec<String> = costs
             .iter()
-            .map(|(cost, currency)| {
-                format!(r#"{{"cost":"{cost}","currency":"{currency}"}}"#)
-            })
+            .map(|(cost, currency)| format!(r#"{{"cost":"{cost}","currency":"{currency}"}}"#))
             .collect();
         let next_after_json = match next_after {
             Some(v) => format!("\"{v}\""),

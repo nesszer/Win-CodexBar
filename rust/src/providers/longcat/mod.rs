@@ -169,9 +169,8 @@ fn build_snapshot(
         .filter(|u| u.is_object())
         .unwrap_or(usage_outer);
 
-    let total = json_f64(usage, "totalToken").ok_or_else(|| {
-        ProviderError::Parse("tokenUsage data was missing totalToken".into())
-    })?;
+    let total = json_f64(usage, "totalToken")
+        .ok_or_else(|| ProviderError::Parse("tokenUsage data was missing totalToken".into()))?;
     let remaining = json_f64(usage, "availableToken");
     let used = remaining.map(|r| (total - r).max(0.0)).unwrap_or(0.0);
 

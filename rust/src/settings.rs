@@ -490,7 +490,10 @@ impl Settings {
     /// Old builds defaulted `promote_tray_icon` to false and persisted that on any
     /// settings save. Flip those installs to the new default once; later opt-outs
     /// are preserved because the marker file remains.
-    fn should_migrate_promote_tray_default(promote_tray_icon: bool, already_migrated: bool) -> bool {
+    fn should_migrate_promote_tray_default(
+        promote_tray_icon: bool,
+        already_migrated: bool,
+    ) -> bool {
         !already_migrated && !promote_tray_icon
     }
 
@@ -505,9 +508,7 @@ impl Settings {
                 tracing::warn!("Failed to persist promote_tray_icon default migration: {error}");
             }
         }
-        if !already_migrated
-            && let Some(parent) = marker.parent()
-        {
+        if !already_migrated && let Some(parent) = marker.parent() {
             let _ = std::fs::create_dir_all(parent);
             if let Err(error) = std::fs::write(&marker, b"1") {
                 tracing::warn!("Failed to write promote_tray_icon migration marker: {error}");

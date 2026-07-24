@@ -222,11 +222,7 @@ fn subscription_window(sub: &Subscription) -> Option<RateWindow> {
         }
         w.resets_at = Some(end);
     }
-    w.reset_description = Some(format!(
-        "{} / {} kWh",
-        format_kwh(used),
-        format_kwh(total)
-    ));
+    w.reset_description = Some(format!("{} / {} kWh", format_kwh(used), format_kwh(total)));
     Some(w)
 }
 
@@ -250,12 +246,7 @@ fn snapshot_from_quota(
 
     let mut snap = UsageSnapshot::new(sub_window);
     if let Some(sub) = &body.subscription {
-        if let Some(plan) = sub
-            .plan
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
+        if let Some(plan) = sub.plan.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             let label = plan.replace('_', " ");
             snap = snap.with_login_method(format!(
                 "{} plan",
@@ -285,9 +276,10 @@ fn snapshot_from_quota(
     if let Some(allowance) = body.key.as_ref().and_then(|k| k.allowance.clone()) {
         let percent = if allowance.blocked == Some(true) {
             Some(100.0)
-        } else if let (Some(spent), Some(limit)) =
-            (valid_nn(allowance.spent_usd), valid_pos(allowance.limit_usd))
-        {
+        } else if let (Some(spent), Some(limit)) = (
+            valid_nn(allowance.spent_usd),
+            valid_pos(allowance.limit_usd),
+        ) {
             Some(((spent / limit) * 100.0).clamp(0.0, 100.0))
         } else {
             None
@@ -306,8 +298,11 @@ fn snapshot_from_quota(
                     .map(|c| c.to_uppercase().collect::<String>() + &period[c.len_utf8()..])
                     .unwrap_or_else(|| period)
             );
-            snap.extra_rate_windows
-                .push(NamedRateWindow::new("key-allowance", title, RateWindow::new(percent)));
+            snap.extra_rate_windows.push(NamedRateWindow::new(
+                "key-allowance",
+                title,
+                RateWindow::new(percent),
+            ));
             let _remaining = allowance.remaining_usd;
         }
     }

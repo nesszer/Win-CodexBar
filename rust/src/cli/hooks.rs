@@ -112,11 +112,7 @@ fn run_list(args: HooksListArgs) -> anyhow::Result<()> {
                 .map(|r| HookRuleListItem {
                     enabled: r.enabled,
                     event: r.event.map(|e| e.as_str().to_string()),
-                    events: r
-                        .events
-                        .iter()
-                        .map(|e| e.as_str().to_string())
-                        .collect(),
+                    events: r.events.iter().map(|e| e.as_str().to_string()).collect(),
                     provider: r.provider.clone(),
                     executable: r.executable.display().to_string(),
                     arguments: r.arguments.clone(),
@@ -130,12 +126,12 @@ fn run_list(args: HooksListArgs) -> anyhow::Result<()> {
 
     println!(
         "Hooks: {} (settings toggle: {})",
-        if config.enabled { "enabled" } else { "disabled" },
-        if settings.hooks_enabled {
-            "on"
+        if config.enabled {
+            "enabled"
         } else {
-            "off"
-        }
+            "disabled"
+        },
+        if settings.hooks_enabled { "on" } else { "off" }
     );
     if let Some(path) = path {
         println!("Config: {path}");

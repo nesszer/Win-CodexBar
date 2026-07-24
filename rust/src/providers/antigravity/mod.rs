@@ -26,8 +26,7 @@ pub struct AntigravityProvider {
 
 /// Return a regex that matches `--<flag> <value>` or `--<flag>=<value>`.
 fn flag_re(flag: &str) -> Regex {
-    Regex::new(&format!(r"--{f}(?:\s+|\s*=\s*)(\S+)", f = flag))
-        .expect("valid flag pattern")
+    Regex::new(&format!(r"--{f}(?:\s+|\s*=\s*)(\S+)", f = flag)).expect("valid flag pattern")
 }
 
 impl AntigravityProvider {
@@ -130,7 +129,10 @@ impl AntigravityProvider {
     }
 
     /// Find the actual API port by probing the language server's candidate ports.
-    async fn find_api_port(extension_port: Option<u16>, pid: Option<u32>) -> Result<u16, ProviderError> {
+    async fn find_api_port(
+        extension_port: Option<u16>,
+        pid: Option<u32>,
+    ) -> Result<u16, ProviderError> {
         // The language server binds a RANDOM localhost port at startup; --extension_server_port
         // is only a reference point (and belongs to a separate HTTP extension server), so the
         // real gRPC/Connect API port is not guaranteed to be within a small window above it.
@@ -723,10 +725,7 @@ mod tests {
 
         assert_eq!(process.pid, Some(34564));
         assert_eq!(process.extension_port, Some(0));
-        assert_eq!(
-            process.csrf_token,
-            "68dda2fb-6b26-40c0-aeef-b9a628615714"
-        );
+        assert_eq!(process.csrf_token, "68dda2fb-6b26-40c0-aeef-b9a628615714");
     }
 
     #[test]

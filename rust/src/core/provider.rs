@@ -746,17 +746,12 @@ mod tests {
         assert!(ProviderId::CrossModel.is_deprecated());
         assert!(!ProviderId::Kimi.is_deprecated());
         assert!(!ProviderId::AiAnd.is_deprecated());
-        assert!(
-            ProviderId::KimiK2
-                .display_name()
-                .contains("(removed)")
+        assert!(ProviderId::KimiK2.display_name().contains("(removed)"));
+        assert!(ProviderId::CrossModel.display_name().contains("(removed)"));
+        assert_eq!(
+            ProviderId::from_cli_name("kimik2"),
+            Some(ProviderId::KimiK2)
         );
-        assert!(
-            ProviderId::CrossModel
-                .display_name()
-                .contains("(removed)")
-        );
-        assert_eq!(ProviderId::from_cli_name("kimik2"), Some(ProviderId::KimiK2));
         assert_eq!(
             ProviderId::from_cli_name("crossmodel"),
             Some(ProviderId::CrossModel)
