@@ -12,6 +12,27 @@ fn test_settings_default() {
     assert!(!settings.show_reset_when_exhausted);
     assert!(!settings.predictive_pace_warning_enabled);
     assert!(!settings.float_bar_show_cost);
+    assert!(settings.promote_tray_icon);
+}
+
+#[test]
+fn promote_tray_icon_defaults_on_when_missing_from_disk() {
+    let loaded: Settings = serde_json::from_str(
+        r#"{
+            "enabled_providers": ["claude", "codex"],
+            "refresh_interval_secs": 300
+        }"#,
+    )
+    .expect("parse settings without promote_tray_icon");
+    assert!(loaded.promote_tray_icon);
+}
+
+#[test]
+fn promote_tray_default_migration_flips_old_false_once() {
+    assert!(Settings::should_migrate_promote_tray_default(false, false));
+    assert!(!Settings::should_migrate_promote_tray_default(true, false));
+    assert!(!Settings::should_migrate_promote_tray_default(false, true));
+    assert!(!Settings::should_migrate_promote_tray_default(true, true));
 }
 
 #[test]

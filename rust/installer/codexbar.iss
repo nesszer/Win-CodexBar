@@ -60,7 +60,12 @@ Name: "{autoprograms}\CodexBar"; Filename: "{app}\codexbar.exe"; Parameters: "me
 Name: "{autodesktop}\CodexBar"; Filename: "{app}\codexbar.exe"; Parameters: "menubar"; WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"
 
 [Run]
+; Interactive installs: optional checkbox on the finish page.
 Filename: "{app}\codexbar.exe"; Parameters: "menubar"; Description: "Launch CodexBar"; Flags: nowait postinstall skipifsilent; Check: CanLaunchCodexBar
+; Silent upgrades (winget / in-app updater): always relaunch so the tray icon
+; returns after CloseApplications kills the previous process. Single-instance
+; handles a second launch from the updater helper if both fire.
+Filename: "{app}\codexbar.exe"; Parameters: "menubar"; Flags: nowait postinstall skipifnotsilent; Check: CanLaunchCodexBar
 
 [Code]
 var

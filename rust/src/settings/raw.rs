@@ -153,7 +153,7 @@ pub(super) struct RawSettings {
     float_bar_show_reset_inline: bool,
     #[serde(default)]
     float_bar_show_cost: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     promote_tray_icon: bool,
 }
 

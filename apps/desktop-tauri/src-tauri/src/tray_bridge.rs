@@ -293,25 +293,34 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build(app)?;
 
     // Apply tray promotion on startup. The NotifyIconSettings entry is created
-    // by Windows only after the icon is first registered, so on the very first
-    // run the subkey may not exist yet — apply_promotion tolerates that
-    // (returns EntryNotFound, logs a debug message). A one-time retry task is
-    // spawned so that subsequent refreshes of the icon on first-run also work.
-    let promote = codexbar::settings::Settings::load().promote_tray_icon;
-    if promote {
-        crate::tray_visibility::apply_promotion(true);
-        let app_handle = app.handle().clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            let still_promote = codexbar::settings::Settings::load().promote_tray_icon;
-            if still_promote {
-                crate::tray_visibility::apply_promotion(true);
-            }
-            drop(app_handle);
-        });
-    }
+    // by Windows only after the icon is first registered, so on first run /
+    // post-upgrade the subkey may not exist yet — apply_promotion tolerates
+    // EntryNotFound. Retry a few times while explorer finishes registration.
+    schedule_tray_promotion_retries(app.handle().clone());
 
     Ok(())
+}
+
+/// Re-apply Win11 tray promotion a few times after startup.
+///
+/// Windows often creates the NotifyIconSettings subkey only after the first
+/// successful NIM_ADD (and sometimes only after the icon is refreshed). A
+/// single immediate write is not enough after upgrades.
+fn schedule_tray_promotion_retries(app_handle: AppHandle) {
+    if !codexbar::settings::Settings::load().promote_tray_icon {
+        return;
+    }
+    crate::tray_visibility::apply_promotion(true);
+    tauri::async_runtime::spawn(async move {
+        for secs in [1_u64, 3, 8] {
+            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            if !codexbar::settings::Settings::load().promote_tray_icon {
+                break;
+            }
+            crate::tray_visibility::apply_promotion(true);
+        }
+        drop(app_handle);
+    });
 }
 
 /// Route a native menu-item click to the corresponding shell action.
