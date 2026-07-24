@@ -81,13 +81,41 @@ pub fn is_win11_build(build: u32) -> bool {
     build >= 22000
 }
 
-/// Case-insensitive path comparison after stripping trailing separators.
+/// Normalize a Windows executable path for equality checks.
+///
+/// Strips the `\\?\` / `\\?\UNC\` extended prefixes that `current_exe()` may
+/// return, unifies separators, and lowercases.
+pub fn normalize_exe_path(path: &str) -> String {
+    let mut s = path.replace('/', "\\");
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        s = format!(r"\\{rest}");
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        s = rest.to_string();
+    }
+    s.trim_end_matches('\\').to_ascii_lowercase()
+}
+
+/// Case-insensitive path comparison after stripping trailing separators and
+/// Win32 extended-length prefixes.
 /// Returns true when `entry_path` names the same executable as `exe_path`.
 pub fn matches_current_exe(entry_path: &str, exe_path: &std::path::Path) -> bool {
-    let normalize = |s: &str| s.replace('/', "\\").trim_end_matches('\\').to_ascii_lowercase();
-    let entry = normalize(entry_path);
-    let exe = normalize(&exe_path.to_string_lossy());
-    entry == exe
+    normalize_exe_path(entry_path) == normalize_exe_path(&exe_path.to_string_lossy())
+}
+
+/// True when both paths end with the same file name (case-insensitive).
+/// Used as a fallback when the full path differs after an install-dir move.
+pub fn matches_exe_file_name(entry_path: &str, exe_path: &std::path::Path) -> bool {
+    let entry_name = normalize_exe_path(entry_path)
+        .rsplit('\\')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let exe_name = exe_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(normalize_exe_path)
+        .unwrap_or_default();
+    !entry_name.is_empty() && entry_name == exe_name
 }
 
 // ── Platform-specific implementation ─────────────────────────────────────────
@@ -105,9 +133,7 @@ mod windows {
     fn current_build() -> u32 {
         use winreg::enums::*;
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-        let Ok(key) = hklm.open_subkey(
-            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
-        ) else {
+        let Ok(key) = hklm.open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") else {
             return 0;
         };
         let Ok(build_str): Result<String, _> = key.get_value("CurrentBuild") else {
@@ -128,6 +154,9 @@ mod windows {
         settings_key: &RegKey,
         exe_path: &std::path::Path,
     ) -> Result<Option<RegKey>, std::io::Error> {
+        let mut by_name: Option<RegKey> = None;
+        let mut name_matches = 0u32;
+
         for name in settings_key.enum_keys().flatten() {
             let Ok(subkey) = settings_key.open_subkey_with_flags(&name, KEY_READ | KEY_WRITE)
             else {
@@ -139,6 +168,16 @@ mod windows {
             if matches_current_exe(&entry_path, exe_path) {
                 return Ok(Some(subkey));
             }
+            if matches_exe_file_name(&entry_path, exe_path) {
+                name_matches += 1;
+                by_name = Some(subkey);
+            }
+        }
+
+        // Fallback: unique file-name match (handles install-dir moves / path
+        // rewrites where Windows still has a single CodexBar notify entry).
+        if name_matches == 1 {
+            return Ok(by_name);
         }
         Ok(None)
     }
@@ -152,8 +191,8 @@ mod windows {
         let Ok(settings_key) = hkcu.open_subkey_with_flags(NOTIFY_ICON_SETTINGS, KEY_READ) else {
             return Ok(PromotionState::EntryNotFound);
         };
-        let Some(subkey) = find_own_subkey(&settings_key, &exe_path)
-            .map_err(TrayVisibilityError::Registry)?
+        let Some(subkey) =
+            find_own_subkey(&settings_key, &exe_path).map_err(TrayVisibilityError::Registry)?
         else {
             return Ok(PromotionState::EntryNotFound);
         };
@@ -171,12 +210,13 @@ mod windows {
         }
         let exe_path = std::env::current_exe().map_err(TrayVisibilityError::ExePathUnresolvable)?;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let Ok(settings_key) = hkcu.open_subkey_with_flags(NOTIFY_ICON_SETTINGS, KEY_READ | KEY_WRITE)
+        let Ok(settings_key) =
+            hkcu.open_subkey_with_flags(NOTIFY_ICON_SETTINGS, KEY_READ | KEY_WRITE)
         else {
             return Ok(PromotionState::EntryNotFound);
         };
-        let Some(subkey) = find_own_subkey(&settings_key, &exe_path)
-            .map_err(TrayVisibilityError::Registry)?
+        let Some(subkey) =
+            find_own_subkey(&settings_key, &exe_path).map_err(TrayVisibilityError::Registry)?
         else {
             return Ok(PromotionState::EntryNotFound);
         };
@@ -209,10 +249,10 @@ mod non_windows {
     }
 }
 
-#[cfg(target_os = "windows")]
-use windows as platform;
 #[cfg(not(target_os = "windows"))]
 use non_windows as platform;
+#[cfg(target_os = "windows")]
+use windows as platform;
 
 pub fn support_status() -> TrayVisibilitySupport {
     platform::support_status()
@@ -310,6 +350,34 @@ mod tests {
             r"C:/apps/CodexBar.exe",
             Path::new(r"C:\apps\codexbar.exe")
         ));
+    }
+
+    #[test]
+    fn matches_extended_length_prefix_from_current_exe() {
+        assert!(matches_current_exe(
+            r"C:\Users\mac\AppData\Local\Programs\CodexBar\codexbar.exe",
+            Path::new(r"\\?\C:\Users\mac\AppData\Local\Programs\CodexBar\codexbar.exe")
+        ));
+    }
+
+    #[test]
+    fn matches_exe_file_name_across_install_dirs() {
+        assert!(matches_exe_file_name(
+            r"C:\Old\CodexBar\codexbar.exe",
+            Path::new(r"C:\Users\mac\AppData\Local\Programs\CodexBar\codexbar.exe")
+        ));
+        assert!(!matches_exe_file_name(
+            r"C:\Old\CodexBar\codexbar-cli.exe",
+            Path::new(r"C:\Users\mac\AppData\Local\Programs\CodexBar\codexbar.exe")
+        ));
+    }
+
+    #[test]
+    fn normalize_strips_unc_extended_prefix() {
+        assert_eq!(
+            normalize_exe_path(r"\\?\UNC\server\share\codexbar.exe"),
+            r"\\server\share\codexbar.exe"
+        );
     }
 
     #[test]

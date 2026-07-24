@@ -255,7 +255,8 @@ pub struct Settings {
 
     /// Promote the tray icon out of the Windows hidden-icons overflow area.
     /// Only has effect on Windows 11 (build ≥ 22000); silently ignored elsewhere.
-    #[serde(default)]
+    /// Defaults on so upgrades keep the icon pinned to the taskbar notification area.
+    #[serde(default = "default_true")]
     pub promote_tray_icon: bool,
 }
 
@@ -447,7 +448,7 @@ impl Default for Settings {
             float_bar_dark_text: false,
             float_bar_show_reset_inline: false,
             float_bar_show_cost: false,
-            promote_tray_icon: false,
+            promote_tray_icon: true,
         }
     }
 }
@@ -475,9 +476,43 @@ impl Settings {
         #[cfg(target_os = "windows")]
         {
             settings.start_at_login = Self::sync_start_at_login_registry();
+            settings.apply_promote_tray_default_migration();
         }
 
         settings
+    }
+
+    /// Marker written after the one-shot "pin tray by default" migration (issue #237).
+    fn promote_tray_default_marker_path() -> Option<PathBuf> {
+        dirs::config_dir().map(|p| p.join("CodexBar").join(".tray-pin-default-v1"))
+    }
+
+    /// Old builds defaulted `promote_tray_icon` to false and persisted that on any
+    /// settings save. Flip those installs to the new default once; later opt-outs
+    /// are preserved because the marker file remains.
+    fn should_migrate_promote_tray_default(promote_tray_icon: bool, already_migrated: bool) -> bool {
+        !already_migrated && !promote_tray_icon
+    }
+
+    fn apply_promote_tray_default_migration(&mut self) {
+        let Some(marker) = Self::promote_tray_default_marker_path() else {
+            return;
+        };
+        let already_migrated = marker.exists();
+        if Self::should_migrate_promote_tray_default(self.promote_tray_icon, already_migrated) {
+            self.promote_tray_icon = true;
+            if let Err(error) = self.save() {
+                tracing::warn!("Failed to persist promote_tray_icon default migration: {error}");
+            }
+        }
+        if !already_migrated
+            && let Some(parent) = marker.parent()
+        {
+            let _ = std::fs::create_dir_all(parent);
+            if let Err(error) = std::fs::write(&marker, b"1") {
+                tracing::warn!("Failed to write promote_tray_icon migration marker: {error}");
+            }
+        }
     }
 
     /// Save settings to disk
