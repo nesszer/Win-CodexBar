@@ -171,10 +171,10 @@ fn default_timeout_secs() -> u64 {
 impl HookRule {
     fn matched_events(&self) -> Vec<HookEventType> {
         let mut out = self.events.clone();
-        if let Some(event) = self.event {
-            if !out.contains(&event) {
-                out.push(event);
-            }
+        if let Some(event) = self.event
+            && !out.contains(&event)
+        {
+            out.push(event);
         }
         out
     }
@@ -346,7 +346,7 @@ impl HookRunner {
             return;
         }
         HOOK_RATE_LIMITER.with(|limiter| {
-            Self::dispatch(&event, &config, &limiter);
+            Self::dispatch(&event, &config, limiter);
         });
     }
 
@@ -547,9 +547,10 @@ pub fn emit_quota_threshold_hooks(
     if previous < 100.0 && used >= 100.0 {
         events.push(HookEventType::QuotaReached);
     }
-    if previous < critical_threshold && used >= critical_threshold && used < 100.0 {
-        events.push(HookEventType::QuotaLow);
-    } else if previous < high_threshold && used >= high_threshold && used < 100.0 {
+    if used < 100.0
+        && (previous < critical_threshold && used >= critical_threshold
+            || previous < high_threshold && used >= high_threshold)
+    {
         events.push(HookEventType::QuotaLow);
     }
     // Reset edge: was exhausted, now recovered.

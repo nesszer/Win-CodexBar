@@ -95,10 +95,10 @@ impl Provider for LongCatProvider {
                 };
                 let account = self.get_json(USER_CURRENT, &cookie).await?;
                 // Meituan-style envelope may return HTTP 200 with business 401.
-                if let Some(code) = envelope_code(&account) {
-                    if code == 401 || code == 403 {
-                        return Err(ProviderError::AuthRequired);
-                    }
+                if let Some(code) = envelope_code(&account)
+                    && (code == 401 || code == 403)
+                {
+                    return Err(ProviderError::AuthRequired);
                 }
                 let usage_raw = self.get_json(TOKEN_USAGE, &cookie).await?;
                 let fuel = match self.get_json(PENDING_FUEL, &cookie).await {
@@ -193,18 +193,18 @@ fn build_snapshot(
 
     if let Some(fuel_raw) = fuel_raw {
         let fuel_data = envelope_data(fuel_raw);
-        if let Some((total_fuel, remaining_fuel, expiry)) = parse_fuel(fuel_data) {
-            if total_fuel > 0.0 {
-                let used_fuel = (total_fuel - remaining_fuel).max(0.0);
-                let mut secondary =
-                    RateWindow::new(((used_fuel / total_fuel) * 100.0).clamp(0.0, 100.0));
-                secondary.resets_at = expiry;
-                secondary.reset_description = Some(format!(
-                    "Fuel pack: {}/{}",
-                    remaining_fuel as i64, total_fuel as i64
-                ));
-                snap = snap.with_secondary(secondary);
-            }
+        if let Some((total_fuel, remaining_fuel, expiry)) = parse_fuel(fuel_data)
+            && total_fuel > 0.0
+        {
+            let used_fuel = (total_fuel - remaining_fuel).max(0.0);
+            let mut secondary =
+                RateWindow::new(((used_fuel / total_fuel) * 100.0).clamp(0.0, 100.0));
+            secondary.resets_at = expiry;
+            secondary.reset_description = Some(format!(
+                "Fuel pack: {}/{}",
+                remaining_fuel as i64, total_fuel as i64
+            ));
+            snap = snap.with_secondary(secondary);
         }
     }
 
@@ -240,14 +240,13 @@ fn parse_fuel(fuel: &Value) -> Option<(f64, f64, Option<DateTime<Utc>>)> {
         if let Some(raw) = json_str(pkg, "expireTime")
             .or_else(|| json_str(pkg, "expireAt"))
             .or_else(|| json_str(pkg, "expiresAt"))
+            && let Ok(dt) = DateTime::parse_from_rfc3339(&raw)
         {
-            if let Ok(dt) = DateTime::parse_from_rfc3339(&raw) {
-                let utc = dt.with_timezone(&Utc);
-                nearest = Some(match nearest {
-                    Some(n) if n < utc => n,
-                    _ => utc,
-                });
-            }
+            let utc = dt.with_timezone(&Utc);
+            nearest = Some(match nearest {
+                Some(n) if n < utc => n,
+                _ => utc,
+            });
         }
     }
 

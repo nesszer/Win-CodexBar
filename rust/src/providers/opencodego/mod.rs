@@ -216,14 +216,13 @@ impl OpenCodeGoProvider {
             if let (Some(used), Some(limit)) = (
                 Self::extract_number(&used_pattern, text),
                 Self::extract_number(&limit_pattern, text),
-            ) {
-                if limit > 0.0 {
-                    let reset = Self::extract_number(&reset_pattern, text)
-                        .map(|n| n as i64)
-                        .unwrap_or(0);
-                    let p = (used / limit) * 100.0;
-                    return Some((p.clamp(0.0, 100.0), reset.max(0)));
-                }
+            ) && limit > 0.0
+            {
+                let reset = Self::extract_number(&reset_pattern, text)
+                    .map(|n| n as i64)
+                    .unwrap_or(0);
+                let p = (used / limit) * 100.0;
+                return Some((p.clamp(0.0, 100.0), reset.max(0)));
             }
         }
         None

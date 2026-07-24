@@ -638,10 +638,9 @@ fn decode_arkcli_usage(bytes: &[u8]) -> Result<CodingPlanResult, ProviderError> 
         .as_ref()
         .and_then(|v| v.auth_method.as_deref())
         .map(str::trim)
+        && method.eq_ignore_ascii_case("none")
     {
-        if method.eq_ignore_ascii_case("none") {
-            return Err(ProviderError::AuthRequired);
-        }
+        return Err(ProviderError::AuthRequired);
     }
 
     let supported = [
@@ -692,17 +691,17 @@ fn decode_arkcli_usage(bytes: &[u8]) -> Result<CodingPlanResult, ProviderError> 
             continue;
         }
         let periods = item.periods.unwrap_or_default();
-        if !periods.is_empty() {
-            if let Some(updated_at) = item.updated_at.filter(|v| *v > 0.0) {
-                // arkcli may emit ms or seconds; 1e11 is the unit threshold.
-                let seconds = if updated_at >= 1e11 {
-                    updated_at / 1000.0
-                } else {
-                    updated_at
-                };
-                if update_ts.map(|t| seconds > t).unwrap_or(true) {
-                    update_ts = Some(seconds);
-                }
+        if !periods.is_empty()
+            && let Some(updated_at) = item.updated_at.filter(|v| *v > 0.0)
+        {
+            // arkcli may emit ms or seconds; 1e11 is the unit threshold.
+            let seconds = if updated_at >= 1e11 {
+                updated_at / 1000.0
+            } else {
+                updated_at
+            };
+            if update_ts.map(|t| seconds > t).unwrap_or(true) {
+                update_ts = Some(seconds);
             }
         }
         for period in periods {

@@ -336,10 +336,11 @@ pub(crate) fn resolve_factory_api_key_from(
 pub(crate) fn resolve_factory_api_key(ctx_key: Option<&str>) -> Option<String> {
     let mut env: HashMap<String, String> = std::env::vars().collect();
     // Ensure dotenv can resolve on machines where the process map is sparse.
-    if !env.contains_key("USERPROFILE") && !env.contains_key("HOME") {
-        if let Some(home) = dirs::home_dir() {
-            env.insert("USERPROFILE".to_string(), home.display().to_string());
-        }
+    if !env.contains_key("USERPROFILE")
+        && !env.contains_key("HOME")
+        && let Some(home) = dirs::home_dir()
+    {
+        env.insert("USERPROFILE".to_string(), home.display().to_string());
     }
     let saved = ApiKeys::load().get("factory").map(str::to_string);
     resolve_factory_api_key_from(ctx_key, &env, saved.as_deref())

@@ -132,10 +132,10 @@ fn for_each_pi_entry(
         let Some(entry) = parse_pi_assistant_entry(&value, target) else {
             continue;
         };
-        if let Some(ts) = entry_timestamp(&value) {
-            if ts < cutoff {
-                continue;
-            }
+        if let Some(ts) = entry_timestamp(&value)
+            && ts < cutoff
+        {
+            continue;
         }
         let entry_id = entry_dedup_key(&value, path, counted);
         if !seen.insert(entry_id) {
@@ -156,7 +156,7 @@ fn entry_dedup_key(value: &Value, path: &Path, ordinal: u32) -> String {
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        return format!("{id}");
+        return id.to_string();
     }
     format!("{}#{ordinal}", path.display())
 }
@@ -175,7 +175,7 @@ fn entry_timestamp(value: &Value) -> Option<DateTime<Utc>> {
             value
                 .get("timestamp")
                 .and_then(|v| v.as_i64())
-                .and_then(|ms| DateTime::from_timestamp_millis(ms))
+                .and_then(DateTime::from_timestamp_millis)
         })
 }
 
@@ -317,10 +317,10 @@ fn num(usage: &Value, keys: &[&str]) -> u64 {
             if let Some(n) = v.as_f64() {
                 return n.max(0.0) as u64;
             }
-            if let Some(s) = v.as_str() {
-                if let Ok(n) = s.parse::<u64>() {
-                    return n;
-                }
+            if let Some(s) = v.as_str()
+                && let Ok(n) = s.parse::<u64>()
+            {
+                return n;
             }
         }
     }
