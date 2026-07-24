@@ -140,7 +140,7 @@ fn low_power_mode_enabled() -> bool {
         let low_pct = status.battery_life_percent <= 20;
         // system_status_flag bit 0x01 = Battery Saver is on (Win10+)
         let battery_saver = status.system_status_flag & 0x01 != 0;
-        return on_battery && (low_pct || battery_saver);
+        on_battery && (low_pct || battery_saver)
     }
     #[cfg(not(windows))]
     {
@@ -215,9 +215,11 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
 
-        let mut settings = Settings::default();
-        settings.adaptive_refresh = true;
-        settings.refresh_interval_secs = 0;
+        let settings = Settings {
+            adaptive_refresh: true,
+            refresh_interval_secs: 0,
+            ..Default::default()
+        };
         let delay = resolve_refresh_interval(&settings).expect("adaptive always schedules");
         // No menu open → long idle 30m
         assert_eq!(delay, Duration::from_secs(30 * 60));

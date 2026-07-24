@@ -670,9 +670,7 @@ fn dispatch_quota_hooks(
         return;
     }
     let thresholds = settings.usage_thresholds(provider, window);
-    let account = if settings.hide_personal_info {
-        None
-    } else if account.is_empty() {
+    let account = if settings.hide_personal_info || account.is_empty() {
         None
     } else {
         Some(account)

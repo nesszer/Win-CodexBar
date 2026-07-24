@@ -89,7 +89,7 @@ fn windows_agent_running() -> bool {
                     .to_string_lossy()
                     .to_ascii_lowercase();
                 let stem = name.strip_suffix(".exe").unwrap_or(&name);
-                if AGENT_PROCESS_NAMES.iter().any(|n| *n == stem) {
+                if AGENT_PROCESS_NAMES.contains(&stem) {
                     found = true;
                     break;
                 }

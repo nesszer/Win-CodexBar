@@ -339,10 +339,11 @@ pub fn remember_geometry<R: tauri::Runtime, M: WindowGeometry<R>>(window: &M) {
     };
     // Never re-poison the store with a position that is off every display
     // (failed recovery, transient shell state, etc.).
-    if let Ok(monitors) = window.available_monitors() {
-        if !monitors.is_empty() && !intersects_any_monitor(pos, size, &monitors) {
-            return;
-        }
+    if let Ok(monitors) = window.available_monitors()
+        && !monitors.is_empty()
+        && !intersects_any_monitor(pos, size, &monitors)
+    {
+        return;
     }
     let scale = window.scale_factor().unwrap_or(1.0);
     geometry_store::save_entry(
