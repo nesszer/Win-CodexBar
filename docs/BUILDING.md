@@ -71,9 +71,10 @@ Useful release flags:
 .\scripts\release-doctor.ps1 -Version 0.27.5
 ```
 
-There is no hosted CI/CD for this repository right now. Run local checks before
-PRs; the Windows release script is the primary path for installer and portable
-artifacts.
+A hosted **PR check** runs on Blacksmith Windows for pull requests and pushes
+to `main`/`master`; see `.github/CI.md` for its scope and budget modes. The
+Windows release script remains the primary path for installer and portable
+artifacts; there is no hosted release workflow.
 
 ## macOS Windows Cross Build
 
