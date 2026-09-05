@@ -551,6 +551,8 @@ export interface CostSnapshotBridge {
   balance?: number | null;
   formattedBalance?: string | null;
   daily?: CostDailyPoint[];
+  /** Provider-metered spend that is itself a primary usage signal. */
+  alwaysVisible?: boolean;
 }
 
 export interface PaceSnapshot {
@@ -721,7 +723,7 @@ export interface AppInfoBridge {
 
 export interface DailyCostPoint {
   date: string;
-  value: number;
+  value: number | null;
 }
 
 /** Exact local token totals per day (upstream 0.50.0 #2930). */
