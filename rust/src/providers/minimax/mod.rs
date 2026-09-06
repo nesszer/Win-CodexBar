@@ -267,10 +267,26 @@ impl MiniMaxProvider {
     /// Fetch usage via MiniMax API with region fallback
     async fn fetch_via_web(
         &self,
+        ctx: &FetchContext,
         region: MiniMaxRegion,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let (group_id, api_key) = self.read_api_key().await?;
+        // Prefer the coding-plan remains endpoint (Win-CodexBar #425): the
+        // console's usage/plan pages are client-rendered (Next.js `ssr:false`),
+        // so no server HTML ever contains real numbers, even with a valid
+        // cookie. The underlying `coding_plan/remains` endpoint instead
+        // accepts a plain `Authorization: Bearer <api_key>` with no cookie at
+        // all (no group_id needed), and returns the same `model_remains`
+        // shape the cookie-based parser already understands. This key can
+        // come from Settings (GUI-stored) or the environment, independent of
+        // the dual group_id+api_key credential the legacy billing endpoint
+        // below requires.
+        if let Some(key) = Self::read_plain_api_key(ctx)
+            && let Ok(result) = self.fetch_remains_via_api_key(&key, region).await
+        {
+            return Ok(result);
+        }
 
+        let (group_id, api_key) = self.read_api_key().await?;
         match self.fetch_from_region(&group_id, &api_key, region).await {
             Ok(result) => Ok(result),
             Err(ProviderError::AuthRequired) if region == MiniMaxRegion::Global => {
@@ -279,6 +295,88 @@ impl MiniMaxProvider {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// A plain MiniMax API key from Settings (GUI-stored, via `ctx.api_key`)
+    /// or the `MINIMAX_API_KEY` environment variable. Unlike `read_api_key`,
+    /// this does not require a paired group_id.
+    fn read_plain_api_key(ctx: &FetchContext) -> Option<String> {
+        ctx.api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                std::env::var("MINIMAX_API_KEY")
+                    .ok()
+                    .map(|key| key.trim().to_string())
+                    .filter(|key| !key.is_empty())
+            })
+    }
+
+    /// Fetch coding-plan quota from the remains endpoint using a Bearer API
+    /// key instead of a browser cookie. Tries the platform-host URL, then the
+    /// www-host URL, mirroring the cookie-based fallback chain.
+    async fn fetch_remains_via_api_key(
+        &self,
+        api_key: &str,
+        region: MiniMaxRegion,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        let now = Utc::now();
+        let urls = [region.coding_plan_remains_url(), region.www_remains_url()];
+        let mut last_err: Option<ProviderError> = None;
+        for url in urls {
+            match self.fetch_remains_once_via_api_key(api_key, &url).await {
+                Ok(snapshot) => {
+                    let usage = coding_plan_html::to_usage_snapshot(&snapshot, now)?;
+                    return Ok(ProviderFetchResult::new(usage, "api"));
+                }
+                Err(err @ ProviderError::Parse(_)) => {
+                    last_err = Some(err);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| ProviderError::Parse("Missing MiniMax remains URL.".into())))
+    }
+
+    /// One Bearer-authenticated remains-API request, returning the parsed snapshot.
+    async fn fetch_remains_once_via_api_key(
+        &self,
+        api_key: &str,
+        url: &str,
+    ) -> Result<coding_plan::MiniMaxCodingPlanSnapshot, ProviderError> {
+        let client = crate::core::credentialed_http_client_builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        let response = client
+            .get(url)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Accept", "application/json, text/plain, */*")
+            .send()
+            .await?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ProviderError::AuthRequired);
+        }
+        if !status.is_success() {
+            let msg = format!("MiniMax remains (api key) returned status {status}");
+            if status == reqwest::StatusCode::NOT_FOUND
+                || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+            {
+                return Err(ProviderError::Parse(msg));
+            }
+            return Err(ProviderError::Other(msg));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| ProviderError::Parse(format!("Failed to parse remains JSON: {e}")))?;
+        coding_plan::parse_coding_plan_value(&json, Utc::now())
     }
 
     /// Fetch from a specific region endpoint
@@ -1019,7 +1117,7 @@ impl Provider for MiniMaxProvider {
                     return Ok(result);
                 }
                 // Fall through to API keys.
-                if let Ok(result) = self.fetch_via_web(region).await {
+                if let Ok(result) = self.fetch_via_web(ctx, region).await {
                     return Ok(result);
                 }
                 let usage = self.probe_cli().await?;
@@ -1027,7 +1125,7 @@ impl Provider for MiniMaxProvider {
             }
             SourceMode::Web => match self.resolve_web_cookie(ctx, region)? {
                 Some(cookie) => self.fetch_with_cookie(&cookie, region).await,
-                None => self.fetch_via_web(region).await,
+                None => self.fetch_via_web(ctx, region).await,
             },
             SourceMode::Cli => {
                 let usage = self.probe_cli().await?;
@@ -1053,6 +1151,47 @@ impl Provider for MiniMaxProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_plain_api_key_prefers_ctx_then_env_then_none() {
+        let ctx_with_key = FetchContext {
+            api_key: Some("  ctx-key  ".to_string()),
+            ..FetchContext::default()
+        };
+        assert_eq!(
+            MiniMaxProvider::read_plain_api_key(&ctx_with_key).as_deref(),
+            Some("ctx-key")
+        );
+
+        // Isolate from any MINIMAX_API_KEY already set in the ambient
+        // environment (e.g. a developer's own shell), and restore it after.
+        let previous = std::env::var("MINIMAX_API_KEY").ok();
+        // SAFETY: test-only env var; saved above and restored below within
+        // this single test, with no other test reading MINIMAX_API_KEY.
+        unsafe { std::env::remove_var("MINIMAX_API_KEY") };
+
+        let ctx_empty = FetchContext {
+            api_key: Some("   ".to_string()),
+            ..FetchContext::default()
+        };
+        assert_eq!(MiniMaxProvider::read_plain_api_key(&ctx_empty), None);
+
+        // SAFETY: see above.
+        unsafe { std::env::set_var("MINIMAX_API_KEY", "env-key") };
+        let result = MiniMaxProvider::read_plain_api_key(&FetchContext::default());
+        assert_eq!(result.as_deref(), Some("env-key"));
+
+        match previous {
+            Some(value) => {
+                // SAFETY: see above.
+                unsafe { std::env::set_var("MINIMAX_API_KEY", value) }
+            }
+            None => {
+                // SAFETY: see above.
+                unsafe { std::env::remove_var("MINIMAX_API_KEY") }
+            }
+        }
+    }
 
     #[test]
     fn minimax_region_defaults_to_global_io_urls() {

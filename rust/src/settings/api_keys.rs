@@ -207,6 +207,19 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://ollama.com/settings"),
         },
         ProviderConfigInfo {
+            id: ProviderId::MiniMax,
+            name: "MiniMax",
+            requires_api_key: false,
+            api_key_env_var: Some("MINIMAX_API_KEY"),
+            api_key_help: Some(
+                "Optional: a MiniMax API key reads real coding-plan quota via the console's remains API, bypassing the client-rendered usage/plan pages that browser cookies alone cannot scrape.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some(
+                "https://platform.minimax.io/user-center/basic-information/interface-key",
+            ),
+        },
+        ProviderConfigInfo {
             id: ProviderId::AzureOpenAI,
             name: "Azure OpenAI",
             requires_api_key: true,
