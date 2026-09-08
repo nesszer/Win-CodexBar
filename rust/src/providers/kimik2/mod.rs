@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
+    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
 const KIMIK2_API_BASE_INTERNATIONAL: &str = "https://api.moonshot.ai";
@@ -36,6 +36,29 @@ impl MoonshotRegion {
             MoonshotRegion::International => KIMIK2_API_BASE_INTERNATIONAL,
             MoonshotRegion::China => KIMIK2_API_BASE_CHINA,
         }
+    }
+
+    fn currency_code(self) -> &'static str {
+        match self {
+            MoonshotRegion::International => "USD",
+            MoonshotRegion::China => "CNY",
+        }
+    }
+
+    fn format_balance(self, value: f64) -> String {
+        if self == MoonshotRegion::International && value < 0.0 {
+            // Preserve the existing international presentation for cash.
+            return format!("${value:.2}");
+        }
+
+        if value < 0.0 {
+            return format!(
+                "-{}",
+                CostSnapshot::new(-value, self.currency_code(), "").format_used()
+            );
+        }
+
+        CostSnapshot::new(value, self.currency_code(), "").format_used()
     }
 
     /// Upstream raw values are `international` / `china`; the local aliases
@@ -239,7 +262,7 @@ impl KimiK2Provider {
                 .await
                 .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
-            return self.parse_usage_response(&json);
+            return self.parse_usage_response(&json, region);
         }
 
         if auth_error {
@@ -255,6 +278,7 @@ impl KimiK2Provider {
     fn parse_usage_response(
         &self,
         json: &serde_json::Value,
+        region: MoonshotRegion,
     ) -> Result<UsageSnapshot, ProviderError> {
         let code_ok = json
             .get("code")
@@ -312,13 +336,19 @@ impl KimiK2Provider {
 
         // Create primary rate window (credits used)
         let mut primary = RateWindow::new(used_percent);
-        primary.reset_description = Some(format!("Balance ${available_balance:.2}"));
+        primary.reset_description = Some(format!(
+            "Balance {}",
+            region.format_balance(available_balance)
+        ));
 
-        let mut login_method = format!("Balance: ${available_balance:.2}");
+        let mut login_method = format!("Balance: {}", region.format_balance(available_balance));
         if let Some(cash) = cash_balance
             && cash < 0.0
         {
-            login_method.push_str(&format!(" · ${:.2} in deficit", cash.abs()));
+            login_method.push_str(&format!(
+                " · {} in deficit",
+                region.format_balance(cash.abs())
+            ));
         }
 
         fn finite_json_f64(value: &serde_json::Value) -> Option<f64> {
@@ -335,13 +365,14 @@ impl KimiK2Provider {
         // Add secondary window for cash balance if available
         if let Some(voucher) = voucher_balance {
             let mut voucher_window = RateWindow::new(0.0);
-            voucher_window.reset_description = Some(format!("Voucher ${voucher:.2}"));
+            voucher_window.reset_description =
+                Some(format!("Voucher {}", region.format_balance(voucher)));
             usage = usage.with_extra_rate_window("voucher", "Voucher balance", voucher_window);
         }
 
         if let Some(cash) = cash_balance {
             let mut cash_window = RateWindow::new(if cash < 0.0 { 100.0 } else { 0.0 });
-            cash_window.reset_description = Some(format!("Cash ${cash:.2}"));
+            cash_window.reset_description = Some(format!("Cash {}", region.format_balance(cash)));
             usage = usage.with_extra_rate_window("cash", "Cash balance", cash_window);
         }
 
@@ -545,15 +576,18 @@ mod tests {
     #[test]
     fn parses_string_balances_and_ignores_non_finite_values() {
         let usage = KimiK2Provider::new()
-            .parse_usage_response(&serde_json::json!({
-                "data": {
-                    "available_balance": "12.50",
-                    "total_balance": "50",
-                    "used_balance": "37.50",
-                    "voucher_balance": "Infinity",
-                    "cash_balance": "-5"
-                }
-            }))
+            .parse_usage_response(
+                &serde_json::json!({
+                    "data": {
+                        "available_balance": "12.50",
+                        "total_balance": "50",
+                        "used_balance": "37.50",
+                        "voucher_balance": "Infinity",
+                        "cash_balance": "-5"
+                    }
+                }),
+                MoonshotRegion::International,
+            )
             .unwrap();
 
         assert_eq!(
@@ -563,5 +597,70 @@ mod tests {
         assert!((usage.primary.used_percent - 75.0).abs() < f64::EPSILON);
         assert_eq!(usage.extra_rate_windows.len(), 1);
         assert_eq!(usage.extra_rate_windows[0].id, "cash");
+    }
+
+    #[test]
+    fn formats_the_same_balances_in_the_selected_region_currency() {
+        let json = serde_json::json!({
+            "data": {
+                "available_balance": 12.5,
+                "total_balance": 50.0,
+                "used_balance": 37.5,
+                "voucher_balance": 3.25,
+                "cash_balance": -5.0
+            }
+        });
+
+        let international = KimiK2Provider::new()
+            .parse_usage_response(&json, MoonshotRegion::International)
+            .unwrap();
+        assert_eq!(
+            international.primary.reset_description.as_deref(),
+            Some("Balance $12.50")
+        );
+        assert_eq!(
+            international.login_method.as_deref(),
+            Some("Balance: $12.50 · $5.00 in deficit")
+        );
+        assert_eq!(
+            international.extra_rate_windows[0]
+                .window
+                .reset_description
+                .as_deref(),
+            Some("Voucher $3.25")
+        );
+        assert_eq!(
+            international.extra_rate_windows[1]
+                .window
+                .reset_description
+                .as_deref(),
+            Some("Cash $-5.00")
+        );
+
+        let china = KimiK2Provider::new()
+            .parse_usage_response(&json, MoonshotRegion::China)
+            .unwrap();
+        assert_eq!(
+            china.primary.reset_description.as_deref(),
+            Some("Balance 12.50 CNY")
+        );
+        assert_eq!(
+            china.login_method.as_deref(),
+            Some("Balance: 12.50 CNY · 5.00 CNY in deficit")
+        );
+        assert_eq!(
+            china.extra_rate_windows[0]
+                .window
+                .reset_description
+                .as_deref(),
+            Some("Voucher 3.25 CNY")
+        );
+        assert_eq!(
+            china.extra_rate_windows[1]
+                .window
+                .reset_description
+                .as_deref(),
+            Some("Cash -5.00 CNY")
+        );
     }
 }

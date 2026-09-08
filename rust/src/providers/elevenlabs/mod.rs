@@ -14,6 +14,7 @@ use crate::core::{
 
 const ELEVENLABS_SUBSCRIPTION_URL: &str = "https://api.elevenlabs.io/v1/user/subscription";
 const ELEVENLABS_CREDENTIAL_TARGET: &str = "codexbar-elevenlabs";
+const MAX_AUTH_ERROR_BODY_BYTES: usize = 8 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct ElevenLabsSubscriptionResponse {
@@ -26,6 +27,17 @@ struct ElevenLabsSubscriptionResponse {
     professional_voice_limit: Option<u64>,
     status: Option<String>,
     next_character_count_reset_unix: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ElevenLabsApiErrorResponse {
+    detail: Option<ElevenLabsApiErrorDetail>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ElevenLabsApiErrorDetail {
+    code: Option<String>,
+    status: Option<String>,
 }
 
 pub struct ElevenLabsProvider {
@@ -64,15 +76,15 @@ impl ElevenLabsProvider {
             .send()
             .await?;
 
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED
-            || response.status() == reqwest::StatusCode::FORBIDDEN
-        {
-            return Err(ProviderError::AuthRequired);
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            let body = read_bounded_error_body(response).await;
+            return Err(auth_error_from_response(status, &body));
         }
-        if !response.status().is_success() {
+        if !status.is_success() {
             return Err(ProviderError::Other(format!(
                 "ElevenLabs API returned status {}",
-                response.status()
+                status
             )));
         }
 
@@ -80,6 +92,59 @@ impl ElevenLabsProvider {
             ProviderError::Parse(format!("Failed to parse ElevenLabs subscription: {e}"))
         })?;
         Ok(snapshot_from_subscription(&subscription))
+    }
+}
+
+async fn read_bounded_error_body(mut response: reqwest::Response) -> Vec<u8> {
+    let mut body = Vec::new();
+    while body.len() < MAX_AUTH_ERROR_BODY_BYTES {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                let remaining = MAX_AUTH_ERROR_BODY_BYTES - body.len();
+                body.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+            }
+            Ok(None) | Err(_) => break,
+        }
+    }
+    body
+}
+
+fn auth_error_from_response(status: reqwest::StatusCode, body: &[u8]) -> ProviderError {
+    if let Ok(response) = serde_json::from_slice::<ElevenLabsApiErrorResponse>(body)
+        && let Some(detail) = response.detail
+    {
+        if let Some(error) = auth_error_from_value(detail.code.as_deref()) {
+            return error;
+        }
+        if let Some(error) = auth_error_from_value(detail.status.as_deref()) {
+            return error;
+        }
+    }
+
+    if status == reqwest::StatusCode::FORBIDDEN {
+        ProviderError::Other(
+            "ElevenLabs denied access for the selected API key. Check its endpoint permissions and IP allowlist."
+                .into(),
+        )
+    } else {
+        ProviderError::Other(
+            "ElevenLabs could not authenticate the selected API key. Check the key and its permissions."
+                .into(),
+        )
+    }
+}
+
+fn auth_error_from_value(value: Option<&str>) -> Option<ProviderError> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "invalid_api_key" => Some(ProviderError::Other(
+            "ElevenLabs rejected the selected API key. Check that it is valid and has not been revoked."
+                .into(),
+        )),
+        "missing_permissions" | "insufficient_permissions" => Some(ProviderError::Other(
+            "ElevenLabs API key is missing the user_read permission required to fetch subscription usage."
+                .into(),
+        )),
+        _ => None,
     }
 }
 
@@ -258,5 +323,57 @@ mod tests {
         );
         assert_eq!(snapshot.extra_rate_windows.len(), 2);
         assert_eq!(snapshot.login_method.as_deref(), Some("creator"));
+    }
+
+    #[test]
+    fn auth_error_checks_code_before_status_and_uses_status_as_fallback() {
+        let code_wins = auth_error_from_response(
+            reqwest::StatusCode::UNAUTHORIZED,
+            br#"{"detail":{"code":" INVALID_API_KEY ","status":"missing_permissions"}}"#,
+        );
+        assert_eq!(
+            code_wins.to_string(),
+            "ElevenLabs rejected the selected API key. Check that it is valid and has not been revoked."
+        );
+
+        let status_used = auth_error_from_response(
+            reqwest::StatusCode::UNAUTHORIZED,
+            br#"{"detail":{"code":"unknown","status":" INSUFFICIENT_PERMISSIONS "}}"#,
+        );
+        assert_eq!(
+            status_used.to_string(),
+            "ElevenLabs API key is missing the user_read permission required to fetch subscription usage."
+        );
+    }
+
+    #[test]
+    fn auth_error_malformed_or_empty_body_uses_status_fallback() {
+        assert_eq!(
+            auth_error_from_response(reqwest::StatusCode::UNAUTHORIZED, b"").to_string(),
+            "ElevenLabs could not authenticate the selected API key. Check the key and its permissions."
+        );
+        assert_eq!(
+            auth_error_from_response(reqwest::StatusCode::FORBIDDEN, b"not JSON").to_string(),
+            "ElevenLabs denied access for the selected API key. Check its endpoint permissions and IP allowlist."
+        );
+    }
+
+    #[test]
+    fn auth_error_messages_do_not_expose_response_body() {
+        let marker = b"sensitive-response-marker-api-key";
+        for status in [
+            reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::FORBIDDEN,
+        ] {
+            let error = auth_error_from_response(
+                status,
+                br#"{"detail":{"code":"unknown","status":"unknown","message":"sensitive-response-marker-api-key"}}"#,
+            );
+            assert!(
+                !error
+                    .to_string()
+                    .contains(std::str::from_utf8(marker).unwrap())
+            );
+        }
     }
 }

@@ -4,8 +4,9 @@
 //! #2716 `--identity redacted|full`, #2719 `--output <path>` atomic write).
 //! POSIX `0644` mode bits are skipped per PORTING conventions (Windows).
 
-use std::io::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use crate::atomic_file::write_atomic;
 
 use clap::Args;
 
@@ -69,43 +70,6 @@ fn parse_timeout(seconds: f64) -> anyhow::Result<Option<std::time::Duration>> {
     } else {
         Ok(Some(std::time::Duration::from_secs_f64(seconds)))
     }
-}
-
-/// Atomic snapshot write: temp sibling file + fsync + rename. The rename
-/// replaces an existing target on Windows (`std::fs::rename` uses
-/// `MOVEFILE_REPLACE_EXISTING`). Upstream's `0644` POSIX mode does not apply.
-/// On failure the temp sibling is truncated to zero bytes rather than deleted
-/// (harness policy: no delete APIs); zero-length `.tmp-*` siblings are
-/// harmless and overwritten by the next run.
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    if !parent.is_dir() {
-        anyhow::bail!(
-            "output directory does not exist: {} (it is not created)",
-            parent.display()
-        );
-    }
-    let mut temp_name = path.as_os_str().to_os_string();
-    temp_name.push(format!(".tmp-{}", std::process::id()));
-    let temp = PathBuf::from(temp_name);
-
-    let result = (|| -> anyhow::Result<()> {
-        let mut file = std::fs::File::create(&temp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temp, path)?;
-        Ok(())
-    })();
-    if result.is_err()
-        && let Ok(file) = std::fs::OpenOptions::new().write(true).open(&temp)
-    {
-        // Best-effort truncate; the abandoned temp file is unlinked by callers.
-        let _truncated = file.set_len(0);
-    }
-    result
 }
 
 #[cfg(test)]

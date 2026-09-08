@@ -641,10 +641,7 @@ impl ModelsDevCache {
         let Ok(contents) = serde_json::to_vec(&*artifact) else {
             return false;
         };
-        let Ok(mut file) = std::fs::File::create(&cache_path) else {
-            return false;
-        };
-        if std::io::Write::write_all(&mut file, &contents).is_err() {
+        if crate::atomic_file::write_atomic(&cache_path, &contents).is_err() {
             return false;
         }
         let (modified_at, size) = file_identity(&cache_path);
@@ -660,6 +657,30 @@ impl ModelsDevCache {
                 },
             );
         true
+    }
+}
+
+#[cfg(test)]
+mod models_dev_cache_atomic_tests {
+    use super::ModelsDevCache;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    #[test]
+    fn failed_atomic_write_preserves_previous_cache() {
+        let root = tempdir().unwrap();
+        let cache_path = ModelsDevCache::cache_path(Some(root.path()));
+        let parent = cache_path.parent().unwrap();
+        std::fs::create_dir_all(parent).unwrap();
+
+        crate::atomic_file::write_atomic(&cache_path, b"old-cache").unwrap();
+
+        let mut temp_name = cache_path.as_os_str().to_os_string();
+        temp_name.push(format!(".tmp-{}", std::process::id()));
+        std::fs::create_dir(PathBuf::from(temp_name)).unwrap();
+
+        assert!(crate::atomic_file::write_atomic(&cache_path, b"new-cache").is_err());
+        assert_eq!(std::fs::read(cache_path).unwrap(), b"old-cache");
     }
 }
 

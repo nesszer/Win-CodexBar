@@ -2,16 +2,20 @@
 //!
 //! Uses a browser session cookie to fetch monthly and purchased credit balances.
 
+mod plan_cache;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use regex_lite::Regex;
 use reqwest::Client;
 use serde_json::Value;
+use std::sync::{LazyLock, Mutex};
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
     ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
+use plan_cache::CommandCodePlanCache;
 
 const COMMAND_CODE_API_BASE: &str = "https://api.commandcode.ai";
 const COMMAND_CODE_CREDITS_PATH: &str = "/internal/billing/credits";
@@ -21,6 +25,9 @@ const COMMAND_CODE_SUBSCRIPTIONS_PATH: &str = "/internal/billing/subscriptions";
 /// `CommandCodeUsageFetcher`): five-hour and weekly rolling caps.
 const FIVE_HOUR_WINDOW_MINUTES: u32 = 5 * 60;
 const WEEKLY_WINDOW_MINUTES: u32 = 7 * 24 * 60;
+
+static PLAN_CACHE: LazyLock<Mutex<CommandCodePlanCache>> =
+    LazyLock::new(|| Mutex::new(CommandCodePlanCache::default()));
 
 /// Recognized better-auth session cookie names in upstream priority order
 /// (upstream `CommandCodeCookieHeader.supportedSessionCookieNames`). #2706 added
@@ -116,19 +123,21 @@ impl CommandCodeProvider {
     async fn fetch_web(&self, cookie_header: &str) -> Result<ProviderFetchResult, ProviderError> {
         let cookie_header =
             normalize_cookie_header(cookie_header).ok_or_else(|| ProviderError::NoCookies)?;
+        let now = Utc::now();
+        let fingerprint = crate::core::sha256_hex(cookie_header.as_bytes());
         let credits = self
             .get_json(
                 &format!("{COMMAND_CODE_API_BASE}{COMMAND_CODE_CREDITS_PATH}"),
                 &cookie_header,
             )
             .await?;
-        let subscription = self
+        let subscription_result = self
             .get_json(
                 &format!("{COMMAND_CODE_API_BASE}{COMMAND_CODE_SUBSCRIPTIONS_PATH}"),
                 &cookie_header,
             )
-            .await
-            .ok();
+            .await;
+        let subscription = resolve_subscription_payload(subscription_result, &fingerprint, now);
         result_from_payloads(&credits, subscription.as_ref())
     }
 
@@ -282,6 +291,68 @@ fn unescape_shell_segment(raw: &str) -> String {
     }
     output
 }
+
+fn resolve_subscription_payload(
+    result: Result<Value, ProviderError>,
+    fingerprint: &str,
+    now: DateTime<Utc>,
+) -> Option<Value> {
+    resolve_subscription_payload_with_cache(result, fingerprint, now, &PLAN_CACHE)
+}
+
+fn resolve_subscription_payload_with_cache(
+    result: Result<Value, ProviderError>,
+    fingerprint: &str,
+    now: DateTime<Utc>,
+    cache: &Mutex<CommandCodePlanCache>,
+) -> Option<Value> {
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    match result {
+        Ok(payload) => {
+            let plan_id = payload
+                .get("data")
+                .and_then(|data| data.get("planId"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|plan_id| !plan_id.is_empty());
+            let period_end = payload
+                .get("data")
+                .and_then(|data| data.get("currentPeriodEnd"))
+                .and_then(Value::as_str)
+                .and_then(|value| parse_datetime(value.trim()));
+
+            if let Some(plan) = plan_id.and_then(find_plan) {
+                cache.store(plan.id, period_end, fingerprint, now);
+            } else {
+                cache.clear(fingerprint, now);
+            }
+            Some(payload)
+        }
+        Err(_optional_subscription_error) => {
+            let entry = cache
+                .entry(fingerprint, now)
+                .map(|entry| (entry.plan_id.clone(), entry.period_end));
+            let (plan_id, period_end) = entry?;
+            if find_plan(&plan_id).is_none() {
+                cache.clear(fingerprint, now);
+                return None;
+            }
+            Some(serde_json::json!({
+                "data": {
+                    "planId": plan_id,
+                    "currentPeriodEnd": period_end.to_rfc3339(),
+                }
+            }))
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "plan_cache_integration_tests.rs"]
+mod plan_cache_integration_tests;
 
 fn result_from_payloads(
     credits_payload: &Value,
