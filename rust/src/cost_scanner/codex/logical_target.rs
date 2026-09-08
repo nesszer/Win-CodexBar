@@ -78,3 +78,14 @@ pub(super) fn codex_logical_target_has_unconsumed_tail(
     let target_size = codex_scan_target_size(usage);
     parsed_bytes < metadata_size || target_size < metadata_size
 }
+
+/// Whether a completed empty fragment has no parser state worth resuming.
+pub(super) fn codex_cached_entry_is_complete_empty_fragment(usage: &CostUsageFileUsage) -> bool {
+    usage.days.is_empty()
+        && usage.parsed_bytes == Some(usage.size)
+        && usage.codex_scan_target_size == Some(usage.size)
+        && usage.last_model.is_none()
+        && usage.last_totals.is_none()
+        && usage.codex_last_token_timestamp.is_none()
+        && usage.codex_token_timestamps_monotonic != Some(false)
+}

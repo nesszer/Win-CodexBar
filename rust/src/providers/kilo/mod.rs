@@ -71,7 +71,7 @@ impl KiloProvider {
         }
 
         Err(ProviderError::NotInstalled(
-            "Kilo API key not found. Set KILO_API_KEY, store in keychain, or sign in with Kilo CLI."
+            "Kilo API key not found. Set KILO_API_KEY, store in keychain, or run `kilo auth login`."
                 .to_string(),
         ))
     }

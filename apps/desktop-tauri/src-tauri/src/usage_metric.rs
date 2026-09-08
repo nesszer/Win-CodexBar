@@ -211,6 +211,7 @@ mod tests {
             plan_name: None,
             account_email: None,
             source_label: "test".to_string(),
+            has_successful_claude_cli_quota: false,
             updated_at: "2026-08-16T00:00:00Z".to_string(),
             error: None,
             error_state: codexbar::core::ProviderStateKind::Ready,

@@ -78,7 +78,9 @@ impl ZaiUsageDetail {
 
     /// Format usage as human-readable string
     pub fn format_usage(&self) -> String {
-        if self.usage >= 1_000_000 {
+        if self.usage >= 1_000_000_000 {
+            format!("{:.1}B tokens", self.usage as f64 / 1_000_000_000.0)
+        } else if self.usage >= 1_000_000 {
             format!("{:.1}M tokens", self.usage as f64 / 1_000_000.0)
         } else if self.usage >= 1_000 {
             format!("{:.1}K tokens", self.usage as f64 / 1_000.0)
@@ -394,6 +396,10 @@ mod tests {
 
     #[test]
     fn test_usage_detail_format() {
+        let detail = ZaiUsageDetail::new("glm-5", 1_500_000_000);
+        assert_eq!(detail.usage, 1_500_000_000);
+        assert_eq!(detail.format_usage(), "1.5B tokens");
+
         let detail = ZaiUsageDetail::new("claude-3-opus", 1_500_000);
         assert_eq!(detail.format_usage(), "1.5M tokens");
 

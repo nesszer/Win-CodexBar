@@ -275,7 +275,7 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             name: "Kilo",
             requires_api_key: true,
             api_key_env_var: Some("KILO_API_KEY"),
-            api_key_help: Some("Get your API key from Kilo, or sign in with Kilo CLI."),
+            api_key_help: Some("Get your API key from Kilo, or run `kilo auth login`."),
             config_file_path: Some("~/.local/share/kilo/auth.json"),
             dashboard_url: Some("https://app.kilo.ai/usage"),
         },

@@ -103,6 +103,10 @@ pub struct CostSnapshotBridge {
     #[serde(default)]
     pub balance: Option<f64>,
     #[serde(default)]
+    pub balance_updated_at: Option<String>,
+    #[serde(default)]
+    pub account_id: Option<String>,
+    #[serde(default)]
     pub formatted_balance: Option<String>,
     #[serde(default)]
     pub daily: Vec<CostDailyPointBridge>,
@@ -195,6 +199,8 @@ pub struct ProviderUsageSnapshot {
     pub account_email: Option<String>,
     #[serde(default = "default_source_label")]
     pub source_label: String,
+    #[serde(default)]
+    pub has_successful_claude_cli_quota: bool,
     /// Defaults to launch time when absent so the card renders as fresh.
     #[serde(default)]
     pub updated_at: String,
@@ -378,6 +384,8 @@ impl ProviderUsageSnapshot {
                 formatted_used: c.format_used(),
                 formatted_limit: c.format_limit(),
                 balance: c.balance,
+                balance_updated_at: c.balance_updated_at.map(|dt| dt.to_rfc3339()),
+                account_id: c.account_id.clone(),
                 formatted_balance: c.format_balance(),
                 daily: c
                     .daily
@@ -392,6 +400,7 @@ impl ProviderUsageSnapshot {
             plan_name: usage.login_method.clone(),
             account_email: usage.account_email.clone(),
             source_label: result.source_label.clone(),
+            has_successful_claude_cli_quota: result.has_successful_claude_cli_quota,
             updated_at: usage.updated_at.to_rfc3339(),
             error: None,
             error_state: codexbar::core::ProviderStateKind::Ready,
@@ -438,6 +447,7 @@ impl ProviderUsageSnapshot {
             plan_name: None,
             account_email: None,
             source_label: String::new(),
+            has_successful_claude_cli_quota: false,
             updated_at: chrono::Utc::now().to_rfc3339(),
             error: Some(error),
             error_state: state_kind,

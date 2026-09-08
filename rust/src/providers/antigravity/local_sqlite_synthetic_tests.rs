@@ -44,11 +44,23 @@ fn field_bytes(number: u64, value: &[u8]) -> Vec<u8> {
 }
 
 fn turn_blob(step_uuid: Option<&str>, input: u64, timestamp: Option<u64>) -> Vec<u8> {
+    turn_blob_with_bot_id(step_uuid, input, timestamp, None)
+}
+
+fn turn_blob_with_bot_id(
+    step_uuid: Option<&str>,
+    input: u64,
+    timestamp: Option<u64>,
+    bot_id: Option<&str>,
+) -> Vec<u8> {
     let mut usage = field_varint(1, 11);
     usage.extend(field_varint(2, input));
     usage.extend(field_varint(5, 50));
     usage.extend(field_varint(9, 30));
     usage.extend(field_varint(10, 7));
+    if let Some(bot_id) = bot_id {
+        usage.extend(field_bytes(7, bot_id.as_bytes()));
+    }
 
     let mut chat = field_bytes(4, &usage);
     if let Some(seconds) = timestamp {
@@ -68,6 +80,14 @@ fn turn_blob(step_uuid: Option<&str>, input: u64, timestamp: Option<u64>) -> Vec
 }
 
 fn step_metadata(step_uuid: Option<&str>, timestamp: Option<u64>) -> Vec<u8> {
+    step_metadata_with_bot_id(step_uuid, timestamp, None)
+}
+
+fn step_metadata_with_bot_id(
+    step_uuid: Option<&str>,
+    timestamp: Option<u64>,
+    bot_id: Option<&str>,
+) -> Vec<u8> {
     let mut metadata = Vec::new();
     if let Some(seconds) = timestamp {
         let mut stamp = field_varint(1, seconds);
@@ -76,6 +96,9 @@ fn step_metadata(step_uuid: Option<&str>, timestamp: Option<u64>) -> Vec<u8> {
     }
     if let Some(step_uuid) = step_uuid {
         metadata.extend(field_bytes(12, step_uuid.as_bytes()));
+    }
+    if let Some(bot_id) = bot_id {
+        metadata.extend(field_bytes(9, &field_bytes(7, bot_id.as_bytes())));
     }
     metadata
 }
@@ -294,4 +317,128 @@ fn embedded_and_step_timestamps_must_agree() {
 
     assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
     assert_eq!(summary.total_tokens, 198);
+}
+
+#[test]
+fn unique_bot_ids_recover_each_turn_despite_auxiliary_step_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let uuid = "per-turn";
+    database(
+        &dir,
+        "bot-correlation",
+        &[
+            (
+                10,
+                turn_blob_with_bot_id(Some(uuid), 100, None, Some("bot-a")),
+            ),
+            (
+                20,
+                turn_blob_with_bot_id(Some(uuid), 200, None, Some("bot-b")),
+            ),
+        ],
+        Some(&[
+            (
+                1,
+                Some(step_metadata_with_bot_id(
+                    Some(uuid),
+                    Some(NOW_SECONDS - 300),
+                    Some("auxiliary"),
+                )),
+            ),
+            (
+                2,
+                Some(step_metadata_with_bot_id(
+                    Some(uuid),
+                    Some(NOW_SECONDS - 120),
+                    Some("bot-a"),
+                )),
+            ),
+            (
+                3,
+                Some(step_metadata_with_bot_id(
+                    Some(uuid),
+                    Some(NOW_SECONDS - 60),
+                    Some("bot-b"),
+                )),
+            ),
+        ]),
+    );
+
+    let summary = summary(&dir);
+
+    assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
+    assert_eq!(summary.total_tokens, 496);
+}
+
+#[test]
+fn conflicting_bot_id_evidence_is_withheld() {
+    let dir = tempfile::tempdir().unwrap();
+    let uuid = "ambiguous-bot";
+    database(
+        &dir,
+        "ambiguous-bot",
+        &[(
+            (0),
+            turn_blob_with_bot_id(Some(uuid), 100, None, Some("bot-x")),
+        )],
+        Some(&[
+            (
+                10,
+                Some(step_metadata_with_bot_id(
+                    Some(uuid),
+                    Some(NOW_SECONDS - 120),
+                    Some("bot-x"),
+                )),
+            ),
+            (
+                20,
+                Some(step_metadata_with_bot_id(
+                    Some(uuid),
+                    Some(NOW_SECONDS - 60),
+                    Some("bot-x"),
+                )),
+            ),
+        ]),
+    );
+
+    let summary = summary(&dir);
+
+    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
+    assert_eq!(summary.total_tokens, 0);
+}
+
+#[test]
+fn cross_step_bot_id_evidence_is_withheld() {
+    let dir = tempfile::tempdir().unwrap();
+    database(
+        &dir,
+        "cross-step-bot",
+        &[(
+            (0),
+            turn_blob_with_bot_id(Some("needed-step"), 100, None, Some("bot-x")),
+        )],
+        Some(&[
+            (
+                10,
+                Some(step_metadata_with_bot_id(
+                    Some("other-step"),
+                    Some(NOW_SECONDS - 120),
+                    Some("bot-x"),
+                )),
+            ),
+            (
+                20,
+                Some(step_metadata_with_bot_id(
+                    Some("needed-step"),
+                    Some(NOW_SECONDS - 60),
+                    Some("other-bot"),
+                )),
+            ),
+        ]),
+    );
+
+    let summary = summary(&dir);
+
+    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
+    assert_eq!(summary.total_tokens, 0);
 }

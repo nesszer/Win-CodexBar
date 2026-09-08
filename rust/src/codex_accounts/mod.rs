@@ -14,6 +14,7 @@
 pub mod account_manager;
 pub mod api;
 pub mod codex_desktop;
+mod extra_usage;
 pub mod file_locations;
 pub mod login_runner;
 pub mod models;

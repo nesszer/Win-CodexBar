@@ -2,7 +2,13 @@ import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot, UsageSpendSummary } from "../types/bridge";
 import type { LocaleKey } from "../i18n/keys";
-import { beginFlyoutGesture, getUsageSpendSummary, openProviderDashboard, openProviderStatusPage } from "../lib/tauri";
+import {
+  beginFlyoutGesture,
+  getUsageSpendSummary,
+  openProviderDashboard,
+  openProviderStatusPage,
+  openSettingsWindow,
+} from "../lib/tauri";
 import {
   TRAY_SCALE_MAX,
   TRAY_SCALE_MIN,
@@ -14,6 +20,7 @@ import MenuSurface, { MenuEmpty } from "../components/MenuSurface";
 import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid from "../components/ProviderGrid";
 import AgentSessions from "../components/AgentSessions";
+import { hasSuccessfulClaudeCliQuota } from "../lib/claudeAccountActions";
 
 /** Provider IDs that have a dashboard URL in the backend */
 const HAS_DASHBOARD = new Set([
@@ -137,6 +144,12 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     );
   };
 
+  const selectedProvider = selectedProviderId
+    ? sorted.find((provider) => provider.providerId === selectedProviderId) ?? null
+    : null;
+  const canSwitchClaudeAccount =
+    selectedProvider !== null && hasSuccessfulClaudeCliQuota(selectedProvider);
+
   if (sorted.length === 0) {
     return (
       <div className={revealClassName}>
@@ -208,9 +221,24 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
               ))}
         </div>
         {/* Context actions — detail mode only, matches macOS actionsSection */}
-        {selectedProviderId && (HAS_DASHBOARD.has(selectedProviderId) || HAS_STATUS_PAGE.has(selectedProviderId)) && (
+        {selectedProviderId &&
+          (HAS_DASHBOARD.has(selectedProviderId) ||
+            HAS_STATUS_PAGE.has(selectedProviderId) ||
+            canSwitchClaudeAccount) && (
           <div className="context-actions">
             <div className="context-actions__divider" />
+            {canSwitchClaudeAccount && (
+              <button
+                type="button"
+                className="context-actions__btn"
+                onClick={() => openSettingsWindow("providers")}
+              >
+                <span className="context-actions__icon" aria-hidden>
+                  ⇄
+                </span>
+                {t("ActionSwitchAccount")}
+              </button>
+            )}
             {HAS_DASHBOARD.has(selectedProviderId) && (
               <button
                 type="button"

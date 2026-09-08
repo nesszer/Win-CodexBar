@@ -67,7 +67,13 @@ fn cached_cli_result() -> Option<ProviderFetchResult> {
     guard
         .as_ref()
         .filter(|entry| entry.cached_at.elapsed() <= CLI_RESULT_CACHE_TTL)
-        .map(|entry| entry.result.clone())
+        .map(|entry| {
+            let mut result = entry.result.clone();
+            // A retained payload is useful for display, but cannot prove that
+            // the current fetch reached Claude CLI successfully.
+            result.has_successful_claude_cli_quota = false;
+            result
+        })
 }
 
 /// Whether the OAuth source failed with a revocation (not just expiry).
@@ -630,7 +636,9 @@ impl ClaudeProvider {
             return Err(error);
         }
 
-        self.parse_cli_output(&combined)
+        Ok(mark_live_claude_cli_result(
+            self.parse_cli_output(&combined)?,
+        ))
     }
 
     /// Parse Claude CLI /usage output
@@ -754,6 +762,18 @@ impl ClaudeProvider {
 
         Ok(ProviderFetchResult::new(usage, "cli"))
     }
+}
+
+fn has_real_claude_quota_window(usage: &UsageSnapshot) -> bool {
+    let is_real = |window: &RateWindow| !window.is_informational && window.used_percent.is_finite();
+    is_real(&usage.primary) || usage.secondary.as_ref().is_some_and(is_real)
+}
+
+fn mark_live_claude_cli_result(mut result: ProviderFetchResult) -> ProviderFetchResult {
+    if has_real_claude_quota_window(&result.usage) {
+        result.has_successful_claude_cli_quota = true;
+    }
+    result
 }
 
 fn record_auto_source(
@@ -1579,11 +1599,32 @@ Active days: 2/10              Longest streak: 1 day
 
     #[test]
     fn cli_result_cache_round_trips() {
-        let result = ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(42.0)), "cli");
+        let mut result = ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(42.0)), "cli");
+        result.has_successful_claude_cli_quota = true;
         cache_cli_result(result.clone());
         let cached = cached_cli_result().expect("cached result within TTL");
         assert!((cached.usage.primary.used_percent - 42.0).abs() < 0.01);
         assert_eq!(cached.source_label, "cli");
+        assert!(!cached.has_successful_claude_cli_quota);
+    }
+
+    #[test]
+    fn live_identity_less_cli_quota_proves_account_action() {
+        let provider = ClaudeProvider::new();
+        let result = provider
+            .parse_cli_output("Current session\n25% used\nCurrent week (all models)\n40% used")
+            .expect("CLI quota should parse");
+        let result = mark_live_claude_cli_result(result);
+
+        assert!(result.usage.account_email.is_none());
+        assert!(result.has_successful_claude_cli_quota);
+    }
+
+    #[test]
+    fn non_cli_fetch_result_does_not_prove_account_action() {
+        let result = ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(42.0)), "oauth");
+
+        assert!(!result.has_successful_claude_cli_quota);
     }
     #[test]
     fn cli_presence_maps_to_local_runtime_offline() {

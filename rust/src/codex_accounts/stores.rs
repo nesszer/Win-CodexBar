@@ -243,6 +243,11 @@ mod tests {
             )),
             secondary_window: None,
             credits: None,
+            cost: Some(
+                crate::core::CostSnapshot::new(0.0, "Credits", "Extra usage")
+                    .with_balance_observation(Some(0.0), utc_now())
+                    .with_account_id("acct-1"),
+            ),
             updated_at: utc_now(),
         };
         let mut map = HashMap::new();
@@ -251,6 +256,11 @@ mod tests {
         let loaded = store.load().unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[&id].plan.as_deref().unwrap(), "pro");
+        assert_eq!(loaded[&id].cost.as_ref().unwrap().balance, Some(0.0));
+        assert_eq!(
+            loaded[&id].cost.as_ref().unwrap().account_id.as_deref(),
+            Some("acct-1")
+        );
         crate::codex_accounts::file_locations::clear_app_support_directory_override();
     }
 

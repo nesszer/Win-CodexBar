@@ -49,8 +49,17 @@ fn fetch_result(
     cost: Option<crate::core::CostSnapshot>,
     source: &str,
 ) -> ProviderFetchResult {
+    let account_email = usage.account_email.clone();
     let mut result = ProviderFetchResult::new(usage, source);
-    if let Some(cost) = cost {
+    if let Some(cost) = cost.map(|cost| {
+        if cost.account_id.is_none()
+            && let Some(account) = account_email.as_deref()
+        {
+            cost.with_account_id(account)
+        } else {
+            cost
+        }
+    }) {
         result = result.with_cost(cost);
     }
     result

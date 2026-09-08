@@ -10,6 +10,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub use super::extra_usage::CodexExtraUsageCost;
+
 /// `parse_from_rfc3339` requires an offset; append `Z` only when none is present.
 pub fn parse_datetime(value: &str) -> Option<DateTime<Utc>> {
     let text = value.trim();
@@ -535,6 +537,9 @@ pub struct AccountUsageSnapshot {
     pub primary_window: Option<UsageWindowSnapshot>,
     pub secondary_window: Option<UsageWindowSnapshot>,
     pub credits: Option<CreditsBalanceSnapshot>,
+    /// Account-scoped extra-usage cost persisted with the account lane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<crate::core::CostSnapshot>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -825,6 +830,7 @@ mod tests {
             primary_window: Some(UsageWindowSnapshot::new(10.0, None, 18_000)),
             secondary_window: None,
             credits: None,
+            cost: None,
             updated_at: utc_now(),
         };
         assert!(snapshot.is_quota_blocked());

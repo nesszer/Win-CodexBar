@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct StepOccurrence {
     pub row: i64,
     pub timestamp_ms: Option<i64>,
+    pub bot_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct StepTimestamp {
     pub row: i64,
     pub timestamp_ms: Option<i64>,
+    pub bot_id: Option<String>,
 }
 
 pub(super) fn resolve_step_timestamps(
@@ -88,13 +90,21 @@ mod tests {
 
     fn occurrences(rows: &[(i64, Option<i64>)]) -> Vec<StepOccurrence> {
         rows.iter()
-            .map(|&(row, timestamp_ms)| StepOccurrence { row, timestamp_ms })
+            .map(|&(row, timestamp_ms)| StepOccurrence {
+                row,
+                timestamp_ms,
+                bot_id: None,
+            })
             .collect()
     }
 
     fn timestamps(rows: &[(i64, Option<i64>)]) -> Vec<StepTimestamp> {
         rows.iter()
-            .map(|&(row, timestamp_ms)| StepTimestamp { row, timestamp_ms })
+            .map(|&(row, timestamp_ms)| StepTimestamp {
+                row,
+                timestamp_ms,
+                bot_id: None,
+            })
             .collect()
     }
 

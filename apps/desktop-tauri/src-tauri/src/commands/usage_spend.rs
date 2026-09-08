@@ -62,17 +62,118 @@ pub struct UsageSpendSummary {
     pub contract: SpendContract,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct CachedUsageSpendSummary {
     key: String,
     summary: UsageSpendSummary,
+    refresh_owner: Option<UsageSpendRefreshOwner>,
 }
 
-static USAGE_SPEND_SUMMARY_CACHE: OnceLock<Mutex<Option<CachedUsageSpendSummary>>> =
-    OnceLock::new();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UsageSpendRefreshPhase {
+    Indexing,
+    Paused,
+}
 
-fn usage_spend_summary_cache() -> &'static Mutex<Option<CachedUsageSpendSummary>> {
-    USAGE_SPEND_SUMMARY_CACHE.get_or_init(|| Mutex::new(None))
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UsageSpendRefreshOwner {
+    generation: u64,
+    scope: String,
+}
+
+#[derive(Default)]
+struct UsageSpendCoordinator {
+    next_generation: u64,
+    current: Option<(UsageSpendRefreshOwner, UsageSpendRefreshPhase)>,
+    cache: Option<CachedUsageSpendSummary>,
+}
+
+impl UsageSpendCoordinator {
+    fn begin(&mut self, scope: String) -> UsageSpendRefreshOwner {
+        self.next_generation = self.next_generation.wrapping_add(1).max(1);
+        let owner = UsageSpendRefreshOwner {
+            generation: self.next_generation,
+            scope,
+        };
+        self.current = Some((owner.clone(), UsageSpendRefreshPhase::Indexing));
+        owner
+    }
+
+    fn pause(&mut self, owner: &UsageSpendRefreshOwner) {
+        if let Some((current, phase)) = self.current.as_mut()
+            && current == owner
+            && *phase == UsageSpendRefreshPhase::Indexing
+        {
+            *phase = UsageSpendRefreshPhase::Paused;
+        }
+    }
+
+    fn is_current(&self, owner: &UsageSpendRefreshOwner) -> bool {
+        self.current
+            .as_ref()
+            .is_some_and(|(current, _)| current == owner)
+    }
+
+    fn clear_if_indexing(&mut self, owner: &UsageSpendRefreshOwner) -> bool {
+        let Some((current, phase)) = self.current.as_ref() else {
+            return false;
+        };
+        if current != owner || *phase != UsageSpendRefreshPhase::Indexing {
+            return false;
+        }
+        self.current = None;
+        true
+    }
+}
+
+static USAGE_SPEND_COORDINATOR: OnceLock<Mutex<UsageSpendCoordinator>> = OnceLock::new();
+
+fn usage_spend_coordinator() -> &'static Mutex<UsageSpendCoordinator> {
+    USAGE_SPEND_COORDINATOR.get_or_init(|| Mutex::new(UsageSpendCoordinator::default()))
+}
+
+fn clear_summary_refreshing(summary: &mut UsageSpendSummary) {
+    for row in &mut summary.rows {
+        row.refreshing = false;
+        row.stale_updated_at = None;
+    }
+}
+
+fn summary_is_refreshing(summary: &UsageSpendSummary) -> bool {
+    summary.rows.iter().any(|row| row.refreshing)
+}
+
+fn mark_refresh_paused_if_codex_scan_paused(
+    coordinator: &mut UsageSpendCoordinator,
+    owner: &UsageSpendRefreshOwner,
+    refreshing: bool,
+    codex_scan_pause_reason: Option<&codexbar::core::CodexScanPauseReason>,
+) {
+    if refreshing && codex_scan_pause_reason.is_some() {
+        coordinator.pause(owner);
+    }
+}
+
+/// Retire an invalidated owner without allowing it to clear a replacement.
+fn clear_usage_spend_refresh_if_owned(owner: &UsageSpendRefreshOwner) {
+    let Ok(mut coordinator) = usage_spend_coordinator().lock() else {
+        return;
+    };
+    if !coordinator.clear_if_indexing(owner) {
+        return;
+    }
+    if let Some(existing) = coordinator.cache.as_mut()
+        && existing.refresh_owner.as_ref() == Some(owner)
+    {
+        clear_summary_refreshing(&mut existing.summary);
+        existing.refresh_owner = None;
+    }
+}
+
+struct BuiltUsageSpendSummary {
+    key: String,
+    summary: UsageSpendSummary,
+    refresh_owner: Option<UsageSpendRefreshOwner>,
 }
 
 #[tauri::command]
@@ -88,11 +189,29 @@ pub async fn get_usage_spend_summary(
 
     let selected_days = history_days.unwrap_or(30);
     let force_refresh = force_refresh.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || {
+    let built = tauri::async_runtime::spawn_blocking(move || {
         build_usage_spend_summary_cached(&cached, selected_days, force_refresh)
     })
     .await
-    .map_err(|e| format!("usage spend worker failed: {e}"))?
+    .map_err(|e| format!("usage spend worker failed: {e}"))??;
+    let current_cached = state
+        .lock()
+        .map_err(|e| e.to_string())
+        .map(|guard| guard.provider_cache.clone())?;
+    let current_key = usage_spend_cache_key(
+        &current_cached,
+        selected_days,
+        &codexbar::settings::Settings::load(),
+    );
+    if current_key != built.key {
+        if let Some(owner) = built.refresh_owner.as_ref() {
+            clear_usage_spend_refresh_if_owned(owner);
+        }
+        let mut summary = built.summary;
+        clear_summary_refreshing(&mut summary);
+        return Ok(summary);
+    }
+    Ok(built.summary)
 }
 
 #[tauri::command]
@@ -112,26 +231,68 @@ fn build_usage_spend_summary_cached(
     cached: &[ProviderUsageSnapshot],
     selected_days: u32,
     force_refresh: bool,
-) -> Result<UsageSpendSummary, String> {
+) -> Result<BuiltUsageSpendSummary, String> {
     let settings = codexbar::settings::Settings::load();
     let key = usage_spend_cache_key(cached, selected_days, &settings);
-    let mut guard = usage_spend_summary_cache()
+    {
+        let guard = usage_spend_coordinator()
+            .lock()
+            .map_err(|error| error.to_string())?;
+        if !force_refresh
+            && let Some(existing) = guard.cache.as_ref()
+            && existing.key == key
+        {
+            return Ok(BuiltUsageSpendSummary {
+                key: existing.key.clone(),
+                summary: existing.summary.clone(),
+                refresh_owner: existing.refresh_owner.clone(),
+            });
+        }
+    }
+    let owner = {
+        let mut coordinator = usage_spend_coordinator()
+            .lock()
+            .map_err(|error| error.to_string())?;
+        coordinator.begin(key.clone())
+    };
+    let summary = build_usage_spend_summary(cached, selected_days, &settings, force_refresh);
+    let refreshing = summary_is_refreshing(&summary);
+    let codex_scan_pause_reason =
+        codexbar::core::JsonlScanner::load_cache_status(codexbar::core::ProviderId::Codex, None)
+            .codex_scan_pause_reason;
+
+    let mut coordinator = usage_spend_coordinator()
         .lock()
         .map_err(|error| error.to_string())?;
-    if !force_refresh
-        && let Some(existing) = guard.as_ref()
-        && existing.key == key
-    {
-        return Ok(existing.summary.clone());
+    mark_refresh_paused_if_codex_scan_paused(
+        &mut coordinator,
+        &owner,
+        refreshing,
+        codex_scan_pause_reason.as_ref(),
+    );
+    if !coordinator.is_current(&owner) {
+        let mut summary = summary;
+        clear_summary_refreshing(&mut summary);
+        return Ok(BuiltUsageSpendSummary {
+            key,
+            summary,
+            refresh_owner: Some(owner),
+        });
     }
-    // Hold the cache mutex while building: callers for the same app revision
-    // coalesce behind this single scan instead of starting parallel rescans.
-    let summary = build_usage_spend_summary(cached, selected_days, &settings, force_refresh);
-    *guard = Some(CachedUsageSpendSummary {
-        key,
+    if !refreshing {
+        coordinator.clear_if_indexing(&owner);
+    }
+    let refresh_owner = refreshing.then(|| owner.clone());
+    coordinator.cache = Some(CachedUsageSpendSummary {
+        key: key.clone(),
         summary: summary.clone(),
+        refresh_owner: refresh_owner.clone(),
     });
-    Ok(summary)
+    Ok(BuiltUsageSpendSummary {
+        key,
+        summary,
+        refresh_owner,
+    })
 }
 
 fn usage_spend_cache_key(
@@ -544,6 +705,48 @@ fn cached_spend(snapshot: Option<&ProviderUsageSnapshot>) -> SpendValues {
 #[cfg(test)]
 mod cache_key_tests {
     use super::*;
+
+    #[test]
+    fn invalidated_owner_clears_orphaned_indexing_activity() {
+        let mut coordinator = UsageSpendCoordinator::default();
+        let owner = coordinator.begin("account:old".to_string());
+
+        assert!(coordinator.clear_if_indexing(&owner));
+        assert!(!coordinator.is_current(&owner));
+    }
+
+    #[test]
+    fn old_owner_cleanup_cannot_clear_a_replacement() {
+        let mut coordinator = UsageSpendCoordinator::default();
+        let old = coordinator.begin("account:old".to_string());
+        let replacement = coordinator.begin("account:new".to_string());
+
+        assert!(!coordinator.clear_if_indexing(&old));
+        assert!(coordinator.is_current(&replacement));
+    }
+
+    #[test]
+    fn settings_replacement_preserves_an_intentional_pause() {
+        let mut coordinator = UsageSpendCoordinator::default();
+        let old = coordinator.begin("settings:old".to_string());
+        let replacement = coordinator.begin("settings:new".to_string());
+        let status = codexbar::core::CachedCostReadStatus {
+            codex_scan_pause_reason: Some(codexbar::core::CodexScanPauseReason::NoProgress),
+            ..Default::default()
+        };
+        mark_refresh_paused_if_codex_scan_paused(
+            &mut coordinator,
+            &replacement,
+            true,
+            status.codex_scan_pause_reason.as_ref(),
+        );
+
+        assert!(!coordinator.clear_if_indexing(&old));
+        assert_eq!(
+            coordinator.current.as_ref().map(|(_, phase)| *phase),
+            Some(UsageSpendRefreshPhase::Paused)
+        );
+    }
 
     #[test]
     fn privacy_mode_is_part_of_usage_spend_cache_identity() {

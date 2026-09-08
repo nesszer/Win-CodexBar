@@ -11,7 +11,8 @@ use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use super::models::{
-    AccountUsageSnapshot, CreditsBalanceSnapshot, UsageWindowSnapshot, WindowRole,
+    AccountUsageSnapshot, CodexExtraUsageCost, CreditsBalanceSnapshot, UsageWindowSnapshot,
+    WindowRole,
 };
 use crate::core::credentialed_http_client_builder;
 
@@ -437,6 +438,7 @@ impl CodexAccountApi {
             .and_then(|v| v.as_object())
             .map(make_credits);
 
+        let cost_account_id = remote_account_id.clone();
         Ok(AccountUsageSnapshot {
             email: identity.email.or_else(|| normalize_string(fallback_email)),
             provider_account_id: remote_account_id,
@@ -450,7 +452,13 @@ impl CodexAccountApi {
                 .and_then(|v| v.as_bool()),
             primary_window,
             secondary_window,
-            credits,
+            credits: credits.clone(),
+            cost: CodexExtraUsageCost::from_credits(
+                credits.as_ref(),
+                Utc::now(),
+                cost_account_id.as_deref(),
+                None,
+            ),
             updated_at: Utc::now(),
         })
     }
@@ -893,6 +901,7 @@ mod tests {
             primary_window: Some(UsageWindowSnapshot::new(12.0, Some(Utc::now()), 18_000)),
             secondary_window: None,
             credits: None,
+            cost: None,
             updated_at: Utc::now(),
         };
         assert!(is_equivalent(&mk(), &mk()));

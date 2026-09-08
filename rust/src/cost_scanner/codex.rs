@@ -1,8 +1,10 @@
 use super::*;
 
 mod logical_target;
+mod pending_range;
 mod reconciliation;
 use logical_target::*;
+use pending_range::{CodexPendingScanContext, codex_cache_has_validated_state};
 use reconciliation::*;
 
 fn rebuild_cache_days(cache: &mut CostUsageCache) {
@@ -213,23 +215,29 @@ impl CostScanner {
 
         let cache_root = self.cache_root.as_deref();
         let mut cache = JsonlScanner::load_cache(ProviderId::Codex, cache_root);
+        let sessions_dirs = self.get_codex_sessions_dirs();
+        let pending_scan = CodexPendingScanContext::new(
+            &cache,
+            &range,
+            &sessions_dirs,
+            self.options.is_app_driven(),
+        );
 
         // A no-progress or source-error catch-up is terminal for background
         // synchronization. Keep the resumable queue and last validated report
         // intact until the user explicitly requests an app-driven refresh.
-        if cache.codex_scan_incomplete
-            && cache.codex_scan_pause_reason.is_some()
-            && !self.options.is_app_driven()
-        {
+        if pending_scan.should_preserve_pause(&cache, self.options.is_app_driven()) {
             return (
                 paused_codex_summary(&cache, start_date, today),
                 stats,
                 cache,
             );
         }
-        if self.options.is_app_driven() {
+        if self.options.is_app_driven() || pending_scan.is_incompatible {
             cache.codex_scan_pause_reason = None;
         }
+
+        let scan_range = &pending_scan.scan_range;
 
         // Debounce: rebuild from disk cache without re-walking session files.
         if JsonlScanner::should_skip_cached_scan(&cache, self.options, now_ms)
@@ -280,7 +288,6 @@ impl CostScanner {
             return (summary, stats, cache);
         }
 
-        let sessions_dirs = self.get_codex_sessions_dirs();
         let established_report_before_scan = (!cache.codex_scan_incomplete
             && cache.previous_report.is_none()
             && (cache.scan_since_key.is_some()
@@ -288,8 +295,14 @@ impl CostScanner {
                 || !cache.files.is_empty()))
         .then(|| JsonlScanner::cached_cost_report_from_days(&cache));
 
+        // Persist the source-bound work range before doing bounded work.
+        cache.codex_pending_scan_since_key = Some(scan_range.scan_since_key.clone());
+        cache.codex_pending_scan_until_key = Some(scan_range.scan_until_key.clone());
+        cache.codex_pending_scan_root_paths = pending_scan.root_paths.clone();
+        cache.codex_pending_scan_timezone = Some(pending_scan.timezone.clone());
+
         let (mut candidates, discovery_complete) =
-            self.collect_codex_candidates(&sessions_dirs, &range, &cache, cancel, &mut stats);
+            self.collect_codex_candidates(&sessions_dirs, scan_range, &cache, cancel, &mut stats);
         let candidate_limit = if self.options.codex_candidate_limit == 0 {
             usize::MAX
         } else {
@@ -311,7 +324,7 @@ impl CostScanner {
         prioritize_codex_pending_candidates(&mut candidates, &pending_paths_before_pass);
         if discovery_complete && !is_cancelled(cancel) {
             pending_next
-                .retain(|path| !cached_codex_file_is_complete_for_range(&cache, path, &range));
+                .retain(|path| !cached_codex_file_is_complete_for_range(&cache, path, scan_range));
         }
 
         let mut incomplete_processed = Vec::new();
@@ -351,7 +364,7 @@ impl CostScanner {
 
             let outcome = self.parse_codex_file_bounded(
                 &candidate.path,
-                &range,
+                scan_range,
                 &mut summary,
                 &mut cache,
                 cancel,
@@ -388,9 +401,9 @@ impl CostScanner {
 
         let mut pruned_paths_pending = Vec::new();
         if discovery_complete && !is_cancelled(cancel) {
-            pruned_paths_pending = missing_codex_cache_paths(&cache, &sessions_dirs, &range);
+            pruned_paths_pending = missing_codex_cache_paths(&cache, &sessions_dirs, scan_range);
             if self.options.is_app_driven() {
-                reconcile_missing_codex_cache_files(&mut cache, &sessions_dirs, &range);
+                reconcile_missing_codex_cache_files(&mut cache, &sessions_dirs, scan_range);
                 for path in &pending_paths_before_pass {
                     if !Path::new(path).exists() {
                         cache.files.remove(path);
@@ -416,7 +429,7 @@ impl CostScanner {
                 return true;
             }
             Path::new(path).exists()
-                && is_codex_path_in_scan_window(Path::new(path), &sessions_dirs, &range)
+                && is_codex_path_in_scan_window(Path::new(path), &sessions_dirs, scan_range)
         });
         if discovery_complete
             && !is_cancelled(cancel)
@@ -453,8 +466,12 @@ impl CostScanner {
                 };
             }
         } else {
-            cache.scan_since_key = Some(range.since_key.clone());
-            cache.scan_until_key = Some(range.until_key.clone());
+            cache.scan_since_key = Some(scan_range.scan_since_key.clone());
+            cache.scan_until_key = Some(scan_range.scan_until_key.clone());
+            cache.codex_pending_scan_since_key = None;
+            cache.codex_pending_scan_until_key = None;
+            cache.codex_pending_scan_root_paths.clear();
+            cache.codex_pending_scan_timezone = None;
             cache.previous_report = None;
             cache.codex_scan_pause_reason = None;
         }
@@ -564,12 +581,7 @@ impl CostScanner {
         let mut candidates = Vec::new();
         let mut seen = HashSet::new();
         let mut discovery_complete = true;
-        let cache_has_validated_state = cache.scan_since_key.is_some()
-            || cache.scan_until_key.is_some()
-            || cache.previous_report.is_some()
-            || !cache.files.is_empty()
-            || !cache.days.is_empty()
-            || !cache.codex_pending_paths.is_empty();
+        let cache_has_validated_state = codex_cache_has_validated_state(cache);
         let mut dates = codex_scan_dates(range);
         if self.options.prefer_newest_codex_sessions_first {
             dates.reverse();
@@ -826,6 +838,7 @@ impl CostScanner {
             let parser_state_safe = entry.codex_token_timestamps_monotonic.is_some();
             if cache_covers_range
                 && (same_partial || growing)
+                && !codex_cached_entry_is_complete_empty_fragment(entry)
                 && start_offset > 0
                 && start_offset <= size
                 && parser_state_safe

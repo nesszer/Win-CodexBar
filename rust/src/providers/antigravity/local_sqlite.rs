@@ -1,3 +1,6 @@
+#[path = "local_bot_id.rs"]
+mod local_bot_id;
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,6 +9,7 @@ use std::time::{Duration as StdDuration, Instant};
 use chrono::{DateTime, Duration, Local, TimeZone, Utc};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, types::ValueRef};
 
+use self::local_bot_id::{ExactStepTimestamp, embedded_timestamps_agree, record_exact_bot_id};
 use super::local_proto::{ParsedTurn, parse_step_metadata, parse_turn};
 use super::local_sessions::{LocalHistoryCoverage, LocalSessionSummary};
 use super::local_step_resolver::{StepOccurrence, StepTimestamp, resolve_step_timestamps};
@@ -87,6 +91,7 @@ struct ParsedRows {
     events: Vec<Event>,
     pending: Vec<PendingTimestampRow>,
     occurrences: HashMap<String, Vec<StepOccurrence>>,
+    bot_id_uses: HashMap<String, usize>,
     database_bytes: usize,
     complete: bool,
 }
@@ -94,6 +99,8 @@ struct ParsedRows {
 #[derive(Debug)]
 struct StepTimestampScan {
     timestamps: HashMap<String, Vec<StepTimestamp>>,
+    by_bot_id: HashMap<String, ExactStepTimestamp>,
+    ambiguous_bot_ids: HashSet<String>,
     complete: bool,
 }
 
@@ -344,13 +351,19 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<(Vec<Even
         return Ok((rows.events, false));
     }
 
+    if !embedded_timestamps_agree(&rows.occurrences, &step_scan, &rows.bot_id_uses) {
+        return Ok((rows.events, false));
+    }
+
     let resolved = resolve_step_timestamps(&step_scan.timestamps, &needed_occurrences);
-    let recovered = append_recovered_events(
+    let recovered = local_bot_id::append_recovered_events(
         &mut rows.events,
         &session,
         &rows.pending,
         &resolved,
         &rows.occurrences,
+        &step_scan,
+        &rows.bot_id_uses,
     );
     if recovered < rows.pending.len() {
         rows.complete = false;
@@ -375,6 +388,7 @@ fn read_generation_rows(
     let mut events = Vec::new();
     let mut pending = Vec::new();
     let mut occurrences: HashMap<String, Vec<StepOccurrence>> = HashMap::new();
+    let mut bot_id_uses = HashMap::new();
 
     while let Some(row) = query.next()? {
         if !budget.check() {
@@ -439,6 +453,9 @@ fn read_generation_rows(
             continue;
         };
         let step_uuid = turn.step_uuid.clone();
+        if let Some(bot_id) = turn.usage.as_ref().and_then(|usage| usage.bot_id.as_ref()) {
+            *bot_id_uses.entry(bot_id.clone()).or_insert(0) += 1;
+        }
         if let Some(step_uuid) = step_uuid.as_deref() {
             occurrences
                 .entry(step_uuid.to_string())
@@ -446,6 +463,7 @@ fn read_generation_rows(
                 .push(StepOccurrence {
                     row: idx,
                     timestamp_ms: turn.timestamp_ms,
+                    bot_id: turn.usage.as_ref().and_then(|usage| usage.bot_id.clone()),
                 });
         }
         match (turn.timestamp_ms, step_uuid) {
@@ -469,6 +487,7 @@ fn read_generation_rows(
         events,
         pending,
         occurrences,
+        bot_id_uses,
         database_bytes,
         complete,
     })
@@ -495,6 +514,8 @@ fn read_step_timestamps(
     let blob_limit = i64::try_from(MAX_BLOB_BYTES).unwrap_or(i64::MAX);
     let mut query = statement.query([blob_limit])?;
     let mut timestamps = HashMap::<String, Vec<StepTimestamp>>::new();
+    let mut by_bot_id = HashMap::<String, ExactStepTimestamp>::new();
+    let mut ambiguous_bot_ids = HashSet::new();
     let mut complete = true;
     let mut rows_are_valid = true;
 
@@ -547,85 +568,66 @@ fn read_step_timestamps(
                 continue;
             }
         };
-        let Some((step_uuid, timestamp_ms)) = parse_step_metadata(blob) else {
+        let Some(metadata) = parse_step_metadata(blob) else {
             rows_are_valid = false;
             continue;
         };
-        let Some(step_uuid) = step_uuid.filter(|value| !value.is_empty()) else {
+        let Some(step_uuid) = metadata.step_uuid.filter(|value| !value.is_empty()) else {
             rows_are_valid = false;
             continue;
         };
+        if let Some(bot_id) = metadata.bot_id.as_deref()
+            && let Some(timestamp_ms) = metadata.timestamp_ms
+        {
+            record_exact_bot_id(
+                bot_id,
+                &step_uuid,
+                timestamp_ms,
+                &mut by_bot_id,
+                &mut ambiguous_bot_ids,
+            );
+        }
         if needed_occurrences.contains_key(&step_uuid) {
             timestamps
                 .entry(step_uuid)
                 .or_default()
                 .push(StepTimestamp {
                     row: idx,
-                    timestamp_ms,
+                    timestamp_ms: metadata.timestamp_ms,
+                    bot_id: metadata.bot_id,
                 });
         }
     }
 
+    let positional_timestamps = timestamps
+        .into_iter()
+        .map(|(step_uuid, values)| {
+            let values = values
+                .into_iter()
+                .map(|timestamp| StepTimestamp {
+                    row: timestamp.row,
+                    timestamp_ms: if timestamp
+                        .bot_id
+                        .as_deref()
+                        .is_some_and(|bot_id| ambiguous_bot_ids.contains(bot_id))
+                    {
+                        None
+                    } else {
+                        timestamp.timestamp_ms
+                    },
+                    bot_id: timestamp.bot_id,
+                })
+                .collect();
+            (step_uuid, values)
+        })
+        .collect();
+
     Ok(StepTimestampScan {
-        timestamps,
+        timestamps: positional_timestamps,
+        by_bot_id,
+        ambiguous_bot_ids,
         complete: complete && rows_are_valid,
     })
-}
-
-fn append_recovered_events(
-    events: &mut Vec<Event>,
-    session: &str,
-    pending: &[PendingTimestampRow],
-    resolved: &HashMap<String, Vec<i64>>,
-    occurrences: &HashMap<String, Vec<StepOccurrence>>,
-) -> usize {
-    let mut occurrence_offsets = HashMap::<String, HashMap<i64, usize>>::new();
-    for (step_uuid, occurrences) in occurrences {
-        let mut rows = occurrences
-            .iter()
-            .map(|occurrence| occurrence.row)
-            .collect::<Vec<_>>();
-        rows.sort_unstable();
-        if rows.windows(2).any(|pair| pair[0] == pair[1]) {
-            continue;
-        }
-        occurrence_offsets.insert(
-            step_uuid.clone(),
-            rows.into_iter()
-                .enumerate()
-                .map(|(offset, row)| (row, offset))
-                .collect(),
-        );
-    }
-
-    let mut recovered = 0;
-    let mut pending_rows = pending.iter().collect::<Vec<_>>();
-    pending_rows.sort_by_key(|pending| pending.row);
-    for pending in pending_rows {
-        let Some(timestamps) = resolved.get(&pending.step_uuid) else {
-            continue;
-        };
-        let Some(offset) = occurrence_offsets
-            .get(&pending.step_uuid)
-            .and_then(|rows| rows.get(&pending.row))
-        else {
-            continue;
-        };
-        let Some(timestamp_ms) = timestamps.get(*offset) else {
-            continue;
-        };
-        let mut turn = pending.turn.clone();
-        turn.timestamp_ms = Some(*timestamp_ms);
-        events.push(Event {
-            session: session.to_string(),
-            row: pending.row,
-            turn,
-            total: pending.total,
-        });
-        recovered += 1;
-    }
-    events.sort_by_key(|event| event.row);
-    recovered
 }
 
 fn supported_schema(conn: &Connection, budget: &mut Budget) -> rusqlite::Result<bool> {
