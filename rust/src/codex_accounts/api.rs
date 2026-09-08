@@ -15,6 +15,10 @@ use super::models::{
     WindowRole,
 };
 use crate::core::credentialed_http_client_builder;
+use crate::providers::openai::OpenAISubscriptionFetchResult;
+
+#[path = "subscription.rs"]
+mod subscription;
 
 pub const REFRESH_ENDPOINT: &str = "https://auth.openai.com/oauth/token";
 pub const USAGE_DEFAULT_BASE: &str = "https://chatgpt.com/backend-api";
@@ -350,14 +354,14 @@ impl CodexAccountApi {
         workspace_account_id: Option<&str>,
         verify_live_data: bool,
     ) -> Result<AccountUsageSnapshot, CodexApiError> {
-        if verify_live_data {
+        let snapshot = if verify_live_data {
             self.fetch_verified(
                 codex_home_path,
                 credentials,
                 email_hint,
                 workspace_account_id,
             )
-            .await
+            .await?
         } else {
             self.fetch_single(
                 codex_home_path,
@@ -365,8 +369,50 @@ impl CodexAccountApi {
                 email_hint,
                 workspace_account_id,
             )
+            .await?
+        };
+        Ok(self
+            .enrich_subscription_metadata(
+                codex_home_path,
+                credentials,
+                email_hint,
+                workspace_account_id,
+                snapshot,
+            )
+            .await)
+    }
+
+    /// Fetch subscription dates only after the selected account's quota data
+    /// has been obtained. The request is scoped with the same workspace account
+    /// header, and the optional result never turns a successful quota read into
+    /// an error.
+    async fn enrich_subscription_metadata(
+        &self,
+        codex_home_path: &Path,
+        credentials: &AuthCredentials,
+        email_hint: Option<&str>,
+        workspace_account_id: Option<&str>,
+        snapshot: AccountUsageSnapshot,
+    ) -> AccountUsageSnapshot {
+        subscription::enrich_subscription_metadata(
+            self,
+            codex_home_path,
+            credentials,
+            email_hint,
+            workspace_account_id,
+            snapshot,
+        )
+        .await
+    }
+
+    async fn fetch_subscription_metadata(
+        &self,
+        codex_home_path: &Path,
+        credentials: &AuthCredentials,
+        account_id: Option<&str>,
+    ) -> OpenAISubscriptionFetchResult {
+        subscription::fetch_subscription_metadata(self, codex_home_path, credentials, account_id)
             .await
-        }
     }
 
     /// Fetch three reads and require equivalence (CodexControl accuracy model).
@@ -460,6 +506,7 @@ impl CodexAccountApi {
                 None,
             ),
             updated_at: Utc::now(),
+            subscription: None,
         })
     }
 
@@ -620,6 +667,13 @@ pub fn resolve_usage_url(codex_home_path: &Path) -> String {
         "/api/codex/usage"
     };
     format!("{base}{path}")
+}
+
+/// Resolve the subscription endpoint only for the real OpenAI dashboard host.
+/// Custom Codex backends may reuse the usage URL shape but must never receive
+/// a ChatGPT subscription probe or be treated as its authority.
+pub fn resolve_subscription_url(codex_home_path: &Path) -> Option<String> {
+    subscription::resolve_subscription_url(codex_home_path)
 }
 
 /// Extract `chatgpt_base_url` from a Codex `config.toml`.
@@ -902,6 +956,7 @@ mod tests {
             secondary_window: None,
             credits: None,
             cost: None,
+            subscription: None,
             updated_at: Utc::now(),
         };
         assert!(is_equivalent(&mk(), &mk()));

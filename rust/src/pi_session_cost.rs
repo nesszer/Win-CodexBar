@@ -272,9 +272,14 @@ fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<P
     }
 
     let cost = match mapped {
-        PiMappedProvider::Codex => {
-            CostUsagePricing::codex_cost_usd(&model, input, cache_read, output).unwrap_or(0.0)
-        }
+        PiMappedProvider::Codex => CostUsagePricing::codex_cost_usd_with_cache_write(
+            &model,
+            input,
+            cache_read,
+            cache_create,
+            output,
+        )
+        .unwrap_or(0.0),
         PiMappedProvider::Claude => {
             // Token counts come from API usage records and fit within i32;
             // the canonical Claude pricing table takes i32 per-token counts.
@@ -375,6 +380,26 @@ mod tests {
         assert_eq!(entry.output, 20);
         assert_eq!(entry.cache_read, 10);
         assert_eq!(entry.model, "gpt-5");
+    }
+
+    #[test]
+    fn parses_astra_cache_write_and_prices_it() {
+        let raw = serde_json::json!({
+            "id": "astra-msg-1",
+            "role": "assistant",
+            "provider": "openai-codex",
+            "model": "gpt-6-astra",
+            "usage": {
+                "input": 1_000,
+                "output": 100,
+                "cacheRead": 200,
+                "cacheWrite": 300
+            }
+        });
+        let entry = parse_pi_assistant_entry(&raw, PiMappedProvider::Codex).unwrap();
+        let expected = 500.0 * 1e-5 + 200.0 * 1e-6 + 300.0 * 1.25e-5 + 100.0 * 5e-5;
+        assert_eq!(entry.cache_create, 300);
+        assert!((entry.cost - expected).abs() < 1e-12);
     }
 
     #[test]

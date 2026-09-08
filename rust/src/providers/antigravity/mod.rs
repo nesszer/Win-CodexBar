@@ -610,6 +610,10 @@ impl Default for AntigravityProvider {
 
 #[async_trait]
 impl Provider for AntigravityProvider {
+    fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
+        false
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Antigravity
     }

@@ -31,6 +31,8 @@ const KIMI_WEB_USAGE_URL: &str =
     "https://www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages";
 const KIMI_SUBSCRIPTION_STATS_URL: &str =
     "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats";
+const KIMI_SUBSCRIPTION_URL: &str =
+    "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscription";
 const KIMI_COOKIE_DOMAINS: [&str; 2] = ["www.kimi.com", "kimi.moonshot.cn"];
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +40,49 @@ struct KimiCodeApiUsageResponse {
     usage: KimiUsageDetail,
     #[serde(default)]
     limits: Option<Vec<KimiRateLimit>>,
+    /// Optional membership metadata is deliberately kept as JSON. The API has
+    /// added fields and changed types without changing the usage payload; a
+    /// malformed membership section must not discard valid quota statistics.
+    #[serde(default)]
+    user: Option<serde_json::Value>,
+    #[serde(default)]
+    version: Option<serde_json::Value>,
+}
+
+impl KimiCodeApiUsageResponse {
+    fn plan_name(&self) -> Option<String> {
+        let level = self
+            .user
+            .as_ref()
+            .and_then(|user| user.get("membership"))
+            .and_then(|membership| membership.get("level"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|level| !level.is_empty() && *level != "LEVEL_UNSPECIFIED")?;
+
+        // Only the known V1 catalog gets friendly names. Unknown catalogs and
+        // malformed versions remain visible as their raw level value.
+        let known_catalog = match self.version.as_ref() {
+            None => true,
+            Some(serde_json::Value::String(version)) => version == "GOODS_VERSION_V1",
+            Some(_) => false,
+        };
+        if !known_catalog {
+            return Some(level.to_string());
+        }
+
+        Some(
+            match level {
+                "LEVEL_FREE" => "Adagio",
+                "LEVEL_TRIAL" => "Andante",
+                "LEVEL_BASIC" => "Moderato",
+                "LEVEL_INTERMEDIATE" => "Allegretto",
+                "LEVEL_ADVANCED" => "Allegro",
+                other => other,
+            }
+            .to_string(),
+        )
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +124,36 @@ struct KimiSubscriptionRateLimit {
     ratio: Option<serde_json::Value>,
     enabled: Option<bool>,
     reset_time: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct KimiSubscriptionResponse {
+    #[serde(default)]
+    subscription: Option<serde_json::Value>,
+}
+
+impl KimiSubscriptionResponse {
+    fn plan_name(&self) -> Option<String> {
+        let subscription = self.subscription.as_ref()?;
+        if subscription
+            .get("active")
+            .and_then(serde_json::Value::as_bool)
+            != Some(true)
+            || subscription
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                != Some("SUBSCRIPTION_STATUS_ACTIVE")
+        {
+            return None;
+        }
+        subscription
+            .get("goods")
+            .and_then(|goods| goods.get("title"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -549,6 +624,34 @@ mod tests {
         let snapshot = code_api::snapshot_from_code_api_response(response).unwrap();
         assert!((snapshot.primary.used_percent - 12.5).abs() < f64::EPSILON);
         assert!(snapshot.secondary.is_none());
+    }
+
+    #[test]
+    fn parses_membership_level_without_making_optional_metadata_required() {
+        let response: KimiCodeApiUsageResponse = serde_json::from_value(json!({
+            "usage": { "limit": "100", "used": "25" },
+            "user": { "membership": { "level": "LEVEL_ADVANCED" } },
+            "version": "GOODS_VERSION_V1"
+        }))
+        .unwrap();
+        assert_eq!(response.plan_name().as_deref(), Some("Allegro"));
+
+        let unknown_catalog: KimiCodeApiUsageResponse = serde_json::from_value(json!({
+            "usage": { "limit": "100", "used": "25" },
+            "user": { "membership": { "level": "LEVEL_CUSTOM" } },
+            "version": "GOODS_VERSION_V2"
+        }))
+        .unwrap();
+        assert_eq!(unknown_catalog.plan_name().as_deref(), Some("LEVEL_CUSTOM"));
+
+        let malformed_optional: KimiCodeApiUsageResponse = serde_json::from_value(json!({
+            "usage": { "limit": "100", "used": "25" },
+            "user": "not-an-object",
+            "version": { "unexpected": true }
+        }))
+        .unwrap();
+        assert_eq!(malformed_optional.plan_name(), None);
+        assert!(code_api::snapshot_from_code_api_response(malformed_optional).is_ok());
     }
 
     #[test]

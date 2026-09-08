@@ -1,5 +1,21 @@
 use super::*;
 
+pub(super) fn cached_codex_file_is_fresh(
+    cache: &CostUsageCache,
+    entry: &CostUsageFileUsage,
+    cache_covers_range: bool,
+    mtime_unix_ms: i64,
+    size: i64,
+) -> bool {
+    cache_covers_range
+        && !entry.codex_unresolved_fork_parent
+        && entry.mtime_unix_ms == mtime_unix_ms
+        && entry.size == size
+        && codex_scan_target_size(entry) == size
+        && entry.parsed_bytes.unwrap_or(0) >= size
+        && super::codex_fork_parent_is_safe(cache, entry)
+}
+
 pub(super) fn cached_codex_file_is_complete_for_range(
     cache: &CostUsageCache,
     path_key: &str,
@@ -10,9 +26,18 @@ pub(super) fn cached_codex_file_is_complete_for_range(
             let Ok(metadata) = fs::metadata(path_key) else {
                 return false;
             };
+            let identity_matches = match (
+                usage.codex_file_identity.as_ref(),
+                JsonlScanner::codex_file_identity(Path::new(path_key), &metadata).as_ref(),
+            ) {
+                (Some(expected), Some(actual)) => expected == actual,
+                (Some(_), None) => false,
+                (None, _) => true,
+            };
             #[allow(clippy::cast_possible_wrap, reason = "session file sizes fit i64")]
             let size = metadata.len().min(i64::MAX as u64) as i64;
-            usage.mtime_unix_ms == system_time_to_unix_ms(metadata.modified().ok())
+            identity_matches
+                && usage.mtime_unix_ms == system_time_to_unix_ms(metadata.modified().ok())
                 && usage.size == size
                 && codex_scan_target_size(usage) == size
                 && usage.parsed_bytes.unwrap_or(0) >= size

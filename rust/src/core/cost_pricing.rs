@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 #[path = "cost_pricing/claude.rs"]
 mod claude_pricing;
+#[path = "cost_pricing/codex.rs"]
+mod codex_pricing;
 pub(crate) use claude_pricing::ClaudePricingResolution;
 /// Whole-request Codex rates for input above the model context threshold.
 #[derive(Debug, Clone, Copy)]
@@ -337,11 +339,26 @@ static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::
             }),
         },
     );
+    // GPT-6 Astra pricing (OpenAI model card and pricing table).
+    // Long-context rates apply to the whole request above 272K input tokens.
+    m.insert(
+        "gpt-6-astra",
+        CodexPricing {
+            input_cost_per_token: 1e-5,
+            output_cost_per_token: 5e-5,
+            cache_read_input_cost_per_token: 1e-6,
+            display_label: None,
+            long_context: Some(CodexLongContextRates {
+                input_cost_per_token: 2e-5,
+                output_cost_per_token: 7.5e-5,
+                cache_read_input_cost_per_token: 2e-6,
+            }),
+        },
+    );
 
     m
 });
 
-const CODEX_LONG_CONTEXT_THRESHOLD: u64 = 272_000;
 /// Claude model pricing table
 static CLAUDE_PRICING: LazyLock<HashMap<&'static str, ClaudePricing>> = LazyLock::new(|| {
     let mut m = HashMap::new();
@@ -579,20 +596,6 @@ static CLAUDE_PRICING: LazyLock<HashMap<&'static str, ClaudePricing>> = LazyLock
     m
 });
 
-fn codex_cost_from_rates(
-    input_tokens: u64,
-    cached_input_tokens: u64,
-    output_tokens: u64,
-    input_rate: f64,
-    cache_read_rate: f64,
-    output_rate: f64,
-) -> f64 {
-    let cached = cached_input_tokens.min(input_tokens);
-    let non_cached = input_tokens.saturating_sub(cached);
-    (non_cached as f64) * input_rate
-        + (cached as f64) * cache_read_rate
-        + (output_tokens as f64) * output_rate
-}
 /// Cost usage pricing utilities
 pub struct CostUsagePricing;
 
@@ -687,9 +690,8 @@ impl CostUsagePricing {
     pub fn codex_api_fast_multiplier(model: &str) -> Option<f64> {
         let base = Self::codex_fast_base_model(model);
         match base.as_str() {
-            "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna" => {
-                Some(2.0)
-            }
+            "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna"
+            | "gpt-6-astra" => Some(2.0),
             "gpt-5.5" => Some(2.5),
             _ => None,
         }
@@ -699,12 +701,15 @@ impl CostUsagePricing {
     ///
     /// Computes the standard cost for the BASE model (stripping fast/priority
     /// suffixes), then applies the Fast multiplier. Returns `None` when the
-    /// model has no Fast lane or when long-context input exceeds the 272 000
-    /// threshold guard (Fast is not offered above that).
+    /// model has no Fast lane or when a model without Astra's published
+    /// long-context Fast rates exceeds the 272 000 threshold.
     pub fn codex_fast_cost_usd(model: &str, input: i32, cached: i32, output: i32) -> Option<f64> {
         let multiplier = Self::codex_api_fast_multiplier(model)?;
-        // Long-context guard: Fast is not offered above the threshold.
-        if (input as u64) > CODEX_LONG_CONTEXT_THRESHOLD {
+        // Older models do not offer Fast for long-context requests. Astra
+        // publishes a Fast rate for the same whole-request long-context tier.
+        if (input.max(0) as u64) > codex_pricing::CODEX_LONG_CONTEXT_THRESHOLD
+            && !codex_pricing::codex_fast_allows_long_context(model)
+        {
             return None;
         }
         let base = Self::codex_fast_base_model(model);
@@ -747,7 +752,7 @@ impl CostUsagePricing {
         let key = Self::normalize_codex_model(model);
         let cutoff = NaiveDate::from_ymd_opt(2026, 7, 30).expect("valid pricing cutoff");
         if pricing_date < cutoff {
-            let long = input_tokens > CODEX_LONG_CONTEXT_THRESHOLD;
+            let long = input_tokens > codex_pricing::CODEX_LONG_CONTEXT_THRESHOLD;
             let rates = match (key.as_str(), long) {
                 ("gpt-5.6-terra", false) => Some((2.5e-6, 2.5e-7, 1.5e-5)),
                 ("gpt-5.6-terra", true) => Some((5e-6, 5e-7, 2.25e-5)),
@@ -756,7 +761,7 @@ impl CostUsagePricing {
                 _ => None,
             };
             if let Some((input_rate, cache_rate, output_rate)) = rates {
-                return Some(codex_cost_from_rates(
+                return Some(codex_pricing::codex_cost_from_rates(
                     input_tokens,
                     cached_input_tokens,
                     output_tokens,
@@ -783,7 +788,9 @@ impl CostUsagePricing {
         pricing_date: NaiveDate,
     ) -> Option<f64> {
         let multiplier = Self::codex_api_fast_multiplier(model)?;
-        if (input.max(0) as u64) > CODEX_LONG_CONTEXT_THRESHOLD {
+        if (input.max(0) as u64) > codex_pricing::CODEX_LONG_CONTEXT_THRESHOLD
+            && !codex_pricing::codex_fast_allows_long_context(model)
+        {
             return None;
         }
         let base = Self::codex_fast_base_model(model);
@@ -804,108 +811,13 @@ impl CostUsagePricing {
         cached_input_tokens: u64,
         output_tokens: u64,
     ) -> Option<f64> {
-        Self::codex_cost_usd_with_pricing_snapshot(
+        Self::codex_cost_usd_with_cache_write(
             model,
             input_tokens,
             cached_input_tokens,
+            0,
             output_tokens,
-            None,
         )
-    }
-
-    pub fn codex_cost_usd_with_pricing_snapshot(
-        model: &str,
-        input_tokens: u64,
-        cached_input_tokens: u64,
-        output_tokens: u64,
-        pricing_snapshot: Option<&models_dev_pricing::ModelsDevPricingSnapshot>,
-    ) -> Option<f64> {
-        let key = Self::normalize_codex_model(model);
-        // Model-less / deliberately unattributed usage stays unpriced even if a
-        // pricing catalog later contains a colliding generic entry.
-        if key == Self::CODEX_UNATTRIBUTED_MODEL {
-            return None;
-        }
-        if let Some(pricing) = CODEX_PRICING.get(key.as_str()) {
-            let (input_rate, cache_read_rate, output_rate) =
-                if input_tokens > CODEX_LONG_CONTEXT_THRESHOLD {
-                    if let Some(long_context) = pricing.long_context {
-                        (
-                            long_context.input_cost_per_token,
-                            long_context.cache_read_input_cost_per_token,
-                            long_context.output_cost_per_token,
-                        )
-                    } else {
-                        (
-                            pricing.input_cost_per_token,
-                            pricing.cache_read_input_cost_per_token,
-                            pricing.output_cost_per_token,
-                        )
-                    }
-                } else {
-                    (
-                        pricing.input_cost_per_token,
-                        pricing.cache_read_input_cost_per_token,
-                        pricing.output_cost_per_token,
-                    )
-                };
-            return Some(codex_cost_from_rates(
-                input_tokens,
-                cached_input_tokens,
-                output_tokens,
-                input_rate,
-                cache_read_rate,
-                output_rate,
-            ));
-        }
-
-        // Upstream 0.50.1 #2946: provider-qualified routed models are priced
-        // against the matching models.dev provider, not OpenAI. Unknown
-        // `provider/` prefixes are left unpriced (not guessed as OpenAI).
-        let (provider_id, lookup_model) = match codex_routed_pricing::codex_routed_provider(model) {
-            Some(routed) => (routed, codex_routed_pricing::strip_route_prefix(model)),
-            None if model.trim().contains('/') && !model.trim().starts_with("openai/") => {
-                // Unknown route prefix — do not guess. Leave unpriced.
-                return None;
-            }
-            None => ("openai", model),
-        };
-        let pricing = match pricing_snapshot {
-            Some(snapshot) => snapshot.lookup(provider_id, lookup_model),
-            None => models_dev_pricing::lookup(provider_id, lookup_model),
-        }?;
-        let use_tier = pricing
-            .threshold_tokens
-            .is_some_and(|threshold| input_tokens > threshold);
-        Some(codex_cost_from_rates(
-            input_tokens,
-            cached_input_tokens,
-            output_tokens,
-            if use_tier {
-                pricing
-                    .input_cost_per_token_above_threshold
-                    .unwrap_or(pricing.input_cost_per_token)
-            } else {
-                pricing.input_cost_per_token
-            },
-            if use_tier {
-                pricing
-                    .cache_read_input_cost_per_token_above_threshold
-                    .or(pricing.cache_read_input_cost_per_token)
-                    .unwrap_or(pricing.input_cost_per_token)
-            } else {
-                pricing
-                    .cache_read_input_cost_per_token
-                    .unwrap_or(pricing.input_cost_per_token)
-            },
-            if use_tier {
-                pricing
-                    .output_cost_per_token_above_threshold
-                    .unwrap_or(pricing.output_cost_per_token)
-            } else {
-                pricing.output_cost_per_token
-            },
-        ))
     }
 
     /// Format model name for display (e.g., "claude-3.5-sonnet" → "Sonnet 3.5")

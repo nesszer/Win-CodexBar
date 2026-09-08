@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::core::RateWindow;
+use crate::core::{RateWindow, SubscriptionMetadata};
 
 /// OpenAI dashboard snapshot with usage and credits data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +41,9 @@ pub struct OpenAIDashboardSnapshot {
     pub credits_remaining: Option<f64>,
     /// Account plan name
     pub account_plan: Option<String>,
+    /// Subscription lifecycle dates reported by the authenticated dashboard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription: Option<SubscriptionMetadata>,
     /// When this snapshot was taken
     pub updated_at: DateTime<Utc>,
 }
@@ -63,6 +66,7 @@ impl OpenAIDashboardSnapshot {
             secondary_limit: None,
             credits_remaining: None,
             account_plan: None,
+            subscription: None,
             updated_at,
         }
     }
@@ -147,6 +151,12 @@ impl OpenAIDashboardSnapshot {
     /// Set account plan
     pub fn with_account_plan(mut self, plan: impl Into<String>) -> Self {
         self.account_plan = Some(plan.into());
+        self
+    }
+
+    /// Set explicitly observed subscription lifecycle dates.
+    pub fn with_subscription(mut self, subscription: Option<SubscriptionMetadata>) -> Self {
+        self.subscription = subscription;
         self
     }
 }

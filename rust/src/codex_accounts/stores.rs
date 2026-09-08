@@ -248,6 +248,7 @@ mod tests {
                     .with_balance_observation(Some(0.0), utc_now())
                     .with_account_id("acct-1"),
             ),
+            subscription: None,
             updated_at: utc_now(),
         };
         let mut map = HashMap::new();

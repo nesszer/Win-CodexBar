@@ -674,14 +674,22 @@ fn selected_tray_percents(
     let (selected, companion) =
         crate::usage_metric::selected_usage_icon_windows(snapshot, settings);
     (
-        display_metric_percent(selected.used_percent, settings.show_as_used),
+        display_metric_percent(&selected, settings.show_as_used),
         companion
             .as_ref()
-            .map(|window| display_metric_percent(window.used_percent, settings.show_as_used)),
+            .map(|window| display_metric_percent(window, settings.show_as_used)),
     )
 }
 
-fn display_metric_percent(used_percent: f64, show_as_used: bool) -> f64 {
+fn display_metric_percent(window: &crate::commands::RateWindowSnapshot, show_as_used: bool) -> f64 {
+    if window.is_informational {
+        return 0.0;
+    }
+    if window.is_exhausted || window.used_percent >= 100.0 {
+        return if show_as_used { 100.0 } else { 0.0 };
+    }
+
+    let used_percent = window.used_percent;
     let used = used_percent.clamp(0.0, 100.0);
     if show_as_used { used } else { 100.0 - used }
 }
@@ -1085,6 +1093,7 @@ mod tests {
             }),
             plan_name: None,
             account_email: None,
+            subscription: None,
             source_label: String::new(),
             has_successful_claude_cli_quota: false,
             updated_at: "2025-01-01T00:00:00Z".into(),
@@ -1378,6 +1387,76 @@ mod tests {
 
         assert_eq!(primary, 85.0);
         assert_eq!(secondary, Some(80.0));
+    }
+
+    #[test]
+    fn exhausted_automatic_window_never_renders_as_remaining_progress() {
+        let mut settings = Settings {
+            show_as_used: false,
+            ..Settings::default()
+        };
+        let mut snapshot = fake_snapshot_with(
+            "opencodego",
+            "OpenCode Go",
+            20.0,
+            Some(60.0),
+            Some(40.0),
+            None,
+        );
+        snapshot
+            .tertiary
+            .as_mut()
+            .expect("monthly quota")
+            .is_exhausted = true;
+
+        let (remaining, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(remaining, 0.0);
+
+        settings.show_as_used = true;
+        let (used, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(used, 100.0);
+    }
+
+    #[test]
+    fn full_automatic_window_without_exhausted_flag_has_zero_remaining_progress() {
+        let mut settings = Settings {
+            show_as_used: false,
+            ..Settings::default()
+        };
+        let mut snapshot = fake_snapshot_with(
+            "opencodego",
+            "OpenCode Go",
+            20.0,
+            Some(60.0),
+            Some(100.0),
+            None,
+        );
+        snapshot
+            .tertiary
+            .as_mut()
+            .expect("monthly quota")
+            .is_exhausted = false;
+
+        let (remaining, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(remaining, 0.0);
+
+        settings.show_as_used = true;
+        let (used, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(used, 100.0);
+    }
+
+    #[test]
+    fn missing_automatic_window_does_not_look_like_available_remaining_progress() {
+        let settings = Settings {
+            show_as_used: false,
+            ..Settings::default()
+        };
+        let mut snapshot = fake_snapshot_with("opencodego", "OpenCode Go", 0.0, None, None, None);
+        snapshot.primary.is_informational = true;
+
+        let (remaining, _) = selected_tray_percents(&snapshot, &settings);
+
+        assert_eq!(remaining, 0.0);
     }
 
     #[test]

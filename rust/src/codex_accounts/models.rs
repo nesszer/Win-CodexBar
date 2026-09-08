@@ -540,6 +540,10 @@ pub struct AccountUsageSnapshot {
     /// Account-scoped extra-usage cost persisted with the account lane.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<crate::core::CostSnapshot>,
+    /// Subscription dates observed from the same account-scoped OpenAI
+    /// dashboard/API request as this quota snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription: Option<crate::core::SubscriptionMetadata>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -831,6 +835,7 @@ mod tests {
             secondary_window: None,
             credits: None,
             cost: None,
+            subscription: None,
             updated_at: utc_now(),
         };
         assert!(snapshot.is_quota_blocked());

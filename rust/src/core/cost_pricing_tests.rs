@@ -442,3 +442,74 @@ fn gpt56_historical_long_context_uses_pre_cut_rates() {
     let expected = 270_000.0 * 5e-6 + 30_000.0 * 5e-7 + 1_000.0 * 2.25e-5;
     assert!((terra - expected).abs() < 1e-10);
 }
+
+#[test]
+fn gpt6_astra_aliases_use_standard_rates_and_preserve_cached_semantics() {
+    for model in [
+        "gpt-6-astra",
+        "openai/gpt-6-astra",
+        "gpt-6-astra-2099-01-01",
+    ] {
+        let cost = CostUsagePricing::codex_cost_usd(model, 1000, 300, 100).unwrap();
+        // This API receives cache-read tokens only. The remaining 700 input
+        // tokens are standard input; explicit cache-write tokens use the
+        // 1.25x Astra rate in the adjacent cache-write regression.
+        let expected = 700.0 * 10e-6 + 300.0 * 1e-6 + 100.0 * 50e-6;
+        assert!(
+            (cost - expected).abs() < 1e-12,
+            "{model}: expected {expected}, got {cost}"
+        );
+    }
+}
+
+#[test]
+fn gpt6_astra_short_context_prices_cache_writes_at_125_percent() {
+    let cost =
+        CostUsagePricing::codex_cost_usd_with_cache_write("gpt-6-astra", 1_000, 200, 300, 100)
+            .unwrap();
+    let expected = 500.0 * 1e-5 + 200.0 * 1e-6 + 300.0 * 1.25e-5 + 100.0 * 5e-5;
+    assert!((cost - expected).abs() < 1e-12);
+}
+
+#[test]
+fn gpt6_astra_long_context_prices_cache_writes_at_125_percent() {
+    let cost = CostUsagePricing::codex_cost_usd_with_cache_write(
+        "gpt-6-astra",
+        272_001,
+        100_000,
+        50_000,
+        1_000,
+    )
+    .unwrap();
+    let expected = 122_001.0 * 2e-5 + 100_000.0 * 2e-6 + 50_000.0 * 2.5e-5 + 1_000.0 * 7.5e-5;
+    assert!((cost - expected).abs() < 1e-12);
+}
+
+#[test]
+fn codex_cache_writes_preserve_non_astra_pricing() {
+    let without_cache_write = CostUsagePricing::codex_cost_usd("gpt-5", 1_000, 200, 100).unwrap();
+    let with_cache_write =
+        CostUsagePricing::codex_cost_usd_with_cache_write("gpt-5", 1_000, 200, 300, 100).unwrap();
+    assert!((with_cache_write - without_cache_write).abs() < 1e-12);
+}
+
+#[test]
+fn gpt6_astra_switches_the_whole_request_at_long_context_boundary() {
+    let standard = CostUsagePricing::codex_cost_usd("gpt-6-astra", 272_000, 100_000, 1000).unwrap();
+    let long = CostUsagePricing::codex_cost_usd("gpt-6-astra", 272_001, 100_000, 1000).unwrap();
+    let expected_standard = 172_000.0 * 10e-6 + 100_000.0 * 1e-6 + 1000.0 * 50e-6;
+    let expected_long = 172_001.0 * 20e-6 + 100_000.0 * 2e-6 + 1000.0 * 75e-6;
+    assert!((standard - expected_standard).abs() < 1e-12);
+    assert!((long - expected_long).abs() < 1e-12);
+
+    let fast = CostUsagePricing::codex_fast_cost_usd("openai/gpt-6-astra", 272_001, 100_000, 1000)
+        .unwrap();
+    assert!((fast - expected_long * 2.0).abs() < 1e-12);
+}
+
+#[test]
+fn gpt6_astra_unknown_models_fail_closed() {
+    for model in ["gpt-6", "other-provider/gpt-6-astra"] {
+        assert!(CostUsagePricing::codex_cost_usd(model, 1000, 0, 100).is_none());
+    }
+}

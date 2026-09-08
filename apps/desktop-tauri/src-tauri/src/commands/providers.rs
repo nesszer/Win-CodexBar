@@ -1151,6 +1151,7 @@ mod reset_backfill_tests {
             cost: None,
             plan_name: None,
             account_email: None,
+            subscription: None,
             source_label: String::new(),
             has_successful_claude_cli_quota: false,
             updated_at: "2026-01-01T00:00:00Z".into(),

@@ -5,6 +5,41 @@ use serde::{Deserialize, Serialize};
 
 use super::RateWindow;
 
+/// Subscription dates explicitly reported by an authenticated provider
+/// dashboard or subscription endpoint.
+///
+/// These values are deliberately independent from quota-window reset times:
+/// a reset is not evidence of a subscription boundary, and a missing date is
+/// kept missing rather than inferred.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub starts_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renews_at: Option<DateTime<Utc>>,
+}
+
+impl SubscriptionMetadata {
+    pub const fn new(
+        starts_at: Option<DateTime<Utc>>,
+        expires_at: Option<DateTime<Utc>>,
+        renews_at: Option<DateTime<Utc>>,
+    ) -> Self {
+        Self {
+            starts_at,
+            expires_at,
+            renews_at,
+        }
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.starts_at.is_none() && self.expires_at.is_none() && self.renews_at.is_none()
+    }
+}
+
 /// Provider-specific operational data reported by a Wayfinder gateway.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WayfinderUsageSnapshot {
@@ -116,6 +151,11 @@ pub struct UsageSnapshot {
     /// Login method/plan info (e.g., "Claude Pro", "Claude Max")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login_method: Option<String>,
+
+    /// Subscription dates explicitly reported by the provider's authenticated
+    /// dashboard/API. These are not derived from quota reset windows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription: Option<SubscriptionMetadata>,
 }
 
 impl UsageSnapshot {
@@ -133,6 +173,7 @@ impl UsageSnapshot {
             account_email: None,
             account_organization: None,
             login_method: None,
+            subscription: None,
         }
     }
 
@@ -193,6 +234,14 @@ impl UsageSnapshot {
     /// Builder pattern: set login method
     pub fn with_login_method(mut self, method: impl Into<String>) -> Self {
         self.login_method = Some(method.into());
+        self
+    }
+
+    /// Attach an explicitly observed subscription payload. Passing `None`
+    /// clears a previously attached payload when the provider has positively
+    /// reported that no subscription dates are available.
+    pub fn with_subscription(mut self, subscription: Option<SubscriptionMetadata>) -> Self {
+        self.subscription = subscription;
         self
     }
 

@@ -215,6 +215,10 @@ impl Default for PerplexityProvider {
 
 #[async_trait]
 impl Provider for PerplexityProvider {
+    fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
+        false
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Perplexity
     }

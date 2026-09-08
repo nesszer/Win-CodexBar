@@ -48,6 +48,10 @@ impl Default for CopilotProvider {
 
 #[async_trait]
 impl Provider for CopilotProvider {
+    fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
+        false
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Copilot
     }

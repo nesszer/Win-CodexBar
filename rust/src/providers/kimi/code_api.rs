@@ -81,18 +81,30 @@ pub(crate) async fn fetch_via_code_api(
     let json: KimiCodeApiUsageResponse = resp.json().await.map_err(|e| {
         ProviderError::Parse(format!("Failed to parse Kimi Code API response: {e}"))
     })?;
+    let plan_name = json.plan_name();
+    let has_plan_name = plan_name.is_some();
     let mut snapshot = snapshot_from_code_api_response(json)?;
-    snapshot.login_method = Some(login_method.to_string());
+    snapshot.login_method = Some(plan_name.unwrap_or_else(|| login_method.to_string()));
 
     // Upstream #2622: enrich Code API + CLI usage with the monthly membership
     // pool from a signed-in Kimi Desktop (or browser/manual) session.
-    if let Some(web_token) = web::web_auth_token(ctx.manual_cookie_header.as_deref()) {
-        match web::fetch_subscription_for_enrichment(&client, &web_token).await {
-            Some(subscription) => {
-                snapshot = super::apply_subscription_windows(snapshot, &subscription);
+    for web_token in web::web_auth_tokens(ctx.manual_cookie_header.as_deref()) {
+        match web::fetch_subscription_for_enrichment_result(&client, &web_token).await {
+            Ok(subscription) => {
+                if let Some(subscription) = subscription {
+                    snapshot = super::apply_subscription_windows(snapshot, &subscription);
+                }
+                if !has_plan_name
+                    && let Some(plan) = web::fetch_subscription_plan(&client, &web_token).await
+                {
+                    snapshot.login_method = Some(plan);
+                }
+                break;
             }
-            None => {
-                tracing::debug!("Kimi Code monthly enrichment unavailable");
+            Err(ProviderError::AuthRequired) => continue,
+            Err(error) => {
+                tracing::debug!(error = %error, "Kimi Code monthly enrichment unavailable");
+                break;
             }
         }
     }
@@ -104,7 +116,11 @@ pub(super) fn snapshot_from_code_api_response(
     response: KimiCodeApiUsageResponse,
 ) -> Result<UsageSnapshot, ProviderError> {
     let primary = KimiProvider::rate_window_from_usage_detail(&response.usage, None)?;
-    let mut usage = UsageSnapshot::new(primary).with_login_method("Code API");
+    let mut usage = UsageSnapshot::new(primary).with_login_method(
+        response
+            .plan_name()
+            .unwrap_or_else(|| "Code API".to_string()),
+    );
 
     if let Some(limit) = response.limits.unwrap_or_default().into_iter().next() {
         let window_minutes = limit.window.as_ref().and_then(kimi_window_minutes);

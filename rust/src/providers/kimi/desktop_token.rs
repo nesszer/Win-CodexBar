@@ -18,7 +18,9 @@
 //!
 //! Auth cookies are secrets: token values are never logged.
 
+use base64::Engine;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct KimiDesktopAuthToken;
 
@@ -85,7 +87,43 @@ impl KimiDesktopAuthToken {
             })
             .ok()
             .and_then(|row| decode_cookie_value(row, aes_key))
+            .filter(|token| !is_expired_jwt(token, unix_now_secs()))
     }
+}
+
+/// Cookie expiry and JWT expiry can differ. A stale desktop JWT must not
+/// shadow a live browser session, but opaque/non-JWT credentials remain
+/// usable because there is no local expiry claim to inspect.
+fn is_expired_jwt(token: &str, now_unix: f64) -> bool {
+    let mut parts = token.split('.');
+    let _header = parts.next();
+    let Some(payload) = parts.next() else {
+        return false;
+    };
+    if parts.next().is_none() || parts.next().is_some() {
+        return false;
+    }
+
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(payload));
+    let Ok(decoded) = decoded else {
+        return false;
+    };
+    let Ok(claims) = serde_json::from_slice::<serde_json::Value>(&decoded) else {
+        return false;
+    };
+    let Some(expiry) = claims.get("exp").and_then(serde_json::Value::as_f64) else {
+        return false;
+    };
+    expiry.is_finite() && expiry <= now_unix
+}
+
+fn unix_now_secs() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 /// Decode a `(value, encrypted_value)` pair: plaintext first, AES-256-GCM
@@ -261,6 +299,21 @@ mod tests {
         insert_cookie(&conn, "kimi.com", "", 2);
 
         assert_eq!(KimiDesktopAuthToken::load_from(root.path()), None);
+    }
+
+    #[test]
+    fn expired_jwt_is_skipped_but_future_and_opaque_tokens_are_kept() {
+        let encode = |payload: &str| {
+            format!(
+                "header.{}.signature",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload)
+            )
+        };
+
+        assert!(is_expired_jwt(&encode(r#"{"exp":100}"#), 101.0));
+        assert!(!is_expired_jwt(&encode(r#"{"exp":100}"#), 99.0));
+        assert!(!is_expired_jwt("opaque-token", 101.0));
+        assert!(!is_expired_jwt(&encode(r#"{"exp":"100"}"#), 101.0));
     }
 
     #[test]

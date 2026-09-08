@@ -5,6 +5,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::subscription::{
+    OpenAISubscriptionFetchResult, parse_subscription_http_response, parse_subscription_value,
+};
+
 /// Usage breakdown by service (e.g., GPT-4, DALL-E)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageBreakdown {
@@ -48,6 +52,11 @@ pub struct OpenAIDashboardData {
     pub organization: Option<String>,
     /// Purchase credits URL
     pub purchase_url: Option<String>,
+    /// Explicit subscription payload captured by the dashboard page. This is
+    /// kept as a small JSON object so missing fields remain distinguishable
+    /// from explicit nulls until the strict subscription parser runs.
+    #[serde(default)]
+    pub subscription: Option<serde_json::Value>,
 }
 
 impl OpenAIDashboardData {
@@ -65,6 +74,56 @@ impl OpenAIDashboardData {
     /// Get total usage across all services
     pub fn total_usage(&self) -> f64 {
         self.usage_breakdown.iter().map(|b| b.amount).sum()
+    }
+
+    /// Convert the page-captured subscription payload only when its lifecycle
+    /// fields are present and correctly typed.
+    pub fn subscription_metadata(&self) -> OpenAISubscriptionFetchResult {
+        let Some(subscription) = self.subscription.as_ref() else {
+            return OpenAISubscriptionFetchResult::Unavailable;
+        };
+        let Some(captured) = subscription.as_object() else {
+            return OpenAISubscriptionFetchResult::Unavailable;
+        };
+        if let (Some(status), Some(payload)) = (
+            captured.get("status").and_then(serde_json::Value::as_u64),
+            captured.get("payload"),
+        ) {
+            let Ok(status) = u16::try_from(status) else {
+                return OpenAISubscriptionFetchResult::Unavailable;
+            };
+            let Ok(payload) = serde_json::to_string(payload) else {
+                return OpenAISubscriptionFetchResult::Unavailable;
+            };
+            return parse_subscription_http_response(status, &payload);
+        }
+        // Accept direct payloads for callers that already checked the HTTP
+        // status before constructing the dashboard DTO.
+        parse_subscription_value(subscription)
+    }
+
+    /// Return subscription metadata only when the dashboard identity is
+    /// unambiguous for the account the caller is refreshing. A target account
+    /// without a matching page email is deliberately fail-closed.
+    pub fn authorized_subscription_metadata(
+        &self,
+        target_email: Option<&str>,
+    ) -> OpenAISubscriptionFetchResult {
+        let target = target_email
+            .map(str::trim)
+            .filter(|email| !email.is_empty())
+            .map(str::to_ascii_lowercase);
+        let dashboard = self
+            .email
+            .as_deref()
+            .map(str::trim)
+            .filter(|email| !email.is_empty())
+            .map(str::to_ascii_lowercase);
+        match (target.as_deref(), dashboard.as_deref()) {
+            (Some(target), Some(dashboard)) if target == dashboard => self.subscription_metadata(),
+            (None, Some(_)) => self.subscription_metadata(),
+            _ => OpenAISubscriptionFetchResult::Unavailable,
+        }
     }
 }
 
@@ -360,7 +419,19 @@ pub const OPENAI_DASHBOARD_SCRAPE_SCRIPT: &str = r#"
     })(),
     account_plan: findPlan(parseJsonScript('client-bootstrap')) || findPlan(parseJsonScript('__NEXT_DATA__')),
     organization: null,
-    purchase_url: null
+    purchase_url: null,
+    subscription: (() => {
+      const captured = window.__codexbarSubscriptionResponse;
+      const payload = captured && captured.payload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+      const keys = ['active_until', 'activeUntil', 'will_renew', 'willRenew',
+        'starts_at', 'startsAt', 'active_from', 'activeFrom'];
+      const output = {};
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) output[key] = payload[key];
+      }
+      return Object.keys(output).length ? {status: captured.status, payload: output} : null;
+    })()
   };
 
   return JSON.stringify(result);
@@ -429,5 +500,28 @@ mod tests {
         assert_eq!(data.email, Some("test@example.com".to_string()));
         assert_eq!(data.auth_status, Some("logged_in".to_string()));
         assert_eq!(data.account_plan, Some("Pro 5x".to_string()));
+    }
+
+    #[test]
+    fn dashboard_subscription_requires_matching_account_identity() {
+        let subscription = serde_json::json!({
+            "active_until": "2026-09-20T14:30:07Z",
+            "will_renew": true
+        });
+        let data = OpenAIDashboardData {
+            email: Some("current@example.com".to_string()),
+            subscription: Some(subscription),
+            ..Default::default()
+        };
+        assert!(
+            data.authorized_subscription_metadata(Some("old@example.com"))
+                .metadata()
+                .is_none()
+        );
+        assert!(data.authorized_subscription_metadata(None).succeeded());
+        assert!(
+            data.authorized_subscription_metadata(Some("CURRENT@example.com"))
+                .succeeded()
+        );
     }
 }

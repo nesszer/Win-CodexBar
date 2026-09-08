@@ -169,6 +169,15 @@ pub struct SessionEquivalentForecastSnapshot {
     pub weekly_used_percent: f64,
 }
 
+/// Subscription dates from an authenticated OpenAI dashboard/API response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionMetadataSnapshot {
+    pub starts_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub renews_at: Option<String>,
+}
+
 /// A frontend-friendly snapshot of one provider's usage data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -197,6 +206,8 @@ pub struct ProviderUsageSnapshot {
     pub plan_name: Option<String>,
     #[serde(default)]
     pub account_email: Option<String>,
+    #[serde(default)]
+    pub subscription: Option<SubscriptionMetadataSnapshot>,
     #[serde(default = "default_source_label")]
     pub source_label: String,
     #[serde(default)]
@@ -399,6 +410,13 @@ impl ProviderUsageSnapshot {
             }),
             plan_name: usage.login_method.clone(),
             account_email: usage.account_email.clone(),
+            subscription: usage.subscription.as_ref().map(|subscription| {
+                SubscriptionMetadataSnapshot {
+                    starts_at: subscription.starts_at.map(|date| date.to_rfc3339()),
+                    expires_at: subscription.expires_at.map(|date| date.to_rfc3339()),
+                    renews_at: subscription.renews_at.map(|date| date.to_rfc3339()),
+                }
+            }),
             source_label: result.source_label.clone(),
             has_successful_claude_cli_quota: result.has_successful_claude_cli_quota,
             updated_at: usage.updated_at.to_rfc3339(),
@@ -446,6 +464,7 @@ impl ProviderUsageSnapshot {
             cost: None,
             plan_name: None,
             account_email: None,
+            subscription: None,
             source_label: String::new(),
             has_successful_claude_cli_quota: false,
             updated_at: chrono::Utc::now().to_rfc3339(),

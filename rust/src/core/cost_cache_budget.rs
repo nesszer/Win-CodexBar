@@ -76,7 +76,11 @@ fn touches_window(entry: &CostUsageFileUsage, since_key: &str, until_key: &str) 
 /// upstream `estimatedCodexCacheBytes`'s per-entry shape; it deliberately
 /// overestimates so pruning triggers at or before the real byte budget.
 fn estimated_entry_bytes(entry: &CostUsageFileUsage) -> usize {
-    let mut bytes = 240;
+    let mut bytes = 240
+        + entry
+            .codex_file_identity
+            .as_ref()
+            .map_or(0, |identity| identity.len() + 32);
     for (day, models) in &entry.days {
         bytes += day.len() + 32;
         for (model, packed) in models {
@@ -321,6 +325,7 @@ mod tests {
         CostUsageFileUsage {
             mtime_unix_ms: 0,
             size,
+            codex_file_identity: None,
             days: day_map,
             parsed_bytes: parsed,
             codex_scan_target_size: None,

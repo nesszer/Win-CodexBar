@@ -123,4 +123,22 @@ describe("AdvancedTab", () => {
       ).toBeGreaterThan(0);
     });
   });
+
+  it("keeps the Windows Hooks settings surface to one master label and toggle", () => {
+    render(<AdvancedTab settings={settings} set={vi.fn()} saving={false} />);
+
+    const hooksSection = screen
+      .getByRole("heading", { name: "HooksTitle" })
+      .closest("section");
+
+    expect(hooksSection).not.toBeNull();
+    expect(hooksSection?.querySelectorAll(".settings-field__label")).toHaveLength(1);
+    expect(hooksSection?.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+    expect(
+      hooksSection?.querySelectorAll(
+        'input[type="text"], input[type="number"], textarea',
+      ),
+    ).toHaveLength(0);
+    expect(screen.getAllByText("HooksEnableLabel")).toHaveLength(1);
+  });
 });

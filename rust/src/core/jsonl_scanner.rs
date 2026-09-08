@@ -239,6 +239,10 @@ pub struct CostUsageFileUsage {
     pub mtime_unix_ms: i64,
     /// File size in bytes
     pub size: i64,
+    /// Stable source identity used to detect same-path replacement without
+    /// opening the raw token history. Legacy entries may omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_file_identity: Option<String>,
     /// Daily usage data extracted from this file
     pub days: HashMap<String, HashMap<String, Vec<i32>>>,
     /// Bytes parsed so far (for incremental parsing)

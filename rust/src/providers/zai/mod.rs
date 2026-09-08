@@ -575,6 +575,10 @@ impl Default for ZaiProvider {
 
 #[async_trait]
 impl Provider for ZaiProvider {
+    fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
+        false
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Zai
     }

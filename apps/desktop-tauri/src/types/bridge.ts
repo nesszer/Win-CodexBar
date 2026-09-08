@@ -577,6 +577,12 @@ export interface SessionEquivalentForecastSnapshot {
   weeklyUsedPercent: number;
 }
 
+export interface SubscriptionMetadataSnapshot {
+  startsAt: string | null;
+  expiresAt: string | null;
+  renewsAt: string | null;
+}
+
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
   | "ready"
@@ -606,6 +612,7 @@ export interface ProviderUsageSnapshot {
   cost: CostSnapshotBridge | null;
   planName: string | null;
   accountEmail: string | null;
+  subscription?: SubscriptionMetadataSnapshot | null;
   sourceLabel: string;
   /** Backend proof of a live successful Claude CLI quota fetch; only true is proof. */
   hasSuccessfulClaudeCliQuota?: boolean;
@@ -948,6 +955,7 @@ export interface CodexAccountUsageSnapshot {
   credits: CodexCreditsBalance | null;
   /** Persisted account-scoped extra-usage cost, when available. */
   cost?: CostSnapshotBridge | null;
+  subscription?: SubscriptionMetadataSnapshot | null;
   updatedAt: string;
 }
 

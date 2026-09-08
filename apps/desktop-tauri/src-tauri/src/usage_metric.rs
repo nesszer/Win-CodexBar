@@ -107,20 +107,29 @@ fn automatic_window(
         }
     }
 
-    highest_window(
-        std::iter::once(&snapshot.primary)
-            .chain(snapshot.secondary.iter())
-            .chain(snapshot.model_specific.iter())
-            .chain(snapshot.tertiary.iter())
-            .chain(
-                snapshot
-                    .extra_rate_windows
-                    .iter()
-                    .map(|extra| &extra.window),
-            )
-            .filter(|window| !window.is_informational),
-    )
-    .cloned()
+    let windows = std::iter::once(&snapshot.primary)
+        .chain(snapshot.secondary.iter())
+        .chain(snapshot.model_specific.iter())
+        .chain(snapshot.tertiary.iter())
+        .chain(
+            snapshot
+                .extra_rate_windows
+                .iter()
+                .map(|extra| &extra.window),
+        )
+        .filter(|window| !window.is_informational);
+    let prioritize_exhausted = provider
+        .map(|id| {
+            codexbar::core::instantiate_provider(id).automatic_metric_prioritizes_exhausted_window()
+        })
+        .unwrap_or(true);
+    let selected = if prioritize_exhausted {
+        highest_automatic_window(windows)
+    } else {
+        highest_window(windows)
+    };
+
+    selected.cloned()
 }
 
 fn average_window(snapshot: &ProviderUsageSnapshot) -> Option<RateWindowSnapshot> {
@@ -187,6 +196,24 @@ fn highest_window<'a>(
     })
 }
 
+fn highest_automatic_window<'a>(
+    windows: impl Iterator<Item = &'a RateWindowSnapshot>,
+) -> Option<&'a RateWindowSnapshot> {
+    windows.max_by(|a, b| {
+        automatic_window_is_exhausted(a)
+            .cmp(&automatic_window_is_exhausted(b))
+            .then_with(|| {
+                a.used_percent
+                    .partial_cmp(&b.used_percent)
+                    .unwrap_or(Ordering::Equal)
+            })
+    })
+}
+
+fn automatic_window_is_exhausted(window: &RateWindowSnapshot) -> bool {
+    window.is_exhausted || window.used_percent >= 100.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,6 +237,7 @@ mod tests {
             cost: None,
             plan_name: None,
             account_email: None,
+            subscription: None,
             source_label: "test".to_string(),
             has_successful_claude_cli_quota: false,
             updated_at: "2026-08-16T00:00:00Z".to_string(),
@@ -258,6 +286,59 @@ mod tests {
             selected_usage_window(&snapshot, &Settings::default()).used_percent,
             60.0
         );
+    }
+
+    #[test]
+    fn opencodego_automatic_prefers_explicitly_exhausted_window_over_higher_percentage() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "opencodego".to_string();
+        snapshot.primary.is_exhausted = true;
+
+        let selected = selected_usage_window(&snapshot, &Settings::default());
+
+        assert_eq!(selected.used_percent, 20.0);
+        assert!(selected.is_exhausted);
+    }
+
+    #[test]
+    fn claude_and_codex_automatic_keep_highest_used_window() {
+        for provider_id in ["claude", "codex"] {
+            let mut snapshot = snapshot();
+            snapshot.provider_id = provider_id.to_string();
+            snapshot.primary.is_exhausted = true;
+
+            let selected = selected_usage_window(&snapshot, &Settings::default());
+
+            assert_eq!(
+                selected.used_percent, 60.0,
+                "{provider_id} should keep highest-used automatic selection"
+            );
+            assert!(!selected.is_exhausted);
+        }
+    }
+
+    #[test]
+    fn automatic_treats_a_full_window_as_exhausted_even_without_the_flag() {
+        let mut snapshot = snapshot();
+        let mut full = window(100.0);
+        full.is_exhausted = false;
+        snapshot.tertiary = Some(full);
+
+        let selected = selected_usage_window(&snapshot, &Settings::default());
+
+        assert_eq!(selected.used_percent, 100.0);
+        assert!(!selected.is_exhausted);
+    }
+
+    #[test]
+    fn non_automatic_highest_window_keeps_percentage_order() {
+        let healthy = window(80.0);
+        let mut exhausted = window(20.0);
+        exhausted.is_exhausted = true;
+
+        let selected = highest_window([&healthy, &exhausted].into_iter()).expect("window");
+
+        assert_eq!(selected.used_percent, 80.0);
     }
 
     #[test]

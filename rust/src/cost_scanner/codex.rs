@@ -1,69 +1,13 @@
 use super::*;
 
+mod cache_days;
 mod logical_target;
 mod pending_range;
 mod reconciliation;
+use cache_days::rebuild_cache_days;
 use logical_target::*;
 use pending_range::{CodexPendingScanContext, codex_cache_has_validated_state};
 use reconciliation::*;
-
-fn rebuild_cache_days(cache: &mut CostUsageCache) {
-    cache.days.clear();
-    for usage in cache.files.values() {
-        for (day, models) in &usage.days {
-            let day_entry = cache.days.entry(day.clone()).or_default();
-            for (model, packed) in models {
-                let dest = day_entry
-                    .entry(model.clone())
-                    .or_insert_with(|| vec![0, 0, 0]);
-                if dest.len() < 3 {
-                    dest.resize(3, 0);
-                }
-
-                let had_core_tokens = dest[0] != 0 || dest[1] != 0 || dest[2] != 0;
-                let source_input = packed.first().copied().unwrap_or(0);
-                let source_cached = packed.get(1).copied().unwrap_or(0);
-                let source_output = packed.get(2).copied().unwrap_or(0);
-                let source_has_tokens =
-                    source_input != 0 || source_cached != 0 || source_output != 0;
-                let source_reasoning = packed
-                    .get(3)
-                    .copied()
-                    .map(|reasoning| reasoning.max(0).min(source_output.max(0)));
-
-                dest[0] = dest[0].saturating_add(source_input);
-                dest[1] = dest[1].saturating_add(source_cached);
-                dest[2] = dest[2].saturating_add(source_output);
-
-                if !source_has_tokens {
-                    continue;
-                }
-
-                if !had_core_tokens {
-                    match source_reasoning {
-                        Some(reasoning) => {
-                            if dest.len() >= 4 {
-                                dest[3] = reasoning.min(dest[2].max(0));
-                            } else {
-                                dest.push(reasoning.min(dest[2].max(0)));
-                            }
-                        }
-                        None => dest.truncate(3),
-                    }
-                    continue;
-                }
-
-                match (dest.get(3).copied(), source_reasoning) {
-                    (Some(previous), Some(reasoning)) => {
-                        let merged = previous.saturating_add(reasoning).min(dest[2].max(0));
-                        dest[3] = merged;
-                    }
-                    _ => dest.truncate(3),
-                }
-            }
-        }
-    }
-}
 
 fn summary_from_cached_report(
     report: &CachedCostReport,
@@ -121,6 +65,13 @@ fn codex_parent_baseline(
             return None;
         }
         let metadata = fs::metadata(path_key).ok()?;
+        if let (Some(expected), Some(actual)) = (
+            usage.codex_file_identity.as_ref(),
+            JsonlScanner::codex_file_identity(Path::new(path_key), &metadata),
+        ) && expected != &actual
+        {
+            return None;
+        }
         #[allow(clippy::cast_possible_wrap, reason = "session file sizes fit i64")]
         let size = metadata.len().min(i64::MAX as u64) as i64;
         if usage.mtime_unix_ms != system_time_to_unix_ms(metadata.modified().ok())
@@ -729,6 +680,7 @@ impl CostScanner {
         let size = metadata.len().min(i64::MAX as u64) as i64;
         let mtime_ms = system_time_to_unix_ms(metadata.modified().ok());
         let path_key = path.to_string_lossy().to_string();
+        let file_identity = JsonlScanner::codex_file_identity(path, &metadata);
         let cached = cache.files.get(&path_key).cloned();
         let cache_covers_range = JsonlScanner::cache_covers_range(cache, range);
         let trace_was_pruned = cached.as_ref().is_some_and(|entry| {
@@ -744,6 +696,40 @@ impl CostScanner {
                 is_complete: false,
             };
         }
+        let cache_entry_is_fresh = |entry: &CostUsageFileUsage| {
+            cached_codex_file_is_fresh(cache, entry, cache_covers_range, mtime_ms, size)
+        };
+        let identity_matches_cached = |entry: &CostUsageFileUsage| match (
+            entry.codex_file_identity.as_ref(),
+            file_identity.as_ref(),
+        ) {
+            (Some(expected), Some(actual)) => expected == actual,
+            _ => false,
+        };
+
+        // The compact cache is authoritative for an unchanged file. Do this
+        // before reading even the bounded metadata prefix; raw token history
+        // is only needed after freshness fails or a fork needs reconciliation.
+        if let Some(entry) = cached.as_ref()
+            && cache_entry_is_fresh(entry)
+            && identity_matches_cached(entry)
+        {
+            let (session_cost, has_tokens) =
+                add_codex_days_map_to_summary(summary, &entry.days, range);
+            if has_tokens {
+                summary.total_cost_usd += session_cost;
+                summary.sessions_count += 1;
+            }
+            stats.files_skipped = stats.files_skipped.saturating_add(1);
+            return CodexFileScanOutcome {
+                bytes_read: 0,
+                is_complete: true,
+            };
+        }
+
+        stats.codex_metadata_read_paths.push(path_key.clone());
+        stats.codex_read_receipt.metadata_reads =
+            stats.codex_read_receipt.metadata_reads.saturating_add(1);
         let session_metadata = JsonlScanner::read_codex_session_metadata(path).unwrap_or_default();
         let cached_identity_matches = cached
             .as_ref()
@@ -786,6 +772,7 @@ impl CostScanner {
                 CostUsageFileUsage {
                     mtime_unix_ms: mtime_ms,
                     size,
+                    codex_file_identity: file_identity.clone(),
                     days: HashMap::new(),
                     parsed_bytes: Some(0),
                     codex_scan_target_size: None,
@@ -807,12 +794,8 @@ impl CostScanner {
         }
 
         if let Some(entry) = &cached
-            && cache_covers_range
-            && !entry.codex_unresolved_fork_parent
-            && entry.mtime_unix_ms == mtime_ms
-            && entry.size == size
-            && codex_scan_target_size(entry) == size
-            && entry.parsed_bytes.unwrap_or(0) >= size
+            && cached_codex_file_is_fresh(cache, entry, cache_covers_range, mtime_ms, size)
+            && (entry.codex_file_identity.is_none() || identity_matches_cached(entry))
         {
             let (session_cost, has_tokens) =
                 add_codex_days_map_to_summary(summary, &entry.days, range);
@@ -820,12 +803,21 @@ impl CostScanner {
                 summary.total_cost_usd += session_cost;
                 summary.sessions_count += 1;
             }
+            if entry.codex_file_identity != file_identity {
+                let mut refreshed = entry.clone();
+                refreshed.codex_file_identity = file_identity.clone();
+                cache.files.insert(path_key.clone(), refreshed);
+            }
             stats.files_skipped = stats.files_skipped.saturating_add(1);
             return CodexFileScanOutcome {
                 bytes_read: 0,
                 is_complete: true,
             };
         }
+
+        stats.codex_history_read_paths.push(path_key.clone());
+        stats.codex_read_receipt.history_reads =
+            stats.codex_read_receipt.history_reads.saturating_add(1);
 
         if !is_fork
             && !cached_identity_changed
@@ -880,6 +872,9 @@ impl CostScanner {
                     CostUsageFileUsage {
                         mtime_unix_ms: mtime_ms,
                         size,
+                        codex_file_identity: file_identity
+                            .clone()
+                            .or(entry.codex_file_identity.clone()),
                         days,
                         parsed_bytes: Some(parse_result.parsed_bytes),
                         codex_scan_target_size: Some(parse_result.scan_target_size),
@@ -941,6 +936,7 @@ impl CostScanner {
                 CostUsageFileUsage {
                     mtime_unix_ms: mtime_ms,
                     size,
+                    codex_file_identity: file_identity.clone(),
                     days: HashMap::new(),
                     parsed_bytes: Some(0),
                     codex_scan_target_size: None,
@@ -977,6 +973,7 @@ impl CostScanner {
             CostUsageFileUsage {
                 mtime_unix_ms: mtime_ms,
                 size,
+                codex_file_identity: file_identity,
                 days,
                 parsed_bytes: Some(parse_result.parsed_bytes),
                 codex_scan_target_size: Some(parse_result.scan_target_size),

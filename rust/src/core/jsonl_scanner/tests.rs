@@ -1047,6 +1047,7 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
         CostUsageFileUsage {
             mtime_unix_ms: 0,
             size: 100,
+            codex_file_identity: None,
             days: HashMap::from([(
                 "2026-08-20".to_string(),
                 HashMap::from([("gpt-5.6-sol".to_string(), vec![1_000, 250, 100])]),
@@ -1068,6 +1069,7 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
         CostUsageFileUsage {
             mtime_unix_ms: 0,
             size: 10,
+            codex_file_identity: None,
             days: HashMap::new(),
             parsed_bytes: Some(10),
             codex_scan_target_size: None,
@@ -1120,6 +1122,7 @@ fn save_cache_persists_small_codex_artifact() {
             CostUsageFileUsage {
                 mtime_unix_ms: 0,
                 size: 100,
+                codex_file_identity: None,
                 days: HashMap::from([(
                     "2026-01-10".to_string(),
                     HashMap::from([("gpt-5.6-sol".to_string(), vec![10, 0, 1])]),
@@ -1190,6 +1193,7 @@ fn save_cache_refuses_non_bounded_provider_oversize() {
         CostUsageFileUsage {
             mtime_unix_ms: 0,
             size: 100,
+            codex_file_identity: None,
             days: HashMap::new(),
             parsed_bytes: None,
             codex_scan_target_size: None,
@@ -1223,6 +1227,7 @@ fn save_cache_refusal_removes_preexisting_destination_artifact() {
         CostUsageFileUsage {
             mtime_unix_ms: 0,
             size: 100,
+            codex_file_identity: None,
             days: HashMap::from([(
                 "2026-01-10".to_string(),
                 HashMap::from([("gpt-5.6-sol".to_string(), vec![10, 0, 1])]),

@@ -33,9 +33,13 @@ use crate::providers::opencodego::local as opencodego_local;
 use crate::settings::Settings;
 mod claude_pricing;
 mod codex;
+mod read_receipt;
+mod stats;
 use claude_pricing::ClaudeScanPricingResolver;
 #[cfg(test)]
 use claude_pricing::{ClaudePricing, FALLBACK_CLAUDE_MODEL};
+pub use read_receipt::CodexScanReadReceipt;
+pub use stats::CostScanStats;
 
 /// Completeness of the pricing coverage in a [`CostSummary`] (upstream 0.48.0 F18).
 ///
@@ -387,22 +391,6 @@ struct ClaudeUsageRecord {
     cache_create: u64,
     cache_read: u64,
     cost: f64,
-}
-
-/// Per-pass counters for cache/resume behavior (tests + diagnostics).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CostScanStats {
-    pub files_seen: u32,
-    pub files_parsed: u32,
-    pub files_skipped: u32,
-    pub files_resumed: u32,
-    /// Files deferred to a later bounded Codex catch-up pass.
-    pub files_deferred: u32,
-    /// Newly consumed Codex JSONL bytes in this refresh.
-    pub codex_bytes_read: u64,
-    /// Timestamp comparisons performed while validating Codex append history.
-    pub token_timestamp_comparisons: u64,
-    pub used_cache_debounce: bool,
 }
 
 #[derive(Debug, Clone)]

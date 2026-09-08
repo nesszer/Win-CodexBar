@@ -687,6 +687,11 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Whether Automatic metric selection should prefer an exhausted quota lane.
+    fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
+        true
+    }
+
     /// Whether browser-cookie discovery/recovery is owned by the provider.
     fn owns_browser_cookie_resolution(&self) -> bool {
         false

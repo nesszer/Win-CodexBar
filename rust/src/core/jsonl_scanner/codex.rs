@@ -154,6 +154,50 @@ impl JsonlScanner {
         Ok(CodexSessionMetadata::default())
     }
 
+    /// Return the platform file identity used by the cost-cache freshness
+    /// receipt. This is metadata-only; it never reads token history bytes.
+    #[cfg(windows)]
+    pub(crate) fn codex_file_identity(
+        file_path: &Path,
+        _metadata: &fs::Metadata,
+    ) -> Option<String> {
+        use std::os::windows::io::AsRawHandle;
+
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+        };
+
+        let file = File::open(file_path).ok()?;
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: `file` is an open file handle and `info` is valid for writes
+        // for the duration of the call.
+        let ok = unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) };
+        if ok.is_err() {
+            return None;
+        }
+        let file_index = ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64;
+        Some(format!("{}:{file_index}", info.dwVolumeSerialNumber))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn codex_file_identity(
+        _file_path: &Path,
+        metadata: &fs::Metadata,
+    ) -> Option<String> {
+        use std::os::unix::fs::MetadataExt;
+
+        Some(format!("{}:{}", metadata.dev(), metadata.ino()))
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    pub(crate) fn codex_file_identity(
+        _file_path: &Path,
+        metadata: &fs::Metadata,
+    ) -> Option<String> {
+        Some(format!("{:?}:{}", metadata.modified().ok(), metadata.len()))
+    }
+
     /// Compare RFC3339 timestamps using parsed instants. Malformed timestamps
     /// are unsafe for fork-baseline reconciliation and therefore fail closed.
     pub(crate) fn codex_timestamp_at_or_before(earlier: &str, later: &str) -> bool {
