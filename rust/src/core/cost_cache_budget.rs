@@ -93,7 +93,7 @@ fn estimated_entry_bytes(entry: &CostUsageFileUsage) -> usize {
 /// Conservative estimate of the encoded artifact size.
 pub fn estimated_cache_bytes(
     files: &HashMap<String, CostUsageFileUsage>,
-    days: &HashMap<String, HashMap<String, Vec<i32>>>,
+    days: &HashMap<String, HashMap<String, Vec<i64>>>,
 ) -> usize {
     let mut bytes = 4096;
     bytes += files.len() * 160;
@@ -121,7 +121,7 @@ pub fn estimated_cache_bytes(
 /// shape (no fork lineages, no discovery/lookback state).
 pub fn prune_out_of_window_for_budget(
     files: &mut HashMap<String, CostUsageFileUsage>,
-    days: &mut HashMap<String, HashMap<String, Vec<i32>>>,
+    days: &mut HashMap<String, HashMap<String, Vec<i64>>>,
     scan_since_key: Option<&str>,
     scan_until_key: Option<&str>,
     force: bool,
@@ -171,7 +171,7 @@ pub fn prune_out_of_window_for_budget(
 /// cache shape.
 pub fn trim_in_window_for_budget(
     files: &mut HashMap<String, CostUsageFileUsage>,
-    days: &mut HashMap<String, HashMap<String, Vec<i32>>>,
+    days: &mut HashMap<String, HashMap<String, Vec<i64>>>,
     scan_since_key: Option<&str>,
     scan_until_key: Option<&str>,
     max_bytes: usize,
@@ -248,8 +248,8 @@ pub fn trim_in_window_for_budget(
 /// of the scanner's `rebuild_cache_days` accumulation), so pruned entries do
 /// not inflate totals.
 fn subtract_entry_days(
-    days: &mut HashMap<String, HashMap<String, Vec<i32>>>,
-    entry_days: &HashMap<String, HashMap<String, Vec<i32>>>,
+    days: &mut HashMap<String, HashMap<String, Vec<i64>>>,
+    entry_days: &HashMap<String, HashMap<String, Vec<i64>>>,
 ) {
     let mut empty_days = Vec::new();
     for (day, models) in entry_days {
@@ -315,7 +315,7 @@ mod tests {
     use super::*;
 
     fn entry(days: &[&str], parsed: Option<i64>, size: i64) -> CostUsageFileUsage {
-        let mut day_map: HashMap<String, HashMap<String, Vec<i32>>> = HashMap::new();
+        let mut day_map: HashMap<String, HashMap<String, Vec<i64>>> = HashMap::new();
         for day in days {
             day_map.insert(
                 (*day).to_string(),
@@ -342,12 +342,12 @@ mod tests {
 
     type TestCache = (
         HashMap<String, CostUsageFileUsage>,
-        HashMap<String, HashMap<String, Vec<i32>>>,
+        HashMap<String, HashMap<String, Vec<i64>>>,
     );
 
     fn cache(files: &[(&str, CostUsageFileUsage)]) -> TestCache {
         let mut file_map = HashMap::new();
-        let mut days: HashMap<String, HashMap<String, Vec<i32>>> = HashMap::new();
+        let mut days: HashMap<String, HashMap<String, Vec<i64>>> = HashMap::new();
         for (key, entry) in files {
             for (day, models) in &entry.days {
                 let day_entry = days.entry(day.clone()).or_default();

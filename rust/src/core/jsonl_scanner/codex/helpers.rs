@@ -31,15 +31,15 @@ pub(super) struct CodexFastPayload<'a> {
     #[serde(default, borrow)]
     pub(super) info: Option<CodexFastInfo<'a>>,
     #[serde(default)]
-    pub(super) input_tokens: Option<i32>,
+    pub(super) input_tokens: Option<i64>,
     #[serde(default)]
-    pub(super) cached_input_tokens: Option<i32>,
+    pub(super) cached_input_tokens: Option<i64>,
     #[serde(default)]
-    pub(super) cache_read_input_tokens: Option<i32>,
+    pub(super) cache_read_input_tokens: Option<i64>,
     #[serde(default)]
-    pub(super) output_tokens: Option<i32>,
+    pub(super) output_tokens: Option<i64>,
     #[serde(default)]
-    pub(super) reasoning_output_tokens: Option<i32>,
+    pub(super) reasoning_output_tokens: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,15 +57,15 @@ pub(super) struct CodexFastInfo<'a> {
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub(super) struct CodexFastTotals {
     #[serde(default)]
-    pub(super) input_tokens: i32,
+    pub(super) input_tokens: i64,
     #[serde(default)]
-    pub(super) cached_input_tokens: Option<i32>,
+    pub(super) cached_input_tokens: Option<i64>,
     #[serde(default)]
-    pub(super) cache_read_input_tokens: Option<i32>,
+    pub(super) cache_read_input_tokens: Option<i64>,
     #[serde(default)]
-    pub(super) output_tokens: i32,
+    pub(super) output_tokens: i64,
     #[serde(default)]
-    pub(super) reasoning_output_tokens: Option<i32>,
+    pub(super) reasoning_output_tokens: Option<i64>,
 }
 
 pub(super) enum CodexFastEvent<'a> {
@@ -103,7 +103,7 @@ pub(super) fn contained_total_delta(
         reasoning: None,
     });
 
-    let component = |water: i32, counted: i32, current: i32| -> i32 {
+    let component = |water: i64, counted: i64, current: i64| -> i64 {
         if current >= water {
             // Only growth above the historical high watermark counts.
             (current - water.max(counted)).max(0)
@@ -128,9 +128,9 @@ pub(super) fn contained_total_delta(
 
 pub(super) fn cumulative_reasoning_delta(
     previous: Option<&CodexTotals>,
-    current: Option<i32>,
-    output_delta: i32,
-) -> Option<i32> {
+    current: Option<i64>,
+    output_delta: i64,
+) -> Option<i64> {
     let current = current?;
     let previous = match previous {
         Some(previous) => previous.reasoning?,
@@ -498,31 +498,19 @@ pub(super) fn bare_usage_totals(obj: &Value) -> Option<(CodexTotals, Option<Stri
         .or_else(|| obj.get("data").and_then(|v| v.get("usage")))
         .or_else(|| obj.get("result").and_then(|v| v.get("usage")))
         .or_else(|| obj.get("response").and_then(|v| v.get("usage")))?;
-    // Token counts come from usage records and fit i32, the canonical totals storage type.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "usage token counts fit i32, the canonical totals storage type"
-    )]
+    // Token counts come from usage records and use i64, the canonical totals storage type.
     let input = ["input_tokens", "prompt_tokens", "input"]
         .into_iter()
         .find_map(|key| usage.get(key).and_then(Value::as_i64))
         .unwrap_or(0)
-        .max(0) as i32;
-    // Token counts come from usage records and fit i32, the canonical totals storage type.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "usage token counts fit i32, the canonical totals storage type"
-    )]
+        .max(0);
+    // Token counts come from usage records and use i64, the canonical totals storage type.
     let output = ["output_tokens", "completion_tokens", "output"]
         .into_iter()
         .find_map(|key| usage.get(key).and_then(Value::as_i64))
         .unwrap_or(0)
-        .max(0) as i32;
-    // Token counts come from usage records and fit i32, the canonical totals storage type.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "usage token counts fit i32, the canonical totals storage type"
-    )]
+        .max(0);
+    // Token counts come from usage records and use i64, the canonical totals storage type.
     let cached = [
         "cached_input_tokens",
         "cache_read_input_tokens",
@@ -532,8 +520,8 @@ pub(super) fn bare_usage_totals(obj: &Value) -> Option<(CodexTotals, Option<Stri
     .filter_map(|key| usage.get(key).and_then(Value::as_i64))
     .max()
     .unwrap_or(0)
-    .max(0) as i32;
-    let reasoning = clamp_reasoning(optional_token_i32(usage, "reasoning_output_tokens"), output);
+    .max(0);
+    let reasoning = clamp_reasoning(optional_token_i64(usage, "reasoning_output_tokens"), output);
     if input == 0 && output == 0 && cached == 0 {
         return None;
     }
@@ -569,12 +557,8 @@ pub(super) fn token_count_payload(obj: &Value) -> Option<&Value> {
 }
 
 pub(super) fn read_token_totals(value: &Value) -> CodexTotals {
-    // Token counts come from Codex usage records and fit within i32, which is
+    // Token counts come from Codex usage records and use i64, which is
     // the canonical storage type of the totals table.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "token counts from usage records fit i32"
-    )]
     let cached = value
         .get("cached_input_tokens")
         .and_then(|v| v.as_i64())
@@ -584,14 +568,14 @@ pub(super) fn read_token_totals(value: &Value) -> CodexTotals {
                 .get("cache_read_input_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0),
-        ) as i32;
+        );
     CodexTotals {
-        input: token_i32(value, "input_tokens"),
+        input: token_i64(value, "input_tokens"),
         cached,
-        output: token_i32(value, "output_tokens"),
+        output: token_i64(value, "output_tokens"),
         reasoning: clamp_reasoning(
-            optional_token_i32(value, "reasoning_output_tokens"),
-            token_i32(value, "output_tokens"),
+            optional_token_i64(value, "reasoning_output_tokens"),
+            token_i64(value, "output_tokens"),
         ),
     }
 }
@@ -623,33 +607,22 @@ pub(super) fn fast_totals_from_payload(value: &CodexFastPayload<'_>) -> CodexTot
     }
 }
 
-fn token_i32(value: &Value, key: &str) -> i32 {
-    // Token counts from usage records fit i32, the canonical totals storage type.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "token counts from usage records fit i32"
-    )]
-    let tokens = value.get(key).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+fn token_i64(value: &Value, key: &str) -> i64 {
+    // Token counts from usage records use i64, the canonical totals storage type.
+    let tokens = value.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
     tokens
 }
 
-fn optional_token_i32(value: &Value, key: &str) -> Option<i32> {
-    // Token counts from usage records fit i32, the canonical storage type.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "token counts from usage records fit i32"
-    )]
-    value
-        .get(key)
-        .and_then(Value::as_i64)
-        .map(|tokens| tokens as i32)
+fn optional_token_i64(value: &Value, key: &str) -> Option<i64> {
+    // Token counts from usage records use i64, the canonical storage type.
+    value.get(key).and_then(Value::as_i64)
 }
 
-pub(super) fn clamp_reasoning(reasoning: Option<i32>, output: i32) -> Option<i32> {
+pub(super) fn clamp_reasoning(reasoning: Option<i64>, output: i64) -> Option<i64> {
     reasoning.map(|tokens| tokens.max(0).min(output.max(0)))
 }
 
-pub(super) fn last_usage_delta(last: &Value) -> (i32, i32, i32, Option<i32>) {
+pub(super) fn last_usage_delta(last: &Value) -> (i64, i64, i64, Option<i64>) {
     let totals = read_token_totals(last);
     (
         totals.input.max(0),
@@ -659,7 +632,7 @@ pub(super) fn last_usage_delta(last: &Value) -> (i32, i32, i32, Option<i32>) {
     )
 }
 
-pub(super) fn fast_last_usage_delta(last: CodexFastTotals) -> (i32, i32, i32, Option<i32>) {
+pub(super) fn fast_last_usage_delta(last: CodexFastTotals) -> (i64, i64, i64, Option<i64>) {
     let totals = codex_totals_from_fast(last);
     (
         totals.input.max(0),

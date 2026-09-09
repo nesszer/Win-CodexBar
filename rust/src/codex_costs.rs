@@ -60,7 +60,7 @@ pub(crate) fn add_codex_records_to_summary(
 
 /// Merge billable records into a day→model→`[input,cached,output]` map.
 pub(crate) fn merge_codex_records_into_days(
-    days: &mut std::collections::HashMap<String, std::collections::HashMap<String, Vec<i32>>>,
+    days: &mut std::collections::HashMap<String, std::collections::HashMap<String, Vec<i64>>>,
     records: &[CodexUsageRecord],
 ) {
     for record in records {
@@ -77,7 +77,7 @@ pub(crate) fn merge_codex_records_into_days(
 pub(crate) fn add_codex_packed_tokens_to_summary(
     summary: &mut CostSummary,
     model: &str,
-    packed: &[i32],
+    packed: &[i64],
     pricing_day: Option<NaiveDate>,
 ) -> Option<f64> {
     let input = packed.first().copied().unwrap_or(0);
@@ -99,7 +99,7 @@ pub(crate) fn add_codex_packed_tokens_to_summary(
 /// Returns `(session_cost, has_tokens)` — caller adds cost to `total_cost_usd`.
 pub(crate) fn add_codex_days_map_to_summary(
     summary: &mut CostSummary,
-    days: &std::collections::HashMap<String, std::collections::HashMap<String, Vec<i32>>>,
+    days: &std::collections::HashMap<String, std::collections::HashMap<String, Vec<i64>>>,
     range: &CostUsageDayRange,
 ) -> (f64, bool) {
     let mut total_cost = 0.0;
@@ -153,12 +153,12 @@ struct CodexTokenCounts {
 }
 
 impl CodexTokenCounts {
-    fn from_values(input: i32, cached: i32, output: i32) -> Self {
-        let input = input.max(0) as u64;
+    fn from_values(input: i64, cached: i64, output: i64) -> Self {
+        let input = u64::try_from(input.max(0)).unwrap_or(0);
         Self {
             input,
-            cached: (cached.max(0) as u64).min(input),
-            output: output.max(0) as u64,
+            cached: u64::try_from(cached.max(0)).unwrap_or(0).min(input),
+            output: u64::try_from(output.max(0)).unwrap_or(0),
             reasoning: None,
         }
     }
@@ -404,35 +404,11 @@ fn codex_cost_usd_for_day(
 
     let normalized = CostUsagePricing::normalize_codex_model(model);
     if normalized.contains("fast") || normalized.contains("priority") {
-        // Fast pricing takes i32 token counts; usage-record counts fit far
-        // below i32::MAX, and the callee re-checks the long-context threshold
-        // against the original u64 magnitude.
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "token counts from usage records fit i32"
-        )]
-        #[allow(
-            clippy::cast_possible_wrap,
-            reason = "token counts are non-negative; wrapping is impossible"
-        )]
         let fast = pricing_day
             .and_then(|day| {
-                CostUsagePricing::codex_fast_cost_usd_at_date(
-                    model,
-                    input as i32,
-                    cached as i32,
-                    output as i32,
-                    day,
-                )
+                CostUsagePricing::codex_fast_cost_usd_at_date(model, input, cached, output, day)
             })
-            .or_else(|| {
-                CostUsagePricing::codex_fast_cost_usd(
-                    model,
-                    input as i32,
-                    cached as i32,
-                    output as i32,
-                )
-            });
+            .or_else(|| CostUsagePricing::codex_fast_cost_usd(model, input, cached, output));
         if let Some(cost) = fast {
             return cost;
         }

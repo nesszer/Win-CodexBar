@@ -554,7 +554,7 @@ fn write_codex_session_fixture_with_inputs(
     path
 }
 
-fn cached_usage_with_packed(day: &str, model: &str, packed: Vec<i32>) -> CostUsageFileUsage {
+fn cached_usage_with_packed(day: &str, model: &str, packed: Vec<i64>) -> CostUsageFileUsage {
     CostUsageFileUsage {
         mtime_unix_ms: 0,
         size: 1,
@@ -600,7 +600,7 @@ fn rebuild_cache_days_preserves_known_reasoning() {
 
 #[test]
 fn rebuild_cache_days_reasoning_unknown_is_order_independent() {
-    let run = |first: Vec<i32>, second: Vec<i32>| {
+    let run = |first: Vec<i64>, second: Vec<i64>| {
         let day = Local::now().format("%Y-%m-%d").to_string();
         let mut cache = CostUsageCache {
             files: HashMap::from([

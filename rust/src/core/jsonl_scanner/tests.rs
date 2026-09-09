@@ -120,6 +120,44 @@ fn fork_baseline_subtracts_known_reasoning_without_affecting_core_tokens() {
 }
 
 #[test]
+fn codex_token_pipeline_preserves_counts_above_i32_max() {
+    let parsed = read_token_totals(&serde_json::json!({
+        "input_tokens": 3_000_000_000_i64,
+        "cached_input_tokens": 2_800_000_000_i64,
+        "output_tokens": 200,
+    }));
+    assert_eq!(parsed.input, 3_000_000_000);
+    assert_eq!(parsed.cached, 2_800_000_000);
+    assert_eq!(parsed.output, 200);
+
+    let mut packed = Vec::new();
+    for _ in 0..2 {
+        JsonlScanner::merge_codex_record_into_packed(
+            &mut packed,
+            &CodexUsageRecord {
+                day_key: "2026-09-09".to_string(),
+                model: "gpt-5.6-luna".to_string(),
+                input: 1_500_000_000,
+                cached: 1_400_000_000,
+                output: 100,
+                reasoning: None,
+            },
+        );
+    }
+    assert_eq!(packed, vec![3_000_000_000, 2_800_000_000, 200]);
+
+    let mut cache = CostUsageCache::default();
+    cache.days.insert(
+        "2026-09-09".to_string(),
+        HashMap::from([("gpt-5.6-luna".to_string(), packed)]),
+    );
+    let report = JsonlScanner::cached_cost_report_from_days(&cache);
+    assert_eq!(report.input_tokens, 3_000_000_000);
+    assert_eq!(report.cached_tokens, 2_800_000_000);
+    assert_eq!(report.output_tokens, 200);
+}
+
+#[test]
 fn legacy_packed_rows_remain_three_slots_and_report_reasoning_is_unknown() {
     let record = CodexUsageRecord {
         day_key: "2026-05-31".to_string(),
@@ -1106,6 +1144,43 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
     assert_eq!(report.sessions_count, 1);
     assert!(!report.partial);
     assert!(report.updated_at.is_some());
+}
+
+#[test]
+fn codex_cache_round_trip_preserves_64_bit_counts_and_rebuilds_legacy_schema() {
+    let root = tempfile::tempdir().unwrap();
+    let cache_root = root.path();
+    let mut cache = CostUsageCache::default();
+    cache.days.insert(
+        "2026-09-09".to_string(),
+        HashMap::from([(
+            "gpt-5.6-luna".to_string(),
+            vec![3_000_000_000, 2_800_000_000, 200],
+        )]),
+    );
+
+    JsonlScanner::save_cache(ProviderId::Codex, &mut cache, Some(cache_root));
+    let loaded = JsonlScanner::load_cache(ProviderId::Codex, Some(cache_root));
+    assert_eq!(
+        loaded.days["2026-09-09"]["gpt-5.6-luna"],
+        vec![3_000_000_000, 2_800_000_000, 200]
+    );
+
+    let cache_path = JsonlScanner::cache_path(ProviderId::Codex, Some(cache_root));
+    let mut legacy: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("codex_cache_schema_version");
+    std::fs::write(&cache_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+
+    let invalidated = JsonlScanner::load_cache(ProviderId::Codex, Some(cache_root));
+    assert!(invalidated.days.is_empty());
+    assert!(invalidated.files.is_empty());
+    let status = JsonlScanner::load_cache_status(ProviderId::Codex, Some(cache_root));
+    assert!(!status.has_days);
+    assert!(status.previous_report.is_none());
 }
 
 #[test]
