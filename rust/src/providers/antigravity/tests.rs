@@ -225,6 +225,59 @@ fn not_running_error_tells_user_how_to_start() {
     assert!(error.contains("Start Google Antigravity and sign in"));
 }
 
+#[test]
+fn managed_agy_candidates_prefer_override_then_path_then_known_installs() {
+    let candidates = AntigravityProvider::agy_binary_candidates(
+        Some(PathBuf::from(r"D:\tools\agy.exe")),
+        Some(PathBuf::from(r"C:\path\agy.exe")),
+        Some(PathBuf::from(r"C:\Users\test\AppData\Local")),
+        Some(PathBuf::from(r"C:\Users\test")),
+    );
+
+    assert_eq!(candidates[0], PathBuf::from(r"D:\tools\agy.exe"));
+    assert_eq!(candidates[1], PathBuf::from(r"C:\path\agy.exe"));
+    assert_eq!(
+        candidates[2],
+        PathBuf::from(r"C:\Users\test\AppData\Local\agy\bin\agy.exe")
+    );
+    assert_eq!(
+        candidates[3],
+        PathBuf::from(r"C:\Users\test\.local\bin").join(if cfg!(windows) {
+            "agy.exe"
+        } else {
+            "agy"
+        })
+    );
+}
+
+#[test]
+fn managed_agy_not_running_check_is_exact() {
+    assert!(AntigravityProvider::is_not_running_error(
+        &ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string())
+    ));
+    assert!(!AntigravityProvider::is_not_running_error(
+        &ProviderError::NotInstalled("Failed to detect Antigravity process".to_string())
+    ));
+    assert!(!AntigravityProvider::is_not_running_error(
+        &ProviderError::AuthRequired
+    ));
+}
+
+#[test]
+fn managed_agy_terminal_detects_cursor_request_across_reads() {
+    let mut tail = Vec::new();
+
+    assert!(!terminal_requested_cursor_position(
+        &mut tail,
+        b"ready\x1b["
+    ));
+    assert!(terminal_requested_cursor_position(&mut tail, b"6n"));
+    assert!(!terminal_requested_cursor_position(
+        &mut tail,
+        b"plain output"
+    ));
+}
+
 // ── agy CLI process matching ───────────────────────────────────────
 
 #[test]
