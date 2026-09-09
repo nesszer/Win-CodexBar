@@ -5326,15 +5326,17 @@ html:has(.menu-surface--tray) {
   background-repeat: no-repeat;
   background-position: right 10px center;
   line-height: 20px;
-  color-scheme: light;
 }
-.select option {
-  color: #000;
-  background: #fff;
+[data-theme="dark"] .select {
+  color-scheme: dark;
 }
-.select option:checked {
-  color: #000;
-  background: #dceeff;
+[data-theme="dark"] .select option {
+  color: var(--text-primary);
+  background: var(--app-bg);
+}
+[data-theme="dark"] .select option:checked {
+  color: #fff;
+  background: var(--accent);
 }
 .text-input {
   padding: 0 10px;
@@ -5350,6 +5352,9 @@ html:has(.menu-surface--tray) {
   text-align: center;
   font-variant-numeric: tabular-nums;
   line-height: 20px;
+}
+[data-theme="light"] .select {
+  color-scheme: light;
 }
 [data-theme="light"] .select,
 [data-theme="light"] .number-input,
