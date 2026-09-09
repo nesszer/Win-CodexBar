@@ -219,10 +219,11 @@ fn test_noisy_models_do_not_drive_summary_windows() {
 }
 
 #[test]
-fn not_running_error_tells_user_how_to_start() {
-    let error = ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()).to_string();
+fn missing_cli_error_explains_runtime_state() {
+    let error = ProviderError::NotInstalled(AGY_NOT_FOUND_MESSAGE.to_string()).to_string();
 
-    assert!(error.contains("Start Google Antigravity and sign in"));
+    assert!(error.contains("not running"));
+    assert!(error.contains("agy CLI was not found"));
 }
 
 #[test]
@@ -251,31 +252,88 @@ fn managed_agy_candidates_prefer_override_then_path_then_known_installs() {
 }
 
 #[test]
-fn managed_agy_not_running_check_is_exact() {
-    assert!(AntigravityProvider::is_not_running_error(
-        &ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string())
-    ));
-    assert!(!AntigravityProvider::is_not_running_error(
-        &ProviderError::NotInstalled("Failed to detect Antigravity process".to_string())
-    ));
-    assert!(!AntigravityProvider::is_not_running_error(
-        &ProviderError::AuthRequired
-    ));
-}
-
-#[test]
 fn managed_agy_terminal_detects_cursor_request_across_reads() {
     let mut tail = Vec::new();
 
-    assert!(!terminal_requested_cursor_position(
-        &mut tail,
-        b"ready\x1b["
-    ));
-    assert!(terminal_requested_cursor_position(&mut tail, b"6n"));
-    assert!(!terminal_requested_cursor_position(
-        &mut tail,
-        b"plain output"
-    ));
+    assert_eq!(
+        terminal_cursor_position_request_count(&mut tail, b"ready\x1b["),
+        0
+    );
+    assert_eq!(terminal_cursor_position_request_count(&mut tail, b"6n"), 1);
+    assert_eq!(
+        terminal_cursor_position_request_count(&mut tail, b"plain output"),
+        0
+    );
+    assert_eq!(
+        terminal_cursor_position_request_count(&mut tail, b"\x1b[6nmore\x1b[6n"),
+        2
+    );
+}
+
+#[test]
+fn managed_agy_terminal_caps_cursor_replies() {
+    assert_eq!(terminal_cursor_reply_allowance(0, 2), 2);
+    assert_eq!(terminal_cursor_reply_allowance(31, 4), 1);
+    assert_eq!(
+        terminal_cursor_reply_allowance(AGY_MAX_CURSOR_REPLIES, 1),
+        0
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_listener_table_finds_current_process_port() {
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .expect("bind a local IPv4 listener");
+    let port = listener.local_addr().expect("listener address").port();
+
+    let ports = AntigravityProvider::listening_ports_for_pid(std::process::id())
+        .expect("read the Windows TCP listener table");
+
+    assert!(
+        ports.contains(&port),
+        "listener table should contain {port}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn managed_agy_job_terminates_its_owned_process() {
+    use std::os::windows::io::AsRawHandle as _;
+    use std::os::windows::process::CommandExt as _;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let mut command = std::process::Command::new("powershell.exe");
+    command
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "Start-Sleep -Seconds 30",
+        ])
+        .creation_flags(CREATE_NO_WINDOW);
+    let mut child = command.spawn().expect("spawn an isolated test child");
+    let job = create_managed_agy_job().expect("create a kill-on-close job");
+    if let Err(error) = assign_process_to_job(&job, child.as_raw_handle()) {
+        drop(child.kill());
+        drop(child.wait());
+        panic!("assign the test child to its job: {error}");
+    }
+
+    // SAFETY: only the isolated test child was assigned to this private job.
+    unsafe { TerminateJobObject(win_handle(&job), 1) }.expect("terminate the private job");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        if child.try_wait().expect("inspect the test child").is_some() {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            drop(child.kill());
+            drop(child.wait());
+            panic!("job termination did not stop the test child");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
 }
 
 // ── agy CLI process matching ───────────────────────────────────────
@@ -449,7 +507,7 @@ fn not_installed_maps_to_local_runtime_offline() {
     // credential problem.
     assert_eq!(
         AntigravityProvider::new()
-            .error_state_kind(&ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.into())),
+            .error_state_kind(&ProviderError::NotInstalled(AGY_NOT_FOUND_MESSAGE.into())),
         crate::core::ProviderStateKind::LocalRuntimeOffline
     );
 }

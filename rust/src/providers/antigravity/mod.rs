@@ -10,33 +10,61 @@ mod local_step_resolver;
 mod quota_summary;
 
 use async_trait::async_trait;
+#[cfg(windows)]
+use futures::{StreamExt, stream};
 use regex_lite::Regex;
 use serde::Deserialize;
+#[cfg(windows)]
 use std::io::{Read, Write};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{LazyLock, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(windows)]
+use std::time::Instant;
+#[cfg(windows)]
+use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, HANDLE};
+#[cfg(windows)]
+use windows::Win32::NetworkManagement::IpHelper::{
+    GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+};
+#[cfg(windows)]
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_BASIC_LIMIT_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
+};
+#[cfg(windows)]
+use windows::core::PCWSTR;
 
 use crate::core::{
     FetchContext, NamedRateWindow, Provider, ProviderError, ProviderFetchResult, ProviderId,
     ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
-const NOT_RUNNING_MESSAGE: &str =
-    "Antigravity language server not running. Start Google Antigravity and sign in, then retry.";
 const AGY_NOT_FOUND_MESSAGE: &str =
     "Antigravity is not running and the signed-in agy CLI was not found.";
-const AGY_READY_TIMEOUT: Duration = Duration::from_secs(20);
+#[cfg(windows)]
+const AGY_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(25);
+#[cfg(windows)]
+const AGY_CLEANUP_RESERVE: Duration = Duration::from_secs(2);
+#[cfg(windows)]
+const AGY_PROBE_TIMEOUT: Duration = Duration::from_millis(750);
+#[cfg(windows)]
 const AGY_READY_POLL_INTERVAL: Duration = Duration::from_millis(250);
+#[cfg(any(windows, test))]
+const AGY_MAX_CURSOR_REPLIES: usize = 32;
 const GET_USER_STATUS_PATH: &str = "/exa.language_server_pb.LanguageServerService/GetUserStatus";
 const QUOTA_SUMMARY_PATH: &str =
     "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary";
 
 /// Serialize task-owned `agy` launches so concurrent app surfaces never start
 /// multiple interactive CLI servers at the same time.
+#[cfg(windows)]
 static MANAGED_AGY_FETCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Antigravity provider
@@ -82,13 +110,19 @@ fn is_agy_cli_command(command_line: &str) -> bool {
     CLI_PATH_RE.is_match(&lower) || AGY_RE.is_match(&lower)
 }
 
-fn terminal_requested_cursor_position(tail: &mut Vec<u8>, chunk: &[u8]) -> bool {
+#[cfg(any(windows, test))]
+fn terminal_cursor_position_request_count(tail: &mut Vec<u8>, chunk: &[u8]) -> usize {
     tail.extend_from_slice(chunk);
-    let requested = tail.windows(4).any(|bytes| bytes == b"\x1b[6n");
+    let requested = tail.windows(4).filter(|bytes| *bytes == b"\x1b[6n").count();
     if tail.len() > 3 {
         tail.drain(..tail.len() - 3);
     }
     requested
+}
+
+#[cfg(any(windows, test))]
+fn terminal_cursor_reply_allowance(sent: usize, requested: usize) -> usize {
+    requested.min(AGY_MAX_CURSOR_REPLIES.saturating_sub(sent))
 }
 
 impl AntigravityProvider {
@@ -110,13 +144,16 @@ impl AntigravityProvider {
     }
 
     /// Detect running Antigravity language server and extract connection info
-    fn detect_process_info() -> Result<ProcessInfo, ProviderError> {
+    fn detect_process_info() -> Result<Option<ProcessInfo>, ProviderError> {
         // Use PowerShell to get process command lines
         #[cfg(windows)]
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         let mut cmd = Command::new("powershell.exe");
         cmd.args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
                 "-ExecutionPolicy", "Bypass",
                 "-Command",
                 // Match the desktop IDE/app language server (language_server.exe /
@@ -138,8 +175,7 @@ impl AntigravityProvider {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Self::parse_process_info(&stdout)
-            .ok_or_else(|| ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()))
+        Ok(Self::parse_process_info(&stdout))
     }
 
     fn parse_process_info(stdout: &str) -> Option<ProcessInfo> {
@@ -240,8 +276,10 @@ impl AntigravityProvider {
         // equivalent of `lsof`), then the heuristic window above the extension port, then a
         // few known ports as a last resort.
         let mut candidates: Vec<u16> = Vec::new();
-        if let Some(pid) = pid {
-            candidates.extend(Self::listening_ports_for_pid(pid));
+        if let Some(pid) = pid
+            && let Ok(ports) = Self::listening_ports_for_pid(pid)
+        {
+            candidates.extend(ports);
         }
         if let Some(ep) = extension_port.filter(|&p| p > 0) {
             candidates.extend((0..20u16).map(|offset| ep.saturating_add(offset)));
@@ -287,47 +325,107 @@ impl AntigravityProvider {
         }
     }
 
-    /// Enumerate the TCP ports a given PID is listening on (Windows `lsof` equivalent).
-    /// On Windows this uses `Get-NetTCPConnection`; it returns an empty list on any failure
-    /// so the caller deterministically falls back to the heuristic candidate ports.
+    /// Enumerate IPv4 TCP listener ports for a PID through the Windows IP Helper API.
+    /// This avoids starting PowerShell inside the managed readiness poll.
     #[cfg(windows)]
-    fn listening_ports_for_pid(pid: u32) -> Vec<u16> {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
+    fn listening_ports_for_pid(pid: u32) -> Result<Vec<u16>, ProviderError> {
+        const AF_INET_FAMILY: u32 = 2;
+        const NO_ERROR: u32 = 0;
 
-        let mut cmd = Command::new("powershell.exe");
-        cmd.args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &format!(
-                "Get-NetTCPConnection -OwningProcess {pid} -State Listen \
-                 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort"
-            ),
-        ]);
-        cmd.creation_flags(CREATE_NO_WINDOW);
-
-        let Ok(output) = cmd.output() else {
-            return Vec::new();
+        let mut bytes = 0_u32;
+        // SAFETY: the first call supplies no destination buffer and only asks Windows
+        // for the required byte count.
+        let query = unsafe {
+            GetExtendedTcpTable(
+                None,
+                &mut bytes,
+                false,
+                AF_INET_FAMILY,
+                TCP_TABLE_OWNER_PID_LISTENER,
+                0,
+            )
         };
-        if !output.status.success() {
-            return Vec::new();
+        if query != ERROR_INSUFFICIENT_BUFFER.0 && query != NO_ERROR {
+            return Err(ProviderError::Other(format!(
+                "Failed to size the Windows TCP listener table (error {query})"
+            )));
+        }
+        if bytes < u32::try_from(std::mem::size_of::<u32>()).unwrap_or(u32::MAX) {
+            return Ok(Vec::new());
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut ports: Vec<u16> = stdout
-            .lines()
-            .filter_map(|l| l.trim().parse::<u16>().ok())
+        let mut buffer = Vec::new();
+        let mut loaded = false;
+        // The table can grow between the sizing call and the read. Retry with
+        // the updated size instead of failing a refresh on that benign race.
+        for _ in 0..3 {
+            // A u32 allocation supplies the alignment required by the all-DWORD MIB rows.
+            let words = (bytes as usize).div_ceil(std::mem::size_of::<u32>());
+            buffer.resize(words, 0_u32);
+            // SAFETY: `buffer` is writable for at least `bytes` bytes and remains alive
+            // while the returned table is inspected.
+            let result = unsafe {
+                GetExtendedTcpTable(
+                    Some(buffer.as_mut_ptr().cast()),
+                    &mut bytes,
+                    false,
+                    AF_INET_FAMILY,
+                    TCP_TABLE_OWNER_PID_LISTENER,
+                    0,
+                )
+            };
+            if result == NO_ERROR {
+                loaded = true;
+                break;
+            }
+            if result != ERROR_INSUFFICIENT_BUFFER.0 {
+                return Err(ProviderError::Other(format!(
+                    "Failed to read the Windows TCP listener table (error {result})"
+                )));
+            }
+        }
+        if !loaded {
+            return Err(ProviderError::Other(
+                "Windows TCP listener table kept changing during the query".to_string(),
+            ));
+        }
+
+        let table = buffer.as_ptr().cast::<MIB_TCPTABLE_OWNER_PID>();
+        // SAFETY: Windows initialized the header on the successful call above.
+        let count = unsafe { (*table).dwNumEntries as usize };
+        let rows_offset = std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table);
+        let available = (bytes as usize).saturating_sub(rows_offset);
+        let max_rows = available / std::mem::size_of::<MIB_TCPROW_OWNER_PID>();
+        if count > max_rows {
+            return Err(ProviderError::Parse(
+                "Windows returned an invalid TCP listener table".to_string(),
+            ));
+        }
+        // SAFETY: `count` was bounded by the returned buffer size. Windows lays out
+        // the fixed-size owner-PID rows consecutively after the table header.
+        let rows = unsafe {
+            std::slice::from_raw_parts(
+                std::ptr::addr_of!((*table).table).cast::<MIB_TCPROW_OWNER_PID>(),
+                count,
+            )
+        };
+        let mut ports: Vec<u16> = rows
+            .iter()
+            .filter(|row| row.dwOwningPid == pid)
+            .filter_map(|row| u16::try_from(row.dwLocalPort).ok())
+            .map(u16::from_be)
+            .filter(|port| *port != 0)
             .collect();
         ports.sort_unstable();
         ports.dedup();
-        ports
+        Ok(ports)
     }
 
     /// Non-Windows platforms have no `Get-NetTCPConnection`; return an empty list by design so
     /// the caller falls back to the heuristic candidate ports.
     #[cfg(not(windows))]
-    fn listening_ports_for_pid(_pid: u32) -> Vec<u16> {
-        Vec::new()
+    fn listening_ports_for_pid(_pid: u32) -> Result<Vec<u16>, ProviderError> {
+        Ok(Vec::new())
     }
 
     /// Fetch user status from Antigravity API.
@@ -346,11 +444,21 @@ impl AntigravityProvider {
         usage
     }
 
-    async fn fetch_user_status(&self) -> Result<UsageSnapshot, ProviderError> {
-        let process_info = Self::detect_process_info()?;
+    async fn fetch_user_status(&self) -> Result<Option<UsageSnapshot>, ProviderError> {
+        let process_info = tokio::task::spawn_blocking(Self::detect_process_info)
+            .await
+            .map_err(|error| {
+                ProviderError::Other(format!(
+                    "Failed to join the Antigravity process detector: {error}"
+                ))
+            })??;
+        let Some(process_info) = process_info else {
+            return Ok(None);
+        };
         let api_port = Self::find_api_port(process_info.extension_port, process_info.pid).await?;
         self.fetch_user_status_at_port(&process_info, api_port)
             .await
+            .map(Some)
     }
 
     async fn fetch_user_status_at_port(
@@ -440,13 +548,43 @@ impl AntigravityProvider {
     }
 
     /// Start a short-lived, headless `agy` session when neither the Antigravity
-    /// desktop app nor a user-owned CLI session is running. The child is kept
-    /// alive only for this fetch and is always reaped by `ManagedAgyProcess`.
-    async fn fetch_with_managed_agy(&self) -> Result<UsageSnapshot, ProviderError> {
-        let _launch_guard = MANAGED_AGY_FETCH.lock().await;
+    /// desktop app nor a user-owned CLI session is running. The deadline includes
+    /// launch serialization, the after-lock recheck, startup, probing and cleanup.
+    #[cfg(windows)]
+    async fn fetch_with_managed_agy(&self) -> Result<ManagedAgyOutcome, ProviderError> {
+        let deadline = Instant::now() + AGY_ATTEMPT_TIMEOUT;
+        let lock_budget = deadline.saturating_duration_since(Instant::now());
+        let _launch_guard = tokio::time::timeout(lock_budget, MANAGED_AGY_FETCH.lock())
+            .await
+            .map_err(|_| {
+                ProviderError::Other(
+                    "Timed out waiting for another managed agy refresh to finish".to_string(),
+                )
+            })?;
 
-        let binary = Self::locate_agy_binary()
-            .ok_or_else(|| ProviderError::NotInstalled(AGY_NOT_FOUND_MESSAGE.to_string()))?;
+        // A desktop app or user-owned CLI may have appeared while this request
+        // waited for the launch lock. Reuse it and never include it in our job.
+        let recheck_budget = deadline.saturating_duration_since(Instant::now());
+        if recheck_budget.is_zero() {
+            return Err(Self::managed_agy_timeout());
+        }
+        match tokio::time::timeout(recheck_budget, self.fetch_user_status()).await {
+            Ok(Ok(Some(usage))) => return Ok(ManagedAgyOutcome::Reused(usage)),
+            Ok(Ok(None)) => {}
+            Ok(Err(error)) => return Err(error),
+            Err(_) => return Err(Self::managed_agy_timeout()),
+        }
+
+        let Some(binary) = Self::locate_agy_binary() else {
+            return Ok(ManagedAgyOutcome::Missing);
+        };
+        let probe_client = crate::core::credentialed_http_client_builder()
+            .no_proxy()
+            .timeout(AGY_PROBE_TIMEOUT)
+            .danger_accept_invalid_certs(true)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|error| ProviderError::Other(error.to_string()))?;
         let mut managed = ManagedAgyProcess::spawn(&binary)?;
         let pid = managed.id();
         let process_info = ProcessInfo {
@@ -456,68 +594,100 @@ impl AntigravityProvider {
             pid: Some(pid),
             source: ProcessSource::Cli,
         };
-        let deadline = Instant::now() + AGY_READY_TIMEOUT;
-        let probe_client = crate::core::credentialed_http_client_builder()
-            .no_proxy()
-            .timeout(Duration::from_secs(2))
-            .danger_accept_invalid_certs(true)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|error| ProviderError::Other(error.to_string()))?;
-        let mut last_error = None;
 
-        loop {
-            if let Some(status) = managed.try_wait()? {
-                return Err(ProviderError::NotInstalled(format!(
-                    "agy exited before its local quota service was ready ({status}). Open Antigravity or run agy and sign in, then retry."
-                )));
-            }
-
-            let ports = Self::listening_ports_for_pid(pid);
-            for port in ports {
-                if !Self::probe_api_port(&probe_client, port).await {
-                    continue;
+        let result = async {
+            let work_deadline = deadline.checked_sub(AGY_CLEANUP_RESERVE).unwrap_or(deadline);
+            let mut last_error = None;
+            loop {
+                if let Some(status) = managed.try_wait()? {
+                    return Err(ProviderError::NotInstalled(format!(
+                        "agy exited before its local quota service was ready ({status}). Open Antigravity or run agy and sign in, then retry."
+                    )));
                 }
 
-                let remaining = deadline.saturating_duration_since(Instant::now());
+                match Self::listening_ports_for_pid(pid) {
+                    Ok(ports) => {
+                        if let Some(port) = Self::first_ready_api_port(&probe_client, ports).await {
+                            let remaining = work_deadline
+                                .saturating_duration_since(Instant::now());
+                            if remaining.is_zero() {
+                                break;
+                            }
+                            match tokio::time::timeout(
+                                remaining,
+                                self.fetch_user_status_at_port(&process_info, port),
+                            )
+                            .await
+                            {
+                                Ok(Ok(usage)) => return Ok(ManagedAgyOutcome::Fetched(usage)),
+                                Ok(Err(ProviderError::AuthRequired)) => {
+                                    return Err(ProviderError::AuthRequired);
+                                }
+                                Ok(Err(error)) => last_error = Some(error),
+                                Err(_) => break,
+                            }
+                        }
+                    }
+                    Err(error) => last_error = Some(error),
+                }
+
+                let remaining = work_deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
                     break;
                 }
-                match tokio::time::timeout(
-                    remaining,
-                    self.fetch_user_status_at_port(&process_info, port),
-                )
-                .await
-                {
-                    Ok(Ok(usage)) => return Ok(usage),
-                    Ok(Err(ProviderError::AuthRequired)) => {
-                        return Err(ProviderError::AuthRequired);
-                    }
-                    Ok(Err(error)) => last_error = Some(error),
-                    Err(_) => break,
-                }
+                tokio::time::sleep(AGY_READY_POLL_INTERVAL.min(remaining)).await;
             }
 
-            if Instant::now() >= deadline {
-                break;
+            if let Some(error) = last_error {
+                tracing::debug!(%error, "managed agy quota service did not become ready");
             }
-            tokio::time::sleep(
-                AGY_READY_POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())),
-            )
-            .await;
+            Err(Self::managed_agy_timeout())
         }
+        .await;
 
-        if let Some(error) = last_error {
-            tracing::debug!(%error, "managed agy quota service did not become ready");
-        }
-        Err(ProviderError::Other(
-            "agy started but its quota service did not become ready. Open Antigravity or run agy and sign in, then retry."
-                .to_string(),
-        ))
+        managed.shutdown().await;
+        result
     }
 
-    fn is_not_running_error(error: &ProviderError) -> bool {
-        matches!(error, ProviderError::NotInstalled(message) if message == NOT_RUNNING_MESSAGE)
+    #[cfg(windows)]
+    async fn first_ready_api_port(client: &reqwest::Client, ports: Vec<u16>) -> Option<u16> {
+        let mut probes = stream::iter(
+            ports
+                .into_iter()
+                .map(|port| async move { (port, Self::probe_api_port(client, port).await) }),
+        )
+        .buffer_unordered(4);
+        while let Some((port, ready)) = probes.next().await {
+            if ready {
+                return Some(port);
+            }
+        }
+        None
+    }
+
+    #[cfg(windows)]
+    fn managed_agy_timeout() -> ProviderError {
+        ProviderError::Other(
+            "agy started but its quota service did not become ready before the managed refresh deadline. Open Antigravity or run agy and sign in, then retry."
+                .to_string(),
+        )
+    }
+
+    fn offline_usage_result() -> Option<ProviderFetchResult> {
+        let count = local_sessions::offline_conversation_count();
+        if count == 0 {
+            return None;
+        }
+        let noun = if count == 1 {
+            "conversation"
+        } else {
+            "conversations"
+        };
+        let usage = UsageSnapshot::new(RateWindow::informational(format!(
+            "Offline · {count} {noun}"
+        )))
+        .with_login_method("offline");
+        Some(ProviderFetchResult::new(usage, "offline"))
     }
 
     fn locate_agy_binary() -> Option<PathBuf> {
@@ -779,38 +949,36 @@ impl Provider for AntigravityProvider {
         tracing::debug!("Fetching Antigravity usage via local probe");
 
         match self.fetch_user_status().await {
-            Ok(usage) => Ok(ProviderFetchResult::new(
+            Ok(Some(usage)) => Ok(ProviderFetchResult::new(
                 Self::with_cadence_labels(usage),
                 "local",
             )),
-            Err(error) if Self::is_not_running_error(&error) => {
-                match self.fetch_with_managed_agy().await {
-                    Ok(usage) => {
-                        return Ok(ProviderFetchResult::new(
-                            Self::with_cadence_labels(usage),
-                            "cli",
-                        ));
-                    }
-                    Err(ProviderError::NotInstalled(message))
-                        if message == AGY_NOT_FOUND_MESSAGE => {}
-                    Err(error) => {
-                        tracing::warn!(%error, "managed Antigravity CLI probe failed");
-                        return Err(error);
+            Ok(None) => {
+                #[cfg(windows)]
+                {
+                    match self.fetch_with_managed_agy().await {
+                        Ok(ManagedAgyOutcome::Reused(usage)) => {
+                            return Ok(ProviderFetchResult::new(
+                                Self::with_cadence_labels(usage),
+                                "local",
+                            ));
+                        }
+                        Ok(ManagedAgyOutcome::Fetched(usage)) => {
+                            return Ok(ProviderFetchResult::new(
+                                Self::with_cadence_labels(usage),
+                                "cli",
+                            ));
+                        }
+                        Ok(ManagedAgyOutcome::Missing) => {}
+                        Err(error) => {
+                            tracing::warn!(%error, "managed Antigravity CLI probe failed");
+                            return Err(error);
+                        }
                     }
                 }
 
-                let count = local_sessions::offline_conversation_count();
-                if count > 0 {
-                    let noun = if count == 1 {
-                        "conversation"
-                    } else {
-                        "conversations"
-                    };
-                    let usage = UsageSnapshot::new(RateWindow::informational(format!(
-                        "Offline · {count} {noun}"
-                    )))
-                    .with_login_method("offline");
-                    return Ok(ProviderFetchResult::new(usage, "offline"));
+                if let Some(result) = Self::offline_usage_result() {
+                    return Ok(result);
                 }
                 Err(ProviderError::NotInstalled(
                     AGY_NOT_FOUND_MESSAGE.to_string(),
@@ -857,17 +1025,31 @@ struct ProcessInfo {
     source: ProcessSource,
 }
 
+#[cfg(windows)]
+enum ManagedAgyOutcome {
+    /// A user-owned desktop or CLI process appeared after the launch lock.
+    Reused(UsageSnapshot),
+    /// Usage came from the short-lived process owned by this fetch.
+    Fetched(UsageSnapshot),
+    /// No configured `agy` executable exists, so offline history may be used.
+    Missing,
+}
+
 /// RAII owner for the exact `agy` process started by this provider. Dropping it
 /// cannot affect Antigravity or CLI processes that were already running.
+#[cfg(windows)]
 struct ManagedAgyProcess {
-    child: Box<dyn portable_pty::Child + Send + Sync>,
+    child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
     pid: u32,
+    job: Option<OwnedHandle>,
     master: Option<Box<dyn portable_pty::MasterPty + Send>>,
     drain_thread: Option<std::thread::JoinHandle<()>>,
 }
 
+#[cfg(windows)]
 impl ManagedAgyProcess {
     fn spawn(binary: &std::path::Path) -> Result<Self, ProviderError> {
+        let job = create_managed_agy_job()?;
         let pty_system = portable_pty::native_pty_system();
         let pair = pty_system
             .openpty(portable_pty::PtySize {
@@ -904,25 +1086,44 @@ impl ManagedAgyProcess {
                 "Failed to determine the managed agy process id".to_string(),
             ));
         };
+        let Some(process_handle) = child.as_raw_handle() else {
+            drop(child.kill());
+            drop(child.wait());
+            return Err(ProviderError::Other(
+                "Failed to access the managed agy process handle".to_string(),
+            ));
+        };
+        if let Err(error) = assign_process_to_job(&job, process_handle) {
+            drop(child.kill());
+            drop(child.wait());
+            return Err(error);
+        }
         let drain_thread = std::thread::spawn(move || {
             // Drain without logging: terminal output can contain account data.
             // Windows ConPTY programs may request the cursor position and wait
             // for a terminal response before continuing initialization.
             let mut buffer = [0_u8; 4096];
             let mut tail = Vec::with_capacity(3);
+            let mut cursor_replies = 0_usize;
             while let Ok(read) = reader.read(&mut buffer) {
                 if read == 0 {
                     break;
                 }
-                if terminal_requested_cursor_position(&mut tail, &buffer[..read]) {
+                let requested = terminal_cursor_position_request_count(&mut tail, &buffer[..read]);
+                let allowed = terminal_cursor_reply_allowance(cursor_replies, requested);
+                for _ in 0..allowed {
                     drop(writer.write_all(b"\x1b[1;1R"));
+                }
+                if allowed > 0 {
                     drop(writer.flush());
+                    cursor_replies += allowed;
                 }
             }
         });
         Ok(Self {
-            child,
+            child: Some(child),
             pid,
+            job: Some(job),
             master: Some(pair.master),
             drain_thread: Some(drain_thread),
         })
@@ -933,23 +1134,134 @@ impl ManagedAgyProcess {
     }
 
     fn try_wait(&mut self) -> Result<Option<portable_pty::ExitStatus>, ProviderError> {
-        self.child.try_wait().map_err(|error| {
-            ProviderError::Other(format!("Failed to inspect the agy CLI: {error}"))
+        self.child
+            .as_mut()
+            .expect("managed agy child is present until cleanup")
+            .try_wait()
+            .map_err(|error| {
+                ProviderError::Other(format!("Failed to inspect the agy CLI: {error}"))
+            })
+    }
+
+    async fn shutdown(mut self) {
+        let Some(resources) = self.take_resources() else {
+            return;
+        };
+        let cleanup = tokio::task::spawn_blocking(move || resources.terminate_and_reap());
+        // A stuck platform wait must not hold the async provider worker. The
+        // blocking cleanup task remains detached and still owns every handle.
+        drop(tokio::time::timeout(AGY_CLEANUP_RESERVE, cleanup).await);
+    }
+
+    fn take_resources(&mut self) -> Option<ManagedAgyResources> {
+        Some(ManagedAgyResources {
+            child: self.child.take()?,
+            job: Some(
+                self.job
+                    .take()
+                    .expect("managed agy job is present until cleanup"),
+            ),
+            master: self.master.take(),
+            drain_thread: self.drain_thread.take(),
         })
     }
 }
 
+#[cfg(windows)]
 impl Drop for ManagedAgyProcess {
     fn drop(&mut self) {
-        if self.child.try_wait().ok().flatten().is_none() {
+        let Some(mut resources) = self.take_resources() else {
+            return;
+        };
+        resources.terminate();
+        // Drop can run when an outer timeout cancels the fetch. Reaping and
+        // joining the terminal drain must therefore never block that worker.
+        drop(
+            std::thread::Builder::new()
+                .name("codexbar-agy-cleanup".to_string())
+                .spawn(move || resources.reap()),
+        );
+    }
+}
+
+#[cfg(windows)]
+struct ManagedAgyResources {
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+    job: Option<OwnedHandle>,
+    master: Option<Box<dyn portable_pty::MasterPty + Send>>,
+    drain_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(windows)]
+impl ManagedAgyResources {
+    fn terminate(&mut self) {
+        // SAFETY: this job is private to the single process launched above;
+        // user-owned Antigravity and agy processes were never assigned to it.
+        let terminated = self
+            .job
+            .as_ref()
+            .is_some_and(|job| unsafe { TerminateJobObject(win_handle(job), 1) }.is_ok());
+        // KILL_ON_JOB_CLOSE is the second termination path if the explicit API
+        // fails. Close it before wait so a failure cannot strand the reaper.
+        drop(self.job.take());
+        if !terminated {
             drop(self.child.kill());
         }
+    }
+
+    fn reap(mut self) {
         drop(self.child.wait());
         drop(self.master.take());
         if let Some(thread) = self.drain_thread.take() {
             drop(thread.join());
         }
     }
+
+    fn terminate_and_reap(mut self) {
+        self.terminate();
+        self.reap();
+    }
+}
+
+#[cfg(windows)]
+fn create_managed_agy_job() -> Result<OwnedHandle, ProviderError> {
+    // SAFETY: a successful call transfers a unique job handle to this owner.
+    let raw = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
+        .map_err(|error| ProviderError::Other(format!("Failed to create agy job: {error}")))?;
+    // SAFETY: `raw` is a unique valid handle returned by CreateJobObjectW.
+    let job = unsafe { OwnedHandle::from_raw_handle(raw.0) };
+    let limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+        BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
+            LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let size = u32::try_from(std::mem::size_of_val(&limits))
+        .map_err(|error| ProviderError::Other(format!("Invalid agy job limit size: {error}")))?;
+    // SAFETY: `job` is valid and `limits` is initialized for the requested class.
+    unsafe {
+        SetInformationJobObject(
+            win_handle(&job),
+            JobObjectExtendedLimitInformation,
+            (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+            size,
+        )
+    }
+    .map_err(|error| ProviderError::Other(format!("Failed to configure agy job: {error}")))?;
+    Ok(job)
+}
+
+#[cfg(windows)]
+fn assign_process_to_job(job: &OwnedHandle, process: RawHandle) -> Result<(), ProviderError> {
+    // SAFETY: both handles are valid and remain owned by their respective wrappers.
+    unsafe { AssignProcessToJobObject(win_handle(job), HANDLE(process)) }
+        .map_err(|error| ProviderError::Other(format!("Failed to contain agy process: {error}")))
+}
+
+#[cfg(windows)]
+fn win_handle(value: &OwnedHandle) -> HANDLE {
+    HANDLE(value.as_raw_handle())
 }
 
 // API Response types
