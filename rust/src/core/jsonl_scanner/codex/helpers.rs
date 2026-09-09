@@ -68,6 +68,10 @@ pub(super) struct CodexFastTotals {
     pub(super) reasoning_output_tokens: Option<i64>,
 }
 
+#[allow(
+    clippy::large_enum_variant,
+    reason = "keeping the borrowed fast payload inline avoids heap allocation in the JSONL scan hot path"
+)]
 pub(super) enum CodexFastEvent<'a> {
     TurnContext {
         model: Option<&'a str>,
@@ -609,8 +613,7 @@ pub(super) fn fast_totals_from_payload(value: &CodexFastPayload<'_>) -> CodexTot
 
 fn token_i64(value: &Value, key: &str) -> i64 {
     // Token counts from usage records use i64, the canonical totals storage type.
-    let tokens = value.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
-    tokens
+    value.get(key).and_then(Value::as_i64).unwrap_or(0)
 }
 
 fn optional_token_i64(value: &Value, key: &str) -> Option<i64> {

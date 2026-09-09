@@ -506,7 +506,7 @@ fn codex_append_timestamp_state_is_output_equivalent_and_boundary_only() {
         JsonlScanner::parse_codex_file(file.path(), &range, 0, None, None).expect("parse prefix");
     assert_eq!(prefix.token_timestamps_monotonic, Some(true));
     assert_eq!(prefix.token_timestamp_comparisons, 1);
-    let prefix_input: i32 = prefix.records.iter().map(|record| record.input).sum();
+    let prefix_input: i64 = prefix.records.iter().map(|record| record.input).sum();
 
     writeln!(
         file,
@@ -533,8 +533,8 @@ fn codex_append_timestamp_state_is_output_equivalent_and_boundary_only() {
 
     let full = JsonlScanner::parse_codex_file(file.path(), &range, 0, None, None)
         .expect("parse complete file");
-    let full_input: i32 = full.records.iter().map(|record| record.input).sum();
-    let appended_input: i32 = appended.records.iter().map(|record| record.input).sum();
+    let full_input: i64 = full.records.iter().map(|record| record.input).sum();
+    let appended_input: i64 = appended.records.iter().map(|record| record.input).sum();
     assert_eq!(prefix_input + appended_input, full_input);
     assert_eq!(full_input, 30);
 }
@@ -891,8 +891,8 @@ fn interleaved_lineage_totals_never_exceed_high_watermark_growth() {
         &range,
     );
 
-    let total_input: i32 = parser.records.iter().map(|r| r.input).sum();
-    let total_output: i32 = parser.records.iter().map(|r| r.output).sum();
+    let total_input: i64 = parser.records.iter().map(|r| r.input).sum();
+    let total_output: i64 = parser.records.iter().map(|r| r.output).sum();
     assert!(
         total_input <= 101,
         "input inflated to {total_input}, expected <= 101"
@@ -921,8 +921,8 @@ fn interleaved_lineage_mid_range_climb_below_watermark_does_not_readd() {
         );
     }
 
-    let total_input: i32 = parser.records.iter().map(|r| r.input).sum();
-    let total_output: i32 = parser.records.iter().map(|r| r.output).sum();
+    let total_input: i64 = parser.records.iter().map(|r| r.input).sum();
+    let total_output: i64 = parser.records.iter().map(|r| r.output).sum();
     assert!(
         total_input <= 101,
         "mid-range climb re-added input to {total_input}, expected <= 101"

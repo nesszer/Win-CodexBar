@@ -800,7 +800,7 @@ fn write_codex_fork_session_fixture(
     path
 }
 
-fn cached_input_total(usage: &CostUsageFileUsage) -> i32 {
+fn cached_input_total(usage: &CostUsageFileUsage) -> i64 {
     usage
         .days
         .values()
