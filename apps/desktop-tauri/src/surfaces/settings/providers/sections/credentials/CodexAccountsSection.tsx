@@ -10,6 +10,7 @@ import type { LocaleKey } from "../../../../../i18n/keys";
 import {
   codexAccountAdd,
   codexAccountFetch,
+  codexAccountReauthenticate,
   codexAccountRemove,
   codexAccountRestartDesktop,
   codexAccountSwitch,
@@ -28,9 +29,9 @@ interface Props {
  * Multi-account Codex support (ADR 0003). Reads the shared account +
  * snapshot store via `get_codex_accounts_state` and drives the
  * `codex_account_*` IPC surface: add (login into a managed home), switch the
- * active ambient identity, refresh per-account usage, and remove managed
- * homes. For MSIX Codex Desktop installs a restart action is offered when a
- * session snapshot is available to restore.
+ * active ambient identity, refresh per-account usage, reauthenticate the
+ * ambient identity, and remove managed homes. For MSIX Codex Desktop installs
+ * a restart action is offered when a session snapshot is available to restore.
  */
 export function CodexAccountsSection({ t }: Props) {
   const [accounts, setAccounts] = useState<CodexAccount[]>([]);
@@ -113,6 +114,20 @@ export function CodexAccountsSection({ t }: Props) {
     try {
       const snapshot = await codexAccountFetch(id);
       setSnapshots((prev) => ({ ...prev, [id]: snapshot }));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReauthenticate = async () => {
+    setBusy(true);
+    setError(null);
+    setSwitchResult(null);
+    try {
+      await codexAccountReauthenticate();
+      await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -233,6 +248,16 @@ export function CodexAccountsSection({ t }: Props) {
                       </span>
                     </div>
                     <div className="credential-card__actions">
+                      {account.source === "ambient" && (
+                        <button
+                          type="button"
+                          className="credential-btn credential-btn--secondary"
+                          disabled={busy}
+                          onClick={() => void handleReauthenticate()}
+                        >
+                          {t("CodexAccountsReauthenticateButton")}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="credential-btn credential-btn--secondary"

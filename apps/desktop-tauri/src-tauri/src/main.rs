@@ -184,6 +184,7 @@ fn main() {
             commands::claude_account_remove,
             commands::claude_account_switch,
             commands::codex_account_add,
+            commands::codex_account_reauthenticate,
             commands::codex_account_remove,
             commands::codex_account_switch,
             commands::codex_account_fetch,

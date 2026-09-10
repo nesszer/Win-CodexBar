@@ -560,6 +560,7 @@ locale_keys! {
     ClaudeAccountsAdded,
     CodexAccountsHint,
     CodexAccountsAddButton,
+    CodexAccountsReauthenticateButton,
     CodexAccountsSwitchButton,
     CodexAccountsFetchButton,
     CodexAccountsRemoveButton,

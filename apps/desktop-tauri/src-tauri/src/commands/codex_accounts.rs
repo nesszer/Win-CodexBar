@@ -222,6 +222,43 @@ pub async fn codex_account_add(app: tauri::AppHandle) -> Result<CodexAccount, St
     Ok(account)
 }
 
+/// Re-run the official Codex login flow for the ambient account without
+/// changing account ownership or copying credentials into a managed home.
+#[tauri::command]
+pub async fn codex_account_reauthenticate(
+    app: tauri::AppHandle,
+) -> Result<CodexAccount, String> {
+    let runtime = CodexAccountRuntime::new();
+    let _mutation = runtime.try_begin_mutation().map_err(into_user_message)?;
+    let target = ambient_account(&load_codex_accounts()?)?;
+    let manager = CodexAccountManager::new();
+    let account = tauri::async_runtime::spawn_blocking(move || {
+        manager.reauthenticate(&target, None)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(into_user_message)?;
+
+    // The login flow replaced the ambient auth file. Reconcile the identity
+    // before refreshing usage so every surface observes the new session.
+    if let Err(e) = refresh_persisted_accounts(app.clone()) {
+        tracing::warn!("Codex login succeeded but account metadata could not be saved: {e}");
+    }
+    let pending = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().map_err(|e| e.to_string())?;
+        invalidate_account_usage(&mut state, ProviderId::Codex)
+    };
+    events::emit_provider_updated(&app, &pending);
+
+    let refresh_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = do_refresh_providers(&refresh_app).await;
+    });
+
+    Ok(account)
+}
+
 #[tauri::command]
 pub fn codex_account_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
     let runtime = CodexAccountRuntime::new();
@@ -407,6 +444,14 @@ fn refresh_persisted_accounts(app: tauri::AppHandle) -> Result<(), String> {
     events::emit_settings_changed(&app);
     accounts_changed(&app);
     Ok(())
+}
+
+fn ambient_account(accounts: &[CodexAccount]) -> Result<CodexAccount, String> {
+    accounts
+        .iter()
+        .find(|account| account.source == codexbar::codex_accounts::CodexAccountSource::Ambient)
+        .cloned()
+        .ok_or_else(|| "No ambient Codex account found.".to_string())
 }
 
 fn accounts_changed(app: &tauri::AppHandle) {
@@ -652,6 +697,26 @@ mod tests {
                 "The `codex` command could not be found.".to_string()
             )),
             "The `codex` command could not be found."
+        );
+    }
+
+    #[test]
+    fn ambient_account_selects_only_the_ambient_identity() {
+        let managed = sample_account();
+        let mut ambient = managed.clone();
+        ambient.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+
+        let selected = ambient_account(&[managed, ambient.clone()]).unwrap();
+
+        assert_eq!(selected.id, ambient.id);
+        assert_eq!(selected.source, codexbar::codex_accounts::CodexAccountSource::Ambient);
+    }
+
+    #[test]
+    fn ambient_account_reports_when_no_ambient_identity_exists() {
+        assert_eq!(
+            ambient_account(&[sample_account()]).unwrap_err(),
+            "No ambient Codex account found."
         );
     }
 

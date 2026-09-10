@@ -12,6 +12,7 @@ const tauriMocks = vi.hoisted(() => ({
   getCodexAccountsState: vi.fn(),
   codexAccountAdd: vi.fn(),
   codexAccountFetch: vi.fn(),
+  codexAccountReauthenticate: vi.fn(),
   codexAccountRemove: vi.fn(),
   codexAccountSwitch: vi.fn(),
   codexAccountRestartDesktop: vi.fn(),
@@ -76,6 +77,7 @@ describe("CodexAccountsSection", () => {
     expect(screen.getByText("user-2@example.com")).toBeDefined();
     expect(screen.getByText("CodexAccountsSourceManaged")).toBeDefined();
     expect(screen.getByText("CodexAccountsSourceAmbient")).toBeDefined();
+    expect(screen.getAllByText("CodexAccountsReauthenticateButton")).toHaveLength(1);
   });
 
   it("shows the usage pill and blocked state from a snapshot", async () => {
@@ -90,6 +92,26 @@ describe("CodexAccountsSection", () => {
     render(<CodexAccountsSection t={t} />);
     await waitFor(() => {
       expect(screen.getByText("free · 38%")).toBeDefined();
+    });
+  });
+
+  it("offers ambient reauthentication and reloads the account state", async () => {
+    const ambient = account("ambient", { source: "ambient" });
+    tauriMocks.getCodexAccountsState
+      .mockResolvedValueOnce({ accounts: [ambient], snapshots: {} } as CodexAccountsStateBridge)
+      .mockResolvedValueOnce({ accounts: [ambient], snapshots: { ambient: snapshot(12) } } as CodexAccountsStateBridge);
+    tauriMocks.codexAccountReauthenticate.mockResolvedValue(ambient);
+
+    render(<CodexAccountsSection t={t} />);
+    await screen.findByText("CodexAccountsReauthenticateButton");
+
+    await act(async () => {
+      screen.getByText("CodexAccountsReauthenticateButton").click();
+    });
+
+    expect(tauriMocks.codexAccountReauthenticate).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(screen.getByText("free · 12%")).toBeDefined();
     });
   });
 
