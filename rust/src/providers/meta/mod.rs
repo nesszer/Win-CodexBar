@@ -1,4 +1,4 @@
-//! Meta Muse Spark provider implementation.
+//! Meta provider implementation.
 //!
 //! Meta's Model API (`https://api.meta.ai/v1`) is OpenAI-compatible and
 //! exposes no public billing or usage REST endpoint — usage lives in the web
@@ -15,9 +15,11 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
-const METASPARK_API_BASE: &str = "https://api.meta.ai/v1";
-const METASPARK_CREDENTIAL_TARGET: &str = "codexbar-metaspark";
-const METASPARK_ENV_KEYS: &[&str] = &["MODEL_API_KEY", "META_API_KEY"];
+const META_API_BASE: &str = "https://api.meta.ai/v1";
+const META_CREDENTIAL_TARGET: &str = "codexbar-meta";
+/// Previous credential target, kept as a read fallback for existing installs.
+const LEGACY_METASPARK_CREDENTIAL_TARGET: &str = "codexbar-metaspark";
+const META_ENV_KEYS: &[&str] = &["MODEL_API_KEY", "META_API_KEY"];
 
 #[derive(Debug, Deserialize)]
 struct ModelsResponse {
@@ -31,17 +33,17 @@ struct ModelEntry {
     id: Option<String>,
 }
 
-pub struct MetaSparkProvider {
+pub struct MetaProvider {
     metadata: ProviderMetadata,
     client: Client,
 }
 
-impl MetaSparkProvider {
+impl MetaProvider {
     pub fn new() -> Self {
         Self {
             metadata: ProviderMetadata {
-                id: ProviderId::MetaSpark,
-                display_name: "Meta Muse Spark",
+                id: ProviderId::Meta,
+                display_name: "Meta",
                 session_label: "Status",
                 weekly_label: "Models",
                 supports_opus: false,
@@ -61,7 +63,7 @@ impl MetaSparkProvider {
     async fn probe_models(&self, api_key: &str) -> Result<UsageSnapshot, ProviderError> {
         let url = api_base_url()
             .join("models")
-            .map_err(|e| ProviderError::Other(format!("Invalid Meta Muse Spark URL: {e}")))?;
+            .map_err(|e| ProviderError::Other(format!("Invalid Meta API URL: {e}")))?;
         let response = self
             .client
             .get(url)
@@ -77,28 +79,29 @@ impl MetaSparkProvider {
         }
         if !response.status().is_success() {
             return Err(ProviderError::Other(format!(
-                "Meta Muse Spark API returned status {}",
+                "Meta API returned status {}",
                 response.status()
             )));
         }
 
-        let body = response.text().await.map_err(|e| {
-            ProviderError::Parse(format!("Could not read Meta Muse Spark models: {e}"))
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| ProviderError::Parse(format!("Could not read Meta models: {e}")))?;
         Ok(snapshot_from_models(&parse_muse_spark_models(&body)?))
     }
 }
 
-impl Default for MetaSparkProvider {
+impl Default for MetaProvider {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Provider for MetaSparkProvider {
+impl Provider for MetaProvider {
     fn id(&self) -> ProviderId {
-        ProviderId::MetaSpark
+        ProviderId::Meta
     }
 
     fn metadata(&self) -> &ProviderMetadata {
@@ -108,11 +111,7 @@ impl Provider for MetaSparkProvider {
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::OAuth => {
-                let api_key = crate::providers::resolve_api_key(
-                    ctx.api_key.as_deref(),
-                    METASPARK_CREDENTIAL_TARGET,
-                    METASPARK_ENV_KEYS,
-                )?;
+                let api_key = resolve_meta_api_key(ctx.api_key.as_deref())?;
                 Ok(ProviderFetchResult::new(
                     self.probe_models(&api_key).await?,
                     "api",
@@ -129,11 +128,31 @@ impl Provider for MetaSparkProvider {
     }
 }
 
+/// Resolve the Meta API key, falling back to the legacy `codexbar-metaspark`
+/// credential target for existing installs.
+fn resolve_meta_api_key(explicit: Option<&str>) -> Result<String, ProviderError> {
+    match crate::providers::resolve_api_key(explicit, META_CREDENTIAL_TARGET, META_ENV_KEYS) {
+        Ok(key) => Ok(key),
+        Err(first_err) => {
+            if explicit.is_some_and(|key| !key.trim().is_empty()) {
+                return Err(first_err);
+            }
+            crate::providers::resolve_api_key(
+                None,
+                LEGACY_METASPARK_CREDENTIAL_TARGET,
+                META_ENV_KEYS,
+            )
+            .or(Err(first_err))
+        }
+    }
+}
+
 fn api_base_url() -> Url {
-    std::env::var("METASPARK_API_URL")
+    std::env::var("META_API_URL")
+        .or_else(|_| std::env::var("METASPARK_API_URL"))
         .ok()
-        .and_then(|raw| crate::providers::validated_https_url(&raw, "Meta Muse Spark API").ok())
-        .unwrap_or_else(|| Url::parse(METASPARK_API_BASE).expect("static Meta URL is valid"))
+        .and_then(|raw| crate::providers::validated_https_url(&raw, "Meta API").ok())
+        .unwrap_or_else(|| Url::parse(META_API_BASE).expect("static Meta URL is valid"))
 }
 
 /// Parse the `muse-spark-*` model ids from a `GET /v1/models` payload.
@@ -141,9 +160,8 @@ fn api_base_url() -> Url {
 /// The upstream shape is OpenAI-style (`{"data": [{"id": ...}]}`); entries
 /// without an id and non-`muse-spark-*` models are ignored.
 fn parse_muse_spark_models(body: &str) -> Result<Vec<String>, ProviderError> {
-    let response: ModelsResponse = serde_json::from_str(body).map_err(|e| {
-        ProviderError::Parse(format!("Could not parse Meta Muse Spark models: {e}"))
-    })?;
+    let response: ModelsResponse = serde_json::from_str(body)
+        .map_err(|e| ProviderError::Parse(format!("Could not parse Meta models: {e}")))?;
     let mut models: Vec<String> = response
         .data
         .into_iter()
@@ -233,9 +251,9 @@ mod tests {
 
     #[test]
     fn metadata_matches_descriptor() {
-        let provider = MetaSparkProvider::new();
-        assert_eq!(provider.id(), ProviderId::MetaSpark);
-        assert_eq!(provider.metadata().display_name, "Meta Muse Spark");
+        let provider = MetaProvider::new();
+        assert_eq!(provider.id(), ProviderId::Meta);
+        assert_eq!(provider.metadata().display_name, "Meta");
         assert_eq!(
             provider.metadata().dashboard_url,
             Some("https://dev.meta.ai/docs")

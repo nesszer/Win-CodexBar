@@ -82,7 +82,8 @@ pub enum ProviderId {
     Notion,
     Xai,
     Fireworks,
-    MetaSpark,
+    #[serde(alias = "metaspark")]
+    Meta,
 }
 
 impl ProviderId {
@@ -159,7 +160,7 @@ impl ProviderId {
             ProviderId::Notion,
             ProviderId::Xai,
             ProviderId::Fireworks,
-            ProviderId::MetaSpark,
+            ProviderId::Meta,
         ]
     }
 
@@ -202,7 +203,7 @@ impl ProviderId {
             ProviderId::DeepSeek => "deepseek",
             ProviderId::DeepInfra => "deepinfra",
             ProviderId::Fireworks => "fireworks",
-            ProviderId::MetaSpark => "metaspark",
+            ProviderId::Meta => "meta",
             ProviderId::AiAnd => "aiand",
             ProviderId::Windsurf => "windsurf",
             ProviderId::Manus => "manus",
@@ -280,7 +281,7 @@ impl ProviderId {
             ProviderId::DeepSeek => "DeepSeek",
             ProviderId::DeepInfra => "DeepInfra",
             ProviderId::Fireworks => "Fireworks",
-            ProviderId::MetaSpark => "Meta Muse Spark",
+            ProviderId::Meta => "Meta",
             ProviderId::AiAnd => "ai&",
             ProviderId::Windsurf => "Windsurf",
             ProviderId::Manus => "Manus",
@@ -371,7 +372,7 @@ impl ProviderId {
             ProviderId::DeepSeek => None,
             ProviderId::DeepInfra => None,
             ProviderId::Fireworks => None,
-            ProviderId::MetaSpark => None,
+            ProviderId::Meta => None,
             ProviderId::AiAnd => None,
             ProviderId::Windsurf => None,
             ProviderId::Doubao => None,
@@ -445,8 +446,8 @@ impl ProviderId {
             "deepseek" | "deep-seek" | "ds" => Some(ProviderId::DeepSeek),
             "deepinfra" | "deep-infra" | "di" => Some(ProviderId::DeepInfra),
             "fireworks" | "fireworks-ai" | "fw" => Some(ProviderId::Fireworks),
-            "metaspark" | "meta-spark" | "meta" | "muse-spark" | "musespark"
-            | "meta muse spark" => Some(ProviderId::MetaSpark),
+            "meta" | "metaspark" | "meta-spark" | "muse-spark" | "musespark" | "muse spark"
+            | "meta muse spark" => Some(ProviderId::Meta),
             "aiand" | "ai&" | "ai-and" | "ai and" => Some(ProviderId::AiAnd),
             "windsurf" | "codeium" => Some(ProviderId::Windsurf),
             "manus" => Some(ProviderId::Manus),
@@ -744,11 +745,12 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("di", ProviderId::DeepInfra);
     map.insert("fireworks-ai", ProviderId::Fireworks);
     map.insert("fw", ProviderId::Fireworks);
-    map.insert("meta-spark", ProviderId::MetaSpark);
-    map.insert("meta", ProviderId::MetaSpark);
-    map.insert("muse-spark", ProviderId::MetaSpark);
-    map.insert("musespark", ProviderId::MetaSpark);
-    map.insert("meta muse spark", ProviderId::MetaSpark);
+    map.insert("metaspark", ProviderId::Meta);
+    map.insert("meta-spark", ProviderId::Meta);
+    map.insert("muse-spark", ProviderId::Meta);
+    map.insert("musespark", ProviderId::Meta);
+    map.insert("muse spark", ProviderId::Meta);
+    map.insert("meta muse spark", ProviderId::Meta);
     map.insert("ai&", ProviderId::AiAnd);
     map.insert("ai-and", ProviderId::AiAnd);
     map.insert("codeium", ProviderId::Windsurf);
@@ -876,7 +878,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::Notion => "#337EA9",
         ProviderId::Xai => "#8E8E93",
         ProviderId::Fireworks => "#F25B1C",
-        ProviderId::MetaSpark => "#0467DF",
+        ProviderId::Meta => "#0467DF",
     }
 }
 
@@ -938,7 +940,7 @@ mod tests {
         assert!(all.contains(&ProviderId::QwenCloud));
         assert!(all.contains(&ProviderId::Notion));
         assert!(all.contains(&ProviderId::Xai));
-        assert!(all.contains(&ProviderId::MetaSpark));
+        assert!(all.contains(&ProviderId::Meta));
     }
 
     #[test]
@@ -1157,36 +1159,36 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_id_metaspark() {
-        assert_eq!(ProviderId::MetaSpark.cli_name(), "metaspark");
-        assert_eq!(ProviderId::MetaSpark.display_name(), "Meta Muse Spark");
-        assert_eq!(ProviderId::MetaSpark.cookie_domain(), None);
+    fn test_provider_id_meta() {
+        assert_eq!(ProviderId::Meta.cli_name(), "meta");
+        assert_eq!(ProviderId::Meta.display_name(), "Meta");
+        assert_eq!(ProviderId::Meta.cookie_domain(), None);
+        assert_eq!(ProviderId::from_cli_name("meta"), Some(ProviderId::Meta));
         assert_eq!(
             ProviderId::from_cli_name("metaspark"),
-            Some(ProviderId::MetaSpark)
+            Some(ProviderId::Meta)
         );
         assert_eq!(
             ProviderId::from_cli_name("meta-spark"),
-            Some(ProviderId::MetaSpark)
+            Some(ProviderId::Meta)
         );
-        assert_eq!(
-            ProviderId::from_cli_name("meta"),
-            Some(ProviderId::MetaSpark)
-        );
+        assert_eq!(ProviderId::from_cli_name("meta"), Some(ProviderId::Meta));
         assert_eq!(
             ProviderId::from_cli_name("muse-spark"),
-            Some(ProviderId::MetaSpark)
+            Some(ProviderId::Meta)
         );
         assert_eq!(
             ProviderId::from_cli_name("musespark"),
-            Some(ProviderId::MetaSpark)
+            Some(ProviderId::Meta)
         );
         // Display name round-trips (also covered by the generic alias test).
+        assert_eq!(ProviderId::from_cli_name("Meta"), Some(ProviderId::Meta));
+        // Backwards-compat aliases still resolve.
         assert_eq!(
             ProviderId::from_cli_name("Meta Muse Spark"),
-            Some(ProviderId::MetaSpark)
+            Some(ProviderId::Meta)
         );
-        assert_eq!(brand_color(ProviderId::MetaSpark), "#0467DF");
+        assert_eq!(brand_color(ProviderId::Meta), "#0467DF");
     }
 
     #[test]

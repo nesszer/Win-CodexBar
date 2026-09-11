@@ -569,8 +569,8 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://app.factory.ai/settings/api-keys"),
         },
         ProviderConfigInfo {
-            id: ProviderId::MetaSpark,
-            name: "Meta Muse Spark",
+            id: ProviderId::Meta,
+            name: "Meta",
             requires_api_key: true,
             api_key_env_var: Some("MODEL_API_KEY / META_API_KEY"),
             api_key_help: Some("Create key in Meta Model API dashboard"),

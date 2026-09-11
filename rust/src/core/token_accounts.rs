@@ -352,7 +352,7 @@ impl TokenAccountSupport {
             | ProviderId::Wayfinder
             | ProviderId::QwenCloud
             | ProviderId::Fireworks
-            | ProviderId::MetaSpark => None,
+            | ProviderId::Meta => None,
         }
     }
 
