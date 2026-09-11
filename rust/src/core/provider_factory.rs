@@ -14,13 +14,13 @@ use crate::providers::{
     DeepInfraProvider, DeepSeekProvider, DeepgramProvider, DevinProvider, DoubaoProvider,
     ElevenLabsProvider, FactoryProvider, FireworksProvider, GeminiProvider, GrokProvider,
     GroqProvider, InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider, KimiProvider,
-    KiroProvider, LLMProxyProvider, LiteLLMProvider, LongCatProvider, ManusProvider, MiMoProvider,
-    MiniMaxProvider, MistralProvider, NanoGPTProvider, NeuralwattProvider, NotionProvider,
-    OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider, OpenCodeProvider, OpenRouterProvider,
-    PerplexityProvider, PoeProvider, QoderProvider, QwenCloudProvider, SakanaProvider,
-    StepFunProvider, Sub2ApiProvider, T3ChatProvider, VeniceProvider, VertexAIProvider,
-    WarpProvider, WayfinderProvider, WindsurfProvider, XaiProvider, ZaiProvider, ZedProvider,
-    ZenMuxProvider, ZoomMateProvider,
+    KiroProvider, LLMProxyProvider, LiteLLMProvider, LongCatProvider, ManusProvider,
+    MetaSparkProvider, MiMoProvider, MiniMaxProvider, MistralProvider, NanoGPTProvider,
+    NeuralwattProvider, NotionProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider,
+    OpenCodeProvider, OpenRouterProvider, PerplexityProvider, PoeProvider, QoderProvider,
+    QwenCloudProvider, SakanaProvider, StepFunProvider, Sub2ApiProvider, T3ChatProvider,
+    VeniceProvider, VertexAIProvider, WarpProvider, WayfinderProvider, WindsurfProvider,
+    XaiProvider, ZaiProvider, ZedProvider, ZenMuxProvider, ZoomMateProvider,
 };
 
 /// Instantiate the concrete [`Provider`] implementation for a given [`ProviderId`].
@@ -99,6 +99,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Notion => Box::new(NotionProvider::new()),
         ProviderId::Xai => Box::new(XaiProvider::new()),
         ProviderId::Fireworks => Box::new(FireworksProvider::new()),
+        ProviderId::MetaSpark => Box::new(MetaSparkProvider::new()),
     }
 }
 

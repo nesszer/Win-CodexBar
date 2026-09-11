@@ -219,6 +219,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   qwencloud:   { id: "qwencloud",   brandColor: "#615CED", fallbackLetter: "Q" },
   notion:      { id: "notion",      brandColor: "#337EA9", fallbackLetter: "N", svgPath: RAW.notion },
   xai:         { id: "xai",         brandColor: "#8e8e93", fallbackLetter: "X", svgPath: RAW.xai },
+  metaspark:   { id: "metaspark",   brandColor: "#0467DF", fallbackLetter: "M" },
 };
 
 const ALIASES: Record<string, string> = {
@@ -303,6 +304,12 @@ const ALIASES: Record<string, string> = {
   "lite-llm": "litellm",
   "zed ai": "zed",
   "zed-ai": "zed",
+  meta: "metaspark",
+  "meta-spark": "metaspark",
+  musespark: "metaspark",
+  "muse-spark": "metaspark",
+  "muse spark": "metaspark",
+  "meta muse spark": "metaspark",
 };
 
 function normalize(id: string): string {
