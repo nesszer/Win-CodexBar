@@ -1239,6 +1239,51 @@ fn codex_cache_round_trip_preserves_64_bit_counts_and_rebuilds_legacy_schema() {
 }
 
 #[test]
+fn codex_cache_schema_policy_helpers_rebuild_mismatched_load() {
+    let stamp = CacheStamp::from_bytes(b"baseline");
+
+    let legacy = CostUsageCache {
+        codex_cache_schema_version: 0,
+        days: HashMap::from([(
+            "2026-09-09".to_string(),
+            HashMap::from([("gpt-5.6-luna".to_string(), vec![1, 2, 3])]),
+        )]),
+        ..CostUsageCache::default()
+    };
+    let rebuilt = codex_cache_apply_load_policy(legacy, stamp.clone());
+    assert_eq!(
+        rebuilt.codex_cache_schema_version,
+        CODEX_CACHE_SCHEMA_VERSION
+    );
+    assert!(rebuilt.days.is_empty());
+    assert!(rebuilt.files.is_empty());
+    assert!(rebuilt.loaded_stamp.is_some());
+
+    let current = CostUsageCache {
+        codex_cache_schema_version: CODEX_CACHE_SCHEMA_VERSION,
+        days: HashMap::from([(
+            "2026-09-09".to_string(),
+            HashMap::from([("gpt-5.6-luna".to_string(), vec![1, 2, 3])]),
+        )]),
+        ..CostUsageCache::default()
+    };
+    let kept = codex_cache_apply_load_policy(current, stamp);
+    assert_eq!(kept.codex_cache_schema_version, CODEX_CACHE_SCHEMA_VERSION);
+    assert_eq!(kept.days["2026-09-09"]["gpt-5.6-luna"], vec![1, 2, 3]);
+    assert!(kept.loaded_stamp.is_some());
+
+    assert!(codex_cache_schema_is_current(CODEX_CACHE_SCHEMA_VERSION));
+    assert!(!codex_cache_schema_is_current(0));
+
+    let mut stamped = CostUsageCache::default();
+    codex_cache_stamp_schema_version(&mut stamped);
+    assert_eq!(
+        stamped.codex_cache_schema_version,
+        CODEX_CACHE_SCHEMA_VERSION
+    );
+}
+
+#[test]
 fn save_cache_persists_small_codex_artifact() {
     // F19 integration: a normal-sized Codex cache is persisted and
     // reloadable â€” the MAX_LOAD_BYTES refusal does not false-positive.

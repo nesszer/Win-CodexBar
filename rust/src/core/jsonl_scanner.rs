@@ -22,8 +22,6 @@ use std::io::{BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const CODEX_CACHE_SCHEMA_VERSION: u32 = 1;
-
 #[derive(Debug, Clone, Default)]
 pub struct CachedCostReadStatus {
     pub has_days: bool,
@@ -448,14 +446,8 @@ impl JsonlScanner {
             && let Ok(mut cache) = serde_json::from_str::<CostUsageCache>(&contents)
         {
             let stamp = CacheStamp::from_bytes(contents.as_bytes());
-            if provider == ProviderId::Codex
-                && cache.codex_cache_schema_version != CODEX_CACHE_SCHEMA_VERSION
-            {
-                return CostUsageCache {
-                    codex_cache_schema_version: CODEX_CACHE_SCHEMA_VERSION,
-                    loaded_stamp: Some(Some(stamp)),
-                    ..CostUsageCache::default()
-                };
+            if provider == ProviderId::Codex {
+                return codex::codex_cache_apply_load_policy(cache, stamp);
             }
             cache.loaded_stamp = Some(Some(stamp));
             return cache;
@@ -498,7 +490,7 @@ impl JsonlScanner {
             return CachedCostReadStatus::default();
         };
         if provider == ProviderId::Codex
-            && projection.codex_cache_schema_version != CODEX_CACHE_SCHEMA_VERSION
+            && !codex::codex_cache_schema_is_current(projection.codex_cache_schema_version)
         {
             return CachedCostReadStatus::default();
         }
@@ -650,7 +642,7 @@ impl JsonlScanner {
             return;
         }
         if provider == ProviderId::Codex {
-            cache.codex_cache_schema_version = CODEX_CACHE_SCHEMA_VERSION;
+            codex::codex_cache_stamp_schema_version(cache);
         }
 
         let Some(parent) = cache_path.parent() else {

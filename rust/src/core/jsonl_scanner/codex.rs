@@ -9,6 +9,43 @@ use helpers::{
 };
 use parser::CodexParserState;
 
+/// Persisted Codex cache schema version. Version 0 is any pre-64-bit cache
+/// and must be rebuilt from source logs.
+pub(crate) const CODEX_CACHE_SCHEMA_VERSION: u32 = 1;
+
+/// Whether a persisted Codex cache artifact matches the current schema.
+/// A mismatched artifact (e.g. a pre-64-bit cache from an older release) is
+/// invalid and must be rebuilt rather than deserialized into wider fields.
+pub(crate) fn codex_cache_schema_is_current(schema_version: u32) -> bool {
+    schema_version == CODEX_CACHE_SCHEMA_VERSION
+}
+
+/// Apply the Codex cache schema version policy to a freshly decoded artifact.
+///
+/// A mismatched artifact is invalidated: a fresh, current-version cache is
+/// returned with the decoded baseline stamp retained so the caller stays
+/// authoritative over the artifact it just read. A matching artifact keeps its
+/// contents and receives the same stamp.
+pub(crate) fn codex_cache_apply_load_policy(
+    mut cache: CostUsageCache,
+    stamp: CacheStamp,
+) -> CostUsageCache {
+    if !codex_cache_schema_is_current(cache.codex_cache_schema_version) {
+        return CostUsageCache {
+            codex_cache_schema_version: CODEX_CACHE_SCHEMA_VERSION,
+            loaded_stamp: Some(Some(stamp)),
+            ..CostUsageCache::default()
+        };
+    }
+    cache.loaded_stamp = Some(Some(stamp));
+    cache
+}
+
+/// Stamp the current schema version before a Codex cache is persisted.
+pub(crate) fn codex_cache_stamp_schema_version(cache: &mut CostUsageCache) {
+    cache.codex_cache_schema_version = CODEX_CACHE_SCHEMA_VERSION;
+}
+
 #[cfg(test)]
 use helpers::{
     CodexFastPayload, CodexFastTotals, bare_usage_totals, codex_timestamp_day_key,
