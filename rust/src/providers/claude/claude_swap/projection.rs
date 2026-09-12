@@ -182,9 +182,7 @@ pub fn project_accounts(
                 } else {
                     Some(row.email.clone())
                 },
-                organization: if hide_personal_info {
-                    None
-                } else if row.organization_name.is_empty() {
+                organization: if hide_personal_info || row.organization_name.is_empty() {
                     None
                 } else {
                     Some(row.organization_name.clone())
