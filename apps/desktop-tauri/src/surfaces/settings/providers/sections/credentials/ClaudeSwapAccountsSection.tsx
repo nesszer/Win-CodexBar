@@ -84,17 +84,21 @@ export function ClaudeSwapAccountsSection({ t }: Props) {
 
   const runSettings = async (
     patch: { claudeSwapEnabled?: boolean; claudeSwapExecutablePath?: string },
-  ): Promise<boolean> => {
+  ) => {
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       await updateSettings(patch);
+      // Persist the accepted path in local state so a later blur with the same
+      // value is a no-op, while a failed save leaves the draft untouched and
+      // remains retryable.
+      if (mounted.current && patch.claudeSwapExecutablePath !== undefined) {
+        setExecutablePath(patch.claudeSwapExecutablePath);
+      }
       await reload();
-      return true;
     } catch (e) {
       if (mounted.current) setError(String(e));
-      return false;
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -103,8 +107,7 @@ export function ClaudeSwapAccountsSection({ t }: Props) {
   const savePath = async () => {
     const next = pathDraft.trim();
     if (next === executablePath.trim()) return;
-    const saved = await runSettings({ claudeSwapExecutablePath: next });
-    if (saved && mounted.current) setExecutablePath(next);
+    await runSettings({ claudeSwapExecutablePath: next });
   };
 
   const switchAccount = async (slot: number) => {
@@ -113,7 +116,8 @@ export function ClaudeSwapAccountsSection({ t }: Props) {
     setMessage(null);
     try {
       await claudeSwapAccountSwitch(slot);
-      await reload();
+      // The backend emits `claude-accounts-updated` after invalidating usage;
+      // the listener above performs the single reload.
       if (mounted.current) setMessage(t("ClaudeSwapSwitched"));
     } catch (e) {
       if (mounted.current) setError(String(e));

@@ -127,6 +127,24 @@ describe("ClaudeSwapAccountsSection", () => {
     expect(screen.queryByText("ClaudeSwapSwitchButton")).toBeNull();
   });
 
+  it("allows retrying the same executable path after a failed save", async () => {
+    render(<ClaudeSwapAccountsSection t={t} />);
+    await act(async () => {});
+    const input = screen.getByRole("textbox");
+    mocks.updateSettings.mockRejectedValueOnce("Save failed.");
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "C:/tools/cswap.exe" } });
+      fireEvent.blur(input);
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Save failed.");
+    mocks.updateSettings.mockResolvedValueOnce(undefined);
+    await act(async () => fireEvent.blur(input));
+    expect(mocks.updateSettings).toHaveBeenCalledTimes(2);
+    expect(mocks.updateSettings).toHaveBeenLastCalledWith({
+      claudeSwapExecutablePath: "C:/tools/cswap.exe",
+    });
+  });
+
   it("shows a switch failure without claiming success", async () => {
     mocks.getSettingsSnapshot.mockResolvedValue({
       claudeSwapEnabled: true,
