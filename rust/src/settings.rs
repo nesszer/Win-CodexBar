@@ -1223,7 +1223,8 @@ impl Settings {
     }
 
     pub fn set_claude_swap_enabled(&mut self, value: bool) {
-        self.provider_config_mut(ProviderId::Claude).claude_swap_enabled = value;
+        self.provider_config_mut(ProviderId::Claude)
+            .claude_swap_enabled = value;
     }
 
     /// Claude-only: configured claude-swap executable path, or `""` when unset.

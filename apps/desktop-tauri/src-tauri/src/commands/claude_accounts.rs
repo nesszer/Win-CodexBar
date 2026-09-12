@@ -81,10 +81,12 @@ pub async fn claude_swap_account_switch(app: tauri::AppHandle, slot: u32) -> Res
     // Serialize with our own Claude OAuth/account mutations: cswap owns the
     // credential transaction, so the two paths must never overlap.
     let _credentials = accounts::CREDENTIAL_OPERATION.lock().await;
-    tauri::async_runtime::spawn_blocking(move || claude_swap::switch_account(&executable_path, slot))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        claude_swap::switch_account(&executable_path, slot)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     let pending = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().map_err(|e| e.to_string())?;

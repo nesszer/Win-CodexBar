@@ -90,6 +90,9 @@ export function ClaudeSwapAccountsSection({ t }: Props) {
     setMessage(null);
     try {
       await updateSettings(patch);
+      if (mounted.current && patch.claudeSwapExecutablePath !== undefined) {
+        setExecutablePath(patch.claudeSwapExecutablePath);
+      }
       await reload();
     } catch (e) {
       if (mounted.current) setError(String(e));
@@ -102,7 +105,6 @@ export function ClaudeSwapAccountsSection({ t }: Props) {
     const next = pathDraft.trim();
     if (next === executablePath.trim()) return;
     await runSettings({ claudeSwapExecutablePath: next });
-    setExecutablePath(next);
   };
 
   const switchAccount = async (slot: number) => {
