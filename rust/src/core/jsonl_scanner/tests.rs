@@ -158,6 +158,61 @@ fn codex_token_pipeline_preserves_counts_above_i32_max() {
 }
 
 #[test]
+fn negative_cumulative_components_are_clamped_at_the_source() {
+    let value = serde_json::json!({
+        "input_tokens": -5,
+        "cached_input_tokens": -9,
+        "cache_read_input_tokens": -3,
+        "output_tokens": -2,
+        "reasoning_output_tokens": -1,
+    });
+    let totals = read_token_totals(&value);
+    assert_eq!(totals.input, 0);
+    assert_eq!(totals.cached, 0);
+    assert_eq!(totals.output, 0);
+    assert_eq!(totals.reasoning, Some(0));
+
+    let fast: CodexFastTotals = serde_json::from_value(value.clone()).unwrap();
+    let fast_totals = codex_totals_from_fast(fast);
+    assert_eq!(fast_totals.input, 0);
+    assert_eq!(fast_totals.cached, 0);
+    assert_eq!(fast_totals.output, 0);
+    assert_eq!(fast_totals.reasoning, Some(0));
+
+    // The payload borrows `&str` fields, so deserialize from a str rather than
+    // an owned `Value`.
+    let payload_json = value.to_string();
+    let payload: CodexFastPayload<'_> = serde_json::from_str(&payload_json).unwrap();
+    let payload_totals = fast_totals_from_payload(&payload);
+    assert_eq!(payload_totals.input, 0);
+    assert_eq!(payload_totals.cached, 0);
+    assert_eq!(payload_totals.output, 0);
+    assert_eq!(payload_totals.reasoning, Some(0));
+}
+
+#[test]
+fn negative_cumulative_totals_do_not_inflate_later_deltas() {
+    let mut state = CodexParserState::new(None, None);
+    // A malformed cumulative record with negative counts must be clamped so it
+    // cannot lower the high watermark below zero.
+    assert_eq!(
+        state.total_usage_delta(&serde_json::json!({
+            "input_tokens": -5,
+            "output_tokens": -2,
+        })),
+        (0, 0, 0, None)
+    );
+    // A later normal climb only counts its true growth above the clamped zero.
+    assert_eq!(
+        state.total_usage_delta(&serde_json::json!({
+            "input_tokens": 3,
+            "output_tokens": 1,
+        })),
+        (3, 0, 1, None)
+    );
+}
+
+#[test]
 fn legacy_packed_rows_remain_three_slots_and_report_reasoning_is_unknown() {
     let record = CodexUsageRecord {
         day_key: "2026-05-31".to_string(),

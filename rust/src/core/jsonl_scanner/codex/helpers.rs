@@ -562,7 +562,9 @@ pub(super) fn token_count_payload(obj: &Value) -> Option<&Value> {
 
 pub(super) fn read_token_totals(value: &Value) -> CodexTotals {
     // Token counts come from Codex usage records and use i64, which is
-    // the canonical storage type of the totals table.
+    // the canonical storage type of the totals table. Malformed negative
+    // counts are clamped at the source so they can never lower the high
+    // watermark and inflate a later `apply_totals_delta`.
     let cached = value
         .get("cached_input_tokens")
         .and_then(|v| v.as_i64())
@@ -572,42 +574,47 @@ pub(super) fn read_token_totals(value: &Value) -> CodexTotals {
                 .get("cache_read_input_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0),
-        );
+        )
+        .max(0);
+    let input = token_i64(value, "input_tokens").max(0);
+    let output = token_i64(value, "output_tokens").max(0);
     CodexTotals {
-        input: token_i64(value, "input_tokens"),
+        input,
         cached,
-        output: token_i64(value, "output_tokens"),
-        reasoning: clamp_reasoning(
-            optional_token_i64(value, "reasoning_output_tokens"),
-            token_i64(value, "output_tokens"),
-        ),
+        output,
+        reasoning: clamp_reasoning(optional_token_i64(value, "reasoning_output_tokens"), output),
     }
 }
 
 pub(super) fn codex_totals_from_fast(value: CodexFastTotals) -> CodexTotals {
+    let input = value.input_tokens.max(0);
+    let cached = value
+        .cached_input_tokens
+        .unwrap_or(0)
+        .max(value.cache_read_input_tokens.unwrap_or(0))
+        .max(0);
+    let output = value.output_tokens.max(0);
     CodexTotals {
-        input: value.input_tokens,
-        cached: value
-            .cached_input_tokens
-            .unwrap_or(0)
-            .max(value.cache_read_input_tokens.unwrap_or(0)),
-        output: value.output_tokens,
-        reasoning: clamp_reasoning(value.reasoning_output_tokens, value.output_tokens),
+        input,
+        cached,
+        output,
+        reasoning: clamp_reasoning(value.reasoning_output_tokens, output),
     }
 }
 
 pub(super) fn fast_totals_from_payload(value: &CodexFastPayload<'_>) -> CodexTotals {
+    let input = value.input_tokens.unwrap_or(0).max(0);
+    let cached = value
+        .cached_input_tokens
+        .unwrap_or(0)
+        .max(value.cache_read_input_tokens.unwrap_or(0))
+        .max(0);
+    let output = value.output_tokens.unwrap_or(0).max(0);
     CodexTotals {
-        input: value.input_tokens.unwrap_or(0),
-        cached: value
-            .cached_input_tokens
-            .unwrap_or(0)
-            .max(value.cache_read_input_tokens.unwrap_or(0)),
-        output: value.output_tokens.unwrap_or(0),
-        reasoning: clamp_reasoning(
-            value.reasoning_output_tokens,
-            value.output_tokens.unwrap_or(0),
-        ),
+        input,
+        cached,
+        output,
+        reasoning: clamp_reasoning(value.reasoning_output_tokens, output),
     }
 }
 

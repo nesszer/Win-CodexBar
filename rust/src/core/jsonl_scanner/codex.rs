@@ -11,8 +11,9 @@ use parser::CodexParserState;
 
 #[cfg(test)]
 use helpers::{
-    CodexFastTotals, bare_usage_totals, codex_timestamp_day_key, codex_totals_from_fast,
-    last_usage_delta, parse_codex_timestamp, read_token_totals,
+    CodexFastPayload, CodexFastTotals, bare_usage_totals, codex_timestamp_day_key,
+    codex_totals_from_fast, fast_totals_from_payload, last_usage_delta, parse_codex_timestamp,
+    read_token_totals,
 };
 
 impl JsonlScanner {

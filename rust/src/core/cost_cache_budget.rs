@@ -71,6 +71,12 @@ fn touches_window(entry: &CostUsageFileUsage, since_key: &str, until_key: &str) 
         .any(|day| CostUsageDayRange::is_in_range(day, since_key, until_key))
 }
 
+/// Conservative JSON byte width of one packed token value. The totals table was
+/// widened from `i32` to `i64`, so a single value can serialize to up to 20
+/// bytes (19 digits plus a sign); budgeting 10 bytes would under-estimate the
+/// artifact and let pruning admit a cache that is already over budget.
+const PACKED_VALUE_BYTES: usize = 20;
+
 /// Cheap per-entry byte estimate (conservative overhead) so the save path can
 /// decide whether to prune *before* materializing the encoded document. Mirrors
 /// upstream `estimatedCodexCacheBytes`'s per-entry shape; it deliberately
@@ -84,7 +90,7 @@ fn estimated_entry_bytes(entry: &CostUsageFileUsage) -> usize {
     for (day, models) in &entry.days {
         bytes += day.len() + 32;
         for (model, packed) in models {
-            bytes += model.len() + 40 + packed.len() * 10;
+            bytes += model.len() + 40 + packed.len() * PACKED_VALUE_BYTES;
         }
     }
     bytes
@@ -103,7 +109,7 @@ pub fn estimated_cache_bytes(
     for (day, models) in days {
         bytes += day.len() + 32;
         for (model, packed) in models {
-            bytes += model.len() + 40 + packed.len() * 10;
+            bytes += model.len() + 40 + packed.len() * PACKED_VALUE_BYTES;
         }
     }
     bytes
@@ -524,6 +530,45 @@ mod tests {
 
         assert!(!removed.is_empty(), "at least one dropped");
         assert!(files.contains_key("c"), "newest kept");
+    }
+
+    #[test]
+    fn estimated_entry_bytes_reserves_twenty_bytes_per_packed_i64_value() {
+        let day = "2026-01-09";
+        let model = "gpt-5.6-sol";
+        let three = entry(&[day], None, 100);
+        let mut four = entry(&[day], None, 100);
+        four.days
+            .get_mut(day)
+            .unwrap()
+            .insert(model.to_string(), vec![1, 2, 3, 4]);
+
+        assert_eq!(
+            estimated_entry_bytes(&four) - estimated_entry_bytes(&three),
+            20,
+            "each packed i64 slot must reserve its full 20-byte JSON width"
+        );
+    }
+
+    #[test]
+    fn estimated_cache_bytes_reserves_twenty_bytes_per_packed_i64_value_in_days() {
+        let day = "2026-01-09";
+        let model = "gpt-5.6-sol";
+        let files: HashMap<String, CostUsageFileUsage> = HashMap::new();
+        let three = HashMap::from([(
+            day.to_string(),
+            HashMap::from([(model.to_string(), vec![1_i64, 2, 3])]),
+        )]);
+        let four = HashMap::from([(
+            day.to_string(),
+            HashMap::from([(model.to_string(), vec![1_i64, 2, 3, 4])]),
+        )]);
+
+        assert_eq!(
+            estimated_cache_bytes(&files, &four) - estimated_cache_bytes(&files, &three),
+            20,
+            "each packed i64 slot in the aggregate day map must reserve 20 bytes"
+        );
     }
 
     #[test]
