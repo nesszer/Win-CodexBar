@@ -23,7 +23,7 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
 };
@@ -50,9 +50,6 @@ use windows::core::{PCWSTR, PWSTR};
 
 /// Maximum number of terminal cursor-position replies sent to one child.
 const MAX_CURSOR_REPLIES: usize = 32;
-
-/// `GetExitCodeProcess` value reported while the process is still running.
-const STILL_ACTIVE: u32 = 259;
 
 /// ConPTY flags portable-pty applies to preserve interactive startup behavior.
 /// The `windows` crate only names `PSEUDOCONSOLE_INHERIT_CURSOR`.
@@ -276,17 +273,29 @@ impl ManagedChild {
     }
 
     fn try_wait(&mut self) -> std::io::Result<Option<u32>> {
+        // `STILL_ACTIVE` is also a legal exit code. Use the process handle's
+        // signaled state as the liveness source, then read the code only after
+        // Windows confirms that the process has exited.
+        // SAFETY: the process handle remains owned and valid for `self`.
+        let state = unsafe { WaitForSingleObject(win_handle(&self.process), 0) };
+        if state == WAIT_TIMEOUT {
+            return Ok(None);
+        }
+        if state != WAIT_OBJECT_0 {
+            return Err(std::io::Error::last_os_error());
+        }
         let mut code = 0_u32;
         // SAFETY: the process handle and output pointer are valid.
         unsafe { GetExitCodeProcess(win_handle(&self.process), &mut code) }
             .map_err(std::io::Error::other)?;
-        Ok((code != STILL_ACTIVE).then_some(code))
+        Ok(Some(code))
     }
 
     fn wait(&mut self) -> std::io::Result<u32> {
         // SAFETY: the process handle remains owned and valid for `self`.
-        unsafe {
-            WaitForSingleObject(win_handle(&self.process), INFINITE);
+        let state = unsafe { WaitForSingleObject(win_handle(&self.process), INFINITE) };
+        if state != WAIT_OBJECT_0 {
+            return Err(std::io::Error::last_os_error());
         }
         let mut code = 0_u32;
         // SAFETY: the process handle and output pointer are valid.
@@ -566,7 +575,10 @@ fn create_pipe(label: &str) -> ManagedProcessResult<(OwnedHandle, OwnedHandle)> 
 }
 
 /// Owned `PROC_THREAD_ATTRIBUTE_LIST` storage for one process-creation call.
-struct Attributes(Vec<usize>);
+struct Attributes {
+    storage: Vec<usize>,
+    initialized: bool,
+}
 
 impl Attributes {
     fn new(count: u32) -> ManagedProcessResult<Self> {
@@ -586,7 +598,10 @@ impl Attributes {
                 "Failed to size a process attribute list".to_string(),
             ));
         }
-        let mut value = Self(vec![0; bytes.div_ceil(std::mem::size_of::<usize>())]);
+        let mut value = Self {
+            storage: vec![0; bytes.div_ceil(std::mem::size_of::<usize>())],
+            initialized: false,
+        };
         // SAFETY: the owned allocation is aligned for and at least `bytes` long.
         unsafe { InitializeProcThreadAttributeList(value.ptr(), count, 0, &mut bytes) }.map_err(
             |error| {
@@ -595,17 +610,18 @@ impl Attributes {
                 ))
             },
         )?;
+        value.initialized = true;
         Ok(value)
     }
 
     fn ptr(&mut self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
-        LPPROC_THREAD_ATTRIBUTE_LIST(self.0.as_mut_ptr().cast())
+        LPPROC_THREAD_ATTRIBUTE_LIST(self.storage.as_mut_ptr().cast())
     }
 }
 
 impl Drop for Attributes {
     fn drop(&mut self) {
-        if !self.0.is_empty() {
+        if self.initialized {
             // SAFETY: this list was initialized and has not yet been deleted.
             unsafe { DeleteProcThreadAttributeList(self.ptr()) };
         }
@@ -982,6 +998,27 @@ mod tests {
 
         drop(process);
         wait_for_exit(second);
+    }
+
+    #[test]
+    fn managed_process_reports_exit_code_259_as_exited() {
+        let mut config = test_config();
+        config.program = PathBuf::from("cmd.exe");
+        config.args = vec![OsString::from("/C"), OsString::from("exit /B 259")];
+        let mut process = ManagedProcess::spawn(&config).expect("start an exit-code test child");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = process.try_wait().expect("poll the exit-code test child") {
+                assert_eq!(status.exit_code(), 259);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the child with exit code 259 was reported as running"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        drop(process);
     }
 
     #[tokio::test]
