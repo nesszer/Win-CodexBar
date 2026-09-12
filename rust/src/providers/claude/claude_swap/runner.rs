@@ -4,9 +4,23 @@
 //! passthrough arguments. Output and wall-clock runtime are bounded.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::{Duration, Instant};
+
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+
+#[cfg(windows)]
+use windows::Win32::Foundation::HANDLE;
+#[cfg(windows)]
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_BASIC_LIMIT_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
+};
+#[cfg(windows)]
+use windows::core::PCWSTR;
 
 use super::parser::{parse_account_list, parse_switch_result, validate_switch_target};
 use super::{ClaudeSwapAccountList, ClaudeSwapError, ClaudeSwapSwitchResult};
@@ -93,6 +107,74 @@ fn read_bounded(mut reader: impl std::io::Read) -> RunOutcome {
     outcome
 }
 
+/// Own the helper process tree so a timed-out `cswap` cannot leave a
+/// descendant holding the captured pipes open. The job is private to the
+/// process created by this invocation; it never adopts user-owned processes.
+#[cfg(windows)]
+struct ProcessTreeGuard {
+    job: OwnedHandle,
+}
+
+#[cfg(windows)]
+impl ProcessTreeGuard {
+    fn attach(child: &Child) -> Result<Self, String> {
+        // SAFETY: a successful call returns a unique job handle owned below.
+        let raw = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
+            .map_err(|error| format!("failed to create cswap job: {error}"))?;
+        // SAFETY: `raw` is a valid, unique handle returned by CreateJobObjectW.
+        let job = unsafe { OwnedHandle::from_raw_handle(raw.0) };
+        let limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+            BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let size = u32::try_from(std::mem::size_of_val(&limits))
+            .map_err(|error| format!("invalid cswap job limit size: {error}"))?;
+        // SAFETY: `job` is valid and `limits` is initialized for this API.
+        unsafe {
+            SetInformationJobObject(
+                Self::handle(&job),
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                size,
+            )
+            .map_err(|error| format!("failed to configure cswap job: {error}"))?;
+            // The direct child is the only process created by this runner.
+            // Any descendants it creates are then contained by the job too.
+            AssignProcessToJobObject(Self::handle(&job), HANDLE(child.as_raw_handle()))
+                .map_err(|error| format!("failed to contain cswap process tree: {error}"))?;
+        }
+        Ok(Self { job })
+    }
+
+    fn terminate(&self) {
+        // SAFETY: this job contains only the helper process tree created above.
+        let _ = unsafe { TerminateJobObject(Self::handle(&self.job), 1) };
+    }
+
+    fn handle(job: &OwnedHandle) -> HANDLE {
+        HANDLE(job.as_raw_handle())
+    }
+}
+
+#[cfg(windows)]
+fn terminate_child_tree(child: &mut Child, tree: Option<&ProcessTreeGuard>) {
+    if let Some(tree) = tree {
+        tree.terminate();
+    } else {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
+
+#[cfg(not(windows))]
+fn terminate_child_tree(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Run a fixed argument array against a wall-clock deadline.
 ///
 /// Reader threads are never joined: a cswap descendant can inherit the
@@ -121,14 +203,38 @@ fn run_bounded(
     let mut child = command
         .spawn()
         .map_err(|e| ClaudeSwapError::Process(e.to_string()))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| ClaudeSwapError::Process("Failed to capture stdout.".to_string()))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| ClaudeSwapError::Process("Failed to capture stderr.".to_string()))?;
+    #[cfg(windows)]
+    let process_tree = match ProcessTreeGuard::attach(&child) {
+        Ok(tree) => Some(tree),
+        Err(error) => {
+            terminate_child_tree(&mut child, None);
+            return Err(ClaudeSwapError::Process(error));
+        }
+    };
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            #[cfg(windows)]
+            terminate_child_tree(&mut child, process_tree.as_ref());
+            #[cfg(not(windows))]
+            terminate_child_tree(&mut child);
+            return Err(ClaudeSwapError::Process(
+                "Failed to capture stdout.".to_string(),
+            ));
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            #[cfg(windows)]
+            terminate_child_tree(&mut child, process_tree.as_ref());
+            #[cfg(not(windows))]
+            terminate_child_tree(&mut child);
+            return Err(ClaudeSwapError::Process(
+                "Failed to capture stderr.".to_string(),
+            ));
+        }
+    };
 
     let (sender, receiver) = mpsc::channel::<(bool, RunOutcome)>();
     let stdout_sender = sender.clone();
@@ -159,13 +265,19 @@ fn run_bounded(
             break;
         }
         if disconnected {
+            #[cfg(windows)]
+            terminate_child_tree(&mut child, process_tree.as_ref());
+            #[cfg(not(windows))]
+            terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::Process(
                 "claude-swap output streams closed unexpectedly.".to_string(),
             ));
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            #[cfg(windows)]
+            terminate_child_tree(&mut child, process_tree.as_ref());
+            #[cfg(not(windows))]
+            terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::TimedOut(timeout.as_secs()));
         }
         match child.try_wait() {
@@ -173,8 +285,10 @@ fn run_bounded(
             // write handles; keep draining until the wall-clock deadline.
             Ok(Some(_)) | Ok(None) => std::thread::sleep(POLL_INTERVAL),
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                #[cfg(windows)]
+                terminate_child_tree(&mut child, process_tree.as_ref());
+                #[cfg(not(windows))]
+                terminate_child_tree(&mut child);
                 return Err(ClaudeSwapError::Process(e.to_string()));
             }
         }
