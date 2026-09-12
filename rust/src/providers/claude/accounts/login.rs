@@ -270,15 +270,8 @@ fn path_is_wsl_backed(path: &Path) -> bool {
 /// WSL. Checked only after sign-in fails so Add account is never blocked
 /// preemptively.
 fn ambient_config_is_wsl_backed() -> bool {
-    let Some(home) = dirs::home_dir() else {
+    let Ok(path) = super::config_dir() else {
         return false;
-    };
-    let path = match std::env::var_os("CLAUDE_CONFIG_DIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-    {
-        Some(path) if path.is_absolute() => path,
-        _ => home.join(".claude"),
     };
     path_is_wsl_backed(&path)
 }
@@ -440,8 +433,7 @@ mod tests {
             .creation_flags(0x0800_0000).output().unwrap();
         assert!(
             output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+            "Failed to create the isolated test junction."
         );
         cleanup_login_root(&root).unwrap();
         assert!(outside.join("keep.txt").exists());
