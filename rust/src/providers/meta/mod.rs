@@ -23,7 +23,6 @@ const META_ENV_KEYS: &[&str] = &["MODEL_API_KEY", "META_API_KEY"];
 
 #[derive(Debug, Deserialize)]
 struct ModelsResponse {
-    #[serde(default)]
     data: Vec<ModelEntry>,
 }
 
@@ -61,7 +60,7 @@ impl MetaProvider {
     }
 
     async fn probe_models(&self, api_key: &str) -> Result<UsageSnapshot, ProviderError> {
-        let url = models_url(&api_base_url())?;
+        let url = models_url(&api_base_url()?)?;
         let response = self
             .client
             .get(url)
@@ -145,12 +144,29 @@ fn resolve_meta_api_key(explicit: Option<&str>) -> Result<String, ProviderError>
     }
 }
 
-fn api_base_url() -> Url {
-    std::env::var("META_API_URL")
-        .or_else(|_| std::env::var("METASPARK_API_URL"))
-        .ok()
-        .and_then(|raw| crate::providers::validated_https_url(&raw, "Meta API").ok())
-        .unwrap_or_else(|| Url::parse(META_API_BASE).expect("static Meta URL is valid"))
+fn api_base_url() -> Result<Url, ProviderError> {
+    let preferred = std::env::var("META_API_URL").ok();
+    let legacy = std::env::var("METASPARK_API_URL").ok();
+    resolve_api_base_url(preferred.as_deref(), legacy.as_deref())
+}
+
+/// Resolve the configured Meta API base.
+///
+/// Precedence is preferred (`META_API_URL`) then legacy (`METASPARK_API_URL`),
+/// falling back to the production default only when neither variable is set.
+/// A variable that *is* set but invalid is an error: an invalid preferred value
+/// never silently falls through to the legacy value or the default.
+fn resolve_api_base_url(
+    preferred: Option<&str>,
+    legacy: Option<&str>,
+) -> Result<Url, ProviderError> {
+    if let Some(raw) = preferred {
+        return crate::providers::validated_https_url(raw, "Meta API");
+    }
+    if let Some(raw) = legacy {
+        return crate::providers::validated_https_url(raw, "Meta API");
+    }
+    Ok(Url::parse(META_API_BASE).expect("static Meta URL is valid"))
 }
 
 /// Resolve the `GET /v1/models` endpoint from a configured API base.
@@ -253,6 +269,40 @@ mod tests {
     }
 
     #[test]
+    fn empty_top_level_object_is_rejected() {
+        let err = parse_muse_spark_models("{}").unwrap_err();
+        assert!(matches!(err, ProviderError::Parse(_)));
+    }
+
+    #[test]
+    fn missing_data_field_is_rejected() {
+        let err = parse_muse_spark_models(r#"{"object": "list"}"#).unwrap_err();
+        assert!(matches!(err, ProviderError::Parse(_)));
+    }
+
+    #[test]
+    fn wrong_data_type_is_rejected() {
+        let err = parse_muse_spark_models(r#"{"data": {"id": "muse-spark-1.3"}}"#).unwrap_err();
+        assert!(matches!(err, ProviderError::Parse(_)));
+
+        let err = parse_muse_spark_models(r#"{"data": "muse-spark-1.3"}"#).unwrap_err();
+        assert!(matches!(err, ProviderError::Parse(_)));
+    }
+
+    #[test]
+    fn minimal_valid_response_parses() {
+        assert!(
+            parse_muse_spark_models(r#"{"data": []}"#)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            parse_muse_spark_models(r#"{"data": [{"id": "muse-spark-1.3"}]}"#).unwrap(),
+            vec!["muse-spark-1.3".to_string()]
+        );
+    }
+
+    #[test]
     fn snapshot_lists_models_without_cost() {
         let snapshot =
             snapshot_from_models(&["muse-spark-1.3".to_string(), "muse-spark-1.2".to_string()]);
@@ -308,6 +358,52 @@ mod tests {
                 "base {base}"
             );
         }
+    }
+
+    #[test]
+    fn default_api_base_used_when_neither_env_is_set() {
+        let base = resolve_api_base_url(None, None).unwrap();
+        assert_eq!(base.as_str(), META_API_BASE);
+        assert_eq!(
+            models_url(&base).unwrap().as_str(),
+            "https://api.meta.ai/v1/models"
+        );
+    }
+
+    #[test]
+    fn preferred_api_url_wins_over_legacy() {
+        let base = resolve_api_base_url(
+            Some("https://preferred.example.com/meta/v1"),
+            Some("https://legacy.example.com/meta/v1"),
+        )
+        .unwrap();
+        assert_eq!(base.as_str(), "https://preferred.example.com/meta/v1");
+        assert_eq!(
+            models_url(&base).unwrap().as_str(),
+            "https://preferred.example.com/meta/v1/models"
+        );
+    }
+
+    #[test]
+    fn legacy_api_url_used_when_preferred_is_absent() {
+        let base = resolve_api_base_url(None, Some("https://legacy.example.com/meta/v1")).unwrap();
+        assert_eq!(base.as_str(), "https://legacy.example.com/meta/v1");
+    }
+
+    #[test]
+    fn invalid_preferred_url_errors_instead_of_falling_through() {
+        for bad in ["", "http://preferred.example.com/v1", "not a url"] {
+            let result =
+                resolve_api_base_url(Some(bad), Some("https://legacy.example.com/meta/v1"));
+            assert!(result.is_err(), "expected {bad:?} to be rejected");
+            assert!(matches!(result.unwrap_err(), ProviderError::Other(_)));
+        }
+    }
+
+    #[test]
+    fn invalid_legacy_url_errors_instead_of_defaulting() {
+        let err = resolve_api_base_url(None, Some("ftp://legacy.example.com")).unwrap_err();
+        assert!(matches!(err, ProviderError::Other(_)));
     }
 
     #[test]
