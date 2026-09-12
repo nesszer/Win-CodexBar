@@ -734,8 +734,7 @@ mod tests {
             .creation_flags(0x0800_0000).output().unwrap();
         assert!(
             output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+            "Failed to create the local junction fixture."
         );
         assert!(!path_is_wsl_backed(&link));
         assert!(!path_is_wsl_backed(&target));
