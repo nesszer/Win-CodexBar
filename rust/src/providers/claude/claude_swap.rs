@@ -21,8 +21,10 @@ use serde_json::Value;
 
 /// Upstream rejects list output larger than 256 KiB before parsing.
 pub const MAX_OUTPUT_BYTES: usize = 262_144;
-/// Default read-only probe timeout; credential transactions are not bounded.
+/// Default read-only probe timeout.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Long upper bound for credential switches so a stalled helper cannot block forever.
+pub const SWITCH_TIMEOUT: Duration = Duration::from_secs(300);
 /// Bound on display-only label fields copied from cswap (upstream uses 256 scalars).
 pub const MAX_LABEL_CHARS: usize = 256;
 /// Bound on diagnostic strings copied from a cswap error envelope (upstream: 512).
@@ -313,8 +315,8 @@ fn read_bounded(mut reader: impl std::io::Read) -> RunOutcome {
     outcome
 }
 
-/// Run a fixed argument array with a bounded deadline. `timeout` of `None`
-/// lets a credential transaction reach its natural exit (upstream Phase 2).
+/// Run a fixed argument array with an optional deadline. Production list and switch
+/// operations always pass finite timeouts so a stalled helper cannot block indefinitely.
 fn run_bounded(
     program: &Path,
     arguments: &[String],
@@ -402,7 +404,7 @@ pub fn read_account_list_with_timeout(
     parse_account_list(&output)
 }
 
-/// Explicit `cswap --switch-to <slot> --json`. Runs to natural exit.
+/// Explicit `cswap --switch-to <slot> --json`, bounded by [`SWITCH_TIMEOUT`].
 pub fn switch_account(
     configured_path: &str,
     slot: u32,
@@ -414,7 +416,7 @@ pub fn switch_account(
     }
     let program = resolve_executable_path(configured_path)?;
     validate_executable_path(&program)?;
-    let output = run_bounded(&program, &switch_arguments(slot), None)?;
+    let output = run_bounded(&program, &switch_arguments(slot), Some(SWITCH_TIMEOUT))?;
     let parsed = parse_switch_result(&output)?;
     validate_switch_target(slot, &parsed)?;
     Ok(parsed)

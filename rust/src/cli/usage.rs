@@ -285,23 +285,25 @@ fn read_claude_swap_accounts(ctx: &ClaudeSwapCliContext) -> Result<Vec<ClaudeSwa
         .map_err(|error| error.to_string())
 }
 
-fn claude_swap_json_payload(account: &ClaudeSwapAccount) -> serde_json::Value {
-    serde_json::json!({
+fn claude_swap_json_payload(
+    account: &ClaudeSwapAccount,
+    status: Option<&StatusInfo>,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
         "provider": ProviderId::Claude.cli_name(),
         "source": "claude-swap",
         "account": account,
-    })
+    });
+    if let Some(status) = status {
+        payload["status"] = serde_json::json!({
+            "level": format!("{:?}", status.level).to_lowercase(),
+            "description": status.description,
+        });
+    }
+    payload
 }
 
-fn render_claude_swap_text(account: &ClaudeSwapAccount) -> String {
-    let mut lines = Vec::new();
-    let active = if account.is_active { " (active)" } else { "" };
-    lines.push(format!(
-        "{} (claude-swap)  {}{}",
-        ProviderId::Claude.display_name(),
-        account.label,
-        active
-    ));
+fn claude_swap_windows(account: &ClaudeSwapAccount) -> Vec<String> {
     let mut windows = Vec::new();
     if let Some(window) = &account.five_hour {
         windows.push(format!("Session {}", format_percent(window.used_percent)));
@@ -316,13 +318,79 @@ fn render_claude_swap_text(account: &ClaudeSwapAccount) -> String {
             format_percent(window.used_percent)
         ));
     }
+    windows
+}
+
+fn render_claude_swap_text(
+    account: &ClaudeSwapAccount,
+    status: Option<&StatusInfo>,
+    use_color: bool,
+) -> String {
+    let mut lines = Vec::new();
+    let active = if account.is_active { " (active)" } else { "" };
+    let status_indicator = render_status_indicator(status, use_color);
+    lines.push(format!(
+        "{} (claude-swap)  {}{}{}",
+        ProviderId::Claude.display_name(),
+        account.label,
+        active,
+        status_indicator
+    ));
+    append_status_line(&mut lines, status);
+    let windows = claude_swap_windows(account);
     if !windows.is_empty() {
-        lines.push(format!("  {}", windows.join(" · ")));
+        lines.push(format!("  {}", windows.join(" | ")));
     }
     if let Some(error) = &account.error {
         lines.push(format!("  {error}"));
     }
     lines.join("\n")
+}
+
+fn render_claude_swap_brief(
+    accounts: &[ClaudeSwapAccount],
+    status: Option<&StatusInfo>,
+    use_color: bool,
+) -> String {
+    let status_indicator = render_status_indicator(status, use_color);
+    let mut account_parts = Vec::new();
+    for account in accounts {
+        let active = if account.is_active { " (active)" } else { "" };
+        let windows = claude_swap_windows(account);
+        let suffix = if windows.is_empty() {
+            account
+                .error
+                .as_deref()
+                .map(|error| format!(" | {error}"))
+                .unwrap_or_default()
+        } else {
+            format!(" | {}", windows.join(" | "))
+        };
+        account_parts.push(format!("{}{}{}", account.label, active, suffix));
+    }
+    let accounts_text = if account_parts.is_empty() {
+        "no accounts".to_string()
+    } else {
+        account_parts.join(" | ")
+    };
+    let provider_status = status
+        .map(|status| format!(" | Status {}", status.description))
+        .unwrap_or_default();
+    format!(
+        "{} (claude-swap){}: {}{}",
+        ProviderId::Claude.display_name(),
+        status_indicator,
+        accounts_text,
+        provider_status
+    )
+}
+
+async fn claude_swap_provider_status(command: &UsageCommand) -> Option<StatusInfo> {
+    if command.fetch_status {
+        fetch_provider_status(ProviderId::Claude.cli_name()).await
+    } else {
+        None
+    }
 }
 
 /// True when the provider should be expanded through the claude-swap adapter.
@@ -336,15 +404,29 @@ async fn collect_json_results(command: &UsageCommand) -> Vec<serde_json::Value> 
         if uses_claude_swap_all_accounts(command, *provider_id)
             && let Some(ctx) = claude_swap_cli_context()
         {
+            let status = claude_swap_provider_status(command).await;
             match read_claude_swap_accounts(&ctx) {
                 Ok(accounts) => {
-                    results.extend(accounts.iter().map(claude_swap_json_payload));
+                    results.extend(
+                        accounts
+                            .iter()
+                            .map(|account| claude_swap_json_payload(account, status.as_ref())),
+                    );
                 }
-                Err(error) => results.push(serde_json::json!({
-                    "provider": ProviderId::Claude.cli_name(),
-                    "source": "claude-swap",
-                    "error": error,
-                })),
+                Err(error) => {
+                    let mut payload = serde_json::json!({
+                        "provider": ProviderId::Claude.cli_name(),
+                        "source": "claude-swap",
+                        "error": error,
+                    });
+                    if let Some(status) = status.as_ref() {
+                        payload["status"] = serde_json::json!({
+                            "level": format!("{:?}", status.level).to_lowercase(),
+                            "description": status.description,
+                        });
+                    }
+                    results.push(payload);
+                }
             }
             continue;
         }
@@ -361,15 +443,33 @@ async fn collect_usage_output(command: &UsageCommand) -> UsageOutput {
                 if uses_claude_swap_all_accounts(command, *provider_id)
                     && let Some(ctx) = claude_swap_cli_context()
                 {
+                    let status = claude_swap_provider_status(command).await;
                     match read_claude_swap_accounts(&ctx) {
                         Ok(accounts) => {
-                            sections.extend(accounts.iter().map(render_claude_swap_text));
+                            if command.brief {
+                                sections.push(render_claude_swap_brief(
+                                    &accounts,
+                                    status.as_ref(),
+                                    command.use_color,
+                                ));
+                            } else {
+                                sections.extend(accounts.iter().map(|account| {
+                                    render_claude_swap_text(
+                                        account,
+                                        status.as_ref(),
+                                        command.use_color,
+                                    )
+                                }));
+                            }
                         }
-                        Err(error) => sections.push(render_text_error(
-                            ProviderId::Claude,
-                            &error,
-                            command.use_color,
-                        )),
+                        Err(error) => {
+                            let mut text =
+                                render_text_error(ProviderId::Claude, &error, command.use_color);
+                            if let Some(status) = status.as_ref() {
+                                text.push_str(&format!(" | Status {}", status.description));
+                            }
+                            sections.push(text);
+                        }
                     }
                     continue;
                 }
@@ -384,7 +484,6 @@ async fn collect_usage_output(command: &UsageCommand) -> UsageOutput {
         UsageOutputFormat::Toon => UsageOutput::Toon(collect_json_results(command).await),
     }
 }
-
 async fn fetch_provider_text_output(provider_id: ProviderId, command: &UsageCommand) -> String {
     match fetch_provider_result(provider_id, command).await {
         Ok((result, status)) => {
@@ -907,7 +1006,7 @@ mod tests {
 
     #[test]
     fn claude_swap_json_payload_is_allow_listed() {
-        let payload = claude_swap_json_payload(&sample_swap_account());
+        let payload = claude_swap_json_payload(&sample_swap_account(), None);
         assert_eq!(payload["provider"], "claude");
         assert_eq!(payload["source"], "claude-swap");
         assert_eq!(payload["account"]["id"], "claude-swap:2");
@@ -916,8 +1015,42 @@ mod tests {
     }
 
     #[test]
+    fn claude_swap_json_payload_keeps_provider_status_distinct() {
+        let status = StatusInfo {
+            level: StatusLevel::Degraded,
+            description: "Degraded Performance".to_string(),
+            ..Default::default()
+        };
+        let payload = claude_swap_json_payload(&sample_swap_account(), Some(&status));
+        assert_eq!(payload["account"]["status"], "ok");
+        assert_eq!(payload["status"]["level"], "degraded");
+        assert_eq!(payload["status"]["description"], "Degraded Performance");
+    }
+
+    #[test]
+    fn claude_swap_brief_renderer_keeps_one_line_per_provider() {
+        let mut first = sample_swap_account();
+        first.is_active = true;
+        let mut second = sample_swap_account();
+        second.id = "claude-swap:3".to_string();
+        second.slot = 3;
+        second.label = "personal@example.com".to_string();
+        let status = StatusInfo {
+            level: StatusLevel::Operational,
+            description: "All Systems Operational".to_string(),
+            ..Default::default()
+        };
+
+        let text = render_claude_swap_brief(&[first, second], Some(&status), false);
+        assert!(!text.contains('\n'));
+        assert!(text.contains("work@example.com (active)"));
+        assert!(text.contains("personal@example.com"));
+        assert!(text.contains("Status All Systems Operational"));
+    }
+
+    #[test]
     fn claude_swap_text_renderer_shows_windows_and_status() {
-        let text = render_claude_swap_text(&sample_swap_account());
+        let text = render_claude_swap_text(&sample_swap_account(), None, false);
         assert!(text.contains("claude-swap"));
         assert!(text.contains("work@example.com"));
         assert!(text.contains("Session 81%"));
