@@ -504,6 +504,10 @@ export function codexAccountAdd(): Promise<CodexAccount> {
   return invoke<CodexAccount>("codex_account_add");
 }
 
+export function codexAccountReauthenticate(): Promise<CodexAccount> {
+  return invoke<CodexAccount>("codex_account_reauthenticate");
+}
+
 export function codexAccountRemove(id: string): Promise<void> {
   return invoke<void>("codex_account_remove", { id });
 }

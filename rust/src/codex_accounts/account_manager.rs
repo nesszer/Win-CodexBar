@@ -87,6 +87,9 @@ impl CodexAccountManager {
         account: &CodexAccount,
         handle: Option<&ManagedLoginProcess>,
     ) -> Result<CodexAccount, CodexAccountManagerError> {
+        // Keep credential replacement exclusive with provider reads and
+        // refreshes, just like an account switch.
+        let _credentials = super::CREDENTIAL_OPERATIONS.blocking_write();
         self.authenticate_account(
             &account.codex_home_path,
             account.source,

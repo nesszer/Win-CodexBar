@@ -222,6 +222,50 @@ pub async fn codex_account_add(app: tauri::AppHandle) -> Result<CodexAccount, St
     Ok(account)
 }
 
+/// Re-run the official Codex login flow for the ambient account without
+/// changing account ownership or copying credentials into a managed home.
+#[tauri::command]
+pub async fn codex_account_reauthenticate(app: tauri::AppHandle) -> Result<CodexAccount, String> {
+    let runtime = CodexAccountRuntime::new();
+    let _mutation = runtime.try_begin_mutation().map_err(into_user_message)?;
+    let target = ambient_account(&load_codex_accounts()?)?;
+    let manager = CodexAccountManager::new();
+    let authenticated =
+        tauri::async_runtime::spawn_blocking(move || manager.reauthenticate(&target, None))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(into_user_message)?;
+
+    // The login flow replaced the ambient auth file. Reconcile the identity
+    // before refreshing usage so every surface observes the new session. The
+    // logged-in record is transient: reconciliation can drop or replace the
+    // ambient identity, so report only a record that was actually persisted.
+    let account = match refresh_persisted_accounts(app.clone()) {
+        Ok(accounts) => canonical_reauthenticated_account(&accounts, &authenticated),
+        Err(e) => {
+            // Credential replacement is already committed, but the reconciled
+            // account set could not be saved. Reporting the transient login
+            // result would expose an account the store never committed, so the
+            // persistence error is surfaced instead.
+            tracing::warn!("Codex login succeeded but account metadata could not be saved: {e}");
+            Err(e)
+        }
+    };
+    let pending = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().map_err(|e| e.to_string())?;
+        invalidate_account_usage(&mut state, ProviderId::Codex)
+    };
+    events::emit_provider_updated(&app, &pending);
+
+    let refresh_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = do_refresh_providers(&refresh_app).await;
+    });
+
+    account
+}
+
 #[tauri::command]
 pub fn codex_account_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
     let runtime = CodexAccountRuntime::new();
@@ -401,12 +445,53 @@ pub async fn codex_account_restart_desktop(
 
 /// Merge discovered accounts back into the persisted list after identity
 /// changes (login/switch) so the store reflects reality.
-fn refresh_persisted_accounts(app: tauri::AppHandle) -> Result<(), String> {
+///
+/// Returns the post-reconciliation accounts, which is exactly the set that was
+/// persisted, so callers can report a canonical account from persisted state.
+fn refresh_persisted_accounts(app: tauri::AppHandle) -> Result<Vec<CodexAccount>, String> {
     let accounts = load_codex_accounts()?;
     persist_codex_accounts(&accounts)?;
     events::emit_settings_changed(&app);
     accounts_changed(&app);
-    Ok(())
+    Ok(accounts)
+}
+
+/// Select the ambient identity from a persisted account set.
+fn ambient_account(accounts: &[CodexAccount]) -> Result<CodexAccount, String> {
+    accounts
+        .iter()
+        .find(|account| account.source == codexbar::codex_accounts::CodexAccountSource::Ambient)
+        .cloned()
+        .ok_or_else(|| "No ambient Codex account found.".to_string())
+}
+
+/// The account a reauthentication command should report.
+///
+/// The persisted reconciled set is authoritative. A login that changes the
+/// ambient identity produces a fresh persisted record with a new id, while the
+/// login helper reuses the pre-login id, so the transient login result is used
+/// only to locate its persisted counterpart. The persisted ambient record is
+/// authoritative for this command; identity matching is a fallback for legacy
+/// stores that contain no ambient record.
+/// When neither is present the login was never committed, so the command fails
+/// instead of exposing a dropped or replaced transient account.
+fn canonical_reauthenticated_account(
+    accounts: &[CodexAccount],
+    authenticated: &CodexAccount,
+) -> Result<CodexAccount, String> {
+    if let Some(account) = accounts
+        .iter()
+        .find(|account| account.source == codexbar::codex_accounts::CodexAccountSource::Ambient)
+    {
+        return Ok(account.clone());
+    }
+    if let Some(account) = accounts
+        .iter()
+        .find(|account| account.matches(authenticated))
+    {
+        return Ok(account.clone());
+    }
+    ambient_account(accounts)
 }
 
 fn accounts_changed(app: &tauri::AppHandle) {
@@ -653,6 +738,144 @@ mod tests {
             )),
             "The `codex` command could not be found."
         );
+    }
+
+    #[test]
+    fn ambient_account_selects_only_the_ambient_identity() {
+        let managed = sample_account();
+        let mut ambient = managed.clone();
+        ambient.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+
+        let selected = ambient_account(&[managed, ambient.clone()]).unwrap();
+
+        assert_eq!(selected.id, ambient.id);
+        assert_eq!(
+            selected.source,
+            codexbar::codex_accounts::CodexAccountSource::Ambient
+        );
+    }
+
+    #[test]
+    fn ambient_account_reports_when_no_ambient_identity_exists() {
+        assert_eq!(
+            ambient_account(&[sample_account()]).unwrap_err(),
+            "No ambient Codex account found."
+        );
+    }
+
+    #[test]
+    fn reconciled_ambient_identity_change_replaces_the_login_result() {
+        let mut stored = sample_account();
+        stored.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+        stored.provider_account_id = Some("old-workspace".into());
+        stored.email_hint = Some("old@example.com".into());
+
+        // Logging in as a different identity at the same ambient home.
+        let mut fresh = sample_account();
+        fresh.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+        fresh.provider_account_id = Some("new-workspace".into());
+        fresh.email_hint = Some("new@example.com".into());
+
+        let reconciled = reconcile_codex_accounts(&[stored.clone()], &[], Some(fresh));
+        assert_eq!(reconciled.len(), 1);
+        assert_ne!(reconciled[0].id, stored.id);
+
+        // `reauthenticate` reuses the pre-login id; the command must report the
+        // reconciled record so it agrees with the persisted store and events.
+        let mut authenticated = stored.clone();
+        authenticated.email_hint = Some("new@example.com".into());
+        let account = canonical_reauthenticated_account(&reconciled, &authenticated).unwrap();
+        assert_eq!(account.id, reconciled[0].id);
+        assert_ne!(account.id, authenticated.id);
+        assert_eq!(
+            account.source,
+            codexbar::codex_accounts::CodexAccountSource::Ambient
+        );
+        assert_eq!(
+            account.provider_account_id.as_deref(),
+            Some("new-workspace")
+        );
+    }
+
+    #[test]
+    fn canonical_reauthenticated_account_returns_the_persisted_replacement() {
+        let mut authenticated = sample_account();
+        authenticated.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+        authenticated.provider_account_id = Some("old-workspace".into());
+        authenticated.email_hint = Some("old@example.com".into());
+
+        let mut persisted = sample_account();
+        persisted.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+        persisted.provider_account_id = Some("new-workspace".into());
+        persisted.email_hint = Some("new@example.com".into());
+
+        let account =
+            canonical_reauthenticated_account(&[persisted.clone()], &authenticated).unwrap();
+        assert_eq!(account.id, persisted.id);
+        assert_ne!(account.id, authenticated.id);
+        assert_eq!(
+            account.provider_account_id.as_deref(),
+            Some("new-workspace")
+        );
+    }
+
+    #[test]
+    fn canonical_reauthenticated_account_returns_the_unchanged_persisted_reauth() {
+        let mut persisted = sample_account();
+        persisted.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+        persisted.nickname = Some("Work".into());
+        persisted.provider_account_id = Some("workspace".into());
+
+        // The login helper does not carry optional stored metadata.
+        let mut authenticated = persisted.clone();
+        authenticated.nickname = None;
+
+        let account =
+            canonical_reauthenticated_account(&[persisted.clone()], &authenticated).unwrap();
+        assert_eq!(account.id, persisted.id);
+        assert_eq!(account.nickname.as_deref(), Some("Work"));
+    }
+
+    #[test]
+    fn canonical_reauthenticated_account_prefers_ambient_over_matching_managed() {
+        let mut managed = sample_account();
+        managed.provider_account_id = Some("shared-workspace".into());
+
+        let mut ambient = managed.clone();
+        ambient.id = Uuid::new_v4();
+        ambient.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+
+        let account = canonical_reauthenticated_account(&[managed, ambient.clone()], &ambient)
+            .expect("persisted ambient account should be canonical");
+        assert_eq!(account.id, ambient.id);
+        assert_eq!(
+            account.source,
+            codexbar::codex_accounts::CodexAccountSource::Ambient
+        );
+    }
+
+    #[test]
+    fn canonical_reauthenticated_account_does_not_return_a_dropped_login() {
+        let mut authenticated = sample_account();
+        authenticated.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+        authenticated.provider_account_id = Some("dropped-workspace".into());
+        authenticated.email_hint = Some("dropped@example.com".into());
+
+        // The reconciled set dropped the login identity and holds no ambient
+        // record to replace it with.
+        let error =
+            canonical_reauthenticated_account(&[sample_account()], &authenticated).unwrap_err();
+        assert_eq!(error, "No ambient Codex account found.");
+    }
+
+    #[test]
+    fn canonical_reauthenticated_account_rejects_an_uncommitted_persistence_failure() {
+        let authenticated = sample_account();
+
+        // A failed persistence leaves no committed reconciled set; the transient
+        // login result must not be surfaced in its place.
+        let error = canonical_reauthenticated_account(&[], &authenticated).unwrap_err();
+        assert_eq!(error, "No ambient Codex account found.");
     }
 
     #[test]

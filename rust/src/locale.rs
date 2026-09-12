@@ -573,6 +573,7 @@ locale_keys! {
     ClaudeSwapUsageUnavailable,
     CodexAccountsHint,
     CodexAccountsAddButton,
+    CodexAccountsReauthenticateButton,
     CodexAccountsSwitchButton,
     CodexAccountsFetchButton,
     CodexAccountsRemoveButton,
