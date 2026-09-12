@@ -860,11 +860,18 @@ mod tests {
     fn process_is_alive(pid: u32) -> bool {
         use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
         use windows::Win32::System::Threading::{
-            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, WaitForSingleObject,
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+            WaitForSingleObject,
         };
 
         // SAFETY: OpenProcess returns a handle owned by this function and closed below.
-        match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+        match unsafe {
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                false,
+                pid,
+            )
+        } {
             Ok(handle) => {
                 // SAFETY: `handle` is a valid process handle.
                 let exited = unsafe { WaitForSingleObject(handle, 0) } == WAIT_OBJECT_0;
@@ -967,7 +974,6 @@ mod tests {
         );
 
         process.shutdown(Duration::from_secs(5)).await;
-
         assert!(!process_is_alive(pid), "shutdown stops the owned child");
     }
 
