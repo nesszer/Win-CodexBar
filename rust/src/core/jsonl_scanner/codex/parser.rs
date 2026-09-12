@@ -287,10 +287,10 @@ impl CodexParserState {
         range: &CostUsageDayRange,
         day_key: String,
         model: &str,
-        input: i32,
-        cached: i32,
-        output: i32,
-        reasoning: Option<i32>,
+        input: i64,
+        cached: i64,
+        output: i64,
+        reasoning: Option<i64>,
     ) {
         if !CostUsageDayRange::is_in_range(&day_key, &range.since_key, &range.until_key) {
             return;
@@ -320,7 +320,7 @@ impl CodexParserState {
             .to_string()
     }
 
-    fn token_deltas(&mut self, payload: &Value) -> Option<(i32, i32, i32, Option<i32>)> {
+    fn token_deltas(&mut self, payload: &Value) -> Option<(i64, i64, i64, Option<i64>)> {
         let info = payload.get("info");
         if let Some(total) = info.and_then(|i| i.get("total_token_usage")) {
             return Some(self.total_usage_delta(total));
@@ -342,7 +342,7 @@ impl CodexParserState {
     fn fast_token_deltas(
         &mut self,
         payload: &CodexFastPayload<'_>,
-    ) -> Option<(i32, i32, i32, Option<i32>)> {
+    ) -> Option<(i64, i64, i64, Option<i64>)> {
         if let Some(total) = payload
             .info
             .as_ref()
@@ -364,12 +364,12 @@ impl CodexParserState {
         ))
     }
 
-    pub(super) fn total_usage_delta(&mut self, total: &Value) -> (i32, i32, i32, Option<i32>) {
+    pub(super) fn total_usage_delta(&mut self, total: &Value) -> (i64, i64, i64, Option<i64>) {
         let totals = read_token_totals(total);
         self.apply_totals_delta(totals)
     }
 
-    fn fast_total_usage_delta(&mut self, total: CodexFastTotals) -> (i32, i32, i32, Option<i32>) {
+    fn fast_total_usage_delta(&mut self, total: CodexFastTotals) -> (i64, i64, i64, Option<i64>) {
         let totals = codex_totals_from_fast(total);
         self.apply_totals_delta(totals)
     }
@@ -377,7 +377,7 @@ impl CodexParserState {
     pub(super) fn apply_totals_delta(
         &mut self,
         totals: CodexTotals,
-    ) -> (i32, i32, i32, Option<i32>) {
+    ) -> (i64, i64, i64, Option<i64>) {
         self.latch_if_below_watermark(&totals);
 
         let delta = if self.saw_interleaved_totals {

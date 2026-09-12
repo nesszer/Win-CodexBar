@@ -703,22 +703,17 @@ impl CostUsagePricing {
     /// suffixes), then applies the Fast multiplier. Returns `None` when the
     /// model has no Fast lane or when a model without Astra's published
     /// long-context Fast rates exceeds the 272 000 threshold.
-    pub fn codex_fast_cost_usd(model: &str, input: i32, cached: i32, output: i32) -> Option<f64> {
+    pub fn codex_fast_cost_usd(model: &str, input: u64, cached: u64, output: u64) -> Option<f64> {
         let multiplier = Self::codex_api_fast_multiplier(model)?;
         // Older models do not offer Fast for long-context requests. Astra
         // publishes a Fast rate for the same whole-request long-context tier.
-        if (input.max(0) as u64) > codex_pricing::CODEX_LONG_CONTEXT_THRESHOLD
+        if input > codex_pricing::CODEX_LONG_CONTEXT_THRESHOLD
             && !codex_pricing::codex_fast_allows_long_context(model)
         {
             return None;
         }
         let base = Self::codex_fast_base_model(model);
-        let base_cost = Self::codex_cost_usd(
-            &base,
-            input.max(0) as u64,
-            cached.max(0) as u64,
-            output.max(0) as u64,
-        )?;
+        let base_cost = Self::codex_cost_usd(&base, input, cached, output)?;
         Some(base_cost * multiplier)
     }
 
@@ -782,25 +777,19 @@ impl CostUsagePricing {
 
     pub fn codex_fast_cost_usd_at_date(
         model: &str,
-        input: i32,
-        cached: i32,
-        output: i32,
+        input: u64,
+        cached: u64,
+        output: u64,
         pricing_date: NaiveDate,
     ) -> Option<f64> {
         let multiplier = Self::codex_api_fast_multiplier(model)?;
-        if (input.max(0) as u64) > codex_pricing::CODEX_LONG_CONTEXT_THRESHOLD
+        if input > codex_pricing::CODEX_LONG_CONTEXT_THRESHOLD
             && !codex_pricing::codex_fast_allows_long_context(model)
         {
             return None;
         }
         let base = Self::codex_fast_base_model(model);
-        let base_cost = Self::codex_cost_usd_at_date(
-            &base,
-            input.max(0) as u64,
-            cached.max(0) as u64,
-            output.max(0) as u64,
-            pricing_date,
-        )?;
+        let base_cost = Self::codex_cost_usd_at_date(&base, input, cached, output, pricing_date)?;
         Some(base_cost * multiplier)
     }
 

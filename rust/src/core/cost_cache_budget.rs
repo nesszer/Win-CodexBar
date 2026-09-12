@@ -71,6 +71,12 @@ fn touches_window(entry: &CostUsageFileUsage, since_key: &str, until_key: &str) 
         .any(|day| CostUsageDayRange::is_in_range(day, since_key, until_key))
 }
 
+/// Conservative JSON byte width of one packed token value. The totals table was
+/// widened from `i32` to `i64`, so a single value can serialize to up to 20
+/// bytes (19 digits plus a sign); budgeting 10 bytes would under-estimate the
+/// artifact and let pruning admit a cache that is already over budget.
+const PACKED_VALUE_BYTES: usize = 20;
+
 /// Cheap per-entry byte estimate (conservative overhead) so the save path can
 /// decide whether to prune *before* materializing the encoded document. Mirrors
 /// upstream `estimatedCodexCacheBytes`'s per-entry shape; it deliberately
@@ -84,7 +90,7 @@ fn estimated_entry_bytes(entry: &CostUsageFileUsage) -> usize {
     for (day, models) in &entry.days {
         bytes += day.len() + 32;
         for (model, packed) in models {
-            bytes += model.len() + 40 + packed.len() * 10;
+            bytes += model.len() + 40 + packed.len() * PACKED_VALUE_BYTES;
         }
     }
     bytes
@@ -93,7 +99,7 @@ fn estimated_entry_bytes(entry: &CostUsageFileUsage) -> usize {
 /// Conservative estimate of the encoded artifact size.
 pub fn estimated_cache_bytes(
     files: &HashMap<String, CostUsageFileUsage>,
-    days: &HashMap<String, HashMap<String, Vec<i32>>>,
+    days: &HashMap<String, HashMap<String, Vec<i64>>>,
 ) -> usize {
     let mut bytes = 4096;
     bytes += files.len() * 160;
@@ -103,7 +109,7 @@ pub fn estimated_cache_bytes(
     for (day, models) in days {
         bytes += day.len() + 32;
         for (model, packed) in models {
-            bytes += model.len() + 40 + packed.len() * 10;
+            bytes += model.len() + 40 + packed.len() * PACKED_VALUE_BYTES;
         }
     }
     bytes
@@ -121,7 +127,7 @@ pub fn estimated_cache_bytes(
 /// shape (no fork lineages, no discovery/lookback state).
 pub fn prune_out_of_window_for_budget(
     files: &mut HashMap<String, CostUsageFileUsage>,
-    days: &mut HashMap<String, HashMap<String, Vec<i32>>>,
+    days: &mut HashMap<String, HashMap<String, Vec<i64>>>,
     scan_since_key: Option<&str>,
     scan_until_key: Option<&str>,
     force: bool,
@@ -171,7 +177,7 @@ pub fn prune_out_of_window_for_budget(
 /// cache shape.
 pub fn trim_in_window_for_budget(
     files: &mut HashMap<String, CostUsageFileUsage>,
-    days: &mut HashMap<String, HashMap<String, Vec<i32>>>,
+    days: &mut HashMap<String, HashMap<String, Vec<i64>>>,
     scan_since_key: Option<&str>,
     scan_until_key: Option<&str>,
     max_bytes: usize,
@@ -248,8 +254,8 @@ pub fn trim_in_window_for_budget(
 /// of the scanner's `rebuild_cache_days` accumulation), so pruned entries do
 /// not inflate totals.
 fn subtract_entry_days(
-    days: &mut HashMap<String, HashMap<String, Vec<i32>>>,
-    entry_days: &HashMap<String, HashMap<String, Vec<i32>>>,
+    days: &mut HashMap<String, HashMap<String, Vec<i64>>>,
+    entry_days: &HashMap<String, HashMap<String, Vec<i64>>>,
 ) {
     let mut empty_days = Vec::new();
     for (day, models) in entry_days {
@@ -261,7 +267,7 @@ fn subtract_entry_days(
             let Some(dest) = day_entry.get_mut(model) else {
                 continue;
             };
-            for (i, value) in packed.iter().take(3).enumerate() {
+            for (i, value) in packed.iter().take(4).enumerate() {
                 if i < dest.len() {
                     dest[i] = dest[i].saturating_sub(*value);
                 }
@@ -315,7 +321,7 @@ mod tests {
     use super::*;
 
     fn entry(days: &[&str], parsed: Option<i64>, size: i64) -> CostUsageFileUsage {
-        let mut day_map: HashMap<String, HashMap<String, Vec<i32>>> = HashMap::new();
+        let mut day_map: HashMap<String, HashMap<String, Vec<i64>>> = HashMap::new();
         for day in days {
             day_map.insert(
                 (*day).to_string(),
@@ -342,12 +348,12 @@ mod tests {
 
     type TestCache = (
         HashMap<String, CostUsageFileUsage>,
-        HashMap<String, HashMap<String, Vec<i32>>>,
+        HashMap<String, HashMap<String, Vec<i64>>>,
     );
 
     fn cache(files: &[(&str, CostUsageFileUsage)]) -> TestCache {
         let mut file_map = HashMap::new();
-        let mut days: HashMap<String, HashMap<String, Vec<i32>>> = HashMap::new();
+        let mut days: HashMap<String, HashMap<String, Vec<i64>>> = HashMap::new();
         for (key, entry) in files {
             for (day, models) in &entry.days {
                 let day_entry = days.entry(day.clone()).or_default();
@@ -365,6 +371,24 @@ mod tests {
             file_map.insert((*key).to_string(), entry.clone());
         }
         (file_map, days)
+    }
+
+    #[test]
+    fn subtract_entry_days_removes_reasoning_slot() {
+        let day = "2026-01-10".to_string();
+        let model = "gpt-5.6-sol".to_string();
+        let mut days = HashMap::from([(
+            day.clone(),
+            HashMap::from([(model.clone(), vec![30, 12, 9, 6])]),
+        )]);
+        let entry_days = HashMap::from([(
+            day.clone(),
+            HashMap::from([(model.clone(), vec![10, 4, 3, 2])]),
+        )]);
+
+        subtract_entry_days(&mut days, &entry_days);
+
+        assert_eq!(days[&day][&model], vec![20, 8, 6, 4]);
     }
 
     #[test]
@@ -524,6 +548,45 @@ mod tests {
 
         assert!(!removed.is_empty(), "at least one dropped");
         assert!(files.contains_key("c"), "newest kept");
+    }
+
+    #[test]
+    fn estimated_entry_bytes_reserves_twenty_bytes_per_packed_i64_value() {
+        let day = "2026-01-09";
+        let model = "gpt-5.6-sol";
+        let three = entry(&[day], None, 100);
+        let mut four = entry(&[day], None, 100);
+        four.days
+            .get_mut(day)
+            .unwrap()
+            .insert(model.to_string(), vec![1, 2, 3, 4]);
+
+        assert_eq!(
+            estimated_entry_bytes(&four) - estimated_entry_bytes(&three),
+            20,
+            "each packed i64 slot must reserve its full 20-byte JSON width"
+        );
+    }
+
+    #[test]
+    fn estimated_cache_bytes_reserves_twenty_bytes_per_packed_i64_value_in_days() {
+        let day = "2026-01-09";
+        let model = "gpt-5.6-sol";
+        let files: HashMap<String, CostUsageFileUsage> = HashMap::new();
+        let three = HashMap::from([(
+            day.to_string(),
+            HashMap::from([(model.to_string(), vec![1_i64, 2, 3])]),
+        )]);
+        let four = HashMap::from([(
+            day.to_string(),
+            HashMap::from([(model.to_string(), vec![1_i64, 2, 3, 4])]),
+        )]);
+
+        assert_eq!(
+            estimated_cache_bytes(&files, &four) - estimated_cache_bytes(&files, &three),
+            20,
+            "each packed i64 slot in the aggregate day map must reserve 20 bytes"
+        );
     }
 
     #[test]

@@ -554,7 +554,7 @@ fn write_codex_session_fixture_with_inputs(
     path
 }
 
-fn cached_usage_with_packed(day: &str, model: &str, packed: Vec<i32>) -> CostUsageFileUsage {
+fn cached_usage_with_packed(day: &str, model: &str, packed: Vec<i64>) -> CostUsageFileUsage {
     CostUsageFileUsage {
         mtime_unix_ms: 0,
         size: 1,
@@ -600,7 +600,7 @@ fn rebuild_cache_days_preserves_known_reasoning() {
 
 #[test]
 fn rebuild_cache_days_reasoning_unknown_is_order_independent() {
-    let run = |first: Vec<i32>, second: Vec<i32>| {
+    let run = |first: Vec<i64>, second: Vec<i64>| {
         let day = Local::now().format("%Y-%m-%d").to_string();
         let mut cache = CostUsageCache {
             files: HashMap::from([
@@ -644,6 +644,72 @@ fn rebuild_cache_days_zero_row_does_not_poison_reasoning() {
     rebuild_cache_days(&mut cache);
 
     assert_eq!(cache.days[&day]["gpt-5"], vec![10, 0, 4, 3]);
+}
+
+#[test]
+fn rebuild_cache_days_aggregates_multiple_files_above_i32_max() {
+    let day = Local::now().format("%Y-%m-%d").to_string();
+    let mut cache = CostUsageCache {
+        files: HashMap::from([
+            (
+                "a".to_string(),
+                cached_usage_with_packed(&day, "gpt-5", vec![1_500_000_000, 1_400_000_000, 100]),
+            ),
+            (
+                "b".to_string(),
+                cached_usage_with_packed(&day, "gpt-5", vec![1_500_000_000, 1_400_000_000, 100]),
+            ),
+        ]),
+        ..CostUsageCache::default()
+    };
+
+    rebuild_cache_days(&mut cache);
+
+    assert_eq!(
+        cache.days[&day]["gpt-5"],
+        vec![3_000_000_000, 2_800_000_000, 200]
+    );
+}
+
+#[test]
+fn retained_report_sums_multiple_days_above_i32_max() {
+    let day_a = "2026-09-08";
+    let day_b = "2026-09-09";
+    let mut cache = CostUsageCache {
+        files: HashMap::from([
+            (
+                "a".to_string(),
+                cached_usage_with_packed(
+                    day_a,
+                    "gpt-5.6-sol",
+                    vec![1_500_000_000, 1_400_000_000, 1_000_000],
+                ),
+            ),
+            (
+                "b".to_string(),
+                cached_usage_with_packed(
+                    day_b,
+                    "gpt-5.6-sol",
+                    vec![1_500_000_000, 1_400_000_000, 1_000_000],
+                ),
+            ),
+        ]),
+        ..CostUsageCache::default()
+    };
+    rebuild_cache_days(&mut cache);
+
+    let report = JsonlScanner::cached_cost_report_from_days(&cache);
+    assert_eq!(report.input_tokens, 3_000_000_000);
+    assert_eq!(report.cached_tokens, 2_800_000_000);
+    assert_eq!(report.output_tokens, 2_000_000);
+
+    let start = chrono::NaiveDate::from_ymd_opt(2026, 9, 8).unwrap();
+    let end = chrono::NaiveDate::from_ymd_opt(2026, 9, 9).unwrap();
+    let summary = summary_from_cached_report(&report, start, end);
+    assert_eq!(summary.input_tokens, 3_000_000_000);
+    assert_eq!(summary.cached_tokens, 2_800_000_000);
+    assert_eq!(summary.output_tokens, 2_000_000);
+    assert_eq!(summary.sessions_count, 2);
 }
 
 #[test]
@@ -800,7 +866,7 @@ fn write_codex_fork_session_fixture(
     path
 }
 
-fn cached_input_total(usage: &CostUsageFileUsage) -> i32 {
+fn cached_input_total(usage: &CostUsageFileUsage) -> i64 {
     usage
         .days
         .values()

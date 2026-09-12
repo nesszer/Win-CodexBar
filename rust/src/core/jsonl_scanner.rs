@@ -31,6 +31,8 @@ pub struct CachedCostReadStatus {
 
 #[derive(Deserialize, Default)]
 struct CachedCostReadStatusProjection {
+    #[serde(default)]
+    codex_cache_schema_version: u32,
     #[serde(
         default,
         rename = "days",
@@ -182,12 +184,15 @@ pub enum CodexScanPauseReason {
 /// Cache for scanned file data
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CostUsageCache {
+    /// Codex cache schema. Version 0 is any pre-64-bit cache and must be rebuilt.
+    #[serde(default)]
+    pub codex_cache_schema_version: u32,
     /// Last scan timestamp in milliseconds
     pub last_scan_unix_ms: i64,
     /// Per-file usage data
     pub files: HashMap<String, CostUsageFileUsage>,
     /// Aggregated daily data: day_key -> model -> [input, cached, output, reasoning?]
-    pub days: HashMap<String, HashMap<String, Vec<i32>>>,
+    pub days: HashMap<String, HashMap<String, Vec<i64>>>,
     /// Inclusive range covered by the last successful full inspection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scan_since_key: Option<String>,
@@ -244,7 +249,7 @@ pub struct CostUsageFileUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_file_identity: Option<String>,
     /// Daily usage data extracted from this file
-    pub days: HashMap<String, HashMap<String, Vec<i32>>>,
+    pub days: HashMap<String, HashMap<String, Vec<i64>>>,
     /// Bytes parsed so far (for incremental parsing)
     pub parsed_bytes: Option<i64>,
     /// Frozen logical end of the scan target. A growing rollout may have a
@@ -293,11 +298,11 @@ pub(crate) struct CodexSessionMetadata {
 /// Running totals for Codex token counting
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexTotals {
-    pub input: i32,
-    pub cached: i32,
-    pub output: i32,
+    pub input: i64,
+    pub cached: i64,
+    pub output: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reasoning: Option<i32>,
+    pub reasoning: Option<i64>,
 }
 
 /// Snapshot of the last validated cost report, persisted so spend surfaces keep
@@ -309,14 +314,14 @@ pub struct CachedCostReport {
     /// Total cost in USD for the reported window.
     pub total_cost_usd: f64,
     /// Total input tokens.
-    pub input_tokens: i32,
+    pub input_tokens: i64,
     /// Total cached tokens.
-    pub cached_tokens: i32,
+    pub cached_tokens: i64,
     /// Total output tokens.
-    pub output_tokens: i32,
+    pub output_tokens: i64,
     /// Total reasoning output tokens when every contributing packed row knows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reasoning_tokens: Option<i32>,
+    pub reasoning_tokens: Option<i64>,
     /// Number of sessions contributing.
     pub sessions_count: i32,
     /// ISO 8601 timestamp when this report was generated.
@@ -360,10 +365,10 @@ pub struct CodexParseResult {
 pub struct CodexUsageRecord {
     pub day_key: String,
     pub model: String,
-    pub input: i32,
-    pub cached: i32,
-    pub output: i32,
-    pub reasoning: Option<i32>,
+    pub input: i64,
+    pub cached: i64,
+    pub output: i64,
+    pub reasoning: Option<i64>,
 }
 
 /// Day range for scanning
@@ -440,7 +445,11 @@ impl JsonlScanner {
         if let Ok(contents) = fs::read_to_string(&cache_path)
             && let Ok(mut cache) = serde_json::from_str::<CostUsageCache>(&contents)
         {
-            cache.loaded_stamp = Some(Some(CacheStamp::from_bytes(contents.as_bytes())));
+            let stamp = CacheStamp::from_bytes(contents.as_bytes());
+            if provider == ProviderId::Codex {
+                return codex::codex_cache_apply_load_policy(cache, stamp);
+            }
+            cache.loaded_stamp = Some(Some(stamp));
             return cache;
         }
 
@@ -480,6 +489,11 @@ impl JsonlScanner {
         else {
             return CachedCostReadStatus::default();
         };
+        if provider == ProviderId::Codex
+            && !codex::codex_cache_schema_is_current(projection.codex_cache_schema_version)
+        {
+            return CachedCostReadStatus::default();
+        }
         CachedCostReadStatus {
             has_days: projection.has_days,
             previous_report: projection.previous_report,
@@ -488,10 +502,10 @@ impl JsonlScanner {
     }
     pub(crate) fn cached_cost_report_from_days(cache: &CostUsageCache) -> CachedCostReport {
         let mut total_cost_usd = 0.0;
-        let mut input_tokens = 0_i32;
-        let mut cached_tokens = 0_i32;
-        let mut output_tokens = 0_i32;
-        let mut reasoning_tokens = 0_i32;
+        let mut input_tokens = 0_i64;
+        let mut cached_tokens = 0_i64;
+        let mut output_tokens = 0_i64;
+        let mut reasoning_tokens = 0_i64;
         let mut reasoning_known = true;
         let mut partial = false;
 
@@ -569,7 +583,7 @@ impl JsonlScanner {
     /// Merge one Codex record into a packed day/model row. A three-slot row is
     /// deliberately treated as reasoning-unknown, including when a known row
     /// is merged into an existing legacy row.
-    pub(crate) fn merge_codex_record_into_packed(packed: &mut Vec<i32>, record: &CodexUsageRecord) {
+    pub(crate) fn merge_codex_record_into_packed(packed: &mut Vec<i64>, record: &CodexUsageRecord) {
         let was_empty = packed.is_empty();
         if packed.len() < 3 {
             packed.resize(3, 0);
@@ -626,6 +640,9 @@ impl JsonlScanner {
             && Self::cache_stamp(&cache_path).as_ref() != expected.as_ref()
         {
             return;
+        }
+        if provider == ProviderId::Codex {
+            codex::codex_cache_stamp_schema_version(cache);
         }
 
         let Some(parent) = cache_path.parent() else {

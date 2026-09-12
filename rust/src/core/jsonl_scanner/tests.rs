@@ -120,6 +120,99 @@ fn fork_baseline_subtracts_known_reasoning_without_affecting_core_tokens() {
 }
 
 #[test]
+fn codex_token_pipeline_preserves_counts_above_i32_max() {
+    let parsed = read_token_totals(&serde_json::json!({
+        "input_tokens": 3_000_000_000_i64,
+        "cached_input_tokens": 2_800_000_000_i64,
+        "output_tokens": 200,
+    }));
+    assert_eq!(parsed.input, 3_000_000_000);
+    assert_eq!(parsed.cached, 2_800_000_000);
+    assert_eq!(parsed.output, 200);
+
+    let mut packed = Vec::new();
+    for _ in 0..2 {
+        JsonlScanner::merge_codex_record_into_packed(
+            &mut packed,
+            &CodexUsageRecord {
+                day_key: "2026-09-09".to_string(),
+                model: "gpt-5.6-luna".to_string(),
+                input: 1_500_000_000,
+                cached: 1_400_000_000,
+                output: 100,
+                reasoning: None,
+            },
+        );
+    }
+    assert_eq!(packed, vec![3_000_000_000, 2_800_000_000, 200]);
+
+    let mut cache = CostUsageCache::default();
+    cache.days.insert(
+        "2026-09-09".to_string(),
+        HashMap::from([("gpt-5.6-luna".to_string(), packed)]),
+    );
+    let report = JsonlScanner::cached_cost_report_from_days(&cache);
+    assert_eq!(report.input_tokens, 3_000_000_000);
+    assert_eq!(report.cached_tokens, 2_800_000_000);
+    assert_eq!(report.output_tokens, 200);
+}
+
+#[test]
+fn negative_cumulative_components_are_clamped_at_the_source() {
+    let value = serde_json::json!({
+        "input_tokens": -5,
+        "cached_input_tokens": -9,
+        "cache_read_input_tokens": -3,
+        "output_tokens": -2,
+        "reasoning_output_tokens": -1,
+    });
+    let totals = read_token_totals(&value);
+    assert_eq!(totals.input, 0);
+    assert_eq!(totals.cached, 0);
+    assert_eq!(totals.output, 0);
+    assert_eq!(totals.reasoning, Some(0));
+
+    let fast: CodexFastTotals = serde_json::from_value(value.clone()).unwrap();
+    let fast_totals = codex_totals_from_fast(fast);
+    assert_eq!(fast_totals.input, 0);
+    assert_eq!(fast_totals.cached, 0);
+    assert_eq!(fast_totals.output, 0);
+    assert_eq!(fast_totals.reasoning, Some(0));
+
+    // The payload borrows `&str` fields, so deserialize from a str rather than
+    // an owned `Value`.
+    let payload_json = value.to_string();
+    let payload: CodexFastPayload<'_> = serde_json::from_str(&payload_json).unwrap();
+    let payload_totals = fast_totals_from_payload(&payload);
+    assert_eq!(payload_totals.input, 0);
+    assert_eq!(payload_totals.cached, 0);
+    assert_eq!(payload_totals.output, 0);
+    assert_eq!(payload_totals.reasoning, Some(0));
+}
+
+#[test]
+fn negative_cumulative_totals_do_not_inflate_later_deltas() {
+    let mut state = CodexParserState::new(None, None);
+    // A malformed cumulative record with negative counts must be clamped so it
+    // cannot lower the high watermark below zero.
+    assert_eq!(
+        state.total_usage_delta(&serde_json::json!({
+            "input_tokens": -5,
+            "output_tokens": -2,
+        })),
+        (0, 0, 0, None)
+    );
+    // A later normal climb only counts its true growth above the clamped zero.
+    assert_eq!(
+        state.total_usage_delta(&serde_json::json!({
+            "input_tokens": 3,
+            "output_tokens": 1,
+        })),
+        (3, 0, 1, None)
+    );
+}
+
+#[test]
 fn legacy_packed_rows_remain_three_slots_and_report_reasoning_is_unknown() {
     let record = CodexUsageRecord {
         day_key: "2026-05-31".to_string(),
@@ -468,7 +561,7 @@ fn codex_append_timestamp_state_is_output_equivalent_and_boundary_only() {
         JsonlScanner::parse_codex_file(file.path(), &range, 0, None, None).expect("parse prefix");
     assert_eq!(prefix.token_timestamps_monotonic, Some(true));
     assert_eq!(prefix.token_timestamp_comparisons, 1);
-    let prefix_input: i32 = prefix.records.iter().map(|record| record.input).sum();
+    let prefix_input: i64 = prefix.records.iter().map(|record| record.input).sum();
 
     writeln!(
         file,
@@ -495,8 +588,8 @@ fn codex_append_timestamp_state_is_output_equivalent_and_boundary_only() {
 
     let full = JsonlScanner::parse_codex_file(file.path(), &range, 0, None, None)
         .expect("parse complete file");
-    let full_input: i32 = full.records.iter().map(|record| record.input).sum();
-    let appended_input: i32 = appended.records.iter().map(|record| record.input).sum();
+    let full_input: i64 = full.records.iter().map(|record| record.input).sum();
+    let appended_input: i64 = appended.records.iter().map(|record| record.input).sum();
     assert_eq!(prefix_input + appended_input, full_input);
     assert_eq!(full_input, 30);
 }
@@ -853,8 +946,8 @@ fn interleaved_lineage_totals_never_exceed_high_watermark_growth() {
         &range,
     );
 
-    let total_input: i32 = parser.records.iter().map(|r| r.input).sum();
-    let total_output: i32 = parser.records.iter().map(|r| r.output).sum();
+    let total_input: i64 = parser.records.iter().map(|r| r.input).sum();
+    let total_output: i64 = parser.records.iter().map(|r| r.output).sum();
     assert!(
         total_input <= 101,
         "input inflated to {total_input}, expected <= 101"
@@ -883,8 +976,8 @@ fn interleaved_lineage_mid_range_climb_below_watermark_does_not_readd() {
         );
     }
 
-    let total_input: i32 = parser.records.iter().map(|r| r.input).sum();
-    let total_output: i32 = parser.records.iter().map(|r| r.output).sum();
+    let total_input: i64 = parser.records.iter().map(|r| r.input).sum();
+    let total_output: i64 = parser.records.iter().map(|r| r.output).sum();
     assert!(
         total_input <= 101,
         "mid-range climb re-added input to {total_input}, expected <= 101"
@@ -1106,6 +1199,88 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
     assert_eq!(report.sessions_count, 1);
     assert!(!report.partial);
     assert!(report.updated_at.is_some());
+}
+
+#[test]
+fn codex_cache_round_trip_preserves_64_bit_counts_and_rebuilds_legacy_schema() {
+    let root = tempfile::tempdir().unwrap();
+    let cache_root = root.path();
+    let mut cache = CostUsageCache::default();
+    cache.days.insert(
+        "2026-09-09".to_string(),
+        HashMap::from([(
+            "gpt-5.6-luna".to_string(),
+            vec![3_000_000_000, 2_800_000_000, 200],
+        )]),
+    );
+
+    JsonlScanner::save_cache(ProviderId::Codex, &mut cache, Some(cache_root));
+    let loaded = JsonlScanner::load_cache(ProviderId::Codex, Some(cache_root));
+    assert_eq!(
+        loaded.days["2026-09-09"]["gpt-5.6-luna"],
+        vec![3_000_000_000, 2_800_000_000, 200]
+    );
+
+    let cache_path = JsonlScanner::cache_path(ProviderId::Codex, Some(cache_root));
+    let mut legacy: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("codex_cache_schema_version");
+    std::fs::write(&cache_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+
+    let invalidated = JsonlScanner::load_cache(ProviderId::Codex, Some(cache_root));
+    assert!(invalidated.days.is_empty());
+    assert!(invalidated.files.is_empty());
+    let status = JsonlScanner::load_cache_status(ProviderId::Codex, Some(cache_root));
+    assert!(!status.has_days);
+    assert!(status.previous_report.is_none());
+}
+
+#[test]
+fn codex_cache_schema_policy_helpers_rebuild_mismatched_load() {
+    let stamp = CacheStamp::from_bytes(b"baseline");
+
+    let legacy = CostUsageCache {
+        codex_cache_schema_version: 0,
+        days: HashMap::from([(
+            "2026-09-09".to_string(),
+            HashMap::from([("gpt-5.6-luna".to_string(), vec![1, 2, 3])]),
+        )]),
+        ..CostUsageCache::default()
+    };
+    let rebuilt = codex_cache_apply_load_policy(legacy, stamp.clone());
+    assert_eq!(
+        rebuilt.codex_cache_schema_version,
+        CODEX_CACHE_SCHEMA_VERSION
+    );
+    assert!(rebuilt.days.is_empty());
+    assert!(rebuilt.files.is_empty());
+    assert!(rebuilt.loaded_stamp.is_some());
+
+    let current = CostUsageCache {
+        codex_cache_schema_version: CODEX_CACHE_SCHEMA_VERSION,
+        days: HashMap::from([(
+            "2026-09-09".to_string(),
+            HashMap::from([("gpt-5.6-luna".to_string(), vec![1, 2, 3])]),
+        )]),
+        ..CostUsageCache::default()
+    };
+    let kept = codex_cache_apply_load_policy(current, stamp);
+    assert_eq!(kept.codex_cache_schema_version, CODEX_CACHE_SCHEMA_VERSION);
+    assert_eq!(kept.days["2026-09-09"]["gpt-5.6-luna"], vec![1, 2, 3]);
+    assert!(kept.loaded_stamp.is_some());
+
+    assert!(codex_cache_schema_is_current(CODEX_CACHE_SCHEMA_VERSION));
+    assert!(!codex_cache_schema_is_current(0));
+
+    let mut stamped = CostUsageCache::default();
+    codex_cache_stamp_schema_version(&mut stamped);
+    assert_eq!(
+        stamped.codex_cache_schema_version,
+        CODEX_CACHE_SCHEMA_VERSION
+    );
 }
 
 #[test]
