@@ -61,9 +61,7 @@ impl MetaProvider {
     }
 
     async fn probe_models(&self, api_key: &str) -> Result<UsageSnapshot, ProviderError> {
-        let url = api_base_url()
-            .join("models")
-            .map_err(|e| ProviderError::Other(format!("Invalid Meta API URL: {e}")))?;
+        let url = models_url(&api_base_url())?;
         let response = self
             .client
             .get(url)
@@ -155,6 +153,21 @@ fn api_base_url() -> Url {
         .unwrap_or_else(|| Url::parse(META_API_BASE).expect("static Meta URL is valid"))
 }
 
+/// Resolve the `GET /v1/models` endpoint from a configured API base.
+///
+/// The base is treated as a directory, so both `https://api.meta.ai/v1` and
+/// `https://api.meta.ai/v1/` resolve to `https://api.meta.ai/v1/models`
+/// instead of `Url::join` dropping the `v1` segment for the no-trailing-slash
+/// form. A bare host resolves to `https://api.meta.ai/models`.
+fn models_url(base: &Url) -> Result<Url, ProviderError> {
+    let mut url = base.clone();
+    url.path_segments_mut()
+        .map_err(|_| ProviderError::Other("Meta API URL cannot be used as a base URL".to_string()))?
+        .pop_if_empty()
+        .push("models");
+    Ok(url)
+}
+
 /// Parse the `muse-spark-*` model ids from a `GET /v1/models` payload.
 ///
 /// The upstream shape is OpenAI-style (`{"data": [{"id": ...}]}`); entries
@@ -177,13 +190,15 @@ fn parse_muse_spark_models(body: &str) -> Result<Vec<String>, ProviderError> {
 fn snapshot_from_models(models: &[String]) -> UsageSnapshot {
     // No usage percentages exist: Meta publishes no billing/usage REST API,
     // so the primary window stays at 0% and carries the reachable model
-    // list as its note. Cost is left absent (unknown, never $0).
+    // list as its note. It is marked informational so consumers never treat
+    // the placeholder as real quota usage. Cost is left absent (unknown,
+    // never $0).
     let note = if models.is_empty() {
         "Key valid, no muse-spark models listed".to_string()
     } else {
         format!("Key valid: {}", models.join(", "))
     };
-    let primary = RateWindow::with_details(0.0, None, None, Some(note));
+    let primary = RateWindow::informational(note);
     UsageSnapshot::new(primary).with_login_method("Meta Model API")
 }
 
@@ -224,6 +239,7 @@ mod tests {
 
         let snapshot = snapshot_from_models(&models);
         assert_eq!(snapshot.primary.used_percent, 0.0);
+        assert!(snapshot.primary.is_informational);
         assert_eq!(
             snapshot.primary.reset_description.as_deref(),
             Some("Key valid, no muse-spark models listed")
@@ -242,11 +258,56 @@ mod tests {
             snapshot_from_models(&["muse-spark-1.3".to_string(), "muse-spark-1.2".to_string()]);
         // Sorted by the parser in practice; this unit path preserves order.
         assert_eq!(snapshot.primary.used_percent, 0.0);
+        assert!(snapshot.primary.is_informational);
         assert_eq!(
             snapshot.primary.reset_description.as_deref(),
             Some("Key valid: muse-spark-1.3, muse-spark-1.2")
         );
         assert_eq!(snapshot.login_method.as_deref(), Some("Meta Model API"));
+
+        // Cost stays absent through the fetch result: no quota API exists, so
+        // a synthesized $0 would be a false reading.
+        let result = ProviderFetchResult::new(snapshot, "api");
+        assert!(result.cost.is_none());
+        assert!(result.usage.primary.is_informational);
+    }
+
+    #[test]
+    fn default_models_url_preserves_v1_path() {
+        let base = Url::parse(META_API_BASE).unwrap();
+        assert_eq!(
+            models_url(&base).unwrap().as_str(),
+            "https://api.meta.ai/v1/models"
+        );
+    }
+
+    #[test]
+    fn models_url_treats_configured_base_as_directory() {
+        for (base, expected) in [
+            ("https://api.meta.ai/v1", "https://api.meta.ai/v1/models"),
+            ("https://api.meta.ai/v1/", "https://api.meta.ai/v1/models"),
+            ("https://api.meta.ai", "https://api.meta.ai/models"),
+            ("https://api.meta.ai/", "https://api.meta.ai/models"),
+            (
+                "https://gateway.example.com/meta/v1",
+                "https://gateway.example.com/meta/v1/models",
+            ),
+            (
+                "https://gateway.example.com/meta/v1/",
+                "https://gateway.example.com/meta/v1/models",
+            ),
+            (
+                "https://gateway.example.com/proxy",
+                "https://gateway.example.com/proxy/models",
+            ),
+        ] {
+            let parsed = Url::parse(base).unwrap();
+            assert_eq!(
+                models_url(&parsed).unwrap().as_str(),
+                expected,
+                "base {base}"
+            );
+        }
     }
 
     #[test]
