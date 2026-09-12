@@ -394,6 +394,14 @@ pub struct ProviderConfig {
     /// Claude-only: avoid keychain prompts when reading credentials.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub avoid_keychain_prompts: bool,
+    /// Claude-only: opt in to reading external accounts from the claude-swap
+    /// (`cswap`) executable. Disabled by default; CodexBar never reads or stores
+    /// claude-swap credentials (issue #477).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_swap_enabled: bool,
+    /// Claude-only: path to the claude-swap (`cswap`) executable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_swap_executable_path: Option<String>,
     /// Per-provider accent color override (hex, e.g. "#FF5733"). `None`
     /// means the shipped brand color is used (#2972).
     #[serde(skip_serializing_if = "Option::is_none")]

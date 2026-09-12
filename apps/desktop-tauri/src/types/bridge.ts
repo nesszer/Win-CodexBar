@@ -222,6 +222,10 @@ export interface SettingsSnapshot {
   trayScalePercent: number;
   powertoysStatusPipeEnabled: boolean;
   claudeAvoidKeychainPrompts: boolean;
+  /** Opt-in external claude-swap (`cswap`) account import (Claude only). */
+  claudeSwapEnabled?: boolean;
+  /** Path to the cswap executable (Claude only, empty when unset). */
+  claudeSwapExecutablePath?: string;
   codexSparkUsageVisible: boolean;
   disableKeychainAccess: boolean;
   wayfinderGatewayUrl?: string;
@@ -315,6 +319,8 @@ export interface SettingsUpdate {
   powertoysStatusPipeEnabled?: boolean;
   claudeAvoidKeychainPrompts?: boolean;
   claudeAllowReadingClaudeCodeCredentials?: boolean;
+  claudeSwapEnabled?: boolean;
+  claudeSwapExecutablePath?: string;
   codexSparkUsageVisible?: boolean;
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */
@@ -982,4 +988,46 @@ export interface ClaudeAccount {
   plan: string | null;
   isActive: boolean;
   isSaved: boolean;
+}
+
+/** One source-issued usage window from the external claude-swap adapter. */
+export interface ClaudeSwapUsageWindow {
+  usedPercent: number;
+  /** RFC 3339 timestamp, or null when cswap reported no reset. */
+  resetsAt: string | null;
+}
+
+export interface ClaudeSwapScopedWindow extends ClaudeSwapUsageWindow {
+  /** Display-only provider/model label (e.g. "Fable only"). */
+  name: string;
+}
+
+/**
+ * One external claude-swap account. Identity is the source-issued numeric slot
+ * (`claude-swap:<slot>`); CodexBar never reads or stores its credentials.
+ */
+export interface ClaudeSwapAccount {
+  id: string;
+  slot: number;
+  /** Privacy-aware display label (alias, email, or `Account N`). */
+  label: string;
+  email: string | null;
+  organization: string | null;
+  alias: string | null;
+  isActive: boolean;
+  canActivate: boolean;
+  /** Raw cswap usageStatus label (e.g. "ok", "token_expired"). */
+  status: string;
+  error: string | null;
+  fiveHour: ClaudeSwapUsageWindow | null;
+  sevenDay: ClaudeSwapUsageWindow | null;
+  scoped: ClaudeSwapScopedWindow[];
+}
+
+/** External claude-swap adapter state for the Claude accounts settings section. */
+export interface ClaudeSwapAccountsState {
+  enabled: boolean;
+  executableConfigured: boolean;
+  accounts: ClaudeSwapAccount[];
+  error: string | null;
 }

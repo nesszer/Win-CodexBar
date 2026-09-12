@@ -55,6 +55,8 @@ pub struct SettingsUpdate {
     pub powertoys_status_pipe_enabled: Option<bool>,
     pub claude_avoid_keychain_prompts: Option<bool>,
     pub claude_allow_reading_claude_code_credentials: Option<bool>,
+    pub claude_swap_enabled: Option<bool>,
+    pub claude_swap_executable_path: Option<String>,
     pub codex_spark_usage_visible: Option<bool>,
     pub disable_keychain_access: Option<bool>,
     /// Map of provider CLI name → metric preference label.
@@ -332,6 +334,12 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.claude_allow_reading_claude_code_credentials {
             settings.claude_allow_reading_claude_code_credentials = v;
+        }
+        if let Some(v) = self.claude_swap_enabled {
+            settings.set_claude_swap_enabled(v);
+        }
+        if let Some(v) = self.claude_swap_executable_path.clone() {
+            settings.set_claude_swap_executable_path(v);
         }
         if let Some(v) = self.codex_spark_usage_visible {
             settings.set_codex_spark_usage_visible(v);

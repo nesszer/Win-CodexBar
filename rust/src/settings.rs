@@ -1213,6 +1213,37 @@ impl Settings {
         self.set_avoid_keychain_prompts(ProviderId::Claude, v)
     }
 
+    /// Claude-only: whether the external claude-swap (`cswap`) adapter is
+    /// enabled. Disabled by default.
+    pub fn claude_swap_enabled(&self) -> bool {
+        self.provider_configs
+            .get(&ProviderId::Claude)
+            .map(|config| config.claude_swap_enabled)
+            .unwrap_or(false)
+    }
+
+    pub fn set_claude_swap_enabled(&mut self, value: bool) {
+        self.provider_config_mut(ProviderId::Claude).claude_swap_enabled = value;
+    }
+
+    /// Claude-only: configured claude-swap executable path, or `""` when unset.
+    pub fn claude_swap_executable_path(&self) -> &str {
+        self.provider_configs
+            .get(&ProviderId::Claude)
+            .and_then(|config| config.claude_swap_executable_path.as_deref())
+            .unwrap_or("")
+    }
+
+    pub fn set_claude_swap_executable_path(&mut self, value: impl Into<String>) {
+        let trimmed = value.into().trim().to_string();
+        let config = self.provider_config_mut(ProviderId::Claude);
+        config.claude_swap_executable_path = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }
+
     // ── Per-provider accent color override (#2972) ──────────────────
 
     /// The user-overridden accent color for `id`, or `None` to use the

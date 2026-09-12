@@ -5,6 +5,8 @@ import type { ClaudeAccount } from "../../../../../types/bridge";
 const mocks = vi.hoisted(() => ({
   claudeAccountsList: vi.fn(), claudeAccountAdd: vi.fn(), claudeAccountCancelLogin: vi.fn(),
   claudeAccountSaveCurrent: vi.fn(), claudeAccountRemove: vi.fn(), claudeAccountSwitch: vi.fn(),
+  claudeSwapAccountsList: vi.fn(), claudeSwapAccountSwitch: vi.fn(),
+  getSettingsSnapshot: vi.fn(), updateSettings: vi.fn(),
 }));
 const events = vi.hoisted(() => ({ listen: vi.fn<(event: string, listener: () => void) => Promise<() => void>>() }));
 vi.mock("../../../../../lib/tauri", () => mocks);
@@ -20,6 +22,16 @@ describe("ClaudeAccountsSection", () => {
     vi.resetAllMocks();
     events.listen.mockResolvedValue(() => {});
     mocks.claudeAccountsList.mockResolvedValue([current, other]);
+    mocks.claudeSwapAccountsList.mockResolvedValue({
+      enabled: false,
+      executableConfigured: false,
+      accounts: [],
+      error: null,
+    });
+    mocks.getSettingsSnapshot.mockResolvedValue({
+      claudeSwapEnabled: false,
+      claudeSwapExecutablePath: "",
+    });
   });
 
   it("offers to save the discovered account and switches only saved inactive accounts", async () => {
