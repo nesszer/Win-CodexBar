@@ -317,12 +317,16 @@ impl ManagedChild {
 struct PseudoConsole {
     con: HPCON,
     input: Option<OwnedHandle>,
-    output: OwnedHandle,
+    output: Option<OwnedHandle>,
 }
 
 impl PseudoConsole {
     fn try_clone_reader(&self) -> std::io::Result<Box<dyn Read + Send>> {
-        let handle = self.output.try_clone()?;
+        let handle = self
+            .output
+            .as_ref()
+            .expect("PTY output remains owned until cleanup")
+            .try_clone()?;
         Ok(Box::new(File::from(handle)))
     }
 
@@ -335,6 +339,9 @@ impl PseudoConsole {
 
 impl Drop for PseudoConsole {
     fn drop(&mut self) {
+        // Close the parent-side output before asking ConPTY to close. Windows
+        // may wait in ClosePseudoConsole while an output pipe remains open.
+        drop(self.output.take());
         if !self.con.is_invalid() {
             // SAFETY: this pseudoconsole was created here and is closed once.
             unsafe { ClosePseudoConsole(self.con) };
@@ -380,7 +387,7 @@ fn spawn_pty_child(
     let pty = PseudoConsole {
         con,
         input: Some(input_write),
-        output: output_read,
+        output: Some(output_read),
     };
 
     let mut cmdline = build_command_line(&config.program, &config.args)?;
@@ -907,6 +914,25 @@ mod tests {
         assert_eq!(terminal_cursor_reply_allowance(0, 2), 2);
         assert_eq!(terminal_cursor_reply_allowance(31, 4), 1);
         assert_eq!(terminal_cursor_reply_allowance(MAX_CURSOR_REPLIES, 1), 0);
+    }
+
+    #[test]
+    fn failed_spawn_closes_pseudoconsole_promptly() {
+        let mut config = test_config();
+        config.args.push(OsString::from("\0"));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let failed = ManagedProcess::spawn(&config).is_err();
+            sender
+                .send(failed)
+                .expect("failure result receiver remains available");
+        });
+
+        assert!(
+            receiver
+                .recv_timeout(Duration::from_secs(3))
+                .expect("post-ConPTY setup failure should return promptly")
+        );
     }
 
     #[test]
