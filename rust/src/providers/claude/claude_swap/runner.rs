@@ -14,11 +14,17 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 #[cfg(windows)]
 use windows::Win32::Foundation::HANDLE;
 #[cfg(windows)]
+use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+};
+#[cfg(windows)]
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_BASIC_LIMIT_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
 };
+#[cfg(windows)]
+use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
 #[cfg(windows)]
 use windows::core::PCWSTR;
 
@@ -33,6 +39,16 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const SWITCH_TIMEOUT: Duration = Duration::from_secs(300);
 /// How often the runner polls the child and the reader channel.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
+/// Create the helper suspended so it cannot run before job containment.
+#[cfg(windows)]
+const CREATE_SUSPENDED: u32 = 0x0000_0004;
+/// Keep the helper headless, matching the previous spawn behavior.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Upper bound for reaping a terminated direct child. The job guard is dropped
+/// (reaping descendants) before this wait, so it can never block indefinitely.
+#[cfg(windows)]
+const CHILD_REAP_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Exact argument arrays. Pure so the no-shell contract is testable.
 pub fn list_arguments() -> Vec<String> {
@@ -123,6 +139,22 @@ impl ProcessTreeGuard {
             .map_err(|error| format!("failed to create cswap job: {error}"))?;
         // SAFETY: `raw` is a valid, unique handle returned by CreateJobObjectW.
         let job = unsafe { OwnedHandle::from_raw_handle(raw.0) };
+        Self::set_kill_on_close(&job)?;
+        // SAFETY: `job` is a valid job handle and `child` is a live process.
+        unsafe {
+            // The direct child is the only process created by this runner and
+            // was created suspended, so this assignment always happens before
+            // it can run user code. Descendants it creates are contained too.
+            AssignProcessToJobObject(raw_handle(&job), HANDLE(child.as_raw_handle()))
+                .map_err(|error| format!("failed to contain cswap process tree: {error}"))?;
+        }
+        Ok(Self { job })
+    }
+
+    /// Arm `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` so closing the last job handle
+    /// reaps whatever remains in the job. Idempotent, and re-used as the
+    /// fail-safe when explicit termination fails.
+    fn set_kill_on_close(job: &OwnedHandle) -> Result<(), String> {
         let limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
             BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
                 LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -135,44 +167,147 @@ impl ProcessTreeGuard {
         // SAFETY: `job` is valid and `limits` is initialized for this API.
         unsafe {
             SetInformationJobObject(
-                Self::handle(&job),
+                raw_handle(job),
                 JobObjectExtendedLimitInformation,
                 (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
                 size,
             )
-            .map_err(|error| format!("failed to configure cswap job: {error}"))?;
-            // The direct child is the only process created by this runner.
-            // Any descendants it creates are then contained by the job too.
-            AssignProcessToJobObject(Self::handle(&job), HANDLE(child.as_raw_handle()))
-                .map_err(|error| format!("failed to contain cswap process tree: {error}"))?;
         }
-        Ok(Self { job })
+        .map_err(|error| format!("failed to configure cswap job: {error}"))
     }
 
-    fn terminate(&self) {
+    /// Explicitly terminate every process in the job. The error is returned so
+    /// the caller can fall back to `KILL_ON_JOB_CLOSE` instead of assuming the
+    /// tree is gone.
+    fn terminate(&self) -> Result<(), String> {
         // SAFETY: this job contains only the helper process tree created above.
-        let _ = unsafe { TerminateJobObject(Self::handle(&self.job), 1) };
-    }
-
-    fn handle(job: &OwnedHandle) -> HANDLE {
-        HANDLE(job.as_raw_handle())
+        unsafe { TerminateJobObject(raw_handle(&self.job), 1) }
+            .map_err(|error| format!("failed to terminate cswap process tree: {error}"))
     }
 }
 
 #[cfg(windows)]
-fn terminate_child_tree(child: &mut Child, tree: Option<&ProcessTreeGuard>) {
-    if let Some(tree) = tree {
-        tree.terminate();
-    } else {
-        let _ = child.kill();
+fn raw_handle(handle: &OwnedHandle) -> HANDLE {
+    HANDLE(handle.as_raw_handle())
+}
+
+/// Resume the single thread of a child created with `CREATE_SUSPENDED`.
+///
+/// `std::process::Child` does not expose the primary thread handle, so the
+/// suspended thread is located through a snapshot. The child was assigned to
+/// the containment job before this runs, closing the pre-assignment escape
+/// race; only a successfully contained child is ever released.
+#[cfg(windows)]
+fn resume_suspended_child(process_id: u32) -> Result<(), String> {
+    // SAFETY: a successful call returns a unique snapshot handle owned below.
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) }
+        .map_err(|error| format!("failed to enumerate cswap threads: {error}"))?;
+    // SAFETY: `snapshot` is a valid, unique handle returned just above.
+    let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot.0) };
+
+    let mut entry = THREADENTRY32 {
+        dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
+            .map_err(|error| format!("invalid cswap thread entry size: {error}"))?,
+        ..Default::default()
+    };
+    let mut resumed = 0usize;
+    // SAFETY: the snapshot handle is live and `entry.dwSize` is correct.
+    if unsafe { Thread32First(raw_handle(&snapshot), &mut entry) }.is_ok() {
+        loop {
+            if entry.th32OwnerProcessID == process_id {
+                // SAFETY: the thread id comes from a live snapshot and the
+                // returned handle is owned below.
+                if let Ok(thread) =
+                    unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) }
+                {
+                    // SAFETY: `thread` is a live handle returned by OpenThread;
+                    // wrapping and resuming it in one scope keeps it open for
+                    // the resume call, which releases the suspended child.
+                    let previous = unsafe {
+                        let thread = OwnedHandle::from_raw_handle(thread.0);
+                        ResumeThread(raw_handle(&thread))
+                    };
+                    if previous != u32::MAX {
+                        resumed += 1;
+                    }
+                }
+            }
+            // SAFETY: `entry` is valid for the next snapshot entry.
+            if unsafe { Thread32Next(raw_handle(&snapshot), &mut entry) }.is_err() {
+                break;
+            }
+        }
     }
-    let _ = child.wait();
+
+    if resumed == 0 {
+        return Err("failed to resume cswap process after containment.".to_string());
+    }
+    Ok(())
+}
+
+/// Terminate the helper process tree without ever waiting unbounded.
+///
+/// `TerminateJobObject` is attempted first. If it fails, the direct child is
+/// still killed, `KILL_ON_JOB_CLOSE` is re-armed, and the guard is dropped so
+/// closing the job handle reaps any survivor. The child is then reaped under a
+/// bounded timeout rather than an unbounded `wait()`.
+#[cfg(windows)]
+fn terminate_child_tree(child: &mut Child, tree: Option<ProcessTreeGuard>) {
+    // Kill the direct child unconditionally as the fallback; skip the kill
+    // when it already exited so a benign race is not reported as a failure.
+    let direct_kill_failed = match child.try_wait() {
+        Ok(Some(_)) => false,
+        Ok(None) | Err(_) => child.kill().is_err(),
+    };
+
+    if let Some(tree) = tree {
+        if let Err(error) = tree.terminate() {
+            tracing::warn!(
+                %error,
+                "cswap job termination failed; arming kill-on-close and killing direct child"
+            );
+            if let Err(limit_error) = ProcessTreeGuard::set_kill_on_close(&tree.job) {
+                tracing::warn!(%limit_error, "failed to re-arm cswap kill-on-close");
+            }
+        }
+        // Close the last job handle before waiting. When KILL_ON_JOB_CLOSE is
+        // armed this reaps every descendant that explicit termination missed.
+        drop(tree);
+    }
+
+    if direct_kill_failed {
+        tracing::warn!("failed to kill the direct cswap child; relying on job containment");
+    }
+
+    wait_bounded_for_child(child);
+}
+
+/// Reap the direct child for at most [`CHILD_REAP_TIMEOUT`], never blocking
+/// indefinitely even if containment failed to terminate it.
+#[cfg(windows)]
+fn wait_bounded_for_child(child: &mut Child) {
+    let deadline = Instant::now() + CHILD_REAP_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) | Err(_) => return,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    return;
+                }
+                std::thread::sleep(POLL_INTERVAL);
+            }
+        }
+    }
 }
 
 #[cfg(not(windows))]
 fn terminate_child_tree(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+    if let Err(error) = child.kill() {
+        tracing::warn!(%error, "failed to kill the direct claude-swap child");
+    }
+    if let Err(error) = child.wait() {
+        tracing::warn!(%error, "failed to reap the direct claude-swap child");
+    }
 }
 
 /// Run a fixed argument array against a wall-clock deadline.
@@ -196,16 +331,25 @@ fn run_bounded(
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
+        // The helper starts suspended so it cannot execute any user code before
+        // it is assigned to the containment job below.
+        command.creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
     }
 
     let mut child = command
         .spawn()
         .map_err(|e| ClaudeSwapError::Process(e.to_string()))?;
     #[cfg(windows)]
-    let process_tree = match ProcessTreeGuard::attach(&child) {
-        Ok(tree) => Some(tree),
+    let mut process_tree = match ProcessTreeGuard::attach(&child) {
+        Ok(tree) => {
+            // Assignment succeeded while the only thread is still suspended;
+            // release it now so containment always precedes execution.
+            if let Err(error) = resume_suspended_child(child.id()) {
+                terminate_child_tree(&mut child, Some(tree));
+                return Err(ClaudeSwapError::Process(error));
+            }
+            Some(tree)
+        }
         Err(error) => {
             terminate_child_tree(&mut child, None);
             return Err(ClaudeSwapError::Process(error));
@@ -215,7 +359,7 @@ fn run_bounded(
         Some(stdout) => stdout,
         None => {
             #[cfg(windows)]
-            terminate_child_tree(&mut child, process_tree.as_ref());
+            terminate_child_tree(&mut child, process_tree.take());
             #[cfg(not(windows))]
             terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::Process(
@@ -227,7 +371,7 @@ fn run_bounded(
         Some(stderr) => stderr,
         None => {
             #[cfg(windows)]
-            terminate_child_tree(&mut child, process_tree.as_ref());
+            terminate_child_tree(&mut child, process_tree.take());
             #[cfg(not(windows))]
             terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::Process(
@@ -248,6 +392,7 @@ fn run_bounded(
     let deadline = Instant::now() + timeout;
     let mut stdout_outcome: Option<RunOutcome> = None;
     let mut stderr_done = false;
+    let mut child_exited = false;
     loop {
         let mut disconnected = false;
         loop {
@@ -261,12 +406,33 @@ fn run_bounded(
                 }
             }
         }
-        if stdout_outcome.is_some() && stderr_done {
+        let readers_done = stdout_outcome.is_some() && stderr_done;
+
+        match child.try_wait() {
+            // The direct child reporting an exit status is required for
+            // success; readers reaching EOF is not sufficient. A child may
+            // close its streams while still running, and a descendant can own
+            // the pipe write handles, so keep bounded polling until exit or
+            // the wall-clock deadline.
+            Ok(Some(_status)) => child_exited = true,
+            Ok(None) => {}
+            Err(e) => {
+                #[cfg(windows)]
+                terminate_child_tree(&mut child, process_tree.take());
+                #[cfg(not(windows))]
+                terminate_child_tree(&mut child);
+                return Err(ClaudeSwapError::Process(e.to_string()));
+            }
+        }
+
+        if readers_done && child_exited {
             break;
         }
-        if disconnected {
+        // A disconnected channel only means failure when a reader ended
+        // without delivering its outcome; after both readers send it is normal.
+        if disconnected && !readers_done {
             #[cfg(windows)]
-            terminate_child_tree(&mut child, process_tree.as_ref());
+            terminate_child_tree(&mut child, process_tree.take());
             #[cfg(not(windows))]
             terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::Process(
@@ -275,23 +441,12 @@ fn run_bounded(
         }
         if Instant::now() >= deadline {
             #[cfg(windows)]
-            terminate_child_tree(&mut child, process_tree.as_ref());
+            terminate_child_tree(&mut child, process_tree.take());
             #[cfg(not(windows))]
             terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::TimedOut(timeout.as_secs()));
         }
-        match child.try_wait() {
-            // The direct child may exit while a descendant still owns the pipe
-            // write handles; keep draining until the wall-clock deadline.
-            Ok(Some(_)) | Ok(None) => std::thread::sleep(POLL_INTERVAL),
-            Err(e) => {
-                #[cfg(windows)]
-                terminate_child_tree(&mut child, process_tree.as_ref());
-                #[cfg(not(windows))]
-                terminate_child_tree(&mut child);
-                return Err(ClaudeSwapError::Process(e.to_string()));
-            }
-        }
+        std::thread::sleep(POLL_INTERVAL);
     }
 
     let stdout = stdout_outcome.ok_or_else(|| {
@@ -415,5 +570,68 @@ mod tests {
             "runner blocked past its deadline: {:?}",
             started.elapsed()
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn stream_eof_alone_is_not_reported_as_success() {
+        // The helper closes both captured streams immediately but keeps running
+        // past the deadline. EOF alone must not be treated as a completed run,
+        // so the runner waits for an actual exit status or times out.
+        let result = run_bounded(
+            Path::new("powershell.exe"),
+            &[
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                "[Console]::Out.Close(); [Console]::Error.Close(); Start-Sleep -Seconds 5"
+                    .to_string(),
+            ],
+            Duration::from_millis(500),
+        );
+        assert!(
+            matches!(result, Err(ClaudeSwapError::TimedOut(_))),
+            "EOF must not complete the run: {result:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn timeout_terminates_the_contained_descendant() {
+        use base64::Engine;
+
+        let dir = std::env::temp_dir().join(format!("codexbar-cswap-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let marker = dir.join("descendant-alive.txt");
+
+        // The direct child exits immediately, leaving a background PowerShell
+        // that would create the marker well after the runner's deadline. Job
+        // containment must kill it, so the marker never appears. The script is
+        // passed as base64 UTF-16 to avoid cmd/PowerShell quoting ambiguity.
+        let script = format!(
+            "Start-Sleep -Seconds 2; Set-Content -LiteralPath '{}' -Value alive",
+            marker.display()
+        );
+        let mut utf16 = Vec::with_capacity(script.len() * 2);
+        for unit in script.encode_utf16() {
+            utf16.extend_from_slice(&unit.to_le_bytes());
+        }
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&utf16);
+        let command = format!("start /B powershell -NoProfile -EncodedCommand {encoded}");
+
+        let result = run_bounded(
+            Path::new("cmd.exe"),
+            &["/C".to_string(), command],
+            Duration::from_millis(300),
+        );
+        assert!(matches!(result, Err(ClaudeSwapError::TimedOut(_))));
+
+        std::thread::sleep(Duration::from_millis(2500));
+        assert!(
+            !marker.exists(),
+            "contained descendant survived the job and wrote {}",
+            marker.display()
+        );
+        drop(std::fs::remove_dir_all(&dir));
     }
 }
