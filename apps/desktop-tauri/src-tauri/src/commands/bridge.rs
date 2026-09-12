@@ -622,6 +622,8 @@ pub struct SettingsSnapshot {
     tray_scale_percent: u16,
     powertoys_status_pipe_enabled: bool,
     claude_avoid_keychain_prompts: bool,
+    claude_swap_enabled: bool,
+    claude_swap_executable_path: String,
     codex_spark_usage_visible: bool,
     disable_keychain_access: bool,
     wayfinder_gateway_url: String,
@@ -670,6 +672,8 @@ pub fn get_settings_snapshot() -> SettingsSnapshot {
 impl From<Settings> for SettingsSnapshot {
     fn from(settings: Settings) -> Self {
         let avoid_keychain_prompts = settings.claude_avoid_keychain_prompts();
+        let claude_swap_enabled = settings.claude_swap_enabled();
+        let claude_swap_executable_path = settings.claude_swap_executable_path().to_string();
         let codex_spark_usage_visible = settings.codex_spark_usage_visible();
         let wayfinder_gateway_url = settings.gateway_url(ProviderId::Wayfinder).to_string();
 
@@ -735,6 +739,8 @@ impl From<Settings> for SettingsSnapshot {
             tray_scale_percent: settings.tray_scale_percent,
             powertoys_status_pipe_enabled: settings.powertoys_status_pipe_enabled,
             claude_avoid_keychain_prompts: avoid_keychain_prompts,
+            claude_swap_enabled,
+            claude_swap_executable_path,
             codex_spark_usage_visible,
             disable_keychain_access: settings.disable_keychain_access,
             wayfinder_gateway_url,

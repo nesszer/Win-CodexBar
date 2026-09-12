@@ -2,6 +2,8 @@ use super::invalidate_account_usage;
 use crate::state::AppState;
 use codexbar::core::ProviderId;
 use codexbar::providers::claude::accounts::{self, AccountManager, ClaudeAccount};
+use codexbar::providers::claude::claude_swap::{self, ClaudeSwapAccount};
+use serde::Serialize;
 use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::Manager;
@@ -13,6 +15,89 @@ pub fn claude_accounts_list() -> Result<Vec<ClaudeAccount>, String> {
     AccountManager::new()
         .and_then(|m| m.list())
         .map_err(|e| e.to_string())
+}
+
+/// External claude-swap accounts plus adapter status for the settings UI.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeSwapAccountsState {
+    pub enabled: bool,
+    pub executable_configured: bool,
+    pub accounts: Vec<ClaudeSwapAccount>,
+    pub error: Option<String>,
+}
+
+fn claude_swap_accounts_state() -> ClaudeSwapAccountsState {
+    let settings = codexbar::settings::Settings::load();
+    let enabled = settings.claude_swap_enabled();
+    let executable_path = settings.claude_swap_executable_path().to_string();
+    let executable_configured = !executable_path.trim().is_empty();
+    if !enabled || !executable_configured {
+        return ClaudeSwapAccountsState {
+            enabled,
+            executable_configured,
+            accounts: Vec::new(),
+            error: None,
+        };
+    }
+    match claude_swap::read_account_list(&executable_path) {
+        Ok(list) => ClaudeSwapAccountsState {
+            enabled,
+            executable_configured,
+            accounts: claude_swap::project_accounts(&list, settings.hide_personal_info),
+            error: None,
+        },
+        // Adapter failures are isolated from ambient Claude usage: the last
+        // built-in account list still renders and the error is surfaced inline.
+        Err(error) => ClaudeSwapAccountsState {
+            enabled,
+            executable_configured,
+            accounts: Vec::new(),
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+#[tauri::command]
+pub async fn claude_swap_accounts_list() -> Result<ClaudeSwapAccountsState, String> {
+    tauri::async_runtime::spawn_blocking(claude_swap_accounts_state)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn claude_swap_account_switch(app: tauri::AppHandle, slot: u32) -> Result<(), String> {
+    let _mutation = MUTATION
+        .try_lock()
+        .map_err(|_| "A Claude account operation is already in progress.")?;
+    let settings = codexbar::settings::Settings::load();
+    if !settings.claude_swap_enabled() {
+        return Err("claude-swap integration is disabled.".to_string());
+    }
+    let executable_path = settings.claude_swap_executable_path().to_string();
+    if executable_path.trim().is_empty() {
+        return Err("No claude-swap executable path is configured.".to_string());
+    }
+    // Own the credential lock inside the blocking task so a cancelled invoke
+    // cannot release serialization while cswap is still mutating credentials.
+    tauri::async_runtime::spawn_blocking(move || {
+        let _credentials = accounts::CREDENTIAL_OPERATION.blocking_lock();
+        claude_swap::switch_account(&executable_path, slot)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    let pending = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().map_err(|e| e.to_string())?;
+        invalidate_account_usage(&mut state, ProviderId::Claude)
+    };
+    crate::events::emit_provider_updated(&app, &pending);
+    changed(&app);
+    tauri::async_runtime::spawn(async move {
+        let _refresh = super::refresh_providers(app).await;
+    });
+    Ok(())
 }
 
 fn changed(app: &tauri::AppHandle) {

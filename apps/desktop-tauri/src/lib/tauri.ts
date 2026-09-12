@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   ClaudeAccount,
+  ClaudeSwapAccountsState,
   ApiKeyInfoBridge,
   ApiKeyProviderInfoBridge,
   AppInfoBridge,
@@ -49,6 +50,10 @@ export const claudeAccountCancelLogin = () => invoke<void>("claude_account_cance
 export const claudeAccountSaveCurrent = () => invoke<void>("claude_account_save_current");
 export const claudeAccountRemove = (id: string) => invoke<void>("claude_account_remove", { id });
 export const claudeAccountSwitch = (id: string) => invoke<void>("claude_account_switch", { id });
+export const claudeSwapAccountsList = () =>
+  invoke<ClaudeSwapAccountsState>("claude_swap_accounts_list");
+export const claudeSwapAccountSwitch = (slot: number) =>
+  invoke<void>("claude_swap_account_switch", { slot });
 
 export function getBootstrapState(): Promise<BootstrapState> {
   return invoke<BootstrapState>("get_bootstrap_state");

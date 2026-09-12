@@ -2,6 +2,7 @@
 
 pub mod accounts;
 mod admin_api;
+pub mod claude_swap;
 mod cli_reset;
 mod oauth;
 mod scoped_weekly;
