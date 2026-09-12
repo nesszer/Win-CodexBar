@@ -327,6 +327,11 @@ impl AntigravityProvider {
 
     /// Enumerate IPv4 TCP listener ports for a PID through the Windows IP Helper API.
     /// This avoids starting PowerShell inside the managed readiness poll.
+    ///
+    /// Known follow-up: only the AF_INET table is enumerated and candidates are
+    /// probed at `127.0.0.1`, so an IPv6-only loopback listener would be missed.
+    /// Accepted for now because the managed `agy` service is observed to bind
+    /// IPv4 on Windows; add AF_INET6 enumeration with `[::1]` probes later.
     #[cfg(windows)]
     fn listening_ports_for_pid(pid: u32) -> Result<Vec<u16>, ProviderError> {
         const AF_INET_FAMILY: u32 = 2;
@@ -690,6 +695,27 @@ impl AntigravityProvider {
         Some(ProviderFetchResult::new(usage, "offline"))
     }
 
+    /// Resolve a failure to obtain live usage.
+    ///
+    /// A failed sign-in is actionable, so it always surfaces. Every other
+    /// failure means the runtime/CLI is unavailable or inconclusive, so an
+    /// available offline conversation-history snapshot is preferred over
+    /// discarding it for a transient error.
+    fn resolve_probe_failure(
+        error: ProviderError,
+        offline: Option<ProviderFetchResult>,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        if matches!(error, ProviderError::AuthRequired) {
+            return Err(error);
+        }
+        offline.ok_or(error)
+    }
+
+    fn offline_or_unavailable() -> Result<ProviderFetchResult, ProviderError> {
+        Self::offline_usage_result()
+            .ok_or_else(|| ProviderError::NotInstalled(AGY_NOT_FOUND_MESSAGE.to_string()))
+    }
+
     fn locate_agy_binary() -> Option<PathBuf> {
         let candidates = Self::agy_binary_candidates(
             std::env::var_os("ANTIGRAVITY_CLI_PATH").map(PathBuf::from),
@@ -970,23 +996,31 @@ impl Provider for AntigravityProvider {
                             ));
                         }
                         Ok(ManagedAgyOutcome::Missing) => {}
+                        // A signed-out CLI is actionable, so surface it rather
+                        // than hiding it behind offline history. Any other
+                        // managed-start failure still leaves the runtime
+                        // unavailable, so keep the offline-history fallback.
                         Err(error) => {
-                            tracing::warn!(%error, "managed Antigravity CLI probe failed");
-                            return Err(error);
+                            if !matches!(error, ProviderError::AuthRequired) {
+                                tracing::debug!(%error, "managed Antigravity CLI probe failed");
+                            }
+                            return Self::resolve_probe_failure(
+                                error,
+                                Self::offline_usage_result(),
+                            );
                         }
                     }
                 }
 
-                if let Some(result) = Self::offline_usage_result() {
-                    return Ok(result);
-                }
-                Err(ProviderError::NotInstalled(
-                    AGY_NOT_FOUND_MESSAGE.to_string(),
-                ))
+                Self::offline_or_unavailable()
             }
             Err(error) => {
-                tracing::warn!(%error, "Antigravity local probe failed");
-                Err(error)
+                // The local probe is inconclusive (e.g. PowerShell unavailable);
+                // preserve offline history before surfacing the probe error.
+                if !matches!(error, ProviderError::AuthRequired) {
+                    tracing::debug!(%error, "Antigravity local probe failed");
+                }
+                Self::resolve_probe_failure(error, Self::offline_usage_result())
             }
         }
     }

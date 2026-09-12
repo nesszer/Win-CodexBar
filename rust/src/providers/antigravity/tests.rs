@@ -228,26 +228,31 @@ fn missing_cli_error_explains_runtime_state() {
 
 #[test]
 fn managed_agy_candidates_prefer_override_then_path_then_known_installs() {
+    let explicit = PathBuf::from(r"D:\tools\agy.exe");
+    let path_lookup = PathBuf::from(r"C:\path\agy.exe");
+    let local_app_data = PathBuf::from(r"C:\Users\test\AppData\Local");
+    let home = PathBuf::from(r"C:\Users\test");
+
     let candidates = AntigravityProvider::agy_binary_candidates(
-        Some(PathBuf::from(r"D:\tools\agy.exe")),
-        Some(PathBuf::from(r"C:\path\agy.exe")),
-        Some(PathBuf::from(r"C:\Users\test\AppData\Local")),
-        Some(PathBuf::from(r"C:\Users\test")),
+        Some(explicit.clone()),
+        Some(path_lookup.clone()),
+        Some(local_app_data.clone()),
+        Some(home.clone()),
     );
 
-    assert_eq!(candidates[0], PathBuf::from(r"D:\tools\agy.exe"));
-    assert_eq!(candidates[1], PathBuf::from(r"C:\path\agy.exe"));
+    assert_eq!(candidates[0], explicit);
+    assert_eq!(candidates[1], path_lookup);
+    // Build expectations with `join` so the assertions match on every host:
+    // on Unix `\` is an ordinary character and `join` inserts `/`.
     assert_eq!(
         candidates[2],
-        PathBuf::from(r"C:\Users\test\AppData\Local\agy\bin\agy.exe")
+        local_app_data.join("agy").join("bin").join("agy.exe")
     );
     assert_eq!(
         candidates[3],
-        PathBuf::from(r"C:\Users\test\.local\bin").join(if cfg!(windows) {
-            "agy.exe"
-        } else {
-            "agy"
-        })
+        home.join(".local")
+            .join("bin")
+            .join(if cfg!(windows) { "agy.exe" } else { "agy" })
     );
 }
 
@@ -522,4 +527,42 @@ fn probe_failure_maps_to_unknown() {
         )),
         crate::core::ProviderStateKind::Unknown
     );
+}
+
+// ── Offline-history fallback on probe failure ──────────────────────
+
+fn offline_result() -> ProviderFetchResult {
+    ProviderFetchResult::new(
+        UsageSnapshot::new(RateWindow::new(0.0)).with_login_method("offline"),
+        "offline",
+    )
+}
+
+#[test]
+fn auth_required_surfaces_instead_of_offline_history() {
+    let resolved = AntigravityProvider::resolve_probe_failure(
+        ProviderError::AuthRequired,
+        Some(offline_result()),
+    );
+    assert!(matches!(resolved, Err(ProviderError::AuthRequired)));
+}
+
+#[test]
+fn non_auth_failure_prefers_offline_history() {
+    // A transient managed-start or local-probe failure must not discard the
+    // existing offline conversation-history snapshot.
+    let resolved = AntigravityProvider::resolve_probe_failure(
+        ProviderError::Other("agy readiness timeout".to_string()),
+        Some(offline_result()),
+    );
+    assert!(resolved.is_ok());
+}
+
+#[test]
+fn non_auth_failure_without_history_surfaces_error() {
+    let resolved = AntigravityProvider::resolve_probe_failure(
+        ProviderError::Other("agy readiness timeout".to_string()),
+        None,
+    );
+    assert!(matches!(resolved, Err(ProviderError::Other(_))));
 }
