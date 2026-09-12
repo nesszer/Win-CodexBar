@@ -215,11 +215,12 @@ fn resume_suspended_child(process_id: u32) -> Result<(), String> {
     if unsafe { Thread32First(raw_handle(&snapshot), &mut entry) }.is_ok() {
         loop {
             if entry.th32OwnerProcessID == process_id {
-                // SAFETY: the thread id comes from a live snapshot and the
-                // returned handle is owned below.
-                if let Ok(thread) =
+                let thread = {
+                    // SAFETY: the thread id comes from a live snapshot and
+                    // the returned handle is owned below.
                     unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) }
-                {
+                };
+                if let Ok(thread) = thread {
                     // SAFETY: `thread` is a live handle returned by OpenThread;
                     // wrapping and resuming it in one scope keeps it open for
                     // the resume call, which releases the suspended child.
