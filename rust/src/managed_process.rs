@@ -19,7 +19,9 @@ use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
+#[cfg(test)]
+use std::os::windows::io::RawHandle;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -1053,7 +1055,7 @@ mod tests {
             pty_cols: 120,
             label: "test-descendant".to_string(),
         };
-        let mut process = ManagedProcess::spawn(&config).expect("start a managed test process");
+        let process = ManagedProcess::spawn(&config).expect("start a managed test process");
 
         let descendant = wait_for_descendant_pid(&marker);
         assert!(
