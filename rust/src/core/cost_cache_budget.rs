@@ -267,7 +267,7 @@ fn subtract_entry_days(
             let Some(dest) = day_entry.get_mut(model) else {
                 continue;
             };
-            for (i, value) in packed.iter().take(3).enumerate() {
+            for (i, value) in packed.iter().take(4).enumerate() {
                 if i < dest.len() {
                     dest[i] = dest[i].saturating_sub(*value);
                 }
@@ -371,6 +371,24 @@ mod tests {
             file_map.insert((*key).to_string(), entry.clone());
         }
         (file_map, days)
+    }
+
+    #[test]
+    fn subtract_entry_days_removes_reasoning_slot() {
+        let day = "2026-01-10".to_string();
+        let model = "gpt-5.6-sol".to_string();
+        let mut days = HashMap::from([(
+            day.clone(),
+            HashMap::from([(model.clone(), vec![30, 12, 9, 6])]),
+        )]);
+        let entry_days = HashMap::from([(
+            day.clone(),
+            HashMap::from([(model.clone(), vec![10, 4, 3, 2])]),
+        )]);
+
+        subtract_entry_days(&mut days, &entry_days);
+
+        assert_eq!(days[&day][&model], vec![20, 8, 6, 4]);
     }
 
     #[test]
