@@ -294,7 +294,6 @@ struct RunOutcome {
 }
 
 fn read_bounded(mut reader: impl std::io::Read) -> RunOutcome {
-    use std::io::Read;
     let mut outcome = RunOutcome::default();
     let mut chunk = [0u8; 8192];
     loop {
@@ -524,7 +523,7 @@ fn parse_scoped(raw: Option<&Value>) -> Vec<ClaudeSwapScopedWindow> {
             let percent = object.get("pct").and_then(finite_number)?;
             let resets_at = match object.get("resetsAt") {
                 None | Some(Value::Null) => None,
-                Some(Value::String(text)) => parse_timestamp(text)?,
+                Some(Value::String(text)) => Some(parse_timestamp(text)?),
                 Some(_) => return None,
             };
             Some(ClaudeSwapScopedWindow {
@@ -1120,10 +1119,12 @@ mod tests {
         ));
 
         let mut duplicate = list_fixture();
-        let accounts = duplicate["accounts"].as_array_mut().unwrap();
-        accounts[1]["number"] = json!(1);
+        {
+            let accounts = duplicate["accounts"].as_array_mut().unwrap();
+            accounts[1]["number"] = json!(1);
+            accounts[0]["active"] = json!(false);
+        }
         duplicate["activeAccountNumber"] = json!(null);
-        accounts[0]["active"] = json!(false);
         assert!(matches!(
             parse_account_list(&duplicate.to_string()),
             Err(ClaudeSwapError::MalformedShape(_))
