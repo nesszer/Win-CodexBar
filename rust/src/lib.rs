@@ -16,6 +16,8 @@ pub mod host;
 pub mod locale;
 pub mod logging;
 pub mod login;
+#[cfg(windows)]
+pub mod managed_process;
 pub mod notifications;
 pub mod providers;
 pub mod secure_file;
