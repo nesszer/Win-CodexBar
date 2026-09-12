@@ -391,11 +391,12 @@ fn spawn_pty_child(
         .map(|dir| encode_wide_nul(dir.as_os_str()))
         .transpose()?;
 
-    let mut attributes = Attributes::new(2)?;
     let jobs = [win_handle(job)];
-    // SAFETY: `jobs` and `con` stay alive through CreateProcessW. The job-list
-    // attribute binds the child before its first thread can run; the
-    // pseudoconsole attribute wires its stdio to the PTY above.
+    let mut attributes = Attributes::new(2)?;
+    // SAFETY: `jobs` is declared before `attributes`, so its backing storage
+    // remains valid through `DeleteProcThreadAttributeList` in `Attributes`'s
+    // destructor. The job-list attribute binds the child before its first
+    // thread can run; the pseudoconsole attribute wires its stdio to the PTY.
     unsafe {
         UpdateProcThreadAttribute(
             attributes.ptr(),
