@@ -38,6 +38,7 @@ import kimi from "./icons/ProviderIcon-kimi.svg?raw";
 import kiro from "./icons/ProviderIcon-kiro.svg?raw";
 import llmproxy from "./icons/ProviderIcon-llmproxy.svg?raw";
 import manus from "./icons/ProviderIcon-manus.svg?raw";
+import meta from "./icons/ProviderIcon-meta.svg?raw";
 import mimo from "./icons/ProviderIcon-mimo.svg?raw";
 import minimax from "./icons/ProviderIcon-minimax.svg?raw";
 import mistral from "./icons/ProviderIcon-mistral.svg?raw";
@@ -120,6 +121,7 @@ const RAW: Record<string, string> = {
   kiro: tint(kiro),
   llmproxy: tint(llmproxy),
   manus: tint(manus),
+  meta: tint(meta),
   mimo: tint(mimo),
   minimax: tint(minimax),
   notion: tint(notion),
@@ -219,6 +221,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   qwencloud:   { id: "qwencloud",   brandColor: "#615CED", fallbackLetter: "Q" },
   notion:      { id: "notion",      brandColor: "#337EA9", fallbackLetter: "N", svgPath: RAW.notion },
   xai:         { id: "xai",         brandColor: "#8e8e93", fallbackLetter: "X", svgPath: RAW.xai },
+  meta:        { id: "meta",        brandColor: "#0467DF", fallbackLetter: "M", svgPath: RAW.meta },
 };
 
 const ALIASES: Record<string, string> = {
@@ -303,6 +306,12 @@ const ALIASES: Record<string, string> = {
   "lite-llm": "litellm",
   "zed ai": "zed",
   "zed-ai": "zed",
+  metaspark: "meta",
+  "meta-spark": "meta",
+  musespark: "meta",
+  "muse-spark": "meta",
+  "muse spark": "meta",
+  "meta muse spark": "meta",
 };
 
 function normalize(id: string): string {

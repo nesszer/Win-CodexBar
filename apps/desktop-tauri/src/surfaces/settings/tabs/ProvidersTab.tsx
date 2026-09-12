@@ -250,6 +250,7 @@ function providerSourceHintShort(
     case "llmproxy":
     case "xai":
     case "fireworks":
+    case "meta":
       return t("ProviderSourceApiShort");
     case "kiro":
       return t("ProviderSourceKiroEnvShort");
