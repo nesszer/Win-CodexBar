@@ -7,7 +7,8 @@ use crate::core::{
     CostSnapshot, FetchContext, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
     TokenAccountStore, TokenAccountSupport, UsagePace, UsageSnapshot, instantiate_provider,
 };
-use crate::settings::ApiKeys;
+use crate::providers::claude::claude_swap::{self, ClaudeSwapAccount};
+use crate::settings::{ApiKeys, Settings};
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel, fetch_provider_status};
 
 pub const PROVIDER_ARG_HELP: &str = "Provider to query (for example: codex, claude, gemini, antigravity/agy, nanogpt, deepseek, codebuff, windsurf, all, both)";
@@ -176,6 +177,8 @@ struct UsageCommand {
     pretty: bool,
     /// Optional token-account label/index for a single-provider fetch.
     account: Option<String>,
+    /// Read every external claude-swap account for Claude (read-only).
+    all_accounts: bool,
     ctx: FetchContext,
 }
 
@@ -187,6 +190,9 @@ impl UsageCommand {
         if args.account.is_some() && providers.len() != 1 {
             anyhow::bail!("--account requires a single --provider (not all/both)");
         }
+        if args.all_accounts && args.account.is_some() {
+            anyhow::bail!("--all-accounts cannot be combined with --account");
+        }
 
         Ok(Self {
             format,
@@ -196,6 +202,7 @@ impl UsageCommand {
             fetch_status: args.status,
             pretty: args.pretty,
             account: args.account.clone(),
+            all_accounts: args.all_accounts,
             ctx: build_usage_fetch_context(&args, source_mode),
         })
     }
@@ -246,32 +253,135 @@ enum UsageOutput {
     Toon(Vec<serde_json::Value>),
 }
 
+/// Settings-derived context for the read-only claude-swap `--all-accounts` path.
+struct ClaudeSwapCliContext {
+    executable_path: String,
+    hide_personal_info: bool,
+}
+
+/// Returns the adapter context only when the opt-in integration is enabled and
+/// configured; otherwise `--all-accounts` behaves like a normal single fetch.
+fn claude_swap_cli_context() -> Option<ClaudeSwapCliContext> {
+    let settings = Settings::load();
+    if !settings.claude_swap_enabled() {
+        return None;
+    }
+    let executable_path = settings.claude_swap_executable_path().trim().to_string();
+    if executable_path.is_empty() {
+        return None;
+    }
+    Some(ClaudeSwapCliContext {
+        executable_path,
+        hide_personal_info: settings.hide_personal_info,
+    })
+}
+
+/// Read and project the external accounts. Raw cswap output never escapes this
+/// boundary: only the allow-listed projection is returned, and failures become
+/// plain error strings (already sanitized by the adapter).
+fn read_claude_swap_accounts(ctx: &ClaudeSwapCliContext) -> Result<Vec<ClaudeSwapAccount>, String> {
+    claude_swap::read_account_list(&ctx.executable_path)
+        .map(|list| claude_swap::project_accounts(&list, ctx.hide_personal_info))
+        .map_err(|error| error.to_string())
+}
+
+fn claude_swap_json_payload(account: &ClaudeSwapAccount) -> serde_json::Value {
+    serde_json::json!({
+        "provider": ProviderId::Claude.cli_name(),
+        "source": "claude-swap",
+        "account": account,
+    })
+}
+
+fn render_claude_swap_text(account: &ClaudeSwapAccount) -> String {
+    let mut lines = Vec::new();
+    let active = if account.is_active { " (active)" } else { "" };
+    lines.push(format!(
+        "{} (claude-swap)  {}{}",
+        ProviderId::Claude.display_name(),
+        account.label,
+        active
+    ));
+    let mut windows = Vec::new();
+    if let Some(window) = &account.five_hour {
+        windows.push(format!("Session {}", format_percent(window.used_percent)));
+    }
+    if let Some(window) = &account.seven_day {
+        windows.push(format!("Weekly {}", format_percent(window.used_percent)));
+    }
+    for window in &account.scoped {
+        windows.push(format!(
+            "{} {}",
+            window.name,
+            format_percent(window.used_percent)
+        ));
+    }
+    if !windows.is_empty() {
+        lines.push(format!("  {}", windows.join(" · ")));
+    }
+    if let Some(error) = &account.error {
+        lines.push(format!("  {error}"));
+    }
+    lines.join("\n")
+}
+
+/// True when the provider should be expanded through the claude-swap adapter.
+fn uses_claude_swap_all_accounts(command: &UsageCommand, provider_id: ProviderId) -> bool {
+    command.all_accounts && provider_id == ProviderId::Claude
+}
+
+async fn collect_json_results(command: &UsageCommand) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+    for provider_id in &command.providers {
+        if uses_claude_swap_all_accounts(command, *provider_id)
+            && let Some(ctx) = claude_swap_cli_context()
+        {
+            match read_claude_swap_accounts(&ctx) {
+                Ok(accounts) => {
+                    results.extend(accounts.iter().map(claude_swap_json_payload));
+                }
+                Err(error) => results.push(serde_json::json!({
+                    "provider": ProviderId::Claude.cli_name(),
+                    "source": "claude-swap",
+                    "error": error,
+                })),
+            }
+            continue;
+        }
+        results.push(fetch_provider_json_output(*provider_id, command).await);
+    }
+    results
+}
+
 async fn collect_usage_output(command: &UsageCommand) -> UsageOutput {
     match command.format {
         UsageOutputFormat::Text => {
             let mut sections = Vec::new();
             for provider_id in &command.providers {
+                if uses_claude_swap_all_accounts(command, *provider_id)
+                    && let Some(ctx) = claude_swap_cli_context()
+                {
+                    match read_claude_swap_accounts(&ctx) {
+                        Ok(accounts) => {
+                            sections.extend(accounts.iter().map(render_claude_swap_text));
+                        }
+                        Err(error) => sections.push(render_text_error(
+                            ProviderId::Claude,
+                            &error,
+                            command.use_color,
+                        )),
+                    }
+                    continue;
+                }
                 sections.push(fetch_provider_text_output(*provider_id, command).await);
             }
             UsageOutput::Text(sections)
         }
-        UsageOutputFormat::Json => {
-            let mut results = Vec::new();
-            for provider_id in &command.providers {
-                results.push(fetch_provider_json_output(*provider_id, command).await);
-            }
-            UsageOutput::Json {
-                results,
-                pretty: command.pretty,
-            }
-        }
-        UsageOutputFormat::Toon => {
-            let mut results = Vec::new();
-            for provider_id in &command.providers {
-                results.push(fetch_provider_json_output(*provider_id, command).await);
-            }
-            UsageOutput::Toon(results)
-        }
+        UsageOutputFormat::Json => UsageOutput::Json {
+            results: collect_json_results(command).await,
+            pretty: command.pretty,
+        },
+        UsageOutputFormat::Toon => UsageOutput::Toon(collect_json_results(command).await),
     }
 }
 
@@ -762,6 +872,67 @@ mod tests {
 
     fn fetch_result(usage: UsageSnapshot) -> ProviderFetchResult {
         ProviderFetchResult::new(usage, "test")
+    }
+
+    fn sample_swap_account() -> ClaudeSwapAccount {
+        use crate::providers::claude::claude_swap::{
+            ClaudeSwapScopedWindowDto, ClaudeSwapUsageWindowDto,
+        };
+        ClaudeSwapAccount {
+            id: "claude-swap:2".to_string(),
+            slot: 2,
+            label: "work@example.com".to_string(),
+            email: Some("work@example.com".to_string()),
+            organization: None,
+            alias: None,
+            is_active: false,
+            can_activate: true,
+            status: "ok".to_string(),
+            error: None,
+            five_hour: Some(ClaudeSwapUsageWindowDto {
+                used_percent: 81.0,
+                resets_at: None,
+            }),
+            seven_day: Some(ClaudeSwapUsageWindowDto {
+                used_percent: 18.0,
+                resets_at: None,
+            }),
+            scoped: vec![ClaudeSwapScopedWindowDto {
+                name: "Fable only".to_string(),
+                used_percent: 4.0,
+                resets_at: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn claude_swap_json_payload_is_allow_listed() {
+        let payload = claude_swap_json_payload(&sample_swap_account());
+        assert_eq!(payload["provider"], "claude");
+        assert_eq!(payload["source"], "claude-swap");
+        assert_eq!(payload["account"]["id"], "claude-swap:2");
+        assert_eq!(payload["account"]["fiveHour"]["usedPercent"], 81.0);
+        assert_eq!(payload["account"]["scoped"][0]["name"], "Fable only");
+    }
+
+    #[test]
+    fn claude_swap_text_renderer_shows_windows_and_status() {
+        let text = render_claude_swap_text(&sample_swap_account());
+        assert!(text.contains("claude-swap"));
+        assert!(text.contains("work@example.com"));
+        assert!(text.contains("Session 81%"));
+        assert!(text.contains("Weekly 18%"));
+        assert!(text.contains("Fable only 4%"));
+    }
+
+    #[test]
+    fn all_accounts_conflicts_with_explicit_account() {
+        let args = UsageArgs {
+            all_accounts: true,
+            account: Some("work".to_string()),
+            ..Default::default()
+        };
+        assert!(UsageCommand::from_args(args).is_err());
     }
 
     #[test]
