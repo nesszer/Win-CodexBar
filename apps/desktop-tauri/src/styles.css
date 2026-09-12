@@ -5326,15 +5326,23 @@ html:has(.menu-surface--tray) {
   background-repeat: no-repeat;
   background-position: right 10px center;
   line-height: 20px;
-  color-scheme: light;
 }
-.select option {
-  color: #000;
-  background: #fff;
+[data-theme="dark"] .select,
+[data-theme="dark"] .provider-detail-select,
+[data-theme="dark"] .settings-select {
+  color-scheme: dark;
 }
-.select option:checked {
-  color: #000;
-  background: #dceeff;
+[data-theme="dark"] .select option,
+[data-theme="dark"] .provider-detail-select option,
+[data-theme="dark"] .settings-select option {
+  color: var(--text-primary);
+  background: var(--app-bg);
+}
+[data-theme="dark"] .select option:checked,
+[data-theme="dark"] .provider-detail-select option:checked,
+[data-theme="dark"] .settings-select option:checked {
+  color: #fff;
+  background: var(--accent);
 }
 .text-input {
   padding: 0 10px;
@@ -5352,17 +5360,26 @@ html:has(.menu-surface--tray) {
   line-height: 20px;
 }
 [data-theme="light"] .select,
+[data-theme="light"] .provider-detail-select,
+[data-theme="light"] .settings-select {
+  color-scheme: light;
+}
+[data-theme="light"] .select,
 [data-theme="light"] .number-input,
 [data-theme="light"] .text-input {
   background-color: #fff;
   border: 1px solid rgba(0, 0, 0, 0.12);
   box-shadow: none;
 }
-[data-theme="light"] .select option {
+[data-theme="light"] .select option,
+[data-theme="light"] .provider-detail-select option,
+[data-theme="light"] .settings-select option {
   background: #fff;
   color: var(--text-primary);
 }
-[data-theme="light"] .select option:checked {
+[data-theme="light"] .select option:checked,
+[data-theme="light"] .provider-detail-select option:checked,
+[data-theme="light"] .settings-select option:checked {
   background: var(--accent);
   color: #fff;
 }
