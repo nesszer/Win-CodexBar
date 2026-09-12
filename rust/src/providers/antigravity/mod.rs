@@ -15,9 +15,7 @@ use futures::{StreamExt, stream};
 use regex_lite::Regex;
 use serde::Deserialize;
 #[cfg(windows)]
-use std::io::{Read, Write};
-#[cfg(windows)]
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
+use std::ffi::OsString;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
@@ -26,20 +24,9 @@ use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 #[cfg(windows)]
 use std::time::Instant;
+
 #[cfg(windows)]
-use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, HANDLE};
-#[cfg(windows)]
-use windows::Win32::NetworkManagement::IpHelper::{
-    GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
-};
-#[cfg(windows)]
-use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_BASIC_LIMIT_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
-};
-#[cfg(windows)]
-use windows::core::PCWSTR;
+use crate::managed_process::{ManagedProcess, ManagedProcessConfig, ManagedProcessError};
 
 use crate::core::{
     FetchContext, NamedRateWindow, Provider, ProviderError, ProviderFetchResult, ProviderId,
@@ -56,8 +43,6 @@ const AGY_CLEANUP_RESERVE: Duration = Duration::from_secs(2);
 const AGY_PROBE_TIMEOUT: Duration = Duration::from_millis(750);
 #[cfg(windows)]
 const AGY_READY_POLL_INTERVAL: Duration = Duration::from_millis(250);
-#[cfg(any(windows, test))]
-const AGY_MAX_CURSOR_REPLIES: usize = 32;
 const GET_USER_STATUS_PATH: &str = "/exa.language_server_pb.LanguageServerService/GetUserStatus";
 const QUOTA_SUMMARY_PATH: &str =
     "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary";
@@ -66,6 +51,15 @@ const QUOTA_SUMMARY_PATH: &str =
 /// multiple interactive CLI servers at the same time.
 #[cfg(windows)]
 static MANAGED_AGY_FETCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The managed-process owner stays provider-neutral; the provider only maps its
+/// error surface into [`ProviderError`].
+#[cfg(windows)]
+impl From<ManagedProcessError> for ProviderError {
+    fn from(error: ManagedProcessError) -> Self {
+        ProviderError::Other(error.to_string())
+    }
+}
 
 /// Antigravity provider
 pub struct AntigravityProvider {
@@ -108,21 +102,6 @@ fn is_agy_cli_command(command_line: &str) -> bool {
     });
     let lower = command_line.to_ascii_lowercase();
     CLI_PATH_RE.is_match(&lower) || AGY_RE.is_match(&lower)
-}
-
-#[cfg(any(windows, test))]
-fn terminal_cursor_position_request_count(tail: &mut Vec<u8>, chunk: &[u8]) -> usize {
-    tail.extend_from_slice(chunk);
-    let requested = tail.windows(4).filter(|bytes| *bytes == b"\x1b[6n").count();
-    if tail.len() > 3 {
-        tail.drain(..tail.len() - 3);
-    }
-    requested
-}
-
-#[cfg(any(windows, test))]
-fn terminal_cursor_reply_allowance(sent: usize, requested: usize) -> usize {
-    requested.min(AGY_MAX_CURSOR_REPLIES.saturating_sub(sent))
 }
 
 impl AntigravityProvider {
@@ -328,102 +307,12 @@ impl AntigravityProvider {
     /// Enumerate IPv4 TCP listener ports for a PID through the Windows IP Helper API.
     /// This avoids starting PowerShell inside the managed readiness poll.
     ///
-    /// Known follow-up: only the AF_INET table is enumerated and candidates are
-    /// probed at `127.0.0.1`, so an IPv6-only loopback listener would be missed.
-    /// Accepted for now because the managed `agy` service is observed to bind
-    /// IPv4 on Windows; add AF_INET6 enumeration with `[::1]` probes later.
+    /// The owner lives in the provider-neutral
+    /// [`crate::managed_process::listening_ports_for_pid`]; this binding only
+    /// maps its error into the provider surface.
     #[cfg(windows)]
     fn listening_ports_for_pid(pid: u32) -> Result<Vec<u16>, ProviderError> {
-        const AF_INET_FAMILY: u32 = 2;
-        const NO_ERROR: u32 = 0;
-
-        let mut bytes = 0_u32;
-        // SAFETY: the first call supplies no destination buffer and only asks Windows
-        // for the required byte count.
-        let query = unsafe {
-            GetExtendedTcpTable(
-                None,
-                &mut bytes,
-                false,
-                AF_INET_FAMILY,
-                TCP_TABLE_OWNER_PID_LISTENER,
-                0,
-            )
-        };
-        if query != ERROR_INSUFFICIENT_BUFFER.0 && query != NO_ERROR {
-            return Err(ProviderError::Other(format!(
-                "Failed to size the Windows TCP listener table (error {query})"
-            )));
-        }
-        if bytes < u32::try_from(std::mem::size_of::<u32>()).unwrap_or(u32::MAX) {
-            return Ok(Vec::new());
-        }
-
-        let mut buffer = Vec::new();
-        let mut loaded = false;
-        // The table can grow between the sizing call and the read. Retry with
-        // the updated size instead of failing a refresh on that benign race.
-        for _ in 0..3 {
-            // A u32 allocation supplies the alignment required by the all-DWORD MIB rows.
-            let words = (bytes as usize).div_ceil(std::mem::size_of::<u32>());
-            buffer.resize(words, 0_u32);
-            // SAFETY: `buffer` is writable for at least `bytes` bytes and remains alive
-            // while the returned table is inspected.
-            let result = unsafe {
-                GetExtendedTcpTable(
-                    Some(buffer.as_mut_ptr().cast()),
-                    &mut bytes,
-                    false,
-                    AF_INET_FAMILY,
-                    TCP_TABLE_OWNER_PID_LISTENER,
-                    0,
-                )
-            };
-            if result == NO_ERROR {
-                loaded = true;
-                break;
-            }
-            if result != ERROR_INSUFFICIENT_BUFFER.0 {
-                return Err(ProviderError::Other(format!(
-                    "Failed to read the Windows TCP listener table (error {result})"
-                )));
-            }
-        }
-        if !loaded {
-            return Err(ProviderError::Other(
-                "Windows TCP listener table kept changing during the query".to_string(),
-            ));
-        }
-
-        let table = buffer.as_ptr().cast::<MIB_TCPTABLE_OWNER_PID>();
-        // SAFETY: Windows initialized the header on the successful call above.
-        let count = unsafe { (*table).dwNumEntries as usize };
-        let rows_offset = std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table);
-        let available = (bytes as usize).saturating_sub(rows_offset);
-        let max_rows = available / std::mem::size_of::<MIB_TCPROW_OWNER_PID>();
-        if count > max_rows {
-            return Err(ProviderError::Parse(
-                "Windows returned an invalid TCP listener table".to_string(),
-            ));
-        }
-        // SAFETY: `count` was bounded by the returned buffer size. Windows lays out
-        // the fixed-size owner-PID rows consecutively after the table header.
-        let rows = unsafe {
-            std::slice::from_raw_parts(
-                std::ptr::addr_of!((*table).table).cast::<MIB_TCPROW_OWNER_PID>(),
-                count,
-            )
-        };
-        let mut ports: Vec<u16> = rows
-            .iter()
-            .filter(|row| row.dwOwningPid == pid)
-            .filter_map(|row| u16::try_from(row.dwLocalPort).ok())
-            .map(u16::from_be)
-            .filter(|port| *port != 0)
-            .collect();
-        ports.sort_unstable();
-        ports.dedup();
-        Ok(ports)
+        crate::managed_process::listening_ports_for_pid(pid).map_err(ProviderError::from)
     }
 
     /// Non-Windows platforms have no `Get-NetTCPConnection`; return an empty list by design so
@@ -590,8 +479,20 @@ impl AntigravityProvider {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| ProviderError::Other(error.to_string()))?;
-        let mut managed = ManagedAgyProcess::spawn(&binary)?;
-        let pid = managed.id();
+        let config = ManagedProcessConfig {
+            program: binary,
+            args: Vec::new(),
+            env: vec![
+                (OsString::from("TERM"), OsString::from("xterm-256color")),
+                (OsString::from("COLORTERM"), OsString::from("truecolor")),
+            ],
+            cwd: dirs::home_dir().filter(|path| path.is_dir()),
+            pty_rows: 30,
+            pty_cols: 120,
+            label: "agy".to_string(),
+        };
+        let mut managed = ManagedProcess::spawn(&config)?;
+        let pid = managed.pid();
         let process_info = ProcessInfo {
             csrf_token: String::new(),
             extension_server_csrf_token: None,
@@ -650,7 +551,7 @@ impl AntigravityProvider {
         }
         .await;
 
-        managed.shutdown().await;
+        managed.shutdown(AGY_CLEANUP_RESERVE).await;
         result
     }
 
@@ -709,6 +610,37 @@ impl AntigravityProvider {
             return Err(error);
         }
         offline.ok_or(error)
+    }
+
+    /// Map a managed-lifecycle outcome onto provider policy.
+    ///
+    /// `Reused` means a user-owned runtime answered and the fetch stays local;
+    /// `Fetched` means the task-owned CLI answered; `Missing` is a policy no-op
+    /// so the caller can fall back to offline history; an error follows the
+    /// same offline-preferred resolution as the local probe. This is the policy
+    /// seam that the lifecycle owner deliberately does not own, so a fake
+    /// lifecycle can be driven through it in tests.
+    #[cfg(windows)]
+    fn resolve_managed_outcome(
+        outcome: Result<ManagedAgyOutcome, ProviderError>,
+    ) -> Result<Option<ProviderFetchResult>, ProviderError> {
+        match outcome {
+            Ok(ManagedAgyOutcome::Reused(usage)) => Ok(Some(ProviderFetchResult::new(
+                Self::with_cadence_labels(usage),
+                "local",
+            ))),
+            Ok(ManagedAgyOutcome::Fetched(usage)) => Ok(Some(ProviderFetchResult::new(
+                Self::with_cadence_labels(usage),
+                "cli",
+            ))),
+            Ok(ManagedAgyOutcome::Missing) => Ok(None),
+            Err(error) => {
+                if !matches!(error, ProviderError::AuthRequired) {
+                    tracing::debug!(%error, "managed Antigravity CLI probe failed");
+                }
+                Self::resolve_probe_failure(error, Self::offline_usage_result()).map(Some)
+            }
+        }
     }
 
     fn offline_or_unavailable() -> Result<ProviderFetchResult, ProviderError> {
@@ -982,33 +914,10 @@ impl Provider for AntigravityProvider {
             Ok(None) => {
                 #[cfg(windows)]
                 {
-                    match self.fetch_with_managed_agy().await {
-                        Ok(ManagedAgyOutcome::Reused(usage)) => {
-                            return Ok(ProviderFetchResult::new(
-                                Self::with_cadence_labels(usage),
-                                "local",
-                            ));
-                        }
-                        Ok(ManagedAgyOutcome::Fetched(usage)) => {
-                            return Ok(ProviderFetchResult::new(
-                                Self::with_cadence_labels(usage),
-                                "cli",
-                            ));
-                        }
-                        Ok(ManagedAgyOutcome::Missing) => {}
-                        // A signed-out CLI is actionable, so surface it rather
-                        // than hiding it behind offline history. Any other
-                        // managed-start failure still leaves the runtime
-                        // unavailable, so keep the offline-history fallback.
-                        Err(error) => {
-                            if !matches!(error, ProviderError::AuthRequired) {
-                                tracing::debug!(%error, "managed Antigravity CLI probe failed");
-                            }
-                            return Self::resolve_probe_failure(
-                                error,
-                                Self::offline_usage_result(),
-                            );
-                        }
+                    if let Some(result) =
+                        Self::resolve_managed_outcome(self.fetch_with_managed_agy().await)?
+                    {
+                        return Ok(result);
                     }
                 }
 
@@ -1067,235 +976,6 @@ enum ManagedAgyOutcome {
     Fetched(UsageSnapshot),
     /// No configured `agy` executable exists, so offline history may be used.
     Missing,
-}
-
-/// RAII owner for the exact `agy` process started by this provider. Dropping it
-/// cannot affect Antigravity or CLI processes that were already running.
-#[cfg(windows)]
-struct ManagedAgyProcess {
-    child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
-    pid: u32,
-    job: Option<OwnedHandle>,
-    master: Option<Box<dyn portable_pty::MasterPty + Send>>,
-    drain_thread: Option<std::thread::JoinHandle<()>>,
-}
-
-#[cfg(windows)]
-impl ManagedAgyProcess {
-    fn spawn(binary: &std::path::Path) -> Result<Self, ProviderError> {
-        let job = create_managed_agy_job()?;
-        let pty_system = portable_pty::native_pty_system();
-        let pair = pty_system
-            .openpty(portable_pty::PtySize {
-                rows: 30,
-                cols: 120,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|error| {
-                ProviderError::Other(format!("Failed to create a terminal for agy: {error}"))
-            })?;
-        let mut command = portable_pty::CommandBuilder::new(binary.as_os_str());
-        if let Some(home) = dirs::home_dir().filter(|path| path.is_dir()) {
-            command.cwd(home.as_os_str());
-        }
-        command.env("TERM", "xterm-256color");
-        command.env("COLORTERM", "truecolor");
-
-        let mut reader = pair.master.try_clone_reader().map_err(|error| {
-            ProviderError::Other(format!("Failed to read the agy terminal: {error}"))
-        })?;
-        let mut writer = pair.master.take_writer().map_err(|error| {
-            ProviderError::Other(format!("Failed to open the agy terminal: {error}"))
-        })?;
-        let mut child = pair.slave.spawn_command(command).map_err(|error| {
-            ProviderError::Other(format!("Failed to launch the agy CLI: {error}"))
-        })?;
-        drop(pair.slave);
-
-        let Some(pid) = child.process_id() else {
-            drop(child.kill());
-            drop(child.wait());
-            return Err(ProviderError::Other(
-                "Failed to determine the managed agy process id".to_string(),
-            ));
-        };
-        let Some(process_handle) = child.as_raw_handle() else {
-            drop(child.kill());
-            drop(child.wait());
-            return Err(ProviderError::Other(
-                "Failed to access the managed agy process handle".to_string(),
-            ));
-        };
-        if let Err(error) = assign_process_to_job(&job, process_handle) {
-            drop(child.kill());
-            drop(child.wait());
-            return Err(error);
-        }
-        let drain_thread = std::thread::spawn(move || {
-            // Drain without logging: terminal output can contain account data.
-            // Windows ConPTY programs may request the cursor position and wait
-            // for a terminal response before continuing initialization.
-            let mut buffer = [0_u8; 4096];
-            let mut tail = Vec::with_capacity(3);
-            let mut cursor_replies = 0_usize;
-            while let Ok(read) = reader.read(&mut buffer) {
-                if read == 0 {
-                    break;
-                }
-                let requested = terminal_cursor_position_request_count(&mut tail, &buffer[..read]);
-                let allowed = terminal_cursor_reply_allowance(cursor_replies, requested);
-                for _ in 0..allowed {
-                    drop(writer.write_all(b"\x1b[1;1R"));
-                }
-                if allowed > 0 {
-                    drop(writer.flush());
-                    cursor_replies += allowed;
-                }
-            }
-        });
-        Ok(Self {
-            child: Some(child),
-            pid,
-            job: Some(job),
-            master: Some(pair.master),
-            drain_thread: Some(drain_thread),
-        })
-    }
-
-    fn id(&self) -> u32 {
-        self.pid
-    }
-
-    fn try_wait(&mut self) -> Result<Option<portable_pty::ExitStatus>, ProviderError> {
-        self.child
-            .as_mut()
-            .expect("managed agy child is present until cleanup")
-            .try_wait()
-            .map_err(|error| {
-                ProviderError::Other(format!("Failed to inspect the agy CLI: {error}"))
-            })
-    }
-
-    async fn shutdown(mut self) {
-        let Some(resources) = self.take_resources() else {
-            return;
-        };
-        let cleanup = tokio::task::spawn_blocking(move || resources.terminate_and_reap());
-        // A stuck platform wait must not hold the async provider worker. The
-        // blocking cleanup task remains detached and still owns every handle.
-        drop(tokio::time::timeout(AGY_CLEANUP_RESERVE, cleanup).await);
-    }
-
-    fn take_resources(&mut self) -> Option<ManagedAgyResources> {
-        Some(ManagedAgyResources {
-            child: self.child.take()?,
-            job: Some(
-                self.job
-                    .take()
-                    .expect("managed agy job is present until cleanup"),
-            ),
-            master: self.master.take(),
-            drain_thread: self.drain_thread.take(),
-        })
-    }
-}
-
-#[cfg(windows)]
-impl Drop for ManagedAgyProcess {
-    fn drop(&mut self) {
-        let Some(mut resources) = self.take_resources() else {
-            return;
-        };
-        resources.terminate();
-        // Drop can run when an outer timeout cancels the fetch. Reaping and
-        // joining the terminal drain must therefore never block that worker.
-        drop(
-            std::thread::Builder::new()
-                .name("codexbar-agy-cleanup".to_string())
-                .spawn(move || resources.reap()),
-        );
-    }
-}
-
-#[cfg(windows)]
-struct ManagedAgyResources {
-    child: Box<dyn portable_pty::Child + Send + Sync>,
-    job: Option<OwnedHandle>,
-    master: Option<Box<dyn portable_pty::MasterPty + Send>>,
-    drain_thread: Option<std::thread::JoinHandle<()>>,
-}
-
-#[cfg(windows)]
-impl ManagedAgyResources {
-    fn terminate(&mut self) {
-        // SAFETY: this job is private to the single process launched above;
-        // user-owned Antigravity and agy processes were never assigned to it.
-        let terminated = self
-            .job
-            .as_ref()
-            .is_some_and(|job| unsafe { TerminateJobObject(win_handle(job), 1) }.is_ok());
-        // KILL_ON_JOB_CLOSE is the second termination path if the explicit API
-        // fails. Close it before wait so a failure cannot strand the reaper.
-        drop(self.job.take());
-        if !terminated {
-            drop(self.child.kill());
-        }
-    }
-
-    fn reap(mut self) {
-        drop(self.child.wait());
-        drop(self.master.take());
-        if let Some(thread) = self.drain_thread.take() {
-            drop(thread.join());
-        }
-    }
-
-    fn terminate_and_reap(mut self) {
-        self.terminate();
-        self.reap();
-    }
-}
-
-#[cfg(windows)]
-fn create_managed_agy_job() -> Result<OwnedHandle, ProviderError> {
-    // SAFETY: a successful call transfers a unique job handle to this owner.
-    let raw = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
-        .map_err(|error| ProviderError::Other(format!("Failed to create agy job: {error}")))?;
-    // SAFETY: `raw` is a unique valid handle returned by CreateJobObjectW.
-    let job = unsafe { OwnedHandle::from_raw_handle(raw.0) };
-    let limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
-        BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
-            LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let size = u32::try_from(std::mem::size_of_val(&limits))
-        .map_err(|error| ProviderError::Other(format!("Invalid agy job limit size: {error}")))?;
-    // SAFETY: `job` is valid and `limits` is initialized for the requested class.
-    unsafe {
-        SetInformationJobObject(
-            win_handle(&job),
-            JobObjectExtendedLimitInformation,
-            (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
-            size,
-        )
-    }
-    .map_err(|error| ProviderError::Other(format!("Failed to configure agy job: {error}")))?;
-    Ok(job)
-}
-
-#[cfg(windows)]
-fn assign_process_to_job(job: &OwnedHandle, process: RawHandle) -> Result<(), ProviderError> {
-    // SAFETY: both handles are valid and remain owned by their respective wrappers.
-    unsafe { AssignProcessToJobObject(win_handle(job), HANDLE(process)) }
-        .map_err(|error| ProviderError::Other(format!("Failed to contain agy process: {error}")))
-}
-
-#[cfg(windows)]
-fn win_handle(value: &OwnedHandle) -> HANDLE {
-    HANDLE(value.as_raw_handle())
 }
 
 // API Response types
