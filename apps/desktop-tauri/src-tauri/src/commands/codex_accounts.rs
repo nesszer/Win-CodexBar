@@ -470,14 +470,21 @@ fn ambient_account(accounts: &[CodexAccount]) -> Result<CodexAccount, String> {
 /// The persisted reconciled set is authoritative. A login that changes the
 /// ambient identity produces a fresh persisted record with a new id, while the
 /// login helper reuses the pre-login id, so the transient login result is used
-/// only to locate its persisted counterpart. Prefer the persisted record
-/// matching the authenticated identity, then the persisted ambient record.
+/// only to locate its persisted counterpart. The persisted ambient record is
+/// authoritative for this command; identity matching is a fallback for legacy
+/// stores that contain no ambient record.
 /// When neither is present the login was never committed, so the command fails
 /// instead of exposing a dropped or replaced transient account.
 fn canonical_reauthenticated_account(
     accounts: &[CodexAccount],
     authenticated: &CodexAccount,
 ) -> Result<CodexAccount, String> {
+    if let Some(account) = accounts
+        .iter()
+        .find(|account| account.source == codexbar::codex_accounts::CodexAccountSource::Ambient)
+    {
+        return Ok(account.clone());
+    }
     if let Some(account) = accounts
         .iter()
         .find(|account| account.matches(authenticated))
@@ -827,6 +834,24 @@ mod tests {
             canonical_reauthenticated_account(&[persisted.clone()], &authenticated).unwrap();
         assert_eq!(account.id, persisted.id);
         assert_eq!(account.nickname.as_deref(), Some("Work"));
+    }
+
+    #[test]
+    fn canonical_reauthenticated_account_prefers_ambient_over_matching_managed() {
+        let mut managed = sample_account();
+        managed.provider_account_id = Some("shared-workspace".into());
+
+        let mut ambient = managed.clone();
+        ambient.id = Uuid::new_v4();
+        ambient.source = codexbar::codex_accounts::CodexAccountSource::Ambient;
+
+        let account = canonical_reauthenticated_account(&[managed, ambient.clone()], &ambient)
+            .expect("persisted ambient account should be canonical");
+        assert_eq!(account.id, ambient.id);
+        assert_eq!(
+            account.source,
+            codexbar::codex_accounts::CodexAccountSource::Ambient
+        );
     }
 
     #[test]
