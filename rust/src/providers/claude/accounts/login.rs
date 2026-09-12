@@ -189,6 +189,100 @@ pub fn login() -> io::Result<SavedLogin> {
     wait_for_login(&mut child, &dir.path, &CANCEL, Duration::from_secs(300))
 }
 
+/// The safe, user-facing categories of a failed account sign-in. Claude Code's
+/// raw child output is never captured or surfaced; only these categories and
+/// the process exit code leave this module.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LoginFailure {
+    Cancelled,
+    TimedOut,
+    CliExit(i32),
+    CredentialsMissing,
+}
+
+impl LoginFailure {
+    fn message(self, wsl_backed: bool) -> String {
+        // Cancellation is user intent, never a WSL compatibility problem.
+        if wsl_backed && self != Self::Cancelled {
+            return wsl_failure_guidance(self);
+        }
+        match self {
+            Self::Cancelled => "Claude sign-in cancelled.".to_owned(),
+            Self::TimedOut => "Claude sign-in timed out. Please try again.".to_owned(),
+            Self::CliExit(code) => format!(
+                "Claude sign-in did not complete (Claude Code exit code {code}). Try again and finish sign-in in your browser."
+            ),
+            Self::CredentialsMissing => {
+                "Claude Code did not save a subscription login. Please sign in again, then use Save current account.".to_owned()
+            }
+        }
+    }
+}
+
+fn wsl_failure_guidance(failure: LoginFailure) -> String {
+    let context = match failure {
+        LoginFailure::CliExit(code) => format!("Claude Code exit code {code}"),
+        LoginFailure::TimedOut => "the browser sign-in timed out".to_owned(),
+        LoginFailure::CredentialsMissing => "Claude Code saved no subscription login".to_owned(),
+        LoginFailure::Cancelled => String::new(),
+    };
+    format!(
+        "Claude sign-in did not complete ({context}). Your Claude configuration is a Windows link into WSL, but Add account signs in to an isolated configuration directory and does not write through that link. WSL2 and remote browser sign-in often cannot reach Claude Code's local callback, so the sign-in code must be pasted into a terminal. Run `claude auth login --claudeai` in your WSL terminal, finish signing in, then use Save current account; or install native Windows Claude Code and use Add account."
+    )
+}
+
+/// UNC roots that identify a Windows path as living on the WSL filesystem.
+const WSL_UNC_ROOTS: [&str; 2] = [r"\\wsl$\", r"\\wsl.localhost\"];
+
+/// Lowercase a path for comparison, collapsing `/`, the `\\?\` verbatim prefix,
+/// and the `\\?\UNC\` form so `\\wsl$\...` and `\\?\UNC\wsl$\...` both match.
+fn normalize_unc(value: &str) -> String {
+    let slashes = value.replace('/', "\\");
+    let without_verbatim = slashes.strip_prefix(r"\\?\").unwrap_or(&slashes);
+    let mut normalized = without_verbatim.to_ascii_lowercase();
+    if let Some(rest) = normalized.strip_prefix("unc\\") {
+        normalized = format!(r"\\{rest}");
+    }
+    normalized
+}
+
+fn is_wsl_unc(path: &Path) -> bool {
+    let normalized = normalize_unc(&path.to_string_lossy());
+    WSL_UNC_ROOTS
+        .iter()
+        .any(|root| normalized.starts_with(*root))
+}
+
+/// True when `path` is a Windows reparse point (symlink/junction) that resolves
+/// onto the WSL filesystem, either directly or through the verbatim UNC form.
+fn path_is_wsl_backed(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !is_link(&metadata) {
+        return false;
+    }
+    std::fs::read_link(path).is_ok_and(|target| is_wsl_unc(&target))
+        || path.canonicalize().is_ok_and(|target| is_wsl_unc(&target))
+}
+
+/// True when the ambient Claude config the reader uses is a Windows link into
+/// WSL. Checked only after sign-in fails so Add account is never blocked
+/// preemptively.
+fn ambient_config_is_wsl_backed() -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    let path = match std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+    {
+        Some(path) if path.is_absolute() => path,
+        _ => home.join(".claude"),
+    };
+    path_is_wsl_backed(&path)
+}
+
 fn wait_for_login(
     child: &mut LoginChild,
     dir: &Path,
@@ -208,12 +302,13 @@ fn wait_for_login(
         if let Some(status) = status {
             if !status.success() {
                 return Err(io::Error::other(
-                    "Claude sign-in did not complete. Try again and finish sign-in in your browser.",
+                    LoginFailure::CliExit(status.code().unwrap_or(-1))
+                        .message(ambient_config_is_wsl_backed()),
                 ));
             }
             return read_login(dir, &dir.join(".claude.json"))?.ok_or_else(|| {
                 io::Error::other(
-                    "Claude Code did not save a subscription login. Please sign in again.",
+                    LoginFailure::CredentialsMissing.message(ambient_config_is_wsl_backed()),
                 )
             });
         }
@@ -221,11 +316,14 @@ fn wait_for_login(
         if cancelled || start.elapsed() > timeout {
             let _kill = child.kill();
             let _reap = child.wait();
-            return Err(io::Error::other(if cancelled {
-                "Claude sign-in cancelled."
+            let failure = if cancelled {
+                LoginFailure::Cancelled
             } else {
-                "Claude sign-in timed out. Please try again."
-            }));
+                LoginFailure::TimedOut
+            };
+            return Err(io::Error::other(
+                failure.message(ambient_config_is_wsl_backed()),
+            ));
         }
         std::thread::sleep(Duration::from_millis(150));
     }
@@ -529,5 +627,125 @@ mod tests {
             path: root.clone(),
         });
         assert!(root.exists());
+    }
+
+    #[test]
+    fn wsl_unc_paths_are_detected_and_native_paths_are_not() {
+        for wsl in [
+            r"\\wsl$\Ubuntu\home\user\.claude",
+            r"\\wsl.localhost\Ubuntu\home\user\.claude",
+            r"\\WSL.LOCALHOST\Ubuntu\home\user\.claude",
+            r"\\?\UNC\wsl$\Ubuntu\home\user\.claude",
+            r"//wsl$/Ubuntu/home/user/.claude",
+        ] {
+            assert!(is_wsl_unc(Path::new(wsl)), "{wsl}");
+        }
+        for native in [
+            r"C:\Users\user\.claude",
+            r"\\server\share\.claude",
+            r"\\?\C:\Users\user\.claude",
+            r"wsl$\Ubuntu\home\user\.claude",
+            "/home/user/.claude",
+        ] {
+            assert!(!is_wsl_unc(Path::new(native)), "{native}");
+        }
+    }
+
+    #[test]
+    fn native_failures_keep_generic_guidance_and_a_safe_exit_code() {
+        let exit = LoginFailure::CliExit(3).message(false);
+        assert!(exit.contains("did not complete"), "{exit}");
+        assert!(exit.contains("exit code 3"), "{exit}");
+        assert!(!exit.contains("WSL"), "{exit}");
+        let missing = LoginFailure::CredentialsMissing.message(false);
+        assert!(
+            missing.contains("did not save a subscription login"),
+            "{missing}"
+        );
+        assert!(!missing.contains("WSL"), "{missing}");
+        assert_eq!(
+            LoginFailure::Cancelled.message(false),
+            "Claude sign-in cancelled."
+        );
+        assert_eq!(
+            LoginFailure::TimedOut.message(false),
+            "Claude sign-in timed out. Please try again."
+        );
+    }
+
+    #[test]
+    fn wsl_failures_explain_isolated_sign_in_and_terminal_recovery() {
+        for failure in [
+            LoginFailure::CliExit(1),
+            LoginFailure::TimedOut,
+            LoginFailure::CredentialsMissing,
+        ] {
+            let message = failure.message(true);
+            assert!(message.contains("link into WSL"), "{message}");
+            assert!(
+                message.contains("isolated configuration directory"),
+                "{message}"
+            );
+            assert!(
+                message.contains("does not write through that link"),
+                "{message}"
+            );
+            assert!(
+                message.contains("claude auth login --claudeai"),
+                "{message}"
+            );
+            assert!(message.contains("Save current account"), "{message}");
+            assert!(message.contains("native Windows Claude Code"), "{message}");
+        }
+        // Cancelling is user intent and must never be reworded as a WSL fault.
+        assert_eq!(
+            LoginFailure::Cancelled.message(true),
+            "Claude sign-in cancelled."
+        );
+    }
+
+    #[test]
+    fn failure_messages_never_echo_credential_material() {
+        for failure in [
+            LoginFailure::Cancelled,
+            LoginFailure::TimedOut,
+            LoginFailure::CliExit(1),
+            LoginFailure::CredentialsMissing,
+        ] {
+            for wsl_backed in [false, true] {
+                let message = failure.message(wsl_backed).to_ascii_lowercase();
+                for marker in [
+                    "accesstoken",
+                    "refreshtoken",
+                    "authorization",
+                    "bearer ",
+                    "claudeaioauth",
+                    "secret",
+                ] {
+                    assert!(!message.contains(marker), "{failure:?}: {message}");
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ordinary_junction_is_not_treated_as_wsl_backed() {
+        use std::os::windows::process::CommandExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        let link = dir.path().join("link");
+        std::fs::create_dir_all(&target).unwrap();
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", "New-Item -ItemType Junction -Path $env:CODEXBAR_TEST_LINK -Target $env:CODEXBAR_TEST_TARGET | Out-Null"])
+            .env("CODEXBAR_TEST_LINK", &link).env("CODEXBAR_TEST_TARGET", &target)
+            .creation_flags(0x0800_0000).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!path_is_wsl_backed(&link));
+        assert!(!path_is_wsl_backed(&target));
     }
 }
