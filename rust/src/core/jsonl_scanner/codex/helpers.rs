@@ -323,6 +323,7 @@ pub(super) fn parse_codex_fast_event(line: &str) -> Option<CodexFastEvent<'_>> {
 pub(super) fn is_candidate_codex_line(line: &str) -> bool {
     if !line.contains("\"type\":\"event_msg\"")
         && !line.contains("\"type\":\"turn_context\"")
+        && !line.contains("\"turn_context\"")
         && !line.contains("\"event_msg\"")
     {
         return false;

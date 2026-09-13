@@ -514,6 +514,49 @@ fn test_fast_codex_parser_reads_legacy_event_msg_shape() {
 }
 
 #[test]
+fn codex_fast_parser_accepts_compact_and_spaced_event_records_equally() {
+    let range = CostUsageDayRange::new(
+        NaiveDate::from_ymd_opt(2026, 5, 31).unwrap(),
+        NaiveDate::from_ymd_opt(2026, 5, 31).unwrap(),
+    );
+    let parsed = |line: &str| {
+        let mut parser = CodexParserState::new(Some("gpt-5".to_string()), None);
+        parser.process_line(line, &range);
+        (
+            parser.current_model,
+            parser
+                .records
+                .into_iter()
+                .map(|record| {
+                    (
+                        record.day_key,
+                        record.model,
+                        record.input,
+                        record.cached,
+                        record.output,
+                        record.reasoning,
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    let compact_event = r#"{"timestamp":"2026-05-31T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":20,"cached_input_tokens":5,"output_tokens":3}}}}"#;
+    let spaced_event = r#"{ "timestamp": "2026-05-31T10:00:01Z", "type": "event_msg", "payload": { "type": "token_count", "info": { "last_token_usage": { "input_tokens": 20, "cached_input_tokens": 5, "output_tokens": 3 } } } }"#;
+    assert!(is_candidate_codex_line(spaced_event));
+    assert_eq!(parsed(compact_event), parsed(spaced_event));
+
+    let compact_context = r#"{"timestamp":"2026-05-31T10:00:00Z","type":"turn_context","payload":{"model":"gpt-5.5"}}"#;
+    let spaced_context = "{\t\"timestamp\": \"2026-05-31T10:00:00Z\",\t\"type\":\t\"turn_context\",\t\"payload\": {\t\"model\": \"gpt-5.5\"\t}\t}";
+    assert!(is_candidate_codex_line(spaced_context));
+    assert_eq!(parsed(compact_context), parsed(spaced_context));
+
+    let unrelated = r#"{ "timestamp": "2026-05-31T10:00:00Z", "type": "response", "payload": { "model": "gpt-5.5" } }"#;
+    assert!(!is_candidate_codex_line(unrelated));
+    assert_eq!(parsed(unrelated), (Some("gpt-5".to_string()), Vec::new()));
+}
+
+#[test]
 fn test_parse_codex_file_uses_fast_parser_for_current_logs() {
     let mut file = tempfile::NamedTempFile::new().expect("temp file");
     writeln!(
