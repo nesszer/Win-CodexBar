@@ -17,6 +17,11 @@ The primary and reserve Windows jobs deliberately execute the same
 write credential; only the approval-gated CircleCI release publisher receives its
 restricted `GH_TOKEN` context.
 
+The frontend static-analysis gate is Oxlint with the explicitly selected,
+vendored anti-slop rules under `apps/desktop-tauri/tools/oxlint/anti-slop/`.
+Rust analysis remains owned by Clippy; `rust-analyzer` is an editor language
+server and is not a hosted CI job.
+
 ## CircleCI hosted PR check (primary PR/push gate)
 
 ### Workflow — `.circleci/config.yml`
@@ -30,8 +35,12 @@ not on Blacksmith. The CircleCI job delegates the whole check to
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+pnpm --dir apps/desktop-tauri install --frozen-lockfile
+pnpm --dir apps/desktop-tauri run lint
+pnpm --dir apps/desktop-tauri run test:anti-slop
 pnpm --dir apps/desktop-tauri test
 pnpm --dir apps/desktop-tauri run build
+node --test .github/scripts/interaction-guard.test.mjs
 ```
 
 Auto-cancel of superseded non-default-branch work is a CircleCI **project setting**
