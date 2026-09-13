@@ -22,7 +22,10 @@ const eventMocks = vi.hoisted(() => ({
 vi.mock("../lib/tauri", () => tauriMocks);
 vi.mock("@tauri-apps/api/event", () => eventMocks);
 
-import CodexAccountsMenu from "./CodexAccountsMenu";
+import CodexAccountsMenu, {
+  buildCodexAccountOrdinals,
+  buildPrivateCodexAccountLabel,
+} from "./CodexAccountsMenu";
 
 function account(id: string, extra: Partial<CodexAccount> = {}): CodexAccount {
   return {
@@ -196,7 +199,7 @@ describe("CodexAccountsMenu", () => {
     expect(tauriMocks.codexAccountSwitch).toHaveBeenCalledWith("2");
     expect(tauriMocks.refreshProviders).toHaveBeenCalledTimes(1);
   });
-  it("keeps the email tooltip masked while hideEmail is on and raw when off", async () => {
+  it("uses opaque ordinal labels and matching tooltips while hideEmail is on", async () => {
     const { container: hidden } = renderMenu(true, {
       accounts: [account("1", { source: "ambient" }), account("2")],
       snapshots: {},
@@ -210,6 +213,9 @@ describe("CodexAccountsMenu", () => {
       ".codex-menu-accounts__email",
     )[1] as HTMLElement;
     expect(hiddenEmail.getAttribute("title")).toBe(hiddenEmail.textContent);
+    expect(hiddenEmail.textContent).toBe("Account 2");
+    expect(hiddenEmail.textContent).not.toContain("@");
+    expect(hiddenEmail.textContent).not.toContain("example.com");
 
     const { container: visible } = renderMenu(false, {
       accounts: [account("1", { source: "ambient" }), account("2")],
@@ -224,6 +230,36 @@ describe("CodexAccountsMenu", () => {
       ".codex-menu-accounts__email",
     )[1] as HTMLElement;
     expect(rawEmail.getAttribute("title")).toBe("user-2@example.com");
+  });
+
+  it("redacts email-like account metadata and keeps ordinals stable across refresh order", () => {
+    const first = account("uuid-b", {
+      emailHint: "alice@example.com",
+      nickname: "team@example.com",
+    });
+    const second = account("uuid-a", {
+      emailHint: "bob@example.com",
+      nickname: "Private workspace",
+    });
+
+    const forward = buildCodexAccountOrdinals([first, second]);
+    const reversed = buildCodexAccountOrdinals([second, first]);
+    expect(forward).toEqual(reversed);
+    expect(forward[first.id]).toBe(2);
+    expect(forward[second.id]).toBe(1);
+
+    const privateLabel = buildPrivateCodexAccountLabel(
+      first,
+      "alice@example.com — team@example.com",
+      forward[first.id],
+      true,
+    );
+    expect(privateLabel).toEqual({
+      label: "Account 2",
+      tooltip: "Account 2",
+    });
+    expect(privateLabel.label).not.toContain("@");
+    expect(privateLabel.label).not.toContain("example.com");
   });
 });
 
