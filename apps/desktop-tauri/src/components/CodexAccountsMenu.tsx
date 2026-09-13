@@ -7,13 +7,62 @@ import type {
 } from "../types/bridge";
 import { useLocale } from "../hooks/useLocale";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
-import { maskEmail } from "./MenuCard";
 import { buildCodexAccountDisplayNames } from "./codexAccountDisplay";
 import {
   codexAccountSwitch,
   getCodexAccountsState,
   refreshProviders,
 } from "../lib/tauri";
+
+export interface PrivateCodexAccountLabel {
+  label: string;
+  tooltip: string;
+}
+
+/**
+ * Project a tray account label while keeping the privacy setting scoped to
+ * this switcher surface. The shared display-name builder remains unchanged so
+ * settings and other account-facing surfaces keep their existing behavior.
+ */
+export function buildPrivateCodexAccountLabel(
+  account: CodexAccount,
+  displayName: string,
+  ordinal: number,
+  hidePersonalInfo: boolean,
+): PrivateCodexAccountLabel {
+  if (hidePersonalInfo) {
+    const label = `Account ${ordinal}`;
+    return { label, tooltip: label };
+  }
+
+  const label = displayName || account.nickname || "Workspace";
+  return { label, tooltip: label };
+}
+
+/**
+ * Assign ordinals from the opaque stable account id rather than the current
+ * discovery order. This keeps hidden labels stable when the backend refreshes
+ * or reorders account rows.
+ */
+export function buildCodexAccountOrdinals(
+  accounts: readonly CodexAccount[],
+): Record<string, number> {
+  const ordered = accounts
+    .map((account, index) => ({ account, index }))
+    .sort((left, right) => {
+      const leftId = left.account.id.trim().toLowerCase();
+      const rightId = right.account.id.trim().toLowerCase();
+      if (leftId < rightId) return -1;
+      if (leftId > rightId) return 1;
+      return left.index - right.index;
+    });
+
+  const ordinals: Record<string, number> = {};
+  ordered.forEach(({ account }, index) => {
+    ordinals[account.id] = index + 1;
+  });
+  return ordinals;
+}
 
 /**
  * Multi-account lane surface for the Codex tray menu card (ADR 0003,
@@ -99,6 +148,7 @@ export default function CodexAccountsMenu({
     accounts,
     displayNames,
   );
+  const accountOrdinals = buildCodexAccountOrdinals(accounts);
 
   return (
     <details className="codex-menu-accounts" onToggle={onLayoutChange}>
@@ -112,18 +162,26 @@ export default function CodexAccountsMenu({
         </div>
       )}
       <ul className="codex-menu-accounts__list">
-        {accounts.map((account) => (
-          <CodexAccountRow
-            key={account.id}
-            account={account}
-            snapshot={snapshots[account.id]}
-            displayName={accountDisplayNames[account.id]}
-            hideEmail={hideEmail}
-            resetTimeRelative={resetTimeRelative}
-            busy={busy}
-            onSwitch={handleSwitch}
-          />
-        ))}
+        {accounts.map((account, index) => {
+          const privateLabel = buildPrivateCodexAccountLabel(
+            account,
+            accountDisplayNames[account.id] ?? "",
+            accountOrdinals[account.id] ?? index + 1,
+            hideEmail,
+          );
+          return (
+            <CodexAccountRow
+              key={account.id}
+              account={account}
+              snapshot={snapshots[account.id]}
+              displayName={privateLabel.label}
+              tooltip={privateLabel.tooltip}
+              resetTimeRelative={resetTimeRelative}
+              busy={busy}
+              onSwitch={handleSwitch}
+            />
+          );
+        })}
       </ul>
     </details>
   );
@@ -133,7 +191,7 @@ function CodexAccountRow({
   account,
   snapshot,
   displayName,
-  hideEmail,
+  tooltip,
   resetTimeRelative,
   busy,
   onSwitch,
@@ -141,7 +199,7 @@ function CodexAccountRow({
   account: CodexAccount;
   snapshot: CodexAccountUsageSnapshot | undefined;
   displayName: string;
-  hideEmail: boolean;
+  tooltip: string;
   resetTimeRelative: boolean;
   busy: boolean;
   onSwitch: (id: string) => Promise<void>;
@@ -164,13 +222,6 @@ function CodexAccountRow({
       : `${t("MetricResetsIn")} ${resetText}`
     : null;
   const windowLabel = formatWindowLabel(usageWindow?.limitWindowSeconds);
-  // Only mask labels that actually contain an email. Generic/nickname labels
-  // have no personal data to hide, and masking them would erase their opaque
-  // workspace suffix and make distinct accounts look identical.
-  const shown =
-    hideEmail && displayName.includes("@")
-      ? maskEmail(displayName)
-      : displayName;
   const isAmbient = account.source === "ambient";
 
   return (
@@ -179,8 +230,8 @@ function CodexAccountRow({
         className={`codex-menu-accounts__row${isAmbient ? " codex-menu-accounts__row--active" : ""}`}
       >
         <div className="codex-menu-accounts__meta">
-          <span className="codex-menu-accounts__email" title={shown}>
-            {shown}
+          <span className="codex-menu-accounts__email" title={tooltip}>
+            {displayName}
             {isAmbient && (
               <span className="codex-menu-accounts__badge">
                 {t("CodexAccountsSourceAmbient")}
