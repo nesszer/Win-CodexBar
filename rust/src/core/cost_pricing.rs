@@ -620,9 +620,16 @@ impl CostUsagePricing {
             return Self::CODEX_UNATTRIBUTED_MODEL.to_string();
         }
 
-        // Remove "openai/" prefix
-        if let Some(rest) = trimmed.strip_prefix("openai/") {
+        // Remove the provider-qualified OpenAI prefix.
+        if let Some((prefix, rest)) = trimmed.split_once('/')
+            && prefix.eq_ignore_ascii_case("openai")
+        {
             trimmed = rest.to_string();
+        }
+
+        // Codex uses this alias for the Luna reserve quota bucket.
+        if trimmed.eq_ignore_ascii_case("gpt-reserve") {
+            return "gpt-5.6-luna".to_string();
         }
 
         // Check if base model (without -codex suffix) exists in pricing

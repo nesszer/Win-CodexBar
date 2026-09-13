@@ -20,6 +20,30 @@ fn test_normalize_codex_model() {
         CostUsagePricing::normalize_codex_model("unknown"),
         CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
     );
+    assert_eq!(
+        CostUsagePricing::normalize_codex_model("gpt-reserve"),
+        "gpt-5.6-luna"
+    );
+    assert_eq!(
+        CostUsagePricing::normalize_codex_model(" GPT-RESERVE "),
+        "gpt-5.6-luna"
+    );
+    assert_eq!(
+        CostUsagePricing::normalize_codex_model("openai/gpt-reserve"),
+        "gpt-5.6-luna"
+    );
+    assert_eq!(
+        CostUsagePricing::normalize_codex_model("OPENAI/GPT-RESERVE"),
+        "gpt-5.6-luna"
+    );
+    assert_eq!(
+        CostUsagePricing::normalize_codex_model("gpt-reserve-preview"),
+        "gpt-reserve-preview"
+    );
+    assert_eq!(
+        CostUsagePricing::normalize_codex_model("my-gpt-reserve"),
+        "my-gpt-reserve"
+    );
 }
 
 #[test]
@@ -165,6 +189,22 @@ fn test_gpt56_standard_pricing() {
     ] {
         let cost = CostUsagePricing::codex_cost_usd(model, 1_000, 400, 1_000);
         assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
+    }
+}
+
+#[test]
+fn gpt_reserve_alias_uses_luna_pricing() {
+    let luna =
+        CostUsagePricing::codex_cost_usd("gpt-5.6-luna", 1_000, 400, 1_000).expect("Luna pricing");
+    for model in [
+        "gpt-reserve",
+        " GPT-RESERVE ",
+        "openai/gpt-reserve",
+        "OPENAI/GPT-RESERVE",
+    ] {
+        let reserve =
+            CostUsagePricing::codex_cost_usd(model, 1_000, 400, 1_000).expect("reserve pricing");
+        assert!((reserve - luna).abs() < 1e-10, "{model}");
     }
 }
 
