@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use super::{OpenCodexEntry, parse_line};
 
 const CACHE_SCHEMA_VERSION: i64 = 2;
+const PARSER_VERSION: u32 = 1;
 const PREFIX_DIGEST_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -18,6 +19,8 @@ pub(super) struct ParseCursor {
     file_identity: String,
     pub(super) parsed_offset: u64,
     prefix_digest: String,
+    #[serde(default)]
+    parser_version: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +80,7 @@ pub(super) fn load_entries_with_cache(
                     file_identity: identity.file_identity.clone(),
                     parsed_offset: parsed.next_offset,
                     prefix_digest: prefix_digest(source_path, parsed.next_offset)?,
+                    parser_version: Some(PARSER_VERSION),
                 };
                 if !source_matches_snapshot(source_path, &identity) {
                     continue;
@@ -102,6 +106,7 @@ pub(super) fn load_entries_with_cache(
             file_identity: identity.file_identity.clone(),
             parsed_offset: parsed.next_offset,
             prefix_digest: prefix_digest(source_path, parsed.next_offset)?,
+            parser_version: Some(PARSER_VERSION),
         };
         if !source_matches_snapshot(source_path, &identity) {
             continue;
@@ -157,7 +162,8 @@ fn source_matches_snapshot(source_path: &Path, identity: &LogIdentity) -> bool {
 }
 
 fn cursor_matches_source(cursor: &ParseCursor, identity: &LogIdentity, source_path: &Path) -> bool {
-    cursor.source_path == identity.source_path
+    cursor.parser_version == Some(PARSER_VERSION)
+        && cursor.source_path == identity.source_path
         && cursor.file_identity == identity.file_identity
         && identity.size >= cursor.parsed_offset
         && prefix_digest(source_path, cursor.parsed_offset)
@@ -383,6 +389,76 @@ fn platform_file_identity(_source_path: &Path, metadata: &fs::Metadata) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_test_log(path: &Path) {
+        std::fs::write(
+            path,
+            br#"{"requestId":"entry","model":"gpt-5","timestamp":"2026-08-18T10:00:00Z","usageStatus":"reported","usage":{"inputTokens":1}}
+"#,
+        )
+        .expect("write log");
+    }
+
+    #[test]
+    fn parser_version_gate_reparses_legacy_and_mismatched_cursors() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let log_path = dir.path().join("usage.jsonl");
+        let cache_path = dir.path().join("cache.sqlite");
+        write_test_log(&log_path);
+
+        let entries = load_entries_with_cache(&log_path, &cache_path).expect("initial load");
+        assert_eq!(entries.len(), 1);
+        let current = read_cache(&cache_path).expect("current cache");
+        let identity = log_identity(&log_path).expect("log identity");
+        assert_eq!(current.cursor.parser_version, Some(PARSER_VERSION));
+        assert!(cursor_matches_source(&current.cursor, &identity, &log_path));
+        let encoded = serde_json::to_value(&current.cursor).expect("encode cursor");
+        assert_eq!(
+            encoded
+                .get("parser_version")
+                .and_then(serde_json::Value::as_u64),
+            Some(u64::from(PARSER_VERSION))
+        );
+
+        for parser_version in [None, Some(0), Some(2)] {
+            let mut candidate = current.cursor.clone();
+            candidate.parser_version = parser_version;
+            assert!(!cursor_matches_source(&candidate, &identity, &log_path));
+        }
+
+        let conn = Connection::open(&cache_path).expect("open cache");
+        let cursor_json: String = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'parseCursor'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read cursor");
+        let mut legacy: serde_json::Value =
+            serde_json::from_str(&cursor_json).expect("decode cursor");
+        legacy
+            .as_object_mut()
+            .expect("cursor object")
+            .remove("parser_version");
+        conn.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'parseCursor'",
+            params![serde_json::to_string(&legacy).expect("encode legacy cursor")],
+        )
+        .expect("write legacy cursor");
+        drop(conn);
+
+        let legacy_state = read_cache(&cache_path).expect("load legacy cache");
+        assert_eq!(legacy_state.cursor.parser_version, None);
+        let reparsed = load_entries_with_cache(&log_path, &cache_path).expect("reparse legacy");
+        assert_eq!(reparsed.len(), 1);
+        assert_eq!(
+            read_cache(&cache_path)
+                .expect("migrated cache")
+                .cursor
+                .parser_version,
+            Some(PARSER_VERSION)
+        );
+    }
 
     #[test]
     fn same_path_replacement_forces_reparse() {
