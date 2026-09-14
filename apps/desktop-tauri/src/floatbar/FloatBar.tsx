@@ -67,7 +67,7 @@ function inlineResetTime(
       const diffMs = target - Date.now();
       if (diffMs <= 0) return "now";
 
-      const totalMinutes = Math.floor(diffMs / 60_000);
+      const totalMinutes = Math.max(1, Math.floor(diffMs / 60_000));
       const days = Math.floor(totalMinutes / 1440);
       const hours = Math.floor((totalMinutes % 1440) / 60);
       const minutes = totalMinutes % 60;

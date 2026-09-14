@@ -760,6 +760,34 @@ describe("FloatBar", () => {
     }
   });
 
+  it("keeps a future sub-minute reset out of the now state", async () => {
+    const now = Date.parse("2024-06-01T00:00:00Z");
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle({}, "chinese"));
+      tauriMocks.getCachedProviders.mockResolvedValue([
+        snapshot("claude", "Claude", 20, {
+          resetsAt: "2024-06-01T00:00:30Z",
+        }),
+      ]);
+      tauriMocks.getSettingsSnapshot.mockResolvedValue(
+        settings({ floatBarShowResetInline: true }),
+      );
+
+      const { container } = renderFloatBar(
+        bootstrap({ floatBarShowResetInline: true }),
+      );
+
+      await waitFor(() => {
+        expect(container.querySelector(".floatbar__reset-time")).toHaveTextContent(
+          "1m",
+        );
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("compacts localized day and hour reset text", async () => {
     const now = Date.parse("2024-06-01T00:00:00Z");
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
