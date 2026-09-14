@@ -107,14 +107,14 @@ fn automatic_window(
         }
     }
 
-    if provider == Some(ProviderId::Antigravity) {
+    if provider == Some(ProviderId::Antigravity)
+        && snapshot.window_layout == codexbar::core::UsageWindowLayout::AntigravityQuotaSummary
+    {
         let core_windows = std::iter::once(&snapshot.primary)
             .chain(snapshot.secondary.iter())
-            .filter(|window| !window.is_informational);
+            .filter(|window| !window.is_informational && !automatic_window_is_exhausted(window));
         if let Some(highest_core) = highest_window(core_windows) {
-            if !highest_core.is_exhausted && highest_core.used_percent < 100.0 {
-                return Some(highest_core.clone());
-            }
+            return Some(highest_core.clone());
         }
     }
 
@@ -260,6 +260,7 @@ mod tests {
             fetch_duration_ms: None,
             wayfinder_usage: None,
             session_equivalent_forecast: None,
+            window_layout: Default::default(),
         }
     }
 
@@ -356,20 +357,40 @@ mod tests {
     fn antigravity_automatic_prefers_active_core_quota_over_exhausted_extra_window() {
         let mut snapshot = snapshot();
         snapshot.provider_id = "antigravity".to_string();
-        snapshot.primary = window(7.0);
+        snapshot.window_layout = codexbar::core::UsageWindowLayout::AntigravityQuotaSummary;
+        snapshot.primary = window(100.0);
+        snapshot.primary.is_exhausted = true;
+        snapshot.primary_label = Some("Gemini 5h".to_string());
         snapshot.secondary = Some(window(88.0));
-        let mut exhausted_extra = window(100.0);
-        exhausted_extra.is_exhausted = true;
-        snapshot.extra_rate_windows = vec![codexbar::core::NamedRateWindow::new(
-            "antigravity-quota-summary-3p-weekly",
-            "Claude/GPT weekly",
-            codexbar::core::RateWindow::with_details(100.0, Some(10080), None, None),
-        )];
+        snapshot.secondary_label = Some("Gemini Weekly".to_string());
+        snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: "antigravity-quota-summary-3p-weekly".to_string(),
+            title: "Claude/GPT weekly".to_string(),
+            window: window(100.0),
+        }];
 
         let selected = selected_usage_window(&snapshot, &Settings::default());
 
         assert_eq!(selected.used_percent, 88.0);
         assert!(!selected.is_exhausted);
+    }
+
+    #[test]
+    fn antigravity_legacy_layout_considers_model_and_extra_windows() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "antigravity".to_string();
+        snapshot.primary = window(80.0);
+        snapshot.secondary = Some(window(20.0));
+        snapshot.model_specific = Some(window(90.0));
+        snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: "legacy-other".to_string(),
+            title: "Other".to_string(),
+            window: window(70.0),
+        }];
+
+        let selected = selected_usage_window(&snapshot, &Settings::default());
+
+        assert_eq!(selected.used_percent, 90.0);
     }
 
     #[test]

@@ -90,7 +90,7 @@ pub(super) fn parse_usage_snapshot(data: &[u8]) -> Result<UsageSnapshot, Provide
         })
         .ok_or_else(|| ProviderError::Parse("Antigravity quota summary missing payload".into()))?;
 
-    let (primary_windows, extra_windows) = split_quota_windows(payload.groups);
+    let (primary_windows, extra_windows, has_gemini_group) = split_quota_windows(payload.groups);
     let all_windows: Vec<NamedRateWindow> = primary_windows
         .iter()
         .chain(extra_windows.iter())
@@ -103,8 +103,18 @@ pub(super) fn parse_usage_snapshot(data: &[u8]) -> Result<UsageSnapshot, Provide
         ));
     }
 
-    let primary_selected = select_cadence_window(&primary_windows, &all_windows, SESSION_MINUTES);
-    let secondary_selected = select_cadence_window(&primary_windows, &all_windows, WEEKLY_MINUTES);
+    let primary_selected = select_cadence_window(
+        &primary_windows,
+        &all_windows,
+        SESSION_MINUTES,
+        !has_gemini_group,
+    );
+    let secondary_selected = select_cadence_window(
+        &primary_windows,
+        &all_windows,
+        WEEKLY_MINUTES,
+        !has_gemini_group,
+    );
 
     let mut selected_ids = Vec::new();
     let mut snapshot = if let Some(primary) = primary_selected {
@@ -141,8 +151,11 @@ pub(super) fn parse_usage_snapshot(data: &[u8]) -> Result<UsageSnapshot, Provide
 
 fn split_quota_windows(
     groups: Vec<QuotaSummaryGroup>,
-) -> (Vec<NamedRateWindow>, Vec<NamedRateWindow>) {
+) -> (Vec<NamedRateWindow>, Vec<NamedRateWindow>, bool) {
     let mut indexed_groups = groups.into_iter().enumerate().collect::<Vec<_>>();
+    let has_gemini_group = indexed_groups
+        .iter()
+        .any(|(_, group)| group_rank(group) == 0);
     indexed_groups.sort_by_key(|(index, group)| (group_rank(group), *index));
 
     let mut primary_windows = Vec::new();
@@ -157,7 +170,7 @@ fn split_quota_windows(
         }
     }
 
-    (primary_windows, extra_windows)
+    (primary_windows, extra_windows, has_gemini_group)
 }
 
 fn group_quota_windows(group: &QuotaSummaryGroup) -> Vec<NamedRateWindow> {
@@ -201,15 +214,14 @@ fn select_cadence_window<'a>(
     primary_windows: &'a [NamedRateWindow],
     all_windows: &'a [NamedRateWindow],
     minutes: u32,
+    allow_compatibility_fallback: bool,
 ) -> Option<&'a NamedRateWindow> {
-    most_constrained_named(primary_windows, minutes)
-        .or_else(|| most_constrained_named(all_windows, minutes))
+    most_constrained_named(primary_windows, minutes).or_else(|| {
+        allow_compatibility_fallback.then(|| most_constrained_named(all_windows, minutes))?
+    })
 }
 
-fn most_constrained_named(
-    windows: &[NamedRateWindow],
-    minutes: u32,
-) -> Option<&NamedRateWindow> {
+fn most_constrained_named(windows: &[NamedRateWindow], minutes: u32) -> Option<&NamedRateWindow> {
     windows
         .iter()
         .filter(|row| row.usage_known && row.window.window_minutes == Some(minutes))
@@ -328,13 +340,13 @@ mod tests {
     fn separates_gemini_and_third_party_rate_windows() {
         let data = br#"{
           "response": {"groups": [
-            {"displayName":"Gemini Models","buckets":[
-              {"bucketId":"gemini-5h","displayName":"5h","remainingFraction":0.9},
-              {"bucketId":"gemini-weekly","displayName":"Weekly","remainingFraction":0.1}
-            ]},
             {"displayName":"Claude and GPT","buckets":[
               {"bucketId":"3p-5h","displayName":"5-hour limit","remainingFraction":0.2},
               {"bucketId":"3p-weekly","displayName":"Weekly","remainingFraction":0.8}
+            ]},
+            {"displayName":"Gemini Models","buckets":[
+              {"bucketId":"gemini-5h","displayName":"5h","remainingFraction":0.9},
+              {"bucketId":"gemini-weekly","displayName":"Weekly","remainingFraction":0.1}
             ]}
           ]}
         }"#;
@@ -351,6 +363,48 @@ mod tests {
         assert!((snapshot.extra_rate_windows[0].window.used_percent - 80.0).abs() < 0.001);
         assert_eq!(snapshot.extra_rate_windows[1].title, "Claude/GPT weekly");
         assert!((snapshot.extra_rate_windows[1].window.used_percent - 20.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn missing_gemini_cadence_stays_missing_when_third_party_has_it() {
+        let data = br#"{
+          "groups": [
+            {"displayName":"Gemini Models","buckets":[
+              {"bucketId":"gemini-5h","displayName":"5h","remainingFraction":0.9}
+            ]},
+            {"displayName":"Claude and GPT","buckets":[
+              {"bucketId":"3p-weekly","displayName":"Weekly","remainingFraction":0.2}
+            ]}
+          ]
+        }"#;
+
+        let snapshot = parse_usage_snapshot(data).unwrap();
+
+        assert_eq!(snapshot.primary_label.as_deref(), Some("Gemini 5h"));
+        assert!(snapshot.secondary.is_none());
+        assert_eq!(snapshot.extra_rate_windows.len(), 1);
+        assert_eq!(snapshot.extra_rate_windows[0].title, "Claude/GPT weekly");
+    }
+
+    #[test]
+    fn unknown_extra_group_remains_an_extra_window() {
+        let data = br#"{
+          "groups": [
+            {"displayName":"Gemini Models","buckets":[
+              {"bucketId":"gemini-5h","displayName":"5h","remainingFraction":0.9}
+            ]},
+            {"displayName":"Experimental","buckets":[
+              {"bucketId":"experimental-daily","displayName":"Daily","remainingFraction":0.4}
+            ]}
+          ]
+        }"#;
+
+        let snapshot = parse_usage_snapshot(data).unwrap();
+
+        assert_eq!(snapshot.primary_label.as_deref(), Some("Gemini 5h"));
+        assert_eq!(snapshot.extra_rate_windows.len(), 1);
+        assert_eq!(snapshot.extra_rate_windows[0].title, "Experimental Daily");
+        assert_eq!(snapshot.extra_rate_windows[0].window.window_minutes, None);
     }
 
     #[test]

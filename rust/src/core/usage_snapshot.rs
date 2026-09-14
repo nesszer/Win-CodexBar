@@ -536,6 +536,19 @@ fn finite_amount(value: f64) -> Option<f64> {
     value.is_finite().then_some(value.max(0.0))
 }
 
+/// Identifies the provider-owned projection policy for usage windows.
+///
+/// This is operational metadata carried between the fetcher and display
+/// adapters. It is intentionally not part of the public provider JSON
+/// contract: callers that need a serialized snapshot receive the projected
+/// windows instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UsageWindowLayout {
+    #[default]
+    Standard,
+    AntigravityQuotaSummary,
+}
+
 /// Combined fetch result containing usage and optional cost data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderFetchResult {
@@ -560,6 +573,10 @@ pub struct ProviderFetchResult {
     /// Whether quota data is authoritative enough for pace/run-out advice.
     #[serde(default = "default_pace_authoritative")]
     pub pace_authoritative: bool,
+
+    /// Provider-owned window projection policy for display adapters.
+    #[serde(skip)]
+    pub window_layout: UsageWindowLayout,
 }
 
 fn default_pace_authoritative() -> bool {
@@ -576,7 +593,14 @@ impl ProviderFetchResult {
             source_label: source_label.into(),
             has_successful_claude_cli_quota: false,
             pace_authoritative: true,
+            window_layout: UsageWindowLayout::Standard,
         }
+    }
+
+    /// Set the provider-owned window projection policy.
+    pub fn with_window_layout(mut self, layout: UsageWindowLayout) -> Self {
+        self.window_layout = layout;
+        self
     }
 
     /// Mark this result as unsuitable for derived pace/run-out advice.

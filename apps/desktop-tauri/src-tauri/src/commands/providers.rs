@@ -1202,6 +1202,7 @@ mod reset_backfill_tests {
             fetch_duration_ms: None,
             wayfinder_usage: None,
             session_equivalent_forecast: None,
+            window_layout: Default::default(),
         }
     }
 
