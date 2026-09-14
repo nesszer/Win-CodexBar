@@ -181,6 +181,30 @@ fn test_parse_user_status_standard() {
 }
 
 #[test]
+fn antigravity_extra_windows_keep_distinct_pool_with_same_reading() {
+    let resp = make_response(vec![
+        ("Claude 4 Sonnet", 0.8),
+        ("GPT-4o", 0.8),
+        ("Mistral Large", 0.6),
+        ("Qwen Max", 0.6),
+    ]);
+    let provider = AntigravityProvider::new();
+    let snap = provider.parse_user_status(resp).unwrap();
+
+    assert_eq!(snap.extra_rate_windows.len(), 2);
+    assert!(
+        snap.extra_rate_windows
+            .iter()
+            .any(|window| window.title == "GPT-4o")
+    );
+    assert!(
+        snap.extra_rate_windows
+            .iter()
+            .any(|window| window.title == "Mistral Large")
+    );
+}
+
+#[test]
 fn test_parse_user_status_thinking_skipped() {
     let resp = make_response(vec![
         ("Claude Thinking", 0.6),
