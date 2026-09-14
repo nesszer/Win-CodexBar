@@ -8,6 +8,8 @@ function provider(extra = true): ProviderDetail {
     id: "copilot",
     displayName: "GitHub Copilot",
     enabled: true,
+    autoResumeAfterQuotaReset: false,
+    autoResumeSupported: false,
     email: null,
     plan: null,
     authType: null,

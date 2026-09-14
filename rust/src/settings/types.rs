@@ -402,6 +402,10 @@ pub struct ProviderConfig {
     /// Claude-only: path to the claude-swap (`cswap`) executable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claude_swap_executable_path: Option<String>,
+    /// Codex/Claude-only: reopen the captured CLI session after its quota resets.
+    /// Disabled by default; the desktop shell never injects a prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_resume_after_quota_reset: bool,
     /// Per-provider accent color override (hex, e.g. "#FF5733"). `None`
     /// means the shipped brand color is used (#2972).
     #[serde(skip_serializing_if = "Option::is_none")]

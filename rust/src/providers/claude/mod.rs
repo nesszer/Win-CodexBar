@@ -110,6 +110,12 @@ pub(crate) fn claude_code_consent() -> bool {
     crate::settings::Settings::load().claude_allow_reading_claude_code_credentials
 }
 
+/// Return the identity of the credential that can authorize a Claude CLI
+/// resume. The OAuth module applies the same consent boundary as its fetcher.
+pub fn auto_resume_identity() -> Option<String> {
+    oauth::auto_resume_identity()
+}
+
 /// Claude provider implementation
 pub struct ClaudeProvider {
     metadata: ProviderMetadata,
@@ -276,7 +282,7 @@ async fn run_claude_trust_preflight(
 }
 
 fn resolve_claude_cli_path() -> Result<std::path::PathBuf, ProviderError> {
-    which_claude().ok_or_else(|| {
+    locate_claude_binary().ok_or_else(|| {
         ProviderError::NotInstalled(
             "Claude CLI not found. Install from https://docs.claude.ai/claude-code".to_string(),
         )
@@ -656,9 +662,11 @@ impl ClaudeProvider {
             return Err(error);
         }
 
-        Ok(mark_live_claude_cli_result(
-            self.parse_cli_output(&combined)?,
-        ))
+        let mut result = self.parse_cli_output(&combined)?;
+        if let Some(identity) = auto_resume_identity() {
+            result = result.with_account_identity(identity);
+        }
+        Ok(mark_live_claude_cli_result(result))
     }
 
     /// Parse Claude CLI /usage output
@@ -832,8 +840,15 @@ fn should_fallback_from_claude_cli_error(error: &ProviderError) -> bool {
     }
 }
 
-/// Try to find the claude CLI binary
-fn which_claude() -> Option<std::path::PathBuf> {
+/// Locate the Claude CLI for shell integrations that need to reopen a session.
+pub fn locate_claude_binary() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("CLAUDE_BINARY")
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_file())
+    {
+        return Some(path);
+    }
+
     #[cfg(windows)]
     {
         let candidates = [
@@ -917,7 +932,7 @@ fn find_windows_claude_in_path() -> Option<std::path::PathBuf> {
 
 /// Detect the version of the claude CLI
 fn detect_claude_version() -> Option<String> {
-    let claude_path = which_claude()?;
+    let claude_path = locate_claude_binary()?;
 
     #[cfg(windows)]
     const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -1629,7 +1644,7 @@ Active days: 2/10              Longest streak: 1 day
     }
 
     #[test]
-    fn live_identity_less_cli_quota_proves_account_action() {
+    fn cli_quota_without_credential_identity_cannot_prove_account_action() {
         let provider = ClaudeProvider::new();
         let result = provider
             .parse_cli_output("Current session\n25% used\nCurrent week (all models)\n40% used")

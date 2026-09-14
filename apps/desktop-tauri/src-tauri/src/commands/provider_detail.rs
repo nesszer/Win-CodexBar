@@ -9,6 +9,8 @@ pub struct ProviderDetail {
     pub id: String,
     pub display_name: String,
     pub enabled: bool,
+    pub auto_resume_after_quota_reset: bool,
+    pub auto_resume_supported: bool,
 
     // Identity
     pub email: Option<String>,
@@ -61,6 +63,7 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
 
     let provider = instantiate_provider(id);
     let metadata = provider.metadata();
+    let resume_supported = auto_resume_supported(id);
     let dashboard_url = if id == codexbar::core::ProviderId::MiniMax {
         Some(
             codexbar::providers::MiniMaxProvider::dashboard_url_for_region(Some(
@@ -75,6 +78,8 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         id: id.cli_name().to_string(),
         display_name: id.display_name().to_string(),
         enabled,
+        auto_resume_after_quota_reset: settings.auto_resume_after_quota_reset(id),
+        auto_resume_supported: resume_supported,
         email: None,
         plan: None,
         auth_type: None,
@@ -104,6 +109,14 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         cookie_source: provider_cookie_source_lookup(&settings, id.cli_name()),
         region: provider_region_lookup(&settings, id.cli_name()),
     })
+}
+
+/// Return whether the exact-session resume control can safely be offered for
+/// the currently selected credential lane. Managed token-account lanes cannot
+/// be correlated with local process discovery, so the UI and command both fail
+/// closed while one is active (or when its store cannot be read).
+pub(crate) fn auto_resume_supported(id: ProviderId) -> bool {
+    crate::auto_resume::supports_auto_resume(id) && crate::auto_resume::is_auto_resume_available(id)
 }
 
 #[tauri::command]
@@ -153,12 +166,16 @@ pub fn get_provider_detail(
 }
 
 #[tauri::command]
-pub fn revoke_provider_credentials(provider_id: String) -> Result<(), String> {
+pub fn revoke_provider_credentials(
+    app: tauri::AppHandle,
+    provider_id: String,
+) -> Result<(), String> {
     // Best-effort: drop every app-managed credential for this provider so the
     // caller can follow up with a fresh login or import. Missing entries are
     // silently ignored; only I/O errors propagate.
     let id = parse_provider_arg(&provider_id)?;
     let provider_id = id.cli_name();
+    crate::auto_resume::clear(&app, id);
 
     let mut keys = ApiKeys::load();
     keys.remove(provider_id);

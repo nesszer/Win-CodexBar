@@ -48,6 +48,7 @@ fn fetch_result(
     usage: crate::core::UsageSnapshot,
     cost: Option<crate::core::CostSnapshot>,
     source: &str,
+    account_identity: Option<String>,
 ) -> ProviderFetchResult {
     let account_email = usage.account_email.clone();
     let mut result = ProviderFetchResult::new(usage, source);
@@ -61,6 +62,9 @@ fn fetch_result(
         }
     }) {
         result = result.with_cost(cost);
+    }
+    if let Some(account_identity) = account_identity {
+        result = result.with_account_identity(account_identity);
     }
     result
 }
@@ -116,7 +120,9 @@ impl Provider for CodexProvider {
         if ctx.source_mode == SourceMode::Auto && self.api.has_pat_credentials() {
             let version = detect_codex_version();
             match self.api.fetch_usage_pat(version.as_deref()).await {
-                Ok((usage, cost)) => return Ok(fetch_result(usage, cost, "pat")),
+                Ok((usage, cost, account_identity)) => {
+                    return Ok(fetch_result(usage, cost, "pat", account_identity));
+                }
                 Err(error) if pat_allows_auto_fallback(&error) => {
                     tracing::debug!("Codex PAT unavailable in Auto; trying OAuth: {error}");
                 }
@@ -125,7 +131,9 @@ impl Provider for CodexProvider {
         }
 
         match self.api.fetch_usage().await {
-            Ok((usage, cost)) => Ok(fetch_result(usage, cost, "oauth")),
+            Ok((usage, cost, account_identity)) => {
+                Ok(fetch_result(usage, cost, "oauth", account_identity))
+            }
             Err(error) => {
                 tracing::warn!("Codex API fetch failed: {error}");
                 Err(error)

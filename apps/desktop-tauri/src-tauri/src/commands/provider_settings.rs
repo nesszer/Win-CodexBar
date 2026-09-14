@@ -96,6 +96,42 @@ pub fn set_provider_usage_source(provider_id: String, source: String) -> Result<
     settings.save().map_err(|e| e.to_string())
 }
 
+fn auto_resume_provider(provider_id: &str) -> Result<ProviderId, String> {
+    let id = parse_provider_arg(provider_id)?;
+    if crate::auto_resume::supports_auto_resume(id) {
+        Ok(id)
+    } else {
+        Err(format!(
+            "Provider '{provider_id}' does not support automatic session resume"
+        ))
+    }
+}
+
+/// Persist the explicit Codex/Claude opt-in for reopening an exact CLI session
+/// after its quota becomes available again.
+#[tauri::command]
+pub fn set_provider_auto_resume_after_quota_reset(
+    app: tauri::AppHandle,
+    provider_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let id = auto_resume_provider(&provider_id)?;
+    if enabled && !super::provider_detail::auto_resume_supported(id) {
+        return Err(
+            "Automatic session resume is unavailable while a managed token account is active"
+                .to_string(),
+        );
+    }
+    let mut settings = Settings::load();
+    settings.set_auto_resume_after_quota_reset(id, enabled);
+    settings.save().map_err(|e| e.to_string())?;
+    if !enabled {
+        crate::auto_resume::clear(&app, id);
+    }
+    crate::events::emit_settings_changed(&app);
+    Ok(())
+}
+
 // ── OpenRouter Management API key ────────────────────────────────────
 
 #[tauri::command]

@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 mod auto_refresh;
+mod auto_resume;
 mod coding_activity;
 mod commands;
 mod events;
@@ -225,6 +226,7 @@ fn main() {
             commands::reorder_providers,
             commands::set_provider_cookie_source,
             commands::set_provider_usage_source,
+            commands::set_provider_auto_resume_after_quota_reset,
             commands::has_openrouter_management_api_key,
             commands::set_openrouter_management_api_key,
             commands::remove_openrouter_management_api_key,

@@ -1026,6 +1026,19 @@ impl Settings {
         self.provider_config_mut(id).avoid_keychain_prompts = value;
     }
 
+    /// Whether the desktop shell may reopen a captured CLI session after its
+    /// provider quota becomes available again. This is intentionally opt-in.
+    pub fn auto_resume_after_quota_reset(&self, id: ProviderId) -> bool {
+        self.provider_configs
+            .get(&id)
+            .map(|config| config.auto_resume_after_quota_reset)
+            .unwrap_or(false)
+    }
+
+    pub fn set_auto_resume_after_quota_reset(&mut self, id: ProviderId, value: bool) {
+        self.provider_config_mut(id).auto_resume_after_quota_reset = value;
+    }
+
     // ── Legacy field-name aliases ────────────────────────────────────
     //
     // Keep the names of the old flat per-provider fields available as

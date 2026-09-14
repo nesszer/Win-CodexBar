@@ -560,6 +560,11 @@ pub struct ProviderFetchResult {
     /// Whether quota data is authoritative enough for pace/run-out advice.
     #[serde(default = "default_pace_authoritative")]
     pub pace_authoritative: bool,
+
+    /// Stable provider-account identity used by safety-sensitive local session
+    /// actions. It never crosses the frontend bridge.
+    #[serde(skip)]
+    pub account_identity: Option<String>,
 }
 
 fn default_pace_authoritative() -> bool {
@@ -576,7 +581,23 @@ impl ProviderFetchResult {
             source_label: source_label.into(),
             has_successful_claude_cli_quota: false,
             pace_authoritative: true,
+            account_identity: None,
         }
+    }
+
+    /// Attach the provider's stable account identity without exposing it to
+    /// serialized UI payloads.
+    pub fn with_account_identity(mut self, account_identity: impl Into<String>) -> Self {
+        let account_identity = account_identity.into().trim().to_string();
+        if !account_identity.is_empty() {
+            self.account_identity = Some(account_identity);
+        }
+        self
+    }
+
+    /// Return the stable account identity for internal correlation checks.
+    pub fn account_identity(&self) -> Option<&str> {
+        self.account_identity.as_deref()
     }
 
     /// Mark this result as unsuitable for derived pace/run-out advice.

@@ -8,6 +8,7 @@ use codexbar::core::{
 use codexbar::settings::Settings;
 
 const AUTO_REFRESH_POLL_INTERVAL: Duration = Duration::from_secs(15);
+const AUTO_RESUME_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
 static LAST_MENU_OPEN: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 static LAST_CODING_ACTIVITY: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
@@ -44,6 +45,7 @@ fn age_since(slot: &OnceLock<Mutex<Option<Instant>>>) -> Option<Duration> {
 pub fn install(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut schedule: Option<(Duration, Instant, bool)> = None;
+        let mut auto_resume_schedule: Option<(Duration, Instant)> = None;
         loop {
             let settings = Settings::load();
             ADAPTIVE_ACTIVE.store(settings.adaptive_refresh, Ordering::Relaxed);
@@ -70,6 +72,16 @@ pub fn install(app: tauri::AppHandle) {
                         ));
                     }
                 }
+            }
+            if let Some(interval) = resolve_auto_resume_refresh_interval(&settings) {
+                let now = Instant::now();
+                let scheduled_at = auto_resume_scheduled_at(auto_resume_schedule, now, interval);
+                if now >= scheduled_at {
+                    let _ = crate::commands::do_refresh_auto_resume_providers_if_stale(&app).await;
+                    auto_resume_schedule = Some((interval, Instant::now() + interval));
+                }
+            } else {
+                auto_resume_schedule = None;
             }
             // Sample coding-agent processes on each poll while Adaptive is on
             // so delays can drop to the 5m coding-activity cap without waiting
@@ -110,6 +122,16 @@ fn resolve_refresh_interval(settings: &Settings) -> Option<Duration> {
         refresh_interval(settings.refresh_interval_secs)
     };
     automatic_interval(requested, effective_low_power)
+}
+
+fn resolve_auto_resume_refresh_interval(settings: &Settings) -> Option<Duration> {
+    if crate::auto_resume::enabled_provider_ids(settings).is_empty() {
+        return None;
+    }
+    let effective_low_power = settings
+        .low_power_mode_preference
+        .resolve(system_battery_saver_enabled());
+    automatic_interval(Some(AUTO_RESUME_REFRESH_INTERVAL), effective_low_power)
 }
 
 fn adaptive_delay_now(low_power_mode_enabled: bool) -> Duration {
@@ -180,6 +202,17 @@ fn next_fixed_tick(
     scheduled_at
 }
 
+fn auto_resume_scheduled_at(
+    schedule: Option<(Duration, Instant)>,
+    now: Instant,
+    interval: Duration,
+) -> Instant {
+    schedule
+        .filter(|(scheduled_interval, _)| *scheduled_interval == interval)
+        .map(|(_, scheduled_at)| scheduled_at)
+        .unwrap_or(now)
+}
+
 fn local_usage_provider_ids(settings: &Settings) -> Vec<String> {
     settings
         .get_enabled_provider_ids()
@@ -215,6 +248,7 @@ fn refresh_interval(seconds: u64) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codexbar::core::ProviderId;
 
     /// Serializes tests that mutate the shared `LAST_MENU_OPEN` /
     /// `LAST_CODING_ACTIVITY` globals so parallel `#[test]` threads can't
@@ -273,6 +307,86 @@ mod tests {
     }
 
     #[test]
+    fn auto_resume_watcher_is_separate_from_user_refresh_cadence() {
+        let mut settings = Settings {
+            enabled_providers: ["codex".to_string()].into_iter().collect(),
+            refresh_interval_secs: 300,
+            ..Default::default()
+        };
+        settings.set_auto_resume_after_quota_reset(ProviderId::Codex, true);
+        assert_eq!(
+            resolve_refresh_interval(&settings),
+            Some(Duration::from_secs(300))
+        );
+        assert_eq!(
+            resolve_auto_resume_refresh_interval(&settings),
+            Some(AUTO_RESUME_REFRESH_INTERVAL)
+        );
+
+        settings.refresh_interval_secs = 15;
+        assert_eq!(
+            resolve_refresh_interval(&settings),
+            Some(Duration::from_secs(15))
+        );
+        assert_eq!(
+            resolve_auto_resume_refresh_interval(&settings),
+            Some(AUTO_RESUME_REFRESH_INTERVAL)
+        );
+
+        settings.refresh_interval_secs = 0;
+        assert_eq!(resolve_refresh_interval(&settings), None);
+        assert_eq!(
+            resolve_auto_resume_refresh_interval(&settings),
+            Some(AUTO_RESUME_REFRESH_INTERVAL)
+        );
+    }
+
+    #[test]
+    fn auto_resume_caps_adaptive_idle_cadence() {
+        let _guard = ADAPTIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        *LAST_MENU_OPEN
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *LAST_CODING_ACTIVITY
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+
+        let mut settings = Settings {
+            adaptive_refresh: true,
+            low_power_mode_preference: codexbar::settings::LowPowerModePreference::Off,
+            ..Default::default()
+        };
+        settings.enabled_providers = ["codex".to_string()].into_iter().collect();
+        settings.set_auto_resume_after_quota_reset(ProviderId::Codex, true);
+
+        assert_eq!(
+            resolve_refresh_interval(&settings),
+            Some(Duration::from_secs(30 * 60))
+        );
+        assert_eq!(
+            resolve_auto_resume_refresh_interval(&settings),
+            Some(AUTO_RESUME_REFRESH_INTERVAL)
+        );
+    }
+
+    #[test]
+    fn auto_resume_watcher_uses_low_power_floor() {
+        let mut settings = Settings {
+            low_power_mode_preference: codexbar::settings::LowPowerModePreference::On,
+            ..Default::default()
+        };
+        settings.enabled_providers = ["codex".to_string()].into_iter().collect();
+        settings.set_auto_resume_after_quota_reset(ProviderId::Codex, true);
+
+        assert_eq!(
+            resolve_auto_resume_refresh_interval(&settings),
+            Some(Duration::from_secs(30 * 60))
+        );
+    }
+
+    #[test]
     fn fixed_cadence_advances_from_the_scheduled_tick() {
         let start = Instant::now();
         let interval = Duration::from_secs(100);
@@ -285,6 +399,23 @@ mod tests {
         assert_eq!(
             next_fixed_tick(first_tick, first_tick + Duration::from_secs(260), interval),
             start + Duration::from_secs(400)
+        );
+    }
+
+    #[test]
+    fn auto_resume_cadence_rebases_when_the_interval_changes() {
+        let now = Instant::now();
+        let old_interval = Duration::from_secs(60);
+        let new_interval = Duration::from_secs(30 * 60);
+        let prior_tick = now + old_interval;
+
+        assert_eq!(
+            auto_resume_scheduled_at(Some((old_interval, prior_tick)), now, old_interval),
+            prior_tick
+        );
+        assert_eq!(
+            auto_resume_scheduled_at(Some((old_interval, prior_tick)), now, new_interval),
+            now
         );
     }
 

@@ -1,6 +1,43 @@
-use super::{ClaudeOAuthCredentials, ClaudeOAuthFetcher, OAuthUsageResponse, UsageWindow};
+use super::{
+    ClaudeOAuthCredentials, ClaudeOAuthFetcher, OAuthUsageResponse, UsageWindow,
+    credential_identity,
+};
+use base64::Engine;
 use reqwest::header::HeaderValue;
 use std::time::Duration;
+
+fn test_credentials(access_token: &str) -> ClaudeOAuthCredentials {
+    ClaudeOAuthCredentials {
+        access_token: access_token.to_string(),
+        refresh_token: None,
+        expires_at: None,
+        scopes: vec!["user:profile".to_string()],
+        rate_limit_tier: None,
+    }
+}
+
+#[test]
+fn credential_identity_uses_jwt_subject_when_available() {
+    let payload =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"sub":"account-123"}"#);
+    let identity = credential_identity(&test_credentials(&format!("header.{payload}.signature")));
+
+    assert_eq!(identity.as_deref(), Some("claude-account:account-123"));
+}
+
+#[test]
+fn opaque_credential_identity_is_a_non_secret_fingerprint() {
+    let token = "opaque-claude-token";
+    let identity = credential_identity(&test_credentials(token)).expect("identity");
+
+    assert_eq!(
+        identity,
+        format!(
+            "claude-credential:{}",
+            crate::core::sha256_hex(token.as_bytes())
+        )
+    );
+}
 
 #[test]
 fn keeps_sub_one_utilization_in_percent_units() {

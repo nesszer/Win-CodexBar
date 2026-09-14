@@ -114,6 +114,7 @@ pub fn get_token_accounts(provider_id: String) -> Result<ProviderTokenAccountsBr
 /// Add a token account for a provider.
 #[tauri::command]
 pub fn add_token_account(
+    app: tauri::AppHandle,
     provider_id: String,
     label: String,
     token: String,
@@ -128,6 +129,7 @@ pub fn add_token_account(
     let mut data = store.load_provider(id).map_err(|e| e.to_string())?;
     data.add_account(TokenAccount::new(label, token.trim()));
     store.save_provider(id, &data).map_err(|e| e.to_string())?;
+    crate::auto_resume::clear(&app, id);
     let active = data.clamped_active_index();
     Ok(build_provider_token_accounts(
         id,
@@ -140,6 +142,7 @@ pub fn add_token_account(
 /// Remove a token account by UUID string.
 #[tauri::command]
 pub fn remove_token_account(
+    app: tauri::AppHandle,
     provider_id: String,
     account_id: String,
 ) -> Result<ProviderTokenAccountsBridge, String> {
@@ -151,6 +154,7 @@ pub fn remove_token_account(
     let mut data = store.load_provider(id).map_err(|e| e.to_string())?;
     data.remove_account(uuid);
     store.save_provider(id, &data).map_err(|e| e.to_string())?;
+    crate::auto_resume::clear(&app, id);
     let active = data.clamped_active_index();
     Ok(build_provider_token_accounts(
         id,
@@ -163,6 +167,7 @@ pub fn remove_token_account(
 /// Set the active token account for a provider by UUID string.
 #[tauri::command]
 pub fn set_active_token_account(
+    app: tauri::AppHandle,
     provider_id: String,
     account_id: String,
 ) -> Result<ProviderTokenAccountsBridge, String> {
@@ -174,6 +179,7 @@ pub fn set_active_token_account(
     let mut data = store.load_provider(id).map_err(|e| e.to_string())?;
     data.set_active_by_id(uuid);
     store.save_provider(id, &data).map_err(|e| e.to_string())?;
+    crate::auto_resume::clear(&app, id);
     let active = data.clamped_active_index();
     Ok(build_provider_token_accounts(
         id,

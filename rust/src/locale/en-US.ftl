@@ -825,6 +825,10 @@ ProviderAccentColorHelper = Override the brand color used for usage bars and cha
 ProviderAccentColorReset = Reset to default
 ProviderAccentColorInvalid = Invalid hex color. Use #RRGGBB format, e.g. #FF5733.
 
+ProviderAutoResumeTitle = Automatic session resume
+ProviderAutoResumeAfterQuotaReset = Reopen the CLI session when quota resets
+ProviderAutoResumeAfterQuotaResetHelper = Reopen the exact local Codex or Claude session after its quota becomes available. No prompt is sent automatically.
+
 OpenRouterManagementKeyTitle = OpenRouter spend history
 OpenRouterManagementKeyLabel = Management API key
 OpenRouterManagementKeyHelp = Optional. Used only for exact 30-day Activity spend from openrouter.ai. The primary OpenRouter API key remains separate. You can also set OPENROUTER_MANAGEMENT_API_KEY.

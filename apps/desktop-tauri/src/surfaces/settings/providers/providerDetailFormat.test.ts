@@ -13,6 +13,8 @@ function baseDetail(over: Partial<ProviderDetail> = {}): ProviderDetail {
     id: "claude",
     displayName: "Claude",
     enabled: true,
+    autoResumeAfterQuotaReset: false,
+    autoResumeSupported: true,
     email: "team@example.com",
     plan: "Pro",
     authType: "oauth",

@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Locate the Codex CLI using the explicit override, PATH, and known installs.
-pub(crate) fn locate_codex_binary() -> Option<PathBuf> {
+/// Locate the Codex CLI for shell integrations that need to reopen a session.
+pub fn locate_codex_binary() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("CODEX_BINARY")
         .map(PathBuf::from)
         .filter(|path| path.is_file())

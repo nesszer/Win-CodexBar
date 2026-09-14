@@ -867,6 +867,9 @@ export interface ProviderDetail {
   id: string;
   displayName: string;
   enabled: boolean;
+  autoResumeAfterQuotaReset: boolean;
+  /** Whether the active credential lane can be correlated to a local CLI session. */
+  autoResumeSupported: boolean;
 
   // Identity
   email: string | null;

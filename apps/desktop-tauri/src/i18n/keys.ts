@@ -882,6 +882,11 @@ export const ALL_LOCALE_KEYS = [
   "ProviderAccentColorHelper",
   "ProviderAccentColorReset",
   "ProviderAccentColorInvalid",
+
+  // Per-provider automatic CLI session resume (#486)
+  "ProviderAutoResumeTitle",
+  "ProviderAutoResumeAfterQuotaReset",
+  "ProviderAutoResumeAfterQuotaResetHelper",
 ] as const;
 
 export type LocaleKey = (typeof ALL_LOCALE_KEYS)[number];

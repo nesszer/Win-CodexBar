@@ -5,6 +5,25 @@ use std::sync::Arc;
 
 const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 8;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefreshScope {
+    AllEnabled,
+    AutoResume,
+}
+
+impl RefreshScope {
+    fn provider_ids(self, settings: &Settings, enabled_ids: &[ProviderId]) -> Vec<ProviderId> {
+        match self {
+            Self::AllEnabled => enabled_ids.to_vec(),
+            Self::AutoResume => crate::auto_resume::enabled_provider_ids(settings),
+        }
+    }
+
+    fn refresh_account_lanes(self) -> bool {
+        matches!(self, Self::AllEnabled)
+    }
+}
+
 /// Account changes supersede the old identity's cache and any in-flight batch.
 pub(crate) fn invalidate_account_usage(
     state: &mut AppState,
@@ -14,6 +33,7 @@ pub(crate) fn invalidate_account_usage(
     state.is_refreshing = false;
     state.provider_refresh_started_at = None;
     state.transient_provider_failure_counts.remove(&id);
+    state.auto_resume.clear_provider(id);
     state
         .provider_cache
         .retain(|snapshot| snapshot.provider_id != id.cli_name());
@@ -266,6 +286,10 @@ pub(crate) fn invalidate_provider_refresh_and_prune_disabled(
     guard
         .transient_provider_failure_counts
         .retain(|id, _| enabled_ids.contains(id));
+    guard
+        .provider_cache_updated_at_by_provider
+        .retain(|id, _| enabled_ids.contains(id));
+    guard.auto_resume.clear_disabled(enabled_ids);
     Ok(())
 }
 
@@ -275,26 +299,51 @@ pub(crate) fn is_current_provider_refresh_generation(guard: &AppState, generatio
 
 /// Core refresh logic, usable from both the Tauri command and tray menu actions.
 pub(crate) async fn do_refresh_providers(app: &tauri::AppHandle) -> Result<(), String> {
-    do_refresh_providers_with_policy(app, true).await
+    do_refresh_providers_with_policy(app, true, RefreshScope::AllEnabled).await
 }
 
 pub(crate) async fn do_refresh_providers_if_stale(app: &tauri::AppHandle) -> Result<(), String> {
-    do_refresh_providers_with_policy(app, false).await
+    do_refresh_providers_with_policy(app, false, RefreshScope::AllEnabled).await
+}
+
+/// Refresh only enabled providers with the opt-in exact-session watcher. This
+/// keeps a 60-second resume probe from shortening or repeating unrelated
+/// provider work.
+pub(crate) async fn do_refresh_auto_resume_providers_if_stale(
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    do_refresh_providers_with_policy(app, false, RefreshScope::AutoResume).await
 }
 
 async fn do_refresh_providers_with_policy(
     app: &tauri::AppHandle,
     force: bool,
+    scope: RefreshScope,
 ) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
+    let expected_generation = state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .provider_refresh_generation;
+    let settings = Settings::load();
+    let enabled_ids = settings.get_enabled_provider_ids();
+    let refresh_ids = scope.provider_ids(&settings, &enabled_ids);
+    if refresh_ids.is_empty() {
+        return Ok(());
+    }
 
-    let Some(generation) = begin_provider_refresh(&state, force)? else {
+    let inputs = ProviderRefreshInputs::load(settings, enabled_ids);
+    let Some(generation) =
+        begin_provider_refresh(&state, force, &refresh_ids, expected_generation)?
+    else {
+        // Settings or account identity changed while inputs were loading, or a
+        // newer batch already owns the refresh. Discard this input snapshot.
         return Ok(());
     };
 
-    let inputs = ProviderRefreshInputs::load();
     // Ensure cache only contains currently enabled providers for this generation.
-    if let Ok(mut guard) = state.lock()
+    if scope == RefreshScope::AllEnabled
+        && let Ok(mut guard) = state.lock()
         && is_current_provider_refresh_generation(&guard, generation)
     {
         prune_provider_cache_to_enabled(&mut guard.provider_cache, &inputs.enabled_ids);
@@ -302,15 +351,20 @@ async fn do_refresh_providers_with_policy(
 
     events::emit_refresh_started(
         app,
-        inputs
-            .enabled_ids
+        refresh_ids
             .iter()
             .map(|id| id.cli_name().to_string())
             .collect(),
     );
-    let enabled_count = inputs.enabled_ids.len();
+    let enabled_count = refresh_ids.len();
 
-    let handles = spawn_provider_refreshes(app, &inputs, generation);
+    let handles = spawn_provider_refreshes(
+        app,
+        &inputs,
+        &refresh_ids,
+        generation,
+        scope.refresh_account_lanes(),
+    );
     await_provider_refreshes(handles).await;
 
     let Some(error_count) = finish_provider_refresh(&state, generation)? else {
@@ -329,12 +383,26 @@ async fn do_refresh_providers_with_policy(
 fn begin_provider_refresh(
     state: &tauri::State<'_, Mutex<AppState>>,
     force: bool,
+    provider_ids: &[ProviderId],
+    expected_generation: u64,
 ) -> Result<Option<u64>, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
+    reserve_provider_refresh(&mut guard, force, provider_ids, expected_generation)
+}
+
+fn reserve_provider_refresh(
+    guard: &mut AppState,
+    force: bool,
+    provider_ids: &[ProviderId],
+    expected_generation: u64,
+) -> Result<Option<u64>, String> {
     if guard.is_refreshing {
         return Ok(None);
     }
-    if provider_cache_can_skip_refresh(&guard, force) {
+    if guard.provider_refresh_generation != expected_generation {
+        return Ok(None);
+    }
+    if provider_cache_can_skip_refresh(guard, force, provider_ids) {
         return Ok(None);
     }
 
@@ -345,16 +413,30 @@ fn begin_provider_refresh(
     Ok(Some(generation))
 }
 
-fn provider_cache_can_skip_refresh(guard: &AppState, force: bool) -> bool {
+fn provider_cache_can_skip_refresh(
+    guard: &AppState,
+    force: bool,
+    provider_ids: &[ProviderId],
+) -> bool {
+    let cache_has_all = provider_ids.iter().all(|id| {
+        guard
+            .provider_cache
+            .iter()
+            .any(|snapshot| snapshot.provider_id == id.cli_name())
+    });
     // Proof-harness seed: pin the synthetic snapshot for the whole run so a
     // periodic auto-refresh cannot overwrite seeded capture conditions.
-    if !force && crate::proof_harness::seed_usage_json_active() && !guard.provider_cache.is_empty()
-    {
+    if !force && crate::proof_harness::seed_usage_json_active() && cache_has_all {
         return true;
     }
     !force
-        && !guard.provider_cache.is_empty()
-        && is_provider_cache_fresh(guard.provider_cache_updated_at, PROVIDER_CACHE_STALE_AFTER)
+        && cache_has_all
+        && provider_ids.iter().all(|id| {
+            is_provider_cache_fresh(
+                guard.provider_cache_updated_at_by_provider.get(id).copied(),
+                PROVIDER_CACHE_STALE_AFTER,
+            )
+        })
 }
 
 struct ProviderRefreshInputs {
@@ -366,9 +448,7 @@ struct ProviderRefreshInputs {
 }
 
 impl ProviderRefreshInputs {
-    fn load() -> Self {
-        let settings = Settings::load();
-        let enabled_ids = settings.get_enabled_provider_ids();
+    fn load(settings: Settings, enabled_ids: Vec<ProviderId>) -> Self {
         let manual_cookies = ManualCookies::load();
         let api_keys = ApiKeys::load();
         let token_accounts = TokenAccountStore::new().load().unwrap_or_else(|e| {
@@ -389,12 +469,14 @@ impl ProviderRefreshInputs {
 fn spawn_provider_refreshes(
     app: &tauri::AppHandle,
     inputs: &ProviderRefreshInputs,
+    provider_ids: &[ProviderId],
     generation: u64,
+    refresh_account_lanes: bool,
 ) -> Vec<tokio::task::JoinHandle<()>> {
-    let mut handles = Vec::with_capacity(inputs.enabled_ids.len());
+    let mut handles = Vec::with_capacity(provider_ids.len());
     let fetch_permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES));
 
-    for id in &inputs.enabled_ids {
+    for id in provider_ids {
         let id = *id;
         let app_handle = app.clone();
         let fetch_permits = Arc::clone(&fetch_permits);
@@ -426,7 +508,7 @@ fn spawn_provider_refreshes(
     // shared fetch semaphore. The ambient account still publishes the single
     // "codex" provider snapshot used by tray/menu; the lanes fill the account
     // snapshot store consumed by the Settings accounts panel.
-    if inputs.enabled_ids.contains(&ProviderId::Codex) {
+    if refresh_account_lanes && provider_ids.contains(&ProviderId::Codex) {
         let app_handle = app.clone();
         let fetch_permits = Arc::clone(&fetch_permits);
         handles.push(tokio::spawn(async move {
@@ -449,7 +531,8 @@ async fn refresh_provider(
     generation: u64,
     token_account_id: Option<uuid::Uuid>,
 ) {
-    let snapshot = fetch_provider_snapshot(id, ctx, token_account_id).await;
+    let (snapshot, account_identity) = fetch_provider_snapshot(id, ctx, token_account_id).await;
+    let fresh_snapshot = snapshot.error.is_none();
 
     let state = app.state::<Mutex<AppState>>();
     let published = if let Ok(mut guard) = state.lock() {
@@ -473,6 +556,11 @@ async fn refresh_provider(
             let mut snapshot = snapshot;
             codex_reset_backfill(&mut snapshot, cached.as_ref());
             upsert_provider_cache(&mut guard.provider_cache, snapshot.clone());
+            if fresh_snapshot {
+                guard
+                    .provider_cache_updated_at_by_provider
+                    .insert(id, std::time::Instant::now());
+            }
             Some(snapshot)
         }
     } else {
@@ -481,6 +569,16 @@ async fn refresh_provider(
 
     if let Some(snapshot) = published {
         events::emit_provider_updated(&app, &snapshot);
+        if fresh_snapshot {
+            crate::auto_resume::observe_fresh_snapshot(
+                &app,
+                id,
+                &snapshot,
+                token_account_id,
+                account_identity.as_deref(),
+            )
+            .await;
+        }
     }
 }
 
@@ -639,34 +737,49 @@ async fn fetch_provider_snapshot(
     id: ProviderId,
     ctx: FetchContext,
     token_account_id: Option<uuid::Uuid>,
-) -> ProviderUsageSnapshot {
+) -> (ProviderUsageSnapshot, Option<String>) {
     let provider = instantiate_provider(id);
     let metadata = provider.metadata().clone();
     let started = std::time::Instant::now();
 
-    let mut snapshot =
+    let (mut snapshot, account_identity) =
         match tokio::time::timeout(provider_fetch_timeout(id, &ctx), provider.fetch_usage(&ctx))
             .await
         {
             Ok(Ok(result)) => {
-                ProviderUsageSnapshot::from_fetch_result(id, &metadata, &result, token_account_id)
+                let account_identity = result.account_identity().map(ToOwned::to_owned);
+                (
+                    ProviderUsageSnapshot::from_fetch_result(
+                        id,
+                        &metadata,
+                        &result,
+                        token_account_id,
+                    ),
+                    account_identity,
+                )
             }
-            Ok(Err(e)) => ProviderUsageSnapshot::from_error(
-                id,
-                &metadata,
-                codexbar::logging::safe_error_message(&e),
-                provider.error_state_kind(&e),
+            Ok(Err(e)) => (
+                ProviderUsageSnapshot::from_error(
+                    id,
+                    &metadata,
+                    codexbar::logging::safe_error_message(&e),
+                    provider.error_state_kind(&e),
+                ),
+                None,
             ),
-            Err(_) => ProviderUsageSnapshot::from_error(
-                id,
-                &metadata,
-                "Timeout".to_string(),
-                codexbar::core::ProviderStateKind::Unknown,
+            Err(_) => (
+                ProviderUsageSnapshot::from_error(
+                    id,
+                    &metadata,
+                    "Timeout".to_string(),
+                    codexbar::core::ProviderStateKind::Unknown,
+                ),
+                None,
             ),
         };
 
     record_provider_fetch_duration(id, &mut snapshot, started);
-    snapshot
+    (snapshot, account_identity)
 }
 
 fn record_provider_fetch_duration(
@@ -1275,5 +1388,39 @@ mod reset_backfill_tests {
         let mut fresh = codex_snapshot(win(30.0, None));
         codex_reset_backfill(&mut fresh, None);
         assert!(fresh.primary.resets_at.is_none());
+    }
+}
+
+#[cfg(test)]
+mod refresh_generation_tests {
+    use super::*;
+
+    #[test]
+    fn stale_inputs_cannot_reserve_a_new_generation_after_invalidation() {
+        let mut state = AppState::new();
+        let expected_generation = state.provider_refresh_generation;
+
+        invalidate_account_usage(&mut state, ProviderId::Codex);
+
+        assert_eq!(
+            reserve_provider_refresh(&mut state, true, &[ProviderId::Codex], expected_generation,)
+                .expect("reservation should not fail"),
+            None
+        );
+        assert!(!state.is_refreshing);
+    }
+
+    #[test]
+    fn a_matching_generation_reserves_the_next_refresh_generation() {
+        let mut state = AppState::new();
+        let expected_generation = state.provider_refresh_generation;
+
+        let generation =
+            reserve_provider_refresh(&mut state, true, &[ProviderId::Codex], expected_generation)
+                .expect("reservation should succeed")
+                .expect("refresh should be reserved");
+
+        assert_eq!(generation, expected_generation.wrapping_add(1));
+        assert!(state.is_refreshing);
     }
 }

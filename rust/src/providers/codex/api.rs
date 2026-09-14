@@ -79,11 +79,15 @@ impl CodexApi {
     pub(super) async fn fetch_usage_pat(
         &self,
         cli_version: Option<&str>,
-    ) -> Result<(UsageSnapshot, Option<CostSnapshot>), ProviderError> {
+    ) -> Result<(UsageSnapshot, Option<CostSnapshot>, Option<String>), ProviderError> {
         let token = pat::load_token(&self.get_auth_path())?;
         let (json, whoami) =
             pat::fetch_usage(&self.client, &self.resolve_base_url(), &token, cli_version).await?;
         let account_id = whoami.account_id.clone();
+        // Email is display metadata, not a stable credential/account binding.
+        // A PAT without the provider's account id must fail closed for any
+        // operation that could reopen a local session.
+        let account_identity = account_id.clone();
         let (mut usage, cost) = self.build_result_from_json(&json)?;
         if let Some(email) = whoami.email {
             usage = usage.with_email(email);
@@ -101,7 +105,7 @@ impl CodexApi {
                 usage,
             )
             .await;
-        Ok((usage, cost))
+        Ok((usage, cost, account_identity))
     }
 
     /// Fetch usage information from Codex API.
@@ -112,7 +116,7 @@ impl CodexApi {
     /// only. The app never redeems or decrements credits on observation.
     pub async fn fetch_usage(
         &self,
-    ) -> Result<(UsageSnapshot, Option<CostSnapshot>), ProviderError> {
+    ) -> Result<(UsageSnapshot, Option<CostSnapshot>, Option<String>), ProviderError> {
         let creds = self.load_credentials()?;
         let base_url = self.resolve_base_url();
         let auth_path = self.get_auth_path();
@@ -166,7 +170,7 @@ impl CodexApi {
                                     usage,
                                 )
                                 .await;
-                            return Ok((usage, cost));
+                            return Ok((usage, cost, creds.account_id.clone()));
                         }
                     };
                 let confirmation_inventory =
@@ -205,7 +209,7 @@ impl CodexApi {
                 usage,
             )
             .await;
-        Ok((usage, cost))
+        Ok((usage, cost, creds.account_id.clone()))
     }
 
     /// Subscription metadata is optional enrichment. Usage remains usable when
@@ -1562,7 +1566,7 @@ mod tests {
 
         let home = write_codex_home(&server.url());
         let api = CodexApi::new().with_codex_home(home.path());
-        let (usage, _) = api.fetch_usage().await.expect("fetch_usage");
+        let (usage, _, _) = api.fetch_usage().await.expect("fetch_usage");
 
         usage_mock.assert_async().await;
         reset_mock.assert_async().await;
@@ -1638,7 +1642,7 @@ mod tests {
 
         let home = write_codex_home(&server.url());
         let api = CodexApi::new().with_codex_home(home.path());
-        let (usage, _) = api.fetch_usage().await.expect("fetch_usage");
+        let (usage, _, _) = api.fetch_usage().await.expect("fetch_usage");
 
         usage_mock.assert_async().await;
         reset_mock.assert_async().await;

@@ -216,6 +216,7 @@ pub async fn codex_account_add(app: tauri::AppHandle) -> Result<CodexAccount, St
         .map_err(|e| e.to_string())?
         .map_err(into_user_message)?;
 
+    crate::auto_resume::clear(&app, ProviderId::Codex);
     if let Err(e) = refresh_persisted_accounts(app) {
         tracing::error!("failed to persist accounts after add: {e}");
     }
@@ -289,6 +290,7 @@ pub fn codex_account_remove(app: tauri::AppHandle, id: String) -> Result<(), Str
         .filter(|account| account.id.to_string() != id)
         .collect();
     persist_codex_accounts(&remaining)?;
+    crate::auto_resume::clear(&app, ProviderId::Codex);
     events::emit_settings_changed(&app);
     accounts_changed(&app);
     Ok(())

@@ -120,6 +120,7 @@ pub async fn claude_account_add(app: tauri::AppHandle) -> Result<(), String> {
     AccountManager::new()
         .and_then(|m| m.import(login))
         .map_err(|e| e.to_string())?;
+    crate::auto_resume::clear(&app, ProviderId::Claude);
     changed(&app);
     Ok(())
 }
@@ -138,6 +139,7 @@ pub async fn claude_account_save_current(app: tauri::AppHandle) -> Result<(), St
     AccountManager::new()
         .and_then(|m| m.save_current())
         .map_err(|e| e.to_string())?;
+    crate::auto_resume::clear(&app, ProviderId::Claude);
     changed(&app);
     Ok(())
 }
@@ -151,6 +153,7 @@ pub async fn claude_account_remove(app: tauri::AppHandle, id: String) -> Result<
     AccountManager::new()
         .and_then(|m| m.remove(&id))
         .map_err(|e| e.to_string())?;
+    crate::auto_resume::clear(&app, ProviderId::Claude);
     changed(&app);
     Ok(())
 }

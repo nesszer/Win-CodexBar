@@ -50,6 +50,43 @@ impl ClaudeOAuthCredentials {
     }
 }
 
+/// Return a non-secret identity for the credential that would authorize a
+/// Claude CLI session. JWT subjects survive token rotation; opaque tokens use
+/// a one-way fingerprint and therefore fail closed if the credential changes.
+pub(super) fn credential_identity(credentials: &ClaudeOAuthCredentials) -> Option<String> {
+    let token = credentials.access_token.trim();
+    if token.is_empty() {
+        return None;
+    }
+
+    if let Some(subject) = crate::codex_accounts::api::jwt_payload(token).and_then(|payload| {
+        ["sub", "account_id", "user_id"]
+            .into_iter()
+            .find_map(|key| {
+                payload
+                    .get(key)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+            })
+    }) {
+        return Some(format!("claude-account:{subject}"));
+    }
+
+    Some(format!(
+        "claude-credential:{}",
+        crate::core::sha256_hex(token.as_bytes())
+    ))
+}
+
+/// Load the identity used to authorize Claude Code. Reading Claude Code's
+/// credential stores remains subject to the user's explicit consent setting.
+pub(super) fn auto_resume_identity() -> Option<String> {
+    let (credentials, _) = credentials_store::load_credentials().ok()?;
+    credential_identity(&credentials)
+}
+
 /// OAuth usage response from Claude API
 #[derive(Debug, Deserialize)]
 pub struct OAuthUsageResponse {
@@ -284,7 +321,11 @@ impl ClaudeOAuthFetcher {
     ) -> Result<ProviderFetchResult, ProviderError> {
         let usage_response = self.fetch_usage(&credentials).await?;
         let usage = self.build_usage_snapshot(&usage_response, &credentials);
-        Ok(ProviderFetchResult::new(usage, "oauth"))
+        let mut result = ProviderFetchResult::new(usage, "oauth");
+        if let Some(identity) = credential_identity(&credentials) {
+            result = result.with_account_identity(identity);
+        }
+        Ok(result)
     }
 
     /// If the token is expired (or about to expire), refresh it using the

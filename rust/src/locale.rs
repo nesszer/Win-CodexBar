@@ -1162,6 +1162,11 @@ locale_keys! {
     ProviderAccentColorHelper,
     ProviderAccentColorReset,
     ProviderAccentColorInvalid,
+
+    // Per-provider automatic CLI session resume (#486)
+    ProviderAutoResumeTitle,
+    ProviderAutoResumeAfterQuotaReset,
+    ProviderAutoResumeAfterQuotaResetHelper,
 }
 
 #[cfg(test)]

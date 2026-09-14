@@ -24,6 +24,7 @@ import {
 import { buildSubtitle } from "./providerDetailFormat";
 import { IdentitySection } from "./sections/IdentitySection";
 import { UsageSection } from "./sections/UsageSection";
+import { AutoResumeSection } from "./sections/AutoResumeSection";
 import { PaceSection } from "./sections/PaceSection";
 import { CostSection } from "./sections/CostSection";
 import { QuickActionsSection } from "./sections/QuickActionsSection";
@@ -278,6 +279,14 @@ export function ProviderDetailPane({
         provider={detail}
         resetTimeRelative={resetTimeRelative}
         t={t}
+      />
+      <AutoResumeSection
+        providerId={detail.id}
+        enabled={detail.autoResumeAfterQuotaReset}
+        available={detail.autoResumeSupported}
+        disabled={settingsDisabled}
+        t={t}
+        onChanged={reload}
       />
       {detail.id === "wayfinder" && (
         <WayfinderGatewaySection
