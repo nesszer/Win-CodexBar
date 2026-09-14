@@ -56,7 +56,27 @@ function ResetIcon({ size }: { size: number }) {
   );
 }
 
-function inlineResetTime(resetText: string): string {
+function inlineResetTime(
+  resetText: string,
+  resetsAt: string | null,
+  relative: boolean,
+): string {
+  if (relative && resetsAt) {
+    const target = Date.parse(resetsAt);
+    if (!Number.isNaN(target)) {
+      const diffMs = target - Date.now();
+      if (diffMs <= 0) return "now";
+
+      const totalMinutes = Math.floor(diffMs / 60_000);
+      const days = Math.floor(totalMinutes / 1440);
+      const hours = Math.floor((totalMinutes % 1440) / 60);
+      const minutes = totalMinutes % 60;
+      if (days > 0) return `${days}d${hours}h`;
+      if (hours > 0) return `${hours}h${minutes}m`;
+      return `${minutes}m`;
+    }
+  }
+
   const normalized = resetText.trim();
   if (/^reset(?:s|ting)?(?:\s+due)?\s*(?:now)?$/i.test(normalized)) {
     return "now";
@@ -205,7 +225,9 @@ function ProviderPill({
     resetRelative,
   );
   const resetSuffix = resetText ? `\n${resetText}` : "";
-  const inlineReset = resetText ? inlineResetTime(resetText) : null;
+  const inlineReset = resetText
+    ? inlineResetTime(resetText, rateWindow.resetsAt, resetRelative)
+    : null;
   const iconSize = Math.round(11 * scale);
   const resetIconSize = Math.round(10 * scale);
 
