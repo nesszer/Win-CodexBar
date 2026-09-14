@@ -523,3 +523,58 @@ fn non_auth_failure_without_history_surfaces_error() {
     );
     assert!(matches!(resolved, Err(ProviderError::Other(_))));
 }
+
+#[test]
+fn user_tier_resolves_google_ai_ultra_plan_name() {
+    let json = serde_json::json!({
+        "userStatus": {
+            "email": "user@example.com",
+            "planStatus": {
+                "planInfo": {
+                    "planName": "Pro"
+                }
+            },
+            "userTier": {
+                "id": "g1-ultra-tier",
+                "name": "Google AI Ultra",
+                "description": "Google AI Ultra"
+            },
+            "cascadeModelConfigData": {
+                "clientModelConfigs": [
+                    {
+                        "label": "Gemini 2.5 Pro",
+                        "quotaInfo": {"remainingFraction": 0.8}
+                    }
+                ]
+            }
+        }
+    });
+    let resp: UserStatusResponse = serde_json::from_value(json).unwrap();
+    let snap = AntigravityProvider::new().parse_user_status(resp).unwrap();
+    assert_eq!(snap.login_method.as_deref(), Some("Google AI Ultra"));
+}
+
+#[test]
+fn user_status_falls_back_to_plan_status_when_user_tier_is_absent() {
+    let json = serde_json::json!({
+        "userStatus": {
+            "email": "user@example.com",
+            "planStatus": {
+                "planInfo": {
+                    "planName": "Pro"
+                }
+            },
+            "cascadeModelConfigData": {
+                "clientModelConfigs": [
+                    {
+                        "label": "Gemini 2.5 Pro",
+                        "quotaInfo": {"remainingFraction": 0.8}
+                    }
+                ]
+            }
+        }
+    });
+    let resp: UserStatusResponse = serde_json::from_value(json).unwrap();
+    let snap = AntigravityProvider::new().parse_user_status(resp).unwrap();
+    assert_eq!(snap.login_method.as_deref(), Some("Pro"));
+}

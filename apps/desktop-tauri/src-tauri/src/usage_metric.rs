@@ -107,6 +107,17 @@ fn automatic_window(
         }
     }
 
+    if provider == Some(ProviderId::Antigravity) {
+        let core_windows = std::iter::once(&snapshot.primary)
+            .chain(snapshot.secondary.iter())
+            .filter(|window| !window.is_informational);
+        if let Some(highest_core) = highest_window(core_windows) {
+            if !highest_core.is_exhausted && highest_core.used_percent < 100.0 {
+                return Some(highest_core.clone());
+            }
+        }
+    }
+
     let windows = std::iter::once(&snapshot.primary)
         .chain(snapshot.secondary.iter())
         .chain(snapshot.model_specific.iter())
@@ -339,6 +350,26 @@ mod tests {
         let selected = highest_window([&healthy, &exhausted].into_iter()).expect("window");
 
         assert_eq!(selected.used_percent, 80.0);
+    }
+
+    #[test]
+    fn antigravity_automatic_prefers_active_core_quota_over_exhausted_extra_window() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "antigravity".to_string();
+        snapshot.primary = window(7.0);
+        snapshot.secondary = Some(window(88.0));
+        let mut exhausted_extra = window(100.0);
+        exhausted_extra.is_exhausted = true;
+        snapshot.extra_rate_windows = vec![codexbar::core::NamedRateWindow::new(
+            "antigravity-quota-summary-3p-weekly",
+            "Claude/GPT weekly",
+            codexbar::core::RateWindow::with_details(100.0, Some(10080), None, None),
+        )];
+
+        let selected = selected_usage_window(&snapshot, &Settings::default());
+
+        assert_eq!(selected.used_percent, 88.0);
+        assert!(!selected.is_exhausted);
     }
 
     #[test]

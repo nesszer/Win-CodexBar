@@ -802,6 +802,11 @@ fn append_usage_window_lines(
         };
         append_window_line(lines, label, tertiary, use_color);
     }
+    for extra in &usage.extra_rate_windows {
+        if extra.usage_known {
+            append_window_line(lines, &extra.title, &extra.window, use_color);
+        }
+    }
 }
 
 fn append_window_line(lines: &mut Vec<String>, label: &str, window: &RateWindow, use_color: bool) {

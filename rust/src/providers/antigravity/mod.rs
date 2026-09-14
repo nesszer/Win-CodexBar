@@ -21,6 +21,7 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{LazyLock, OnceLock};
+#[cfg(windows)]
 use std::time::Duration;
 #[cfg(windows)]
 use std::time::Instant;
@@ -754,6 +755,30 @@ impl AntigravityProvider {
         Err(ProviderError::Other(format!("API error {status}: {text}")))
     }
 
+    fn resolve_plan_name(status: &UserStatus) -> Option<String> {
+        status
+            .user_tier
+            .as_ref()
+            .and_then(|tier| tier.name.as_deref().or(tier.description.as_deref()))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                status
+                    .plan_status
+                    .as_ref()
+                    .and_then(|plan_status| plan_status.plan_info.as_ref())
+                    .and_then(|plan| {
+                        plan.plan_display_name
+                            .as_deref()
+                            .or(plan.plan_name.as_deref())
+                    })
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            })
+    }
+
     fn apply_user_identity(snapshot: &mut UsageSnapshot, response: &UserStatusResponse) {
         let Some(status) = response.user_status.as_ref() else {
             return;
@@ -764,12 +789,7 @@ impl AntigravityProvider {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        snapshot.login_method = status
-            .plan_status
-            .as_ref()
-            .and_then(|plan_status| plan_status.plan_info.as_ref())
-            .and_then(|plan| plan.plan_display_name.as_ref().or(plan.plan_name.as_ref()))
-            .cloned();
+        snapshot.login_method = Self::resolve_plan_name(status);
     }
 
     fn parse_user_status(
@@ -779,6 +799,14 @@ impl AntigravityProvider {
         let user_status = response
             .user_status
             .ok_or_else(|| ProviderError::Other("Missing userStatus".to_string()))?;
+
+        let plan_name = Self::resolve_plan_name(&user_status);
+        let account_email = user_status
+            .email
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
 
         let model_configs = user_status
             .cascade_model_config_data
@@ -861,14 +889,12 @@ impl AntigravityProvider {
             );
         }
 
-        // Add plan info
-        let plan_name = user_status
-            .plan_status
-            .and_then(|ps| ps.plan_info)
-            .and_then(|pi| pi.plan_display_name.or(pi.plan_name));
-
+        // Add plan and identity info
         if let Some(plan) = plan_name {
-            snapshot = snapshot.with_login_method(&plan);
+            snapshot = snapshot.with_login_method(plan);
+        }
+        if let Some(email) = account_email {
+            snapshot = snapshot.with_email(email);
         }
 
         Ok(snapshot)
@@ -995,7 +1021,20 @@ struct UserStatus {
     )]
     email: Option<String>,
     plan_status: Option<PlanStatus>,
+    user_tier: Option<UserTier>,
     cascade_model_config_data: Option<ModelConfigData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UserTier {
+    #[allow(
+        dead_code,
+        reason = "mirrors the Antigravity API user tier payload; deserialized for round-trip fidelity"
+    )]
+    id: Option<String>,
+    name: Option<String>,
+    description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

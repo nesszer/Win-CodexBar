@@ -90,66 +90,126 @@ pub(super) fn parse_usage_snapshot(data: &[u8]) -> Result<UsageSnapshot, Provide
         })
         .ok_or_else(|| ProviderError::Parse("Antigravity quota summary missing payload".into()))?;
 
-    let windows = quota_windows(payload.groups);
-    if !windows.iter().any(|window| window.usage_known) {
+    let (primary_windows, extra_windows) = split_quota_windows(payload.groups);
+    let all_windows: Vec<NamedRateWindow> = primary_windows
+        .iter()
+        .chain(extra_windows.iter())
+        .cloned()
+        .collect();
+
+    if !all_windows.iter().any(|window| window.usage_known) {
         return Err(ProviderError::Parse(
             "Antigravity quota summary has no usable quota buckets".into(),
         ));
     }
 
-    let primary =
-        most_constrained(&windows, SESSION_MINUTES).unwrap_or_else(RateWindow::no_active_session);
-    let secondary = most_constrained(&windows, WEEKLY_MINUTES);
-    let mut snapshot = UsageSnapshot::new(primary).with_primary_label("Session");
-    if let Some(weekly) = secondary {
-        snapshot = snapshot.with_secondary(weekly);
+    let primary_selected = select_cadence_window(&primary_windows, &all_windows, SESSION_MINUTES);
+    let secondary_selected = select_cadence_window(&primary_windows, &all_windows, WEEKLY_MINUTES);
+
+    let mut selected_ids = Vec::new();
+    let mut snapshot = if let Some(primary) = primary_selected {
+        selected_ids.push(primary.id.clone());
+        let label = if primary.title.to_ascii_lowercase().contains("gemini") {
+            "Gemini 5h".to_string()
+        } else {
+            primary.title.clone()
+        };
+        UsageSnapshot::new(primary.window.clone()).with_primary_label(label)
+    } else {
+        UsageSnapshot::new(RateWindow::no_active_session()).with_primary_label("Session")
+    };
+
+    if let Some(secondary) = secondary_selected {
+        selected_ids.push(secondary.id.clone());
+        let label = if secondary.title.to_ascii_lowercase().contains("gemini") {
+            "Gemini Weekly".to_string()
+        } else {
+            secondary.title.clone()
+        };
+        snapshot = snapshot
+            .with_secondary(secondary.window.clone())
+            .with_secondary_label(label);
     }
-    snapshot.extra_rate_windows = windows;
+
+    snapshot.extra_rate_windows = all_windows
+        .into_iter()
+        .filter(|window| !selected_ids.iter().any(|id| id == &window.id))
+        .collect();
+
     Ok(snapshot)
 }
 
-fn quota_windows(groups: Vec<QuotaSummaryGroup>) -> Vec<NamedRateWindow> {
+fn split_quota_windows(
+    groups: Vec<QuotaSummaryGroup>,
+) -> (Vec<NamedRateWindow>, Vec<NamedRateWindow>) {
     let mut indexed_groups = groups.into_iter().enumerate().collect::<Vec<_>>();
     indexed_groups.sort_by_key(|(index, group)| (group_rank(group), *index));
 
-    let mut windows = Vec::new();
-    for (_, group) in indexed_groups {
-        let group_title = group_title(&group);
-        let mut buckets = group.buckets.into_iter().enumerate().collect::<Vec<_>>();
-        buckets.sort_by_key(|(index, bucket)| (bucket_kind(bucket), *index));
-        for (_, bucket) in buckets {
-            let Some(bucket_id) = non_empty(bucket.bucket_id.as_deref()) else {
-                continue;
-            };
-            let kind = bucket_kind(&bucket);
-            let title = format!("{} {}", group_title, bucket_title(&bucket, kind));
-            let remaining = bucket.resolved_remaining_fraction();
-            let usage_known = !bucket.disabled.unwrap_or(false) && remaining.is_some();
-            let used_percent = remaining
-                .map(|fraction| 100.0 - (fraction * 100.0).clamp(0.0, 100.0))
-                .unwrap_or(0.0);
-            let window_minutes = match kind {
-                BucketKind::Session => Some(SESSION_MINUTES),
-                BucketKind::Weekly => Some(WEEKLY_MINUTES),
-                BucketKind::Other => None,
-            };
-            let reset = bucket.reset_time.as_deref().and_then(parse_reset_time);
-            let window = RateWindow::with_details(
-                used_percent,
-                window_minutes,
-                reset,
-                bucket.description.clone(),
-            );
-            windows.push(
-                NamedRateWindow::new(format!("{WINDOW_ID_PREFIX}{bucket_id}"), title, window)
-                    .with_usage_known(usage_known),
-            );
+    let mut primary_windows = Vec::new();
+    let mut extra_windows = Vec::new();
+
+    for (pos, (_, group)) in indexed_groups.into_iter().enumerate() {
+        let windows = group_quota_windows(&group);
+        if pos == 0 {
+            primary_windows = windows;
+        } else {
+            extra_windows.extend(windows);
         }
+    }
+
+    (primary_windows, extra_windows)
+}
+
+fn group_quota_windows(group: &QuotaSummaryGroup) -> Vec<NamedRateWindow> {
+    let group_title = group_title(group);
+    let mut buckets = group.buckets.iter().enumerate().collect::<Vec<_>>();
+    buckets.sort_by_key(|(index, bucket)| (bucket_kind(bucket), *index));
+
+    let mut windows = Vec::new();
+    for (_, bucket) in buckets {
+        let Some(bucket_id) = non_empty(bucket.bucket_id.as_deref()) else {
+            continue;
+        };
+        let kind = bucket_kind(bucket);
+        let title = format!("{} {}", group_title, bucket_title(bucket, kind));
+        let remaining = bucket.resolved_remaining_fraction();
+        let usage_known = !bucket.disabled.unwrap_or(false) && remaining.is_some();
+        let used_percent = remaining
+            .map(|fraction| 100.0 - (fraction * 100.0).clamp(0.0, 100.0))
+            .unwrap_or(0.0);
+        let window_minutes = match kind {
+            BucketKind::Session => Some(SESSION_MINUTES),
+            BucketKind::Weekly => Some(WEEKLY_MINUTES),
+            BucketKind::Other => None,
+        };
+        let reset = bucket.reset_time.as_deref().and_then(parse_reset_time);
+        let window = RateWindow::with_details(
+            used_percent,
+            window_minutes,
+            reset,
+            bucket.description.clone(),
+        );
+        windows.push(
+            NamedRateWindow::new(format!("{WINDOW_ID_PREFIX}{bucket_id}"), title, window)
+                .with_usage_known(usage_known),
+        );
     }
     windows
 }
 
-fn most_constrained(windows: &[NamedRateWindow], minutes: u32) -> Option<RateWindow> {
+fn select_cadence_window<'a>(
+    primary_windows: &'a [NamedRateWindow],
+    all_windows: &'a [NamedRateWindow],
+    minutes: u32,
+) -> Option<&'a NamedRateWindow> {
+    most_constrained_named(primary_windows, minutes)
+        .or_else(|| most_constrained_named(all_windows, minutes))
+}
+
+fn most_constrained_named(
+    windows: &[NamedRateWindow],
+    minutes: u32,
+) -> Option<&NamedRateWindow> {
     windows
         .iter()
         .filter(|row| row.usage_known && row.window.window_minutes == Some(minutes))
@@ -160,7 +220,6 @@ fn most_constrained(windows: &[NamedRateWindow], minutes: u32) -> Option<RateWin
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| right.id.cmp(&left.id))
         })
-        .map(|row| row.window.clone())
 }
 
 fn group_rank(group: &QuotaSummaryGroup) -> u8 {
@@ -266,7 +325,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn picks_most_constrained_session_and_weekly_independently() {
+    fn separates_gemini_and_third_party_rate_windows() {
         let data = br#"{
           "response": {"groups": [
             {"displayName":"Gemini Models","buckets":[
@@ -280,12 +339,44 @@ mod tests {
           ]}
         }"#;
         let snapshot = parse_usage_snapshot(data).unwrap();
-        assert!((snapshot.primary.used_percent - 80.0).abs() < 0.001);
+        assert!((snapshot.primary.used_percent - 10.0).abs() < 0.001);
         assert_eq!(snapshot.primary.window_minutes, Some(300));
+        assert_eq!(snapshot.primary_label.as_deref(), Some("Gemini 5h"));
         let weekly = snapshot.secondary.unwrap();
         assert!((weekly.used_percent - 90.0).abs() < 0.001);
         assert_eq!(weekly.window_minutes, Some(10_080));
-        assert_eq!(snapshot.extra_rate_windows.len(), 4);
+        assert_eq!(snapshot.secondary_label.as_deref(), Some("Gemini Weekly"));
+        assert_eq!(snapshot.extra_rate_windows.len(), 2);
+        assert_eq!(snapshot.extra_rate_windows[0].title, "Claude/GPT 5-hour");
+        assert!((snapshot.extra_rate_windows[0].window.used_percent - 80.0).abs() < 0.001);
+        assert_eq!(snapshot.extra_rate_windows[1].title, "Claude/GPT weekly");
+        assert!((snapshot.extra_rate_windows[1].window.used_percent - 20.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn exhausted_third_party_window_does_not_mask_active_gemini_quota() {
+        let data = br#"{
+          "response": {"groups": [
+            {"displayName":"Gemini Models","buckets":[
+              {"bucketId":"gemini-5h","displayName":"5h","remainingFraction":0.93},
+              {"bucketId":"gemini-weekly","displayName":"Weekly","remainingFraction":0.12}
+            ]},
+            {"displayName":"Claude and GPT models","buckets":[
+              {"bucketId":"3p-5h","displayName":"5-hour limit","disabled":true,"remainingFraction":1.0},
+              {"bucketId":"3p-weekly","displayName":"Weekly","remainingFraction":0.0}
+            ]}
+          ]}
+        }"#;
+        let snapshot = parse_usage_snapshot(data).unwrap();
+        assert!((snapshot.primary.used_percent - 7.0).abs() < 0.001);
+        assert_eq!(snapshot.primary_label.as_deref(), Some("Gemini 5h"));
+        let weekly = snapshot.secondary.unwrap();
+        assert!((weekly.used_percent - 88.0).abs() < 0.001);
+        assert_eq!(snapshot.secondary_label.as_deref(), Some("Gemini Weekly"));
+        assert!(!weekly.is_exhausted());
+        assert_eq!(snapshot.extra_rate_windows.len(), 2);
+        assert_eq!(snapshot.extra_rate_windows[1].title, "Claude/GPT weekly");
+        assert_eq!(snapshot.extra_rate_windows[1].window.used_percent, 100.0);
     }
 
     #[test]
@@ -300,10 +391,9 @@ mod tests {
         let snapshot = parse_usage_snapshot(data).unwrap();
         assert!((snapshot.primary.used_percent - 75.0).abs() < 0.001);
         assert!(snapshot.secondary.is_none());
-        assert_eq!(snapshot.extra_rate_windows.len(), 3);
-        assert!(snapshot.extra_rate_windows[0].usage_known);
+        assert_eq!(snapshot.extra_rate_windows.len(), 2);
+        assert!(!snapshot.extra_rate_windows[0].usage_known);
         assert!(!snapshot.extra_rate_windows[1].usage_known);
-        assert!(!snapshot.extra_rate_windows[2].usage_known);
     }
 
     #[test]
