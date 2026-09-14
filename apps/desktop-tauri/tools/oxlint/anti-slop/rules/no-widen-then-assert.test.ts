@@ -15,5 +15,9 @@ tester.run("anti-slop/no-widen-then-assert", noWidenThenAssertRule, {
 			code: "const source = { id: 'second' }; const widened: unknown = source; const parsed = widened as { readonly id: string };",
 			errors: [error],
 		},
+		{
+			code: "const source = { id: 'second' }; const widened: object = source; const parsed = widened as { readonly id: string };",
+			errors: [error],
+		},
 	],
 });

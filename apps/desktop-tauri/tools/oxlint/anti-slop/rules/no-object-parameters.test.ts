@@ -59,5 +59,13 @@ tester.run("anti-slop/no-object-parameters", noObjectParametersRule, {
 			code: "type Identity<T> = T; type Wrapped<T> = Identity<T>; function consume(value: Wrapped<object>) {}",
 			errors: [error],
 		},
+		{
+			code: "type Payload = object; const value = class Payload {}; function consume(value: Payload) {}",
+			errors: [error],
+		},
+		{
+			code: "type Item = object; type Nested<Input> = Input extends (Input extends infer Item ? unknown : never) ? (value: Item) => void : never;",
+			errors: [error],
+		},
 	],
 });
