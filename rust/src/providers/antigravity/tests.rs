@@ -322,6 +322,8 @@ fn owned_cli_fetch_reports_cli_source() {
     .expect("owned outcome resolves")
     .expect("owned outcome yields usage");
     assert_eq!(result.source_label, "cli");
+    assert_eq!(result.usage.primary.used_percent, 10.0);
+    assert!(!result.usage.primary.is_informational);
 }
 
 #[cfg(windows)]
@@ -532,7 +534,8 @@ fn probe_failure_maps_to_unknown() {
 
 fn offline_result() -> ProviderFetchResult {
     ProviderFetchResult::new(
-        UsageSnapshot::new(RateWindow::new(0.0)).with_login_method("offline"),
+        UsageSnapshot::new(RateWindow::informational("Offline · 2 conversations"))
+            .with_login_method("offline"),
         "offline",
     )
 }
@@ -554,7 +557,14 @@ fn non_auth_failure_prefers_offline_history() {
         ProviderError::Other("agy readiness timeout".to_string()),
         Some(offline_result()),
     );
-    assert!(resolved.is_ok());
+    let resolved = resolved.expect("offline history is preserved");
+    assert_eq!(resolved.source_label, "offline");
+    assert_eq!(resolved.usage.login_method.as_deref(), Some("offline"));
+    assert!(resolved.usage.primary.is_informational);
+    assert_eq!(
+        resolved.usage.primary.reset_description.as_deref(),
+        Some("Offline · 2 conversations")
+    );
 }
 
 #[test]
