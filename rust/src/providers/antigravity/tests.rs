@@ -181,7 +181,7 @@ fn test_parse_user_status_standard() {
 }
 
 #[test]
-fn antigravity_extra_windows_keep_distinct_pool_with_same_reading() {
+fn antigravity_extra_windows_preserve_all_unselected_configs() {
     let resp = make_response(vec![
         ("Claude 4 Sonnet", 0.8),
         ("GPT-4o", 0.8),
@@ -191,7 +191,7 @@ fn antigravity_extra_windows_keep_distinct_pool_with_same_reading() {
     let provider = AntigravityProvider::new();
     let snap = provider.parse_user_status(resp).unwrap();
 
-    assert_eq!(snap.extra_rate_windows.len(), 2);
+    assert_eq!(snap.extra_rate_windows.len(), 3);
     assert!(
         snap.extra_rate_windows
             .iter()
@@ -201,6 +201,11 @@ fn antigravity_extra_windows_keep_distinct_pool_with_same_reading() {
         snap.extra_rate_windows
             .iter()
             .any(|window| window.title == "Mistral Large")
+    );
+    assert!(
+        snap.extra_rate_windows
+            .iter()
+            .any(|window| window.title == "Qwen Max")
     );
 }
 
@@ -466,25 +471,24 @@ fn is_agy_cli_command_rejects_unrelated_names() {
     assert!(!is_agy_cli_command(""));
 }
 
-// ── Upstream 0.50.1 #2963: deduplicate extra quota buckets ─────────────────
+// ── Upstream 0.50.1 #2963: preserve unselected quota configs ────────────────
 
 #[test]
-fn multiple_unselected_models_in_same_quota_bucket_collapse_to_one_lane() {
-    // The selected Claude config occupies the canonical primary slot. The two
-    // remaining configs share one reading, so their extra representation
-    // collapses to one lane without using that reading to identify the
-    // selected config.
+fn multiple_unselected_models_with_same_reading_remain_visible() {
+    // Equal readings are not a pool identity. Both unselected configs remain
+    // visible even though the canonical Claude and Gemini configs are selected.
     let resp = make_response(vec![
-        ("Claude 3.5 Sonnet", 0.8),
         ("Claude 4 Sonnet", 0.8),
         ("Gemini 2.5 Pro Low", 0.5),
+        ("Mistral Large", 0.8),
+        ("Qwen Max", 0.8),
     ]);
     let provider = AntigravityProvider::new();
     let snap = provider.parse_user_status(resp).unwrap();
     assert_eq!(
         snap.extra_rate_windows.len(),
-        1,
-        "only duplicate unselected readings collapse"
+        2,
+        "distinct unselected configs with equal readings remain visible"
     );
 }
 

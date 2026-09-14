@@ -345,9 +345,9 @@ pub(super) fn parse_user_status(
     }
 
     // Upstream 0.50.1 #2963: selected configs occupy the canonical slots.
-    // Exclude them by config identity, then collapse duplicate readings only
-    // among the remaining extra configs.
-    let mut seen_buckets: Vec<(Option<u64>, Option<String>)> = Vec::new();
+    // Exclude them by config identity. The response has no authoritative pool
+    // identity, so retain every unselected config rather than merging equal
+    // readings that may belong to distinct pools.
     let selected_configs = [primary_config, secondary_config, tertiary_config];
     for config in quota_configs {
         if selected_configs
@@ -360,14 +360,6 @@ pub(super) fn parse_user_status(
         let Some(quota) = &config.quota_info else {
             continue;
         };
-        let bucket = (
-            quota.remaining_fraction.map(|fraction| fraction.to_bits()),
-            quota.reset_time.clone(),
-        );
-        if seen_buckets.contains(&bucket) {
-            continue;
-        }
-        seen_buckets.push(bucket);
         let title = clean_model_label(model_label(config));
         if title.is_empty() {
             continue;
