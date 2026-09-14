@@ -676,8 +676,8 @@ describe("FloatBar", () => {
   });
 
   it("compacts localized reset text from the timestamp", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2024-06-01T00:00:00Z"));
+    const now = Date.parse("2024-06-01T00:00:00Z");
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
       const fullResetText = "4 小时 59 分钟后重置";
       tauriMocks.getLocaleStrings.mockResolvedValue(
@@ -705,7 +705,7 @@ describe("FloatBar", () => {
       await waitFor(() => {
         const reset = container.querySelector(".floatbar__reset");
         expect(reset?.querySelector(".floatbar__reset-time")).toHaveTextContent(
-          "4h59m",
+          "4h 59m",
         );
         expect(container.querySelector(".floatbar__pill")?.getAttribute("title")).toContain(
           fullResetText,
@@ -714,13 +714,13 @@ describe("FloatBar", () => {
         expect(reset?.getAttribute("aria-label")).toBe(fullResetText);
       });
     } finally {
-      vi.useRealTimers();
+      nowSpy.mockRestore();
     }
   });
 
   it("compacts localized due-now reset text to now", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2024-06-01T00:00:00Z"));
+    const now = Date.parse("2024-06-01T00:00:00Z");
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
       const fullResetText = "重置时间已到";
       tauriMocks.getLocaleStrings.mockResolvedValue(
@@ -756,13 +756,13 @@ describe("FloatBar", () => {
         expect(reset?.getAttribute("aria-label")).toBe(fullResetText);
       });
     } finally {
-      vi.useRealTimers();
+      nowSpy.mockRestore();
     }
   });
 
   it("compacts localized day and hour reset text", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2024-06-01T00:00:00Z"));
+    const now = Date.parse("2024-06-01T00:00:00Z");
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
       const fullResetText = "1 天 2 小时后重置";
       tauriMocks.getLocaleStrings.mockResolvedValue(
@@ -789,7 +789,7 @@ describe("FloatBar", () => {
       await waitFor(() => {
         const reset = container.querySelector(".floatbar__reset");
         expect(reset?.querySelector(".floatbar__reset-time")).toHaveTextContent(
-          "1d2h",
+          "1d 2h",
         );
         expect(container.querySelector(".floatbar__pill")?.getAttribute("title")).toContain(
           fullResetText,
@@ -798,7 +798,7 @@ describe("FloatBar", () => {
         expect(reset?.getAttribute("aria-label")).toBe(fullResetText);
       });
     } finally {
-      vi.useRealTimers();
+      nowSpy.mockRestore();
     }
   });
 
