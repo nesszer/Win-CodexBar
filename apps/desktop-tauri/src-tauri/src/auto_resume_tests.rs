@@ -22,6 +22,13 @@ mod tests {
         }
     }
 
+    fn operation(generation: u64, token: u128) -> InFlightOp {
+        InFlightOp {
+            generation,
+            token: uuid::Uuid::from_u128(token),
+        }
+    }
+
     fn window(used_percent: f64, exhausted: bool, informational: bool) -> RateWindowSnapshot {
         RateWindowSnapshot {
             used_percent,
@@ -314,6 +321,7 @@ mod tests {
     #[test]
     fn failed_resume_attempt_keeps_the_arm_for_a_later_snapshot() {
         let target = target(ProviderId::Codex);
+        let operation = operation(0, 1);
         let mut state = AutoResumeState::default();
         state.arms.insert(
             ProviderId::Codex,
@@ -323,16 +331,108 @@ mod tests {
                 account_identity: None,
             },
         );
-        state.resumes_in_progress.insert(ProviderId::Codex);
+        state
+            .resumes_in_progress
+            .insert(ProviderId::Codex, operation);
 
-        finish_resume_attempt_state(&mut state, &target, 0, false);
+        finish_resume_attempt_state(&mut state, &target, operation, false);
 
         assert!(state.arms.contains_key(&ProviderId::Codex));
-        assert!(!state.resumes_in_progress.contains(&ProviderId::Codex));
+        assert!(!state.resumes_in_progress.contains_key(&ProviderId::Codex));
+    }
+
+    #[test]
+    fn stale_capture_completion_cannot_clear_a_newer_capture_marker() {
+        let first = operation(0, 1);
+        let second = operation(1, 2);
+        let mut state = AutoResumeState::default();
+        state.captures_in_progress.insert(ProviderId::Codex, first);
+        state.clear_provider(ProviderId::Codex);
+        state.captures_in_progress.insert(ProviderId::Codex, second);
+
+        finish_capture_state(
+            &mut state,
+            ProviderId::Codex,
+            first,
+            true,
+            Some(target(ProviderId::Codex)),
+            vec![QuotaSlot::Primary],
+            None,
+        );
+
+        assert_eq!(
+            state.captures_in_progress.get(&ProviderId::Codex),
+            Some(&second)
+        );
+        assert!(state.arms.is_empty());
+    }
+
+    #[test]
+    fn stale_resume_completion_cannot_clear_a_newer_resume_marker_or_arm() {
+        let target = target(ProviderId::Codex);
+        let first = operation(0, 1);
+        let second = operation(1, 2);
+        let mut state = AutoResumeState::default();
+        state.arms.insert(
+            ProviderId::Codex,
+            ResumeArm {
+                target: target.clone(),
+                blocked_slots: vec![QuotaSlot::Primary],
+                account_identity: None,
+            },
+        );
+        state.resumes_in_progress.insert(ProviderId::Codex, first);
+
+        state.clear_provider(ProviderId::Codex);
+        state.arms.insert(
+            ProviderId::Codex,
+            ResumeArm {
+                target: target.clone(),
+                blocked_slots: vec![QuotaSlot::Primary],
+                account_identity: None,
+            },
+        );
+        state.resumes_in_progress.insert(ProviderId::Codex, second);
+
+        finish_resume_attempt_state(&mut state, &target, first, true);
+
+        assert_eq!(
+            state.resumes_in_progress.get(&ProviderId::Codex),
+            Some(&second)
+        );
+        assert!(state.arms.contains_key(&ProviderId::Codex));
+    }
+
+    #[test]
+    fn stale_resume_invalidation_cannot_clear_a_newer_lease() {
+        let target = target(ProviderId::Codex);
+        let first = operation(0, 1);
+        let second = operation(1, 2);
+        let mut state = AutoResumeState::default();
+        state.clear_provider(ProviderId::Codex);
+        state.arms.insert(
+            ProviderId::Codex,
+            ResumeArm {
+                target,
+                blocked_slots: vec![QuotaSlot::Primary],
+                account_identity: None,
+            },
+        );
+        state.resumes_in_progress.insert(ProviderId::Codex, second);
+
+        clear_provider_if_resume_owner_state(&mut state, ProviderId::Codex, first);
+
+        assert!(state.arms.contains_key(&ProviderId::Codex));
+        assert_eq!(
+            state.resumes_in_progress.get(&ProviderId::Codex),
+            Some(&second)
+        );
+        assert_eq!(state.capture_generations.get(&ProviderId::Codex), Some(&1));
     }
 
     #[test]
     fn disabling_resume_cancels_an_in_flight_attempt() {
+        let operation = operation(0, 1);
         let mut state = AutoResumeState::default();
         state.arms.insert(
             ProviderId::Codex,
@@ -342,7 +442,9 @@ mod tests {
                 account_identity: None,
             },
         );
-        state.resumes_in_progress.insert(ProviderId::Codex);
+        state
+            .resumes_in_progress
+            .insert(ProviderId::Codex, operation);
         let generation = state.capture_generations.get(&ProviderId::Codex).copied();
 
         state.clear_provider(ProviderId::Codex);

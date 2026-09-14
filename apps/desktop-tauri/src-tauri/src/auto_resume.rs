@@ -10,7 +10,7 @@ use codexbar::agent_sessions::{
 };
 use codexbar::core::{ProviderId, TokenAccountStore};
 use codexbar::settings::Settings;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
@@ -38,6 +38,12 @@ enum ResumeSource {
     ClaudeCli,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct InFlightOp {
+    generation: u64,
+    token: uuid::Uuid,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResumeTarget {
     pub provider: ProviderId,
@@ -60,8 +66,8 @@ struct ResumeArm {
 #[derive(Debug, Default)]
 pub(crate) struct AutoResumeState {
     arms: HashMap<ProviderId, ResumeArm>,
-    captures_in_progress: HashSet<ProviderId>,
-    resumes_in_progress: HashSet<ProviderId>,
+    captures_in_progress: HashMap<ProviderId, InFlightOp>,
+    resumes_in_progress: HashMap<ProviderId, InFlightOp>,
     capture_generations: HashMap<ProviderId, u64>,
 }
 
@@ -141,7 +147,7 @@ pub(crate) async fn observe_fresh_snapshot(
 
     let blocked_slots = blocking_slots(&snapshot.primary, snapshot.secondary.as_ref());
     if blocked_slots.is_empty() {
-        let Some((target, resume_generation)) = begin_resume_attempt(
+        let Some((target, resume_operation)) = begin_resume_attempt(
             app,
             provider,
             snapshot,
@@ -151,11 +157,11 @@ pub(crate) async fn observe_fresh_snapshot(
         ) else {
             return;
         };
-        resume_captured_session(app, target, resume_generation, account_identity.as_deref()).await;
+        resume_captured_session(app, target, resume_operation, account_identity.as_deref()).await;
         return;
     }
 
-    let Some(capture_generation) =
+    let Some(capture_operation) =
         begin_capture(app, provider, quota_source, account_identity.as_deref())
     else {
         return;
@@ -166,7 +172,7 @@ pub(crate) async fn observe_fresh_snapshot(
     finish_capture(
         app,
         provider,
-        capture_generation,
+        capture_operation,
         still_enabled,
         target,
         blocked_slots,
@@ -304,7 +310,7 @@ fn begin_capture(
     provider: ProviderId,
     quota_source: ResumeSource,
     account_identity: Option<&str>,
-) -> Option<u64> {
+) -> Option<InFlightOp> {
     let state = app.state::<Mutex<AppState>>();
     let Ok(mut guard) = state.lock() else {
         return None;
@@ -320,22 +326,33 @@ fn begin_capture(
     if guard.auto_resume.arms.contains_key(&provider) {
         guard.auto_resume.clear_provider(provider);
     }
-    if !guard.auto_resume.captures_in_progress.insert(provider) {
+    let capture_generation = *guard
+        .auto_resume
+        .capture_generations
+        .entry(provider)
+        .or_default();
+    if guard
+        .auto_resume
+        .captures_in_progress
+        .contains_key(&provider)
+    {
         return None;
     }
-    Some(
-        *guard
-            .auto_resume
-            .capture_generations
-            .entry(provider)
-            .or_default(),
-    )
+    let operation = InFlightOp {
+        generation: capture_generation,
+        token: uuid::Uuid::new_v4(),
+    };
+    guard
+        .auto_resume
+        .captures_in_progress
+        .insert(provider, operation);
+    Some(operation)
 }
 
 fn finish_capture(
     app: &tauri::AppHandle,
     provider: ProviderId,
-    capture_generation: u64,
+    operation: InFlightOp,
     still_enabled: bool,
     target: Option<ResumeTarget>,
     blocked_slots: Vec<QuotaSlot>,
@@ -345,22 +362,45 @@ fn finish_capture(
     let Ok(mut guard) = state.lock() else {
         return;
     };
-    guard.auto_resume.captures_in_progress.remove(&provider);
+    finish_capture_state(
+        &mut guard.auto_resume,
+        provider,
+        operation,
+        still_enabled,
+        target,
+        blocked_slots,
+        account_identity,
+    );
+}
+
+fn finish_capture_state(
+    state: &mut AutoResumeState,
+    provider: ProviderId,
+    operation: InFlightOp,
+    still_enabled: bool,
+    target: Option<ResumeTarget>,
+    blocked_slots: Vec<QuotaSlot>,
+    account_identity: Option<String>,
+) {
+    // An older async completion must never release a newer capture's slot.
+    if state.captures_in_progress.get(&provider) != Some(&operation) {
+        return;
+    }
+    state.captures_in_progress.remove(&provider);
 
     if !still_enabled
-        || guard
-            .auto_resume
+        || state
             .capture_generations
             .get(&provider)
             .copied()
             .unwrap_or_default()
-            != capture_generation
-        || guard.auto_resume.arms.contains_key(&provider)
+            != operation.generation
+        || state.arms.contains_key(&provider)
     {
         return;
     }
     if let Some(target) = target {
-        guard.auto_resume.arms.insert(
+        state.arms.insert(
             provider,
             ResumeArm {
                 target,
@@ -378,7 +418,7 @@ fn begin_resume_attempt(
     token_account_id: Option<uuid::Uuid>,
     quota_source: ResumeSource,
     account_identity: Option<&str>,
-) -> Option<(ResumeTarget, u64)> {
+) -> Option<(ResumeTarget, InFlightOp)> {
     let state = app.state::<Mutex<AppState>>();
     let Ok(mut guard) = state.lock() else {
         return None;
@@ -406,10 +446,22 @@ fn begin_resume_attempt(
         .get(&provider)
         .copied()
         .unwrap_or_default();
-    if !guard.auto_resume.resumes_in_progress.insert(provider) {
+    if guard
+        .auto_resume
+        .resumes_in_progress
+        .contains_key(&provider)
+    {
         return None;
     }
-    Some((target, resume_generation))
+    let operation = InFlightOp {
+        generation: resume_generation,
+        token: uuid::Uuid::new_v4(),
+    };
+    guard
+        .auto_resume
+        .resumes_in_progress
+        .insert(provider, operation);
+    Some((target, operation))
 }
 
 async fn capture_session(
@@ -567,7 +619,7 @@ fn valid_session_id(raw: &str) -> Option<&str> {
 async fn resume_captured_session(
     app: &tauri::AppHandle,
     target: ResumeTarget,
-    generation: u64,
+    operation: InFlightOp,
     account_identity: Option<&str>,
 ) {
     let result = LocalAgentSessionScanner::default().scan().await;
@@ -576,15 +628,15 @@ async fn resume_captured_session(
             provider = target.provider.cli_name(),
             "captured auto-resume session could not be revalidated"
         );
-        finish_resume_attempt(app, &target, generation, false);
+        finish_resume_attempt(app, &target, operation, false);
         return;
     }
     if let Some(session) = matching_session(&target, &result.sessions) {
         // A live process already owns this exact session. Reopening it would
         // create a duplicate terminal, so focus the existing window instead.
         if session.pid.is_some() {
-            if !resume_attempt_is_still_valid(app, &target, generation, account_identity) {
-                clear(app, target.provider);
+            if !resume_attempt_is_still_valid(app, &target, operation, account_identity) {
+                clear_provider_if_resume_owner(app, target.provider, operation);
                 return;
             }
             let focus_result = codexbar::agent_sessions::focus_session(session);
@@ -595,7 +647,7 @@ async fn resume_captured_session(
                 succeeded,
                 "captured CLI session is already running; attempting to focus it"
             );
-            finish_resume_attempt(app, &target, generation, succeeded);
+            finish_resume_attempt(app, &target, operation, succeeded);
             return;
         }
     } else if !transcript_is_still_present(&target) {
@@ -603,12 +655,12 @@ async fn resume_captured_session(
             provider = target.provider.cli_name(),
             "captured auto-resume session disappeared or could not be revalidated"
         );
-        finish_resume_attempt(app, &target, generation, false);
+        finish_resume_attempt(app, &target, operation, false);
         return;
     }
 
-    if !resume_attempt_is_still_valid(app, &target, generation, account_identity) {
-        clear(app, target.provider);
+    if !resume_attempt_is_still_valid(app, &target, operation, account_identity) {
+        clear_provider_if_resume_owner(app, target.provider, operation);
         return;
     }
 
@@ -625,13 +677,13 @@ async fn resume_captured_session(
             "could not reopen captured CLI session after quota reset"
         ),
     }
-    finish_resume_attempt(app, &target, generation, succeeded);
+    finish_resume_attempt(app, &target, operation, succeeded);
 }
 
 fn resume_attempt_is_still_valid(
     app: &tauri::AppHandle,
     target: &ResumeTarget,
-    generation: u64,
+    operation: InFlightOp,
     account_identity: Option<&str>,
 ) -> bool {
     if !Settings::load().auto_resume_after_quota_reset(target.provider)
@@ -655,7 +707,8 @@ fn resume_attempt_is_still_valid(
     let Ok(guard) = state.lock() else {
         return false;
     };
-    resume_generation_is_current(&guard, target.provider, generation)
+    guard.auto_resume.resumes_in_progress.get(&target.provider) == Some(&operation)
+        && resume_generation_is_current(&guard, target.provider, operation.generation)
         && guard
             .auto_resume
             .arms
@@ -670,22 +723,48 @@ fn resume_attempt_is_still_valid(
 fn finish_resume_attempt(
     app: &tauri::AppHandle,
     target: &ResumeTarget,
-    generation: u64,
+    operation: InFlightOp,
     succeeded: bool,
 ) {
     let state = app.state::<Mutex<AppState>>();
     let Ok(mut guard) = state.lock() else {
         return;
     };
-    finish_resume_attempt_state(&mut guard.auto_resume, target, generation, succeeded);
+    finish_resume_attempt_state(&mut guard.auto_resume, target, operation, succeeded);
+}
+
+fn clear_provider_if_resume_owner(
+    app: &tauri::AppHandle,
+    provider: ProviderId,
+    operation: InFlightOp,
+) {
+    let state = app.state::<Mutex<AppState>>();
+    let Ok(mut guard) = state.lock() else {
+        return;
+    };
+    clear_provider_if_resume_owner_state(&mut guard.auto_resume, provider, operation);
+}
+
+fn clear_provider_if_resume_owner_state(
+    state: &mut AutoResumeState,
+    provider: ProviderId,
+    operation: InFlightOp,
+) {
+    if state.resumes_in_progress.get(&provider) == Some(&operation) {
+        state.clear_provider(provider);
+    }
 }
 
 fn finish_resume_attempt_state(
     state: &mut AutoResumeState,
     target: &ResumeTarget,
-    generation: u64,
+    operation: InFlightOp,
     succeeded: bool,
 ) {
+    // A stale async completion must not release a newer resume attempt's slot.
+    if state.resumes_in_progress.get(&target.provider) != Some(&operation) {
+        return;
+    }
     state.resumes_in_progress.remove(&target.provider);
     if !succeeded
         || state
@@ -693,7 +772,7 @@ fn finish_resume_attempt_state(
             .get(&target.provider)
             .copied()
             .unwrap_or_default()
-            != generation
+            != operation.generation
     {
         return;
     }
