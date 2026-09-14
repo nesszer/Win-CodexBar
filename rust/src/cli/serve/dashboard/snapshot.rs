@@ -22,11 +22,12 @@
 use std::collections::{BTreeSet, HashMap};
 
 use super::antigravity;
+use super::window::make_window_with_idle;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::core::{ProviderFetchResult, RateWindow, UsagePace, UsageSnapshot, UsageWindowLayout};
+use crate::core::{ProviderFetchResult, RateWindow, UsagePace, UsageSnapshot};
 
 /// How much account identity a snapshot exposes. Upstream 0.48.0 exposes two
 /// CLI modes (`redacted` default, `full` opt-in); upstream's internal `none`
@@ -100,22 +101,7 @@ pub struct IdentityPayload {
     pub plan: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WindowPayload {
-    pub kind: String,
-    pub label: String,
-    pub used_percent: f64,
-    pub remaining_percent: f64,
-    pub reset_at: Option<DateTime<Utc>>,
-    /// Display-only hint. Script clients can ignore this additive schema-v1 key.
-    #[serde(skip_serializing_if = "is_false")]
-    pub idle: bool,
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
-}
+pub use super::window::WindowPayload;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CreditsPayload {
@@ -294,9 +280,9 @@ fn build_provider(
             let source = dashboard_source(&result.source_label);
             let identity = make_identity(&result.usage, input.identity);
             let windows = make_windows(
+                Some(&envelope.id),
                 &envelope.session_label,
                 &envelope.weekly_label,
-                result.window_layout,
                 &result.usage,
             );
             (
@@ -378,12 +364,7 @@ fn build_account(
     let (identity, windows, pace, error, updated_at) = match &account.fetch {
         Ok(result) => (
             make_identity(&result.usage, identity_mode),
-            make_windows(
-                session_label,
-                weekly_label,
-                UsageWindowLayout::Standard,
-                &result.usage,
-            ),
+            make_windows(None, session_label, weekly_label, &result.usage),
             make_pace(&result.usage),
             None,
             Some(result.usage.updated_at),
@@ -452,12 +433,12 @@ fn dashboard_email(email: Option<&str>, mode: DashboardIdentity) -> Option<Strin
 }
 
 fn make_windows(
+    provider_id: Option<&str>,
     session_label: &str,
     weekly_label: &str,
-    layout: UsageWindowLayout,
     usage: &UsageSnapshot,
 ) -> Vec<WindowPayload> {
-    if layout == UsageWindowLayout::AntigravityQuotaSummary {
+    if provider_id == Some("antigravity") {
         return antigravity::quota_summary_windows(usage, session_label, weekly_label);
     }
 
@@ -501,23 +482,6 @@ fn push_model_and_tertiary_windows(windows: &mut Vec<WindowPayload>, usage: &Usa
 
 fn make_window(kind: &str, label: &str, window: &RateWindow) -> WindowPayload {
     make_window_with_idle(kind, label, window, false)
-}
-
-pub(super) fn make_window_with_idle(
-    kind: &str,
-    label: &str,
-    window: &RateWindow,
-    idle: bool,
-) -> WindowPayload {
-    let used = window.used_percent.clamp(0.0, 100.0);
-    WindowPayload {
-        kind: kind.to_string(),
-        label: label.to_string(),
-        used_percent: used,
-        remaining_percent: (100.0 - used).clamp(0.0, 100.0),
-        reset_at: window.resets_at,
-        idle,
-    }
 }
 
 fn make_pace(usage: &UsageSnapshot) -> Option<ProviderPacePayload> {

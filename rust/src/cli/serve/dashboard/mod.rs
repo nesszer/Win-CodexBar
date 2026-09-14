@@ -10,6 +10,7 @@ pub mod html;
 pub mod icons;
 pub mod snapshot;
 pub mod source;
+mod window;
 
 use coordinator::SnapshotCoordinator;
 use snapshot::DashboardIdentity;

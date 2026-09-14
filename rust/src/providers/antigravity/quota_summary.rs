@@ -103,18 +103,13 @@ pub(super) fn parse_usage_snapshot(data: &[u8]) -> Result<UsageSnapshot, Provide
         ));
     }
 
-    let primary_selected = select_cadence_window(
-        &primary_windows,
-        &all_windows,
-        SESSION_MINUTES,
-        !has_gemini_group,
-    );
-    let secondary_selected = select_cadence_window(
-        &primary_windows,
-        &all_windows,
-        WEEKLY_MINUTES,
-        !has_gemini_group,
-    );
+    let cadence_windows = if has_gemini_group {
+        &primary_windows
+    } else {
+        &all_windows
+    };
+    let primary_selected = most_constrained_named(cadence_windows, SESSION_MINUTES);
+    let secondary_selected = most_constrained_named(cadence_windows, WEEKLY_MINUTES);
 
     let mut selected_ids = Vec::new();
     let mut snapshot = if let Some(primary) = primary_selected {
@@ -208,17 +203,6 @@ fn group_quota_windows(group: &QuotaSummaryGroup) -> Vec<NamedRateWindow> {
         );
     }
     windows
-}
-
-fn select_cadence_window<'a>(
-    primary_windows: &'a [NamedRateWindow],
-    all_windows: &'a [NamedRateWindow],
-    minutes: u32,
-    allow_compatibility_fallback: bool,
-) -> Option<&'a NamedRateWindow> {
-    most_constrained_named(primary_windows, minutes).or_else(|| {
-        allow_compatibility_fallback.then(|| most_constrained_named(all_windows, minutes))?
-    })
 }
 
 fn most_constrained_named(windows: &[NamedRateWindow], minutes: u32) -> Option<&NamedRateWindow> {

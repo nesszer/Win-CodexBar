@@ -180,8 +180,7 @@ mod tests {
             display_name: "Antigravity".to_string(),
             session_label: "Session".to_string(),
             weekly_label: "Weekly".to_string(),
-            fetch: Ok(ProviderFetchResult::new(usage, "local")
-                .with_window_layout(UsageWindowLayout::AntigravityQuotaSummary)),
+            fetch: Ok(ProviderFetchResult::new(usage, "local")),
         }
     }
 
@@ -232,8 +231,7 @@ mod tests {
                 display_name: "Antigravity".to_string(),
                 session_label: "Claude".to_string(),
                 weekly_label: "Gemini Pro".to_string(),
-                fetch: Ok(ProviderFetchResult::new(usage, "local")
-                    .with_window_layout(UsageWindowLayout::AntigravityQuotaSummary)),
+                fetch: Ok(ProviderFetchResult::new(usage, "local")),
             }],
             DashboardIdentity::Redacted,
         )))
@@ -258,8 +256,7 @@ mod tests {
             "Claude/GPT 5h",
             primary,
         ));
-        let result = ProviderFetchResult::new(usage, "local")
-            .with_window_layout(UsageWindowLayout::AntigravityQuotaSummary);
+        let result = ProviderFetchResult::new(usage, "local");
 
         let json = serde_json::to_value(build_snapshot(&input(
             vec![ProviderFetchEnvelope {

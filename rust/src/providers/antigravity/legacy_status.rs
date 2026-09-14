@@ -349,28 +349,39 @@ pub(super) fn parse_user_status(
     // (e.g. multiple Claude variants in the same 5h session), show one
     // lane per quota bucket, not one per model. Dedup by (remaining,
     // reset_time) — models sharing the same quota state collapse.
-    let mut seen_buckets: Vec<(Option<f64>, Option<String>)> = Vec::new();
+    let mut seen_buckets: Vec<(Option<u64>, Option<String>)> = Vec::new();
     let selected_configs = [primary_config, secondary_config, tertiary_config];
+    let selected_buckets = selected_configs
+        .iter()
+        .flatten()
+        .filter_map(|config| {
+            config.quota_info.as_ref().map(|quota| {
+                (
+                    quota.remaining_fraction.map(|fraction| fraction.to_bits()),
+                    quota.reset_time.clone(),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
     for config in quota_configs {
         let Some(quota) = &config.quota_info else {
             continue;
         };
-        let bucket = (quota.remaining_fraction, quota.reset_time.clone());
+        let bucket = (
+            quota.remaining_fraction.map(|fraction| fraction.to_bits()),
+            quota.reset_time.clone(),
+        );
         if seen_buckets.contains(&bucket) {
             continue;
         }
-        seen_buckets.push(bucket);
+        seen_buckets.push(bucket.clone());
         // The selected model configs already occupy the canonical primary,
         // secondary, and model-specific slots. Keep only unselected quota
         // buckets here so dashboard and CLI consumers do not print them a
         // second time. Mark the bucket as seen before skipping it so a
         // second model with the same quota state cannot reintroduce a
         // duplicate extra lane.
-        if selected_configs
-            .iter()
-            .flatten()
-            .any(|selected| std::ptr::eq(*selected, config))
-        {
+        if selected_buckets.contains(&bucket) {
             continue;
         }
         let title = clean_model_label(model_label(config));

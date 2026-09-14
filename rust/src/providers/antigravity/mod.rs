@@ -33,7 +33,7 @@ use crate::managed_process::{ManagedProcess, ManagedProcessConfig, ManagedProces
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot, UsageWindowLayout,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const AGY_NOT_FOUND_MESSAGE: &str =
@@ -410,11 +410,7 @@ impl AntigravityProvider {
                     {
                         legacy_status::apply_user_identity(&mut snapshot, &identity);
                     }
-                    return Ok(Self::fetch_result(
-                        snapshot,
-                        "local",
-                        UsageWindowLayout::AntigravityQuotaSummary,
-                    ));
+                    return Ok(Self::fetch_result(snapshot, "local"));
                 }
                 Err(error) => tracing::debug!(
                     %error,
@@ -447,16 +443,11 @@ impl AntigravityProvider {
         let response: UserStatusResponse = serde_json::from_slice(&bytes)
             .map_err(|e| ProviderError::Parse(format!("Failed to parse response: {e}")))?;
         self.parse_user_status(response)
-            .map(|usage| Self::fetch_result(usage, "local", UsageWindowLayout::Standard))
+            .map(|usage| Self::fetch_result(usage, "local"))
     }
 
-    fn fetch_result(
-        usage: UsageSnapshot,
-        source_label: &str,
-        window_layout: UsageWindowLayout,
-    ) -> ProviderFetchResult {
+    fn fetch_result(usage: UsageSnapshot, source_label: &str) -> ProviderFetchResult {
         ProviderFetchResult::new(Self::with_cadence_labels(usage), source_label)
-            .with_window_layout(window_layout)
     }
 
     /// Start a short-lived, headless `agy` session when neither the Antigravity
@@ -790,6 +781,14 @@ impl Default for AntigravityProvider {
 #[async_trait]
 impl Provider for AntigravityProvider {
     fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
+        false
+    }
+
+    fn automatic_metric_prefers_available_window(&self) -> bool {
+        true
+    }
+
+    fn automatic_metric_uses_extra_windows(&self) -> bool {
         false
     }
 

@@ -210,7 +210,6 @@ mod tests {
             fetch_duration_ms: None,
             wayfinder_usage: None,
             session_equivalent_forecast: None,
-            window_layout: Default::default(),
         });
         let value = serde_json::to_value(snapshot).unwrap();
 
@@ -259,7 +258,6 @@ mod tests {
             fetch_duration_ms: None,
             wayfinder_usage: None,
             session_equivalent_forecast: None,
-            window_layout: Default::default(),
         });
         let value = serde_json::to_value(snapshot).unwrap();
 

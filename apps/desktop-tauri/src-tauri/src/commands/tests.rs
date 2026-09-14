@@ -969,7 +969,6 @@ fn provider_cache_upsert_replaces_existing_provider() {
         source_label: "CLI".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let mut first =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
@@ -995,7 +994,6 @@ fn provider_cache_prunes_disabled_providers() {
         source_label: "CLI".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let codex =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
@@ -1028,7 +1026,6 @@ fn hiding_codex_spark_rows_preserves_other_extra_usage() {
         source_label: "CLI".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let mut snapshot =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
@@ -1061,7 +1058,6 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
@@ -1094,7 +1090,6 @@ fn claude_repeated_auth_failure_surfaces_error() {
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
@@ -1132,7 +1127,6 @@ fn claude_cloudflare_challenge_retains_prior_usage_while_surfaceing_guidance() {
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
@@ -1181,7 +1175,6 @@ fn claude_cloudflare_challenge_keeps_prior_usage_when_guidance_surfaces() {
         source_label: "Web".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let mut good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
@@ -1226,7 +1219,6 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
         source_label: "CLI".to_string(),
         has_successful_claude_cli_quota: true,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
@@ -1265,7 +1257,6 @@ fn claude_hard_credentials_missing_does_not_preserve_stale() {
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
@@ -1428,7 +1419,6 @@ fn japanese_provider_snapshot_localizes_weekly_label() {
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
 
     let snapshot =
@@ -1460,7 +1450,6 @@ fn japanese_provider_snapshot_localizes_pace_reserve_description() {
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
-        window_layout: Default::default(),
     };
 
     let snapshot =

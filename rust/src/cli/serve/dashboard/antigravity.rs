@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::core::{NamedRateWindow, UsageSnapshot};
 
-use super::snapshot::{self, WindowPayload};
+use super::window::{WindowPayload, make_window_with_idle};
 
 /// Project the provider-owned quota-summary layout into dashboard rows.
 ///
@@ -18,14 +18,14 @@ pub(super) fn quota_summary_windows(
     let active_core_families = active_core_families(usage, session_label, weekly_label);
     let idle_ids = idle_window_ids(&usage.extra_rate_windows, &active_core_families);
     let mut windows = Vec::with_capacity(4 + usage.extra_rate_windows.len());
-    windows.push(snapshot::make_window_with_idle(
+    windows.push(make_window_with_idle(
         "session",
         usage.primary_label.as_deref().unwrap_or(session_label),
         &usage.primary,
         false,
     ));
     if let Some(secondary) = &usage.secondary {
-        windows.push(snapshot::make_window_with_idle(
+        windows.push(make_window_with_idle(
             "weekly",
             usage.secondary_label.as_deref().unwrap_or(weekly_label),
             secondary,
@@ -33,17 +33,15 @@ pub(super) fn quota_summary_windows(
         ));
     }
     if let Some(model) = &usage.model_specific {
-        windows.push(snapshot::make_window_with_idle(
-            "model", "Model", model, false,
-        ));
+        windows.push(make_window_with_idle("model", "Model", model, false));
     }
     if let Some(tertiary) = &usage.tertiary {
-        windows.push(snapshot::make_window_with_idle(
+        windows.push(make_window_with_idle(
             "tertiary", "Tertiary", tertiary, false,
         ));
     }
     windows.extend(usage.extra_rate_windows.iter().map(|extra| {
-        snapshot::make_window_with_idle(
+        make_window_with_idle(
             &extra.id,
             &extra.title,
             &extra.window,

@@ -107,34 +107,38 @@ fn automatic_window(
         }
     }
 
-    if provider == Some(ProviderId::Antigravity)
-        && snapshot.window_layout == codexbar::core::UsageWindowLayout::AntigravityQuotaSummary
-    {
-        let core_windows = std::iter::once(&snapshot.primary)
-            .chain(snapshot.secondary.iter())
-            .filter(|window| !window.is_informational && !automatic_window_is_exhausted(window));
-        if let Some(highest_core) = highest_window(core_windows) {
-            return Some(highest_core.clone());
-        }
-    }
-
-    let windows = std::iter::once(&snapshot.primary)
-        .chain(snapshot.secondary.iter())
-        .chain(snapshot.model_specific.iter())
-        .chain(snapshot.tertiary.iter())
-        .chain(
+    let uses_extra_windows = provider
+        .map(|id| codexbar::core::instantiate_provider(id).automatic_metric_uses_extra_windows())
+        .unwrap_or(true);
+    let mut windows = Vec::with_capacity(4 + snapshot.extra_rate_windows.len());
+    windows.push(&snapshot.primary);
+    windows.extend(snapshot.secondary.iter());
+    windows.extend(snapshot.model_specific.iter());
+    windows.extend(snapshot.tertiary.iter());
+    if uses_extra_windows {
+        windows.extend(
             snapshot
                 .extra_rate_windows
                 .iter()
                 .map(|extra| &extra.window),
-        )
+        );
+    }
+    let windows = windows
+        .into_iter()
         .filter(|window| !window.is_informational);
+    let prefers_available = provider
+        .map(|id| {
+            codexbar::core::instantiate_provider(id).automatic_metric_prefers_available_window()
+        })
+        .unwrap_or(false);
     let prioritize_exhausted = provider
         .map(|id| {
             codexbar::core::instantiate_provider(id).automatic_metric_prioritizes_exhausted_window()
         })
         .unwrap_or(true);
-    let selected = if prioritize_exhausted {
+    let selected = if prefers_available {
+        highest_available_window(windows)
+    } else if prioritize_exhausted {
         highest_automatic_window(windows)
     } else {
         highest_window(windows)
@@ -207,6 +211,19 @@ fn highest_window<'a>(
     })
 }
 
+fn highest_available_window<'a>(
+    windows: impl Iterator<Item = &'a RateWindowSnapshot>,
+) -> Option<&'a RateWindowSnapshot> {
+    let windows = windows.collect::<Vec<_>>();
+    highest_window(
+        windows
+            .iter()
+            .copied()
+            .filter(|window| !automatic_window_is_exhausted(window)),
+    )
+    .or_else(|| highest_window(windows.into_iter()))
+}
+
 fn highest_automatic_window<'a>(
     windows: impl Iterator<Item = &'a RateWindowSnapshot>,
 ) -> Option<&'a RateWindowSnapshot> {
@@ -260,7 +277,6 @@ mod tests {
             fetch_duration_ms: None,
             wayfinder_usage: None,
             session_equivalent_forecast: None,
-            window_layout: Default::default(),
         }
     }
 
@@ -357,7 +373,6 @@ mod tests {
     fn antigravity_automatic_prefers_active_core_quota_over_exhausted_extra_window() {
         let mut snapshot = snapshot();
         snapshot.provider_id = "antigravity".to_string();
-        snapshot.window_layout = codexbar::core::UsageWindowLayout::AntigravityQuotaSummary;
         snapshot.primary = window(100.0);
         snapshot.primary.is_exhausted = true;
         snapshot.primary_label = Some("Gemini 5h".to_string());
@@ -376,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn antigravity_legacy_layout_considers_model_and_extra_windows() {
+    fn antigravity_automatic_uses_core_slots_only() {
         let mut snapshot = snapshot();
         snapshot.provider_id = "antigravity".to_string();
         snapshot.primary = window(80.0);
@@ -385,7 +400,7 @@ mod tests {
         snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
             id: "legacy-other".to_string(),
             title: "Other".to_string(),
-            window: window(70.0),
+            window: window(100.0),
         }];
 
         let selected = selected_usage_window(&snapshot, &Settings::default());

@@ -231,9 +231,6 @@ pub struct ProviderUsageSnapshot {
     pub wayfinder_usage: Option<codexbar::core::WayfinderUsageSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_equivalent_forecast: Option<SessionEquivalentForecastSnapshot>,
-    /// Internal provider projection policy; omitted from the frontend bridge.
-    #[serde(skip)]
-    pub(crate) window_layout: codexbar::core::UsageWindowLayout,
 }
 
 fn default_display_name() -> String {
@@ -431,7 +428,6 @@ impl ProviderUsageSnapshot {
             fetch_duration_ms: None,
             wayfinder_usage: result.wayfinder_usage.clone(),
             session_equivalent_forecast,
-            window_layout: result.window_layout,
         }
     }
 
@@ -480,7 +476,6 @@ impl ProviderUsageSnapshot {
             fetch_duration_ms: None,
             wayfinder_usage: None,
             session_equivalent_forecast: None,
-            window_layout: codexbar::core::UsageWindowLayout::Standard,
         }
     }
 }
