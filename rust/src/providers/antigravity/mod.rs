@@ -784,14 +784,6 @@ impl Provider for AntigravityProvider {
         false
     }
 
-    fn automatic_metric_prefers_available_window(&self) -> bool {
-        true
-    }
-
-    fn automatic_metric_uses_extra_windows(&self) -> bool {
-        false
-    }
-
     fn id(&self) -> ProviderId {
         ProviderId::Antigravity
     }

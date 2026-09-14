@@ -466,12 +466,14 @@ fn is_agy_cli_command_rejects_unrelated_names() {
     assert!(!is_agy_cli_command(""));
 }
 
-// ── Upstream 0.50.1 #2963: one lane per quota bucket ──────────────────────
+// ── Upstream 0.50.1 #2963: deduplicate extra quota buckets ─────────────────
 
 #[test]
-fn multiple_models_in_same_quota_bucket_collapse_to_one_lane() {
-    // Two Claude variants sharing the same remaining fraction (same 5h
-    // session bucket) should produce one extra rate window, not two.
+fn multiple_unselected_models_in_same_quota_bucket_collapse_to_one_lane() {
+    // The selected Claude config occupies the canonical primary slot. The two
+    // remaining configs share one reading, so their extra representation
+    // collapses to one lane without using that reading to identify the
+    // selected config.
     let resp = make_response(vec![
         ("Claude 3.5 Sonnet", 0.8),
         ("Claude 4 Sonnet", 0.8),
@@ -481,8 +483,8 @@ fn multiple_models_in_same_quota_bucket_collapse_to_one_lane() {
     let snap = provider.parse_user_status(resp).unwrap();
     assert_eq!(
         snap.extra_rate_windows.len(),
-        0,
-        "selected quota buckets use canonical slots"
+        1,
+        "only duplicate unselected readings collapse"
     );
 }
 

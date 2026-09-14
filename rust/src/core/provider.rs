@@ -705,18 +705,6 @@ pub trait Provider: Send + Sync {
         true
     }
 
-    /// Whether Automatic metric selection should prefer a usable quota lane
-    /// over an exhausted lane when both are present.
-    fn automatic_metric_prefers_available_window(&self) -> bool {
-        false
-    }
-
-    /// Whether Automatic metric selection includes provider-specific extra
-    /// quota lanes alongside the canonical primary/secondary lanes.
-    fn automatic_metric_uses_extra_windows(&self) -> bool {
-        true
-    }
-
     /// Whether browser-cookie discovery/recovery is owned by the provider.
     fn owns_browser_cookie_resolution(&self) -> bool {
         false

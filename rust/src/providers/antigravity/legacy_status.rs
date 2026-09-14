@@ -203,17 +203,6 @@ fn model_label(config: &ModelConfig) -> &str {
     }
 }
 
-fn quota_pool_key(config: &ModelConfig) -> String {
-    config
-        .model_id
-        .as_deref()
-        .or(config.id.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| format!("config:{value}"))
-        .unwrap_or_else(|| format!("family:{:?}", classify_model(model_label(config))))
-}
-
 pub(crate) fn canonical_model_id(raw: &str) -> &str {
     match raw.trim().to_ascii_lowercase().as_str() {
         "gemini-3.6-flash"
@@ -355,26 +344,11 @@ pub(super) fn parse_user_status(
         snapshot = snapshot.with_model_specific(ter);
     }
 
-    // Upstream 0.50.1 #2963: one extra lane per quota bucket. The selected
-    // model configs are excluded by config identity, while duplicate-bucket
-    // suppression is scoped to the config's stable pool key. This preserves a
-    // distinct pool with identical readings and still collapses duplicate
-    // variants from the same pool.
-    let mut seen_buckets: Vec<(String, Option<u64>, Option<String>)> = Vec::new();
+    // Upstream 0.50.1 #2963: selected configs occupy the canonical slots.
+    // Exclude them by config identity, then collapse duplicate readings only
+    // among the remaining extra configs.
+    let mut seen_buckets: Vec<(Option<u64>, Option<String>)> = Vec::new();
     let selected_configs = [primary_config, secondary_config, tertiary_config];
-    let selected_buckets = selected_configs
-        .iter()
-        .flatten()
-        .filter_map(|config| {
-            config.quota_info.as_ref().map(|quota| {
-                (
-                    quota_pool_key(config),
-                    quota.remaining_fraction.map(|fraction| fraction.to_bits()),
-                    quota.reset_time.clone(),
-                )
-            })
-        })
-        .collect::<Vec<_>>();
     for config in quota_configs {
         if selected_configs
             .iter()
@@ -387,11 +361,10 @@ pub(super) fn parse_user_status(
             continue;
         };
         let bucket = (
-            quota_pool_key(config),
             quota.remaining_fraction.map(|fraction| fraction.to_bits()),
             quota.reset_time.clone(),
         );
-        if selected_buckets.contains(&bucket) || seen_buckets.contains(&bucket) {
+        if seen_buckets.contains(&bucket) {
             continue;
         }
         seen_buckets.push(bucket);

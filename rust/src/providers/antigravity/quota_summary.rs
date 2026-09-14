@@ -1,5 +1,6 @@
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 
 use crate::core::{NamedRateWindow, ProviderError, RateWindow, UsageSnapshot};
 
@@ -155,9 +156,19 @@ fn split_quota_windows(
 
     let mut primary_windows = Vec::new();
     let mut extra_windows = Vec::new();
+    let mut used_window_ids = HashSet::new();
+    let mut group_scope_counts = HashMap::<String, usize>::new();
 
     for (pos, (_, group)) in indexed_groups.into_iter().enumerate() {
-        let windows = group_quota_windows(&group);
+        let base_scope = group_scope(&group);
+        let occurrence = group_scope_counts.entry(base_scope.clone()).or_default();
+        let scoped_group = if *occurrence == 0 {
+            base_scope
+        } else {
+            format!("{base_scope}-{}", *occurrence)
+        };
+        *occurrence += 1;
+        let windows = group_quota_windows(&group, &scoped_group, &mut used_window_ids);
         if pos == 0 {
             primary_windows = windows;
         } else {
@@ -168,7 +179,11 @@ fn split_quota_windows(
     (primary_windows, extra_windows, has_gemini_group)
 }
 
-fn group_quota_windows(group: &QuotaSummaryGroup) -> Vec<NamedRateWindow> {
+fn group_quota_windows(
+    group: &QuotaSummaryGroup,
+    group_scope: &str,
+    used_window_ids: &mut HashSet<String>,
+) -> Vec<NamedRateWindow> {
     let group_title = group_title(group);
     let mut buckets = group.buckets.iter().enumerate().collect::<Vec<_>>();
     buckets.sort_by_key(|(index, bucket)| (bucket_kind(bucket), *index));
@@ -197,12 +212,30 @@ fn group_quota_windows(group: &QuotaSummaryGroup) -> Vec<NamedRateWindow> {
             reset,
             bucket.description.clone(),
         );
-        windows.push(
-            NamedRateWindow::new(format!("{WINDOW_ID_PREFIX}{bucket_id}"), title, window)
-                .with_usage_known(usage_known),
-        );
+        let base_id = format!("{WINDOW_ID_PREFIX}{group_scope}-{bucket_id}");
+        let id = unique_window_id(base_id, group_scope, used_window_ids);
+        windows.push(NamedRateWindow::new(id, title, window).with_usage_known(usage_known));
     }
     windows
+}
+
+fn unique_window_id(
+    base_id: String,
+    group_scope: &str,
+    used_window_ids: &mut HashSet<String>,
+) -> String {
+    if used_window_ids.insert(base_id.clone()) {
+        return base_id;
+    }
+
+    let mut ordinal = 1;
+    loop {
+        let candidate = format!("{base_id}-{group_scope}-{ordinal}");
+        if used_window_ids.insert(candidate.clone()) {
+            return candidate;
+        }
+        ordinal += 1;
+    }
 }
 
 fn most_constrained_named(windows: &[NamedRateWindow], minutes: u32) -> Option<&NamedRateWindow> {
@@ -244,6 +277,21 @@ fn group_title(group: &QuotaSummaryGroup) -> String {
     } else {
         title.to_string()
     }
+}
+
+fn group_scope(group: &QuotaSummaryGroup) -> String {
+    group_title(group)
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 fn bucket_kind(bucket: &QuotaSummaryBucket) -> BucketKind {
@@ -347,6 +395,30 @@ mod tests {
         assert!((snapshot.extra_rate_windows[0].window.used_percent - 80.0).abs() < 0.001);
         assert_eq!(snapshot.extra_rate_windows[1].title, "Claude/GPT weekly");
         assert!((snapshot.extra_rate_windows[1].window.used_percent - 20.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn duplicate_bucket_ids_across_groups_remain_distinct() {
+        let data = br#"{
+          "groups": [
+            {"displayName":"Claude and GPT","buckets":[
+              {"bucketId":"weekly","displayName":"Weekly","remainingFraction":0.4}
+            ]},
+            {"displayName":"Gemini Models","buckets":[
+              {"bucketId":"weekly","displayName":"Weekly","remainingFraction":0.8}
+            ]}
+          ]
+        }"#;
+
+        let snapshot = parse_usage_snapshot(data).unwrap();
+
+        assert_eq!(snapshot.extra_rate_windows.len(), 1);
+        assert_eq!(snapshot.extra_rate_windows[0].title, "Claude/GPT weekly");
+        assert!(
+            snapshot.extra_rate_windows[0]
+                .id
+                .contains("-claude-gpt-weekly")
+        );
     }
 
     #[test]

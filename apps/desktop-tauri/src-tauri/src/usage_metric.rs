@@ -107,15 +107,13 @@ fn automatic_window(
         }
     }
 
-    let uses_extra_windows = provider
-        .map(|id| codexbar::core::instantiate_provider(id).automatic_metric_uses_extra_windows())
-        .unwrap_or(true);
+    let policy = automatic_metric_policy(provider);
     let mut windows = Vec::with_capacity(4 + snapshot.extra_rate_windows.len());
     windows.push(&snapshot.primary);
     windows.extend(snapshot.secondary.iter());
     windows.extend(snapshot.model_specific.iter());
     windows.extend(snapshot.tertiary.iter());
-    if uses_extra_windows {
+    if policy.uses_extra_windows {
         windows.extend(
             snapshot
                 .extra_rate_windows
@@ -126,25 +124,43 @@ fn automatic_window(
     let windows = windows
         .into_iter()
         .filter(|window| !window.is_informational);
-    let prefers_available = provider
-        .map(|id| {
-            codexbar::core::instantiate_provider(id).automatic_metric_prefers_available_window()
-        })
-        .unwrap_or(false);
-    let prioritize_exhausted = provider
-        .map(|id| {
-            codexbar::core::instantiate_provider(id).automatic_metric_prioritizes_exhausted_window()
-        })
-        .unwrap_or(true);
-    let selected = if prefers_available {
+    let selected = if policy.prefers_available_window {
         highest_available_window(windows)
-    } else if prioritize_exhausted {
+    } else if policy.prioritizes_exhausted_window {
         highest_automatic_window(windows)
     } else {
         highest_window(windows)
     };
 
     selected.cloned()
+}
+
+#[derive(Clone, Copy)]
+struct AutomaticMetricPolicy {
+    prefers_available_window: bool,
+    prioritizes_exhausted_window: bool,
+    uses_extra_windows: bool,
+}
+
+fn automatic_metric_policy(provider: Option<ProviderId>) -> AutomaticMetricPolicy {
+    match provider {
+        Some(ProviderId::Antigravity) => AutomaticMetricPolicy {
+            prefers_available_window: true,
+            prioritizes_exhausted_window: false,
+            uses_extra_windows: false,
+        },
+        Some(id) => AutomaticMetricPolicy {
+            prefers_available_window: false,
+            prioritizes_exhausted_window: codexbar::core::instantiate_provider(id)
+                .automatic_metric_prioritizes_exhausted_window(),
+            uses_extra_windows: true,
+        },
+        None => AutomaticMetricPolicy {
+            prefers_available_window: false,
+            prioritizes_exhausted_window: true,
+            uses_extra_windows: true,
+        },
+    }
 }
 
 fn average_window(snapshot: &ProviderUsageSnapshot) -> Option<RateWindowSnapshot> {
