@@ -44,6 +44,7 @@ if ($Slice -eq 'ci') {
         Invoke-Step "Rust tests (workspace)" "cargo" @("test", "--workspace")
         Invoke-Step "Frontend install" "pnpm" @("--dir", "apps\desktop-tauri", "install", "--frozen-lockfile")
         Invoke-Step "Frontend Oxlint" "pnpm" @("--dir", "apps\desktop-tauri", "run", "lint")
+        Invoke-Step "Anti-slop tooling type check" "pnpm" @("--dir", "apps\desktop-tauri", "run", "check:anti-slop")
         Invoke-Step "Anti-slop rule tests" "pnpm" @("--dir", "apps\desktop-tauri", "run", "test:anti-slop")
         Invoke-Step "Frontend tests" "pnpm" @("--dir", "apps\desktop-tauri", "test")
         Invoke-Step "Frontend type check / build" "pnpm" @("--dir", "apps\desktop-tauri", "run", "build")

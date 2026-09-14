@@ -11,6 +11,7 @@
     "prebuild": "pnpm run check-locale",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "check:anti-slop": "tsc --noEmit -p tsconfig.anti-slop.json",
     "test": "vitest run",
     "test:anti-slop": "node --test \"tools/oxlint/anti-slop/rules/*.test.ts\"",
     "test:watch": "vitest",

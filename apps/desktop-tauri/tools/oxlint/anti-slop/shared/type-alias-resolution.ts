@@ -5,8 +5,9 @@ import { lexicalTypeParameterNames } from "./lexical-type-parameters.ts";
 type VisitorKeys = Readonly<Record<string, readonly string[]>>;
 type TypeScope = ESTree.Node;
 
-type TypeBinding = {
+export type TypeBinding = {
 	readonly alias: ESTree.TSTypeAliasDeclaration | null;
+	readonly declaration: ESTree.Node;
 	readonly name: string;
 	readonly scope: TypeScope;
 };
@@ -19,7 +20,6 @@ type Substitution = {
 type Substitutions = ReadonlyMap<string, Substitution>;
 
 export type TypeAliasEnvironment = {
-	readonly aliases: readonly ESTree.TSTypeAliasDeclaration[];
 	readonly bindingsByName: ReadonlyMap<string, readonly TypeBinding[]>;
 	readonly visitorKeys: VisitorKeys;
 };
@@ -86,17 +86,16 @@ function collectTypeBindings(
 	node: ESTree.Node,
 	visitorKeys: VisitorKeys,
 	bindingsByName: Map<string, TypeBinding[]>,
-	aliases: ESTree.TSTypeAliasDeclaration[],
 ): void {
 	const declared = declaredTypeBinding(node);
 	if (declared !== null) {
 		const bindings = bindingsByName.get(declared.name) ?? [];
 		bindings.push({
 			...declared,
+			declaration: node,
 			scope: node.type === "ClassExpression" ? node : enclosingTypeScope(node),
 		});
 		bindingsByName.set(declared.name, bindings);
-		if (declared.alias !== null) aliases.push(declared.alias);
 	}
 
 	// SAFETY: Oxlint's visitor keys identify only ESTree child-node properties.
@@ -104,13 +103,13 @@ function collectTypeBindings(
 	for (const key of visitorKeys[node.type] ?? []) {
 		const value = fields[key];
 		if (isNode(value)) {
-			collectTypeBindings(value, visitorKeys, bindingsByName, aliases);
+			collectTypeBindings(value, visitorKeys, bindingsByName);
 			continue;
 		}
 		if (!Array.isArray(value)) continue;
 		for (const child of value) {
 			if (isNode(child)) {
-				collectTypeBindings(child, visitorKeys, bindingsByName, aliases);
+				collectTypeBindings(child, visitorKeys, bindingsByName);
 			}
 		}
 	}
@@ -124,9 +123,8 @@ export function createTypeAliasEnvironment(
 	const cached = environmentsByProgram.get(program);
 	if (cached !== undefined) return cached;
 	const bindingsByName = new Map<string, TypeBinding[]>();
-	const aliases: ESTree.TSTypeAliasDeclaration[] = [];
-	collectTypeBindings(program, visitorKeys, bindingsByName, aliases);
-	const environment = { aliases, bindingsByName, visitorKeys };
+	collectTypeBindings(program, visitorKeys, bindingsByName);
+	const environment = { bindingsByName, visitorKeys };
 	environmentsByProgram.set(program, environment);
 	return environment;
 }
@@ -164,14 +162,23 @@ function nearestTypeBindings(
 }
 
 /** Resolve the nearest visible alias with this name, respecting lexical shadowing. */
+export function visibleTypeBinding(
+	name: string,
+	use: ESTree.Node,
+	environment: TypeAliasEnvironment,
+): TypeBinding | null {
+	if (lexicalTypeParameterNames(use, environment.visitorKeys).has(name)) return null;
+	const bindings = nearestTypeBindings(name, use, environment);
+	return bindings.length === 1 ? (bindings[0] ?? null) : null;
+}
+
+/** Resolve the nearest visible alias with this name, respecting lexical shadowing. */
 export function visibleTypeAlias(
 	name: string,
 	use: ESTree.Node,
 	environment: TypeAliasEnvironment,
 ): ESTree.TSTypeAliasDeclaration | null {
-	if (lexicalTypeParameterNames(use, environment.visitorKeys).has(name)) return null;
-	const bindings = nearestTypeBindings(name, use, environment);
-	return bindings.length === 1 ? (bindings[0]?.alias ?? null) : null;
+	return visibleTypeBinding(name, use, environment)?.alias ?? null;
 }
 
 /** Return whether a local declaration shadows a built-in type at this use. */
