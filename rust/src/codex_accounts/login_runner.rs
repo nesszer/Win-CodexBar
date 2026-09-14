@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::core::SecretRedactor;
+
 /// Outcome of a `codex login` subprocess run.
 #[derive(Debug, Clone)]
 pub enum CodexLoginOutcome {
@@ -205,7 +207,8 @@ fn combine_output(output: &std::process::Output) -> String {
         }
     }
     let merged = parts.join("\n");
-    let merged = merged.trim();
+    let redacted = SecretRedactor::redact(merged.trim());
+    let merged = redacted.trim();
     if merged.is_empty() {
         "No output captured.".to_string()
     } else {
@@ -247,5 +250,22 @@ mod tests {
             .expect("child output");
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).contains("login-complete"));
+    }
+
+    #[test]
+    fn captured_login_output_redacts_credential_material() {
+        let output = std::process::Output {
+            status: std::process::ExitStatus::default(),
+            stdout: b"Authorization: Bearer eyJheader.payload.signature\ndevice_code=DEV-SECRET\n"
+                .to_vec(),
+            stderr: b"callback?code=AUTH-SECRET\n".to_vec(),
+        };
+
+        let redacted = combine_output(&output);
+
+        assert!(!redacted.contains("eyJheader.payload.signature"));
+        assert!(!redacted.contains("DEV-SECRET"));
+        assert!(!redacted.contains("AUTH-SECRET"));
+        assert!(redacted.contains("[REDACTED]"));
     }
 }
