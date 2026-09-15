@@ -78,5 +78,8 @@ Assert-True ($builderText -notmatch $legacySwitch) 'legacy upload parameter remo
 Assert-True ($builderText -notmatch $clobberFlag) 'builder has no clobber upload path'
 $publisherText = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'publish-github-release.ps1')
 Assert-True ($publisherText -notmatch $clobberFlag) 'publisher has no clobber flag'
+$circleConfig = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot '..\.circleci\config.yml')
+Assert-True ($circleConfig -match '(?ms)release-publish:\s+context:\s+gh-release-publisher\s+requires:\s+- release-build') 'release publisher runs after the verified build'
+Assert-True ($circleConfig -notmatch 'release-approval') 'release flow has no redundant manual CircleCI approval gate'
 
 Write-Host 'Release pipeline focused tests passed.'

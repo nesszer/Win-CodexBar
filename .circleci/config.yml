@@ -200,15 +200,10 @@ workflows:
               only: /^v[0-9]+\.[0-9]+\.[0-9]+$/
             branches:
               ignore: /.*/
-      - release-approval:
-          type: approval
-          requires:
-            - release-build
-          filters: *release-tag-filter
       - release-publish:
           context: gh-release-publisher
           requires:
-            - release-approval
+            - release-build
           filters: *release-tag-filter
 
   pr-check:

@@ -59,15 +59,14 @@ restricted `GH_TOKEN` context.
    emits `release-manifest.json` (tag, commit, version, sizes, and hashes)
    and logs,
    then persists/stores the bundle as CircleCI workspace/artifacts.
-5. A human must approve the `release-approval` job after reviewing the
-   manifest and artifact logs.
-6. The `release-publish` job receives `GH_TOKEN` only from the restricted
-   `github-release-publisher` context. `scripts/publish-github-release.ps1`
-   creates a draft release if absent, or uses an existing draft. It compares
-   every same-name asset by SHA-256, skips exact matches, fails on mismatch,
-   and uploads only missing assets. It never clobbers and never changes a
-   draft to a final release.
-7. A maintainer publishes the draft manually in GitHub after any final release
+5. The `release-publish` job runs automatically after `release-build` succeeds.
+   It receives `GH_TOKEN` only from the restricted `github-release-publisher`
+   context. `scripts/publish-github-release.ps1` revalidates the manifest, exact
+   six asset names, byte counts, and SHA-256 sidecars before making any GitHub
+   API call. It creates a draft release if absent, compares every same-name
+   asset, skips exact matches, fails on mismatch, and uploads only missing
+   assets. It never clobbers and never changes a draft to a final release.
+6. A maintainer publishes the draft manually in GitHub after any final release
    notes/review. Winget follows only after the immutable installer URL and
    digest are stable.
 

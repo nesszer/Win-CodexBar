@@ -107,10 +107,11 @@ Both jobs use CircleCI's hosted Windows executor (`circleci/windows@5.0`).
    sidecar, `CodexBarCLI-v<version>-windows-x64.zip` and its `.sha256`
    sidecar — plus `release-manifest.json` and build logs are
    persisted to the workspace and stored as CircleCI artifacts.
-4. `release-approval` is a required manual CircleCI approval job.
-5. `release-publish` attaches the workspace and is the only job with context
-   `github-release-publisher`. Its `GH_TOKEN` is used by
-   `scripts/publish-github-release.ps1` to create or update a **draft** release.
+4. `release-publish` runs automatically after the successful build, attaches the
+   workspace, and is the only job with context `github-release-publisher`. Its
+   `GH_TOKEN` is used by `scripts/publish-github-release.ps1` to create or update
+   a **draft** release. The publisher revalidates the manifest, exact six asset
+   names, byte counts, and SHA-256 sidecars before making any GitHub API call.
    Exact SHA-256 matches are skipped, mismatches fail, and missing assets are
    uploaded without clobbering. The script never publishes/finalizes a release.
 
@@ -185,4 +186,4 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\circleci-release
 ```
 
 Do not pass an upload switch to `windows-release-build.ps1`; publication is
-owned exclusively by the approval-gated, hash-safe publisher.
+owned exclusively by the hash-safe publisher, which creates a draft release.
