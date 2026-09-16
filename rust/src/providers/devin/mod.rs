@@ -83,6 +83,11 @@ impl Provider for DevinProvider {
                         .client
                         .get(url)
                         .bearer_auth(&token)
+                        // Auth1 sessions resolve their organization context
+                        // from this header; without it the gateway answers 401
+                        // "No organizations found for auth1 user" even for a
+                        // valid session token.
+                        .header("x-cog-org-id", &org)
                         .header("Accept", "application/json")
                         .send()
                         .await?;
