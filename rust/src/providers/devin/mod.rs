@@ -125,10 +125,7 @@ fn devin_urls(org: &str) -> Result<Vec<Url>, ProviderError> {
     let org = normalized_org(org);
     BASE_URLS
         .iter()
-        .map(|base| {
-            Url::parse(base)
-                .and_then(|u| u.join(&format!("{org}/billing/quota/usage")))
-        })
+        .map(|base| Url::parse(&format!("{base}/{org}/billing/quota/usage")))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| ProviderError::Other(format!("Invalid Devin quota URL: {e}")))
 }
