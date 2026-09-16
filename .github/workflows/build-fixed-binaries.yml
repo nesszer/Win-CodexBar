@@ -13,6 +13,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+          package_json_file: apps/desktop-tauri/package.json
 
       - uses: actions/setup-node@v4
         with:
