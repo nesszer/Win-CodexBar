@@ -174,6 +174,22 @@ pub(crate) fn build_fetch_context(
         source_mode = SourceMode::Web;
     }
 
+    // The inverse case: some providers never fetch over the web and reject
+    // SourceMode::Web outright (Codex since the 0.54 port only does OAuth/PAT/CLI).
+    // The default cookie source is "manual", so a pasted chatgpt.com cookie flipped
+    // Codex into Web and every refresh failed with
+    // "Source mode 'Web' not supported for this provider". Fall back to the
+    // configured usage source (or Auto) instead of handing the provider a mode it
+    // advertises as unsupported.
+    let available_sources = provider.available_sources();
+    if source_mode == SourceMode::Web && !available_sources.contains(&SourceMode::Web) {
+        source_mode = if available_sources.contains(&usage_source) {
+            usage_source
+        } else {
+            SourceMode::Auto
+        };
+    }
+
     let workspace_id = settings.workspace_id(id).trim().to_string();
     let api_region = settings.api_region(id).trim().to_string();
     let gateway_url = (id == ProviderId::Wayfinder && !settings.gateway_url(id).is_empty())

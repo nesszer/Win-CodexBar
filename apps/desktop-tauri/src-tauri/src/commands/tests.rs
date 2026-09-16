@@ -411,6 +411,52 @@ fn fetch_context_opencode_empty_manual_remaps_to_web() {
 }
 
 #[test]
+fn fetch_context_codex_manual_cookie_never_forces_unsupported_web() {
+    // Default cookie source is "manual". Pasting a chatgpt.com cookie used to flip
+    // Codex into SourceMode::Web, which CodexProvider rejects with
+    // "Source mode 'Web' not supported for this provider" on every refresh.
+    let settings = Settings::default();
+    let mut cookies = ManualCookies::default();
+    cookies.set(
+        ProviderId::Codex.cli_name(),
+        "oai-did=abc; __Secure-next-auth.session-token=xyz",
+    );
+
+    let ctx = super::build_fetch_context(
+        ProviderId::Codex,
+        &settings,
+        &cookies,
+        &ApiKeys::default(),
+        &HashMap::new(),
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Auto);
+    assert!(
+        instantiate_provider(ProviderId::Codex)
+            .available_sources()
+            .contains(&ctx.source_mode)
+    );
+}
+
+#[test]
+fn fetch_context_codex_manual_cookie_keeps_explicit_supported_source() {
+    let mut settings = Settings::default();
+    settings.set_usage_source(ProviderId::Codex, "oauth");
+    let mut cookies = ManualCookies::default();
+    cookies.set(ProviderId::Codex.cli_name(), "oai-did=abc");
+
+    let ctx = super::build_fetch_context(
+        ProviderId::Codex,
+        &settings,
+        &cookies,
+        &ApiKeys::default(),
+        &HashMap::new(),
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::OAuth);
+}
+
+#[test]
 fn fetch_context_claude_uses_oauth_without_manual_cookie() {
     let settings = Settings::default();
     let cookies = ManualCookies::default();
