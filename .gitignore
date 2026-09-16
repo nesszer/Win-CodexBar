@@ -68,6 +68,7 @@ nul
 /docs/adr/*
 !/docs/adr/*.md
 /scripts/*
+!/scripts/win-config-tools/
 /docs/ui-parity-workflow.md
 /scripts/crop_vm_preferences_proof.sh
 /scripts/fetch_vm_preferences_proof.sh
