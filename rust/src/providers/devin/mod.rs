@@ -8,7 +8,7 @@ use crate::core::{
 };
 
 const CREDENTIAL_TARGET: &str = "codexbar-devin";
-const BASE_URL: &str = "https://api.devin.ai";
+const BASE_URLS: [&str; 2] = ["https://api.devin.ai", "https://app.devin.ai/api"];
 const MISSING_ORGANIZATION_DETAIL: &str = "No organizations found for auth1 user";
 const MISSING_ORGANIZATION_MESSAGE: &str = "Devin organization context is missing. Set the organization in provider extras or DEVIN_ORG, then refresh.";
 
@@ -76,28 +76,39 @@ impl Provider for DevinProvider {
                         )
                     })?
                     .to_string();
-                let response = self
-                    .client
-                    .get(devin_url(&org)?)
-                    .bearer_auth(token)
-                    .header("Accept", "application/json")
-                    .send()
-                    .await?;
-                let status = response.status();
-                if !status.is_success() {
-                    let body = response.bytes().await.unwrap_or_default();
-                    if let Some(error) = auth_response_error(status, &body) {
-                        return Err(error);
+                let mut last_error: Option<ProviderError> = None;
+                let mut auth_error: Option<ProviderError> = None;
+                for url in devin_urls(&org)? {
+                    let response = self
+                        .client
+                        .get(url)
+                        .bearer_auth(&token)
+                        .header("Accept", "application/json")
+                        .send()
+                        .await?;
+                    let status = response.status();
+                    if status.is_success() {
+                        let value: Value = response.json().await.map_err(|e| {
+                            ProviderError::Parse(format!("Failed to parse Devin quota: {e}"))
+                        })?;
+                        return Ok(fetch_result_from_quota(&value, &org));
                     }
-                    return Err(ProviderError::Other(format!(
-                        "Devin quota returned status {}",
-                        status
-                    )));
+                    let body = response.bytes().await.unwrap_or_default();
+                    // Web-session tokens (auth1_) are rejected on the API host
+                    // but work on the web host, and vice versa for service
+                    // keys, so every candidate is tried before giving up.
+                    if let Some(error) = auth_response_error(status, &body) {
+                        auth_error = auth_error.or(Some(error));
+                    } else {
+                        last_error = Some(ProviderError::Other(format!(
+                            "Devin quota returned status {}",
+                            status
+                        )));
+                    }
                 }
-                let value: Value = response.json().await.map_err(|e| {
-                    ProviderError::Parse(format!("Failed to parse Devin quota: {e}"))
-                })?;
-                Ok(fetch_result_from_quota(&value, &org))
+                Err(auth_error
+                    .or(last_error)
+                    .unwrap_or_else(|| ProviderError::Other("Devin quota request failed".into())))
             }
             SourceMode::Web | SourceMode::Cli => {
                 Err(ProviderError::UnsupportedSource(ctx.source_mode))
@@ -110,10 +121,15 @@ impl Provider for DevinProvider {
     }
 }
 
-fn devin_url(org: &str) -> Result<Url, ProviderError> {
+fn devin_urls(org: &str) -> Result<Vec<Url>, ProviderError> {
     let org = normalized_org(org);
-    Url::parse(BASE_URL)
-        .and_then(|u| u.join(&format!("{org}/billing/quota/usage")))
+    BASE_URLS
+        .iter()
+        .map(|base| {
+            Url::parse(base)
+                .and_then(|u| u.join(&format!("{org}/billing/quota/usage")))
+        })
+        .collect::<Result<Vec<_>, _>>()
         .map_err(|e| ProviderError::Other(format!("Invalid Devin quota URL: {e}")))
 }
 
@@ -137,12 +153,14 @@ fn auth_response_error(status: reqwest::StatusCode, body: &[u8]) -> Option<Provi
 }
 
 fn normalized_org(raw: &str) -> String {
+    // Both hosts serve the quota at /{org}/billing/quota/usage with the bare
+    // organization id (org_...); a prefixed path 404s server-side.
     let trimmed = raw.trim().trim_matches('/');
-    if trimmed.starts_with("org/") || trimmed.starts_with("organizations/") {
-        trimmed.to_string()
-    } else {
-        format!("org/{trimmed}")
-    }
+    trimmed
+        .strip_prefix("organizations/")
+        .or_else(|| trimmed.strip_prefix("org/"))
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 fn snapshot_from_quota(value: &Value, org: &str) -> UsageSnapshot {
@@ -276,5 +294,25 @@ mod tests {
     fn ignores_organization_detail_on_non_authorization_responses() {
         let body = br#"{"detail":"No organizations found for auth1 user"}"#;
         assert!(auth_response_error(reqwest::StatusCode::NOT_FOUND, body).is_none());
+    }
+
+    #[test]
+    fn normalized_org_strips_known_prefixes() {
+        assert_eq!(normalized_org("org_TJ2demo"), "org_TJ2demo");
+        assert_eq!(normalized_org(" org_TJ2demo/ "), "org_TJ2demo");
+        assert_eq!(normalized_org("org/org_TJ2demo"), "org_TJ2demo");
+        assert_eq!(normalized_org("organizations/org_TJ2demo"), "org_TJ2demo");
+    }
+
+    #[test]
+    fn devin_urls_use_bare_org_on_both_hosts() {
+        let urls = devin_urls("org/org_TJ2demo").expect("candidate urls");
+        assert_eq!(
+            urls.iter().map(|u| u.as_str()).collect::<Vec<_>>(),
+            vec![
+                "https://api.devin.ai/org_TJ2demo/billing/quota/usage",
+                "https://app.devin.ai/api/org_TJ2demo/billing/quota/usage",
+            ]
+        );
     }
 }
