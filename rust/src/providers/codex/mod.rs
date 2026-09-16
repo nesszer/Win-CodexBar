@@ -12,8 +12,8 @@ use async_trait::async_trait;
 use std::os::windows::process::CommandExt;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    SourceMode,
+    FetchContext, LastGoodFailurePolicy, Provider, ProviderError, ProviderFetchResult, ProviderId,
+    ProviderMetadata, SourceMode,
 };
 
 pub use api::CodexApi;
@@ -110,6 +110,14 @@ impl Provider for CodexProvider {
         &self.metadata
     }
 
+    fn last_good_failure_policy_for_error(&self, error: &ProviderError) -> LastGoodFailurePolicy {
+        if error.is_transport_failure() {
+            LastGoodFailurePolicy::Preserve
+        } else {
+            LastGoodFailurePolicy::Replace
+        }
+    }
+
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Fetching Codex usage");
 
@@ -196,5 +204,18 @@ mod pat_strategy_tests {
         assert!(!pat_allows_auto_fallback(&ProviderError::Other(
             "server".into()
         )));
+    }
+
+    #[test]
+    fn transport_failures_retain_but_authentication_failures_replace() {
+        let provider = CodexProvider::new();
+        assert_eq!(
+            provider.last_good_failure_policy_for_error(&ProviderError::Timeout),
+            LastGoodFailurePolicy::Preserve
+        );
+        assert_eq!(
+            provider.last_good_failure_policy_for_error(&ProviderError::AuthRequired),
+            LastGoodFailurePolicy::Replace
+        );
     }
 }

@@ -589,6 +589,41 @@ pub enum ProviderError {
     Other(String),
 }
 
+impl ProviderError {
+    /// Return true only for transport failures safe for last-good retention.
+    pub fn is_transport_failure(&self) -> bool {
+        match self {
+            ProviderError::Network(error) => is_safe_reqwest_transport_error(error),
+            ProviderError::Timeout => true,
+            _ => false,
+        }
+    }
+}
+
+fn is_safe_reqwest_transport_error(error: &reqwest::Error) -> bool {
+    if error.is_timeout() || error.is_body() {
+        return true;
+    }
+    if !error.is_connect() || error.is_request() {
+        return false;
+    }
+
+    // Keep malformed URLs and certificate/secure-channel failures out of the
+    // last-good path. They require configuration or trust-store recovery, not
+    // a retry of an otherwise healthy provider connection.
+    let message = error.to_string().to_ascii_lowercase();
+    ![
+        "invalid url",
+        "builder error",
+        "certificate",
+        "secure connection",
+        "tls",
+        "ssl",
+    ]
+    .iter()
+    .any(|marker| message.contains(marker))
+}
+
 /// Context passed to provider fetch operations
 #[derive(Debug, Clone)]
 pub struct FetchContext {
@@ -713,6 +748,16 @@ pub trait Provider: Send + Sync {
     /// How the shell should treat a failed refresh when a prior good snapshot exists.
     fn last_good_failure_policy(&self, _error: &str) -> LastGoodFailurePolicy {
         LastGoodFailurePolicy::Replace
+    }
+
+    /// Typed variant used before an error is sanitized for the frontend.
+    ///
+    /// Providers that need message-based distinctions can keep overriding the
+    /// string method. Providers with transport retention should override this
+    /// method so an arbitrary user-facing string cannot manufacture transport
+    /// evidence.
+    fn last_good_failure_policy_for_error(&self, error: &ProviderError) -> LastGoodFailurePolicy {
+        self.last_good_failure_policy(&error.to_string())
     }
 
     /// Presentation-safe availability state for a refresh error. The default
@@ -1050,6 +1095,29 @@ mod tests {
         assert!(!ctx.verbose);
         assert!(ctx.manual_cookie_header.is_none());
         assert!(ctx.api_key.is_none());
+    }
+
+    #[test]
+    fn typed_transport_classification_does_not_trust_free_form_messages() {
+        assert!(ProviderError::Timeout.is_transport_failure());
+        for error in [
+            ProviderError::AuthRequired,
+            ProviderError::Parse("invalid response".to_string()),
+            ProviderError::Other("Network error: localized failure".to_string()),
+            ProviderError::Other("Transport error: connection lost".to_string()),
+        ] {
+            assert!(!error.is_transport_failure());
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_request_is_not_a_retainable_transport_failure() {
+        let error = reqwest::Client::new()
+            .get("not a URL")
+            .send()
+            .await
+            .expect_err("invalid URL should fail before a network request");
+        assert!(!ProviderError::Network(error).is_transport_failure());
     }
 
     #[test]

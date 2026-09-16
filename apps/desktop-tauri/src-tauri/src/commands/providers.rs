@@ -531,7 +531,8 @@ async fn refresh_provider(
     generation: u64,
     token_account_id: Option<uuid::Uuid>,
 ) {
-    let (snapshot, account_identity) = fetch_provider_snapshot(id, ctx, token_account_id).await;
+    let (snapshot, account_identity, failure_policy) =
+        fetch_provider_snapshot(id, ctx, token_account_id).await;
     let fresh_snapshot = snapshot.error.is_none();
 
     let state = app.state::<Mutex<AppState>>();
@@ -545,7 +546,12 @@ async fn refresh_provider(
             );
             None
         } else {
-            let snapshot = preserve_last_good_transient_failure(&mut guard, id, snapshot);
+            let snapshot = preserve_last_good_transient_failure_with_policy(
+                &mut guard,
+                id,
+                snapshot,
+                failure_policy,
+            );
             // F6 (upstream 0.48.0): backfill missing reset timestamps from the
             // cached snapshot before persisting and publishing.
             let cached = guard
@@ -663,12 +669,25 @@ pub(super) fn preserve_last_good_transient_failure(
     id: ProviderId,
     snapshot: ProviderUsageSnapshot,
 ) -> ProviderUsageSnapshot {
+    let policy = snapshot
+        .error
+        .as_deref()
+        .map(|error| instantiate_provider(id).last_good_failure_policy(error));
+    preserve_last_good_transient_failure_with_policy(guard, id, snapshot, policy)
+}
+
+fn preserve_last_good_transient_failure_with_policy(
+    guard: &mut AppState,
+    id: ProviderId,
+    snapshot: ProviderUsageSnapshot,
+    policy: Option<codexbar::core::LastGoodFailurePolicy>,
+) -> ProviderUsageSnapshot {
     let Some(error) = snapshot.error.as_deref() else {
         guard.transient_provider_failure_counts.remove(&id);
         return snapshot;
     };
 
-    let policy = instantiate_provider(id).last_good_failure_policy(error);
+    let policy = policy.unwrap_or_else(|| instantiate_provider(id).last_good_failure_policy(error));
     if policy == codexbar::core::LastGoodFailurePolicy::Replace {
         guard.transient_provider_failure_counts.remove(&id);
         return snapshot;
@@ -737,12 +756,16 @@ async fn fetch_provider_snapshot(
     id: ProviderId,
     ctx: FetchContext,
     token_account_id: Option<uuid::Uuid>,
-) -> (ProviderUsageSnapshot, Option<String>) {
+) -> (
+    ProviderUsageSnapshot,
+    Option<String>,
+    Option<codexbar::core::LastGoodFailurePolicy>,
+) {
     let provider = instantiate_provider(id);
     let metadata = provider.metadata().clone();
     let started = std::time::Instant::now();
 
-    let (mut snapshot, account_identity) =
+    let (mut snapshot, account_identity, failure_policy) =
         match tokio::time::timeout(provider_fetch_timeout(id, &ctx), provider.fetch_usage(&ctx))
             .await
         {
@@ -756,30 +779,40 @@ async fn fetch_provider_snapshot(
                         token_account_id,
                     ),
                     account_identity,
+                    None,
                 )
             }
-            Ok(Err(e)) => (
-                ProviderUsageSnapshot::from_error(
-                    id,
-                    &metadata,
-                    codexbar::logging::safe_error_message(&e),
-                    provider.error_state_kind(&e),
-                ),
-                None,
-            ),
-            Err(_) => (
-                ProviderUsageSnapshot::from_error(
-                    id,
-                    &metadata,
-                    "Timeout".to_string(),
-                    codexbar::core::ProviderStateKind::Unknown,
-                ),
-                None,
-            ),
+            Ok(Err(e)) => {
+                let policy = provider.last_good_failure_policy_for_error(&e);
+                (
+                    ProviderUsageSnapshot::from_error(
+                        id,
+                        &metadata,
+                        codexbar::logging::safe_error_message(&e),
+                        provider.error_state_kind(&e),
+                    ),
+                    None,
+                    Some(policy),
+                )
+            }
+            Err(_) => {
+                let error = codexbar::core::ProviderError::Timeout;
+                let policy = provider.last_good_failure_policy_for_error(&error);
+                (
+                    ProviderUsageSnapshot::from_error(
+                        id,
+                        &metadata,
+                        "Timeout".to_string(),
+                        provider.error_state_kind(&error),
+                    ),
+                    None,
+                    Some(policy),
+                )
+            }
         };
 
     record_provider_fetch_duration(id, &mut snapshot, started);
-    (snapshot, account_identity)
+    (snapshot, account_identity, failure_policy)
 }
 
 fn record_provider_fetch_duration(

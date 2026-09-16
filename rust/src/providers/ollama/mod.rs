@@ -14,8 +14,8 @@ use reqwest::Url;
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, LastGoodFailurePolicy, Provider, ProviderError, ProviderFetchResult, ProviderId,
+    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::settings::ApiKeys;
 
@@ -380,10 +380,12 @@ impl Provider for OllamaProvider {
 
         match ctx.source_mode {
             SourceMode::Auto => {
-                if Self::has_api_key(ctx)
-                    && let Ok(usage) = self.fetch_usage_api(ctx).await
-                {
-                    return Ok(ProviderFetchResult::new(usage, "api"));
+                if Self::has_api_key(ctx) {
+                    match self.fetch_usage_api(ctx).await {
+                        Ok(usage) => return Ok(ProviderFetchResult::new(usage, "api")),
+                        Err(error) if error.is_transport_failure() => return Err(error),
+                        Err(_) => {}
+                    }
                 }
                 let usage = self.fetch_usage_web(ctx).await?;
                 Ok(ProviderFetchResult::new(usage, "web"))
@@ -408,6 +410,14 @@ impl Provider for OllamaProvider {
 
     fn supports_cli(&self) -> bool {
         false
+    }
+
+    fn last_good_failure_policy_for_error(&self, error: &ProviderError) -> LastGoodFailurePolicy {
+        if error.is_transport_failure() {
+            LastGoodFailurePolicy::Preserve
+        } else {
+            LastGoodFailurePolicy::Replace
+        }
     }
 }
 
@@ -837,6 +847,21 @@ mod tests {
         assert_eq!(
             ollama_session_action(true, false, true),
             OllamaSessionAction::ReimportBrowser
+        );
+    }
+
+    #[test]
+    fn transport_policy_replaces_free_form_wrappers() {
+        let provider = OllamaProvider::new();
+        assert_eq!(
+            provider.last_good_failure_policy_for_error(&ProviderError::Timeout),
+            LastGoodFailurePolicy::Preserve
+        );
+        assert_eq!(
+            provider.last_good_failure_policy_for_error(&ProviderError::Other(
+                "Network error: arbitrary wrapper".to_string(),
+            )),
+            LastGoodFailurePolicy::Replace
         );
     }
 }
