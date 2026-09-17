@@ -416,6 +416,15 @@ async fn run_claude_pty_probe(
     })
 }
 
+fn claude_oauth_message_is_transient(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("rate limited")
+        || lower.contains("rate_limit")
+        || lower.contains("ratelimited")
+        || lower.contains("credentials were preserved")
+        || lower.contains("cooling down")
+}
+
 fn last_good_failure_policy_for_error(error: &str) -> LastGoodFailurePolicy {
     let lower = error.to_ascii_lowercase();
     if lower.contains("credentials not found")
@@ -428,15 +437,14 @@ fn last_good_failure_policy_for_error(error: &str) -> LastGoodFailurePolicy {
     if lower.contains(&CLOUDFLARE_CHALLENGE_MESSAGE.to_ascii_lowercase()) {
         return LastGoodFailurePolicy::PreserveOnceThenSurface;
     }
-    if lower.contains("parse error")
+    if claude_oauth_message_is_transient(error)
+        || lower.contains("parse error")
         || lower.contains("empty output")
         || lower.contains("missing current session")
         || lower.contains("treated /usage as a normal prompt")
         || lower.contains("local activity stats")
         || lower.contains("could not parse")
         || lower.contains("rate limit")
-        || lower.contains("rate_limit")
-        || lower.contains("ratelimited")
         || error.eq_ignore_ascii_case("timeout")
         || lower.contains("timed out")
     {
@@ -530,6 +538,9 @@ impl Provider for ClaudeProvider {
         match error {
             ProviderError::NotInstalled(msg) if msg.contains("CLI not found") => {
                 crate::core::ProviderStateKind::LocalRuntimeOffline
+            }
+            ProviderError::OAuth(msg) if claude_oauth_message_is_transient(msg) => {
+                crate::core::ProviderStateKind::Unknown
             }
             _ => error.state_kind(),
         }
@@ -1680,6 +1691,53 @@ Active days: 2/10              Longest streak: 1 day
         assert_eq!(
             ClaudeProvider::new().error_state_kind(&ProviderError::AuthRequired),
             crate::core::ProviderStateKind::NeedsAuthentication
+        );
+    }
+
+    #[test]
+    fn oauth_rate_limit_is_not_sign_in_required() {
+        let error = ProviderError::OAuth(
+            "OAuth error: Claude OAuth usage endpoint is rate limited. Retrying in about 1s; credentials were preserved."
+                .to_string(),
+        );
+        assert_eq!(
+            ClaudeProvider::new().error_state_kind(&error),
+            crate::core::ProviderStateKind::Unknown
+        );
+        assert_eq!(
+            last_good_failure_policy_for_error(&error.to_string()),
+            LastGoodFailurePolicy::Preserve
+        );
+    }
+
+    #[test]
+    fn oauth_refresh_cooldown_is_not_sign_in_required() {
+        let error = ProviderError::OAuth(
+            "Claude OAuth token expired and token refresh is cooling down after a failed attempt. Please retry shortly, or run `claude login`."
+                .to_string(),
+        );
+        assert_eq!(
+            ClaudeProvider::new().error_state_kind(&error),
+            crate::core::ProviderStateKind::Unknown
+        );
+        assert_eq!(
+            last_good_failure_policy_for_error(&error.to_string()),
+            LastGoodFailurePolicy::Preserve
+        );
+    }
+
+    #[test]
+    fn missing_oauth_credentials_still_require_sign_in() {
+        let error = ProviderError::OAuth(
+            "Claude OAuth credentials not found. Run `claude` to authenticate.".to_string(),
+        );
+        assert_eq!(
+            ClaudeProvider::new().error_state_kind(&error),
+            crate::core::ProviderStateKind::NeedsAuthentication
+        );
+        assert_eq!(
+            last_good_failure_policy_for_error(&error.to_string()),
+            LastGoodFailurePolicy::Replace
         );
     }
 }

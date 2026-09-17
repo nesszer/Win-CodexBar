@@ -336,6 +336,27 @@ fn parses_retry_after_seconds() {
 }
 
 #[test]
+fn tiny_retry_after_is_floored_and_consecutive_429s_ramp() {
+    let floor = ClaudeOAuthFetcher::DEFAULT_RATE_LIMIT_BACKOFF;
+    assert_eq!(
+        ClaudeOAuthFetcher::bounded_rate_limit_backoff(Duration::from_secs(1), 1),
+        floor
+    );
+    assert_eq!(
+        ClaudeOAuthFetcher::bounded_rate_limit_backoff(Duration::from_secs(0), 2),
+        floor * 2
+    );
+    assert_eq!(
+        ClaudeOAuthFetcher::bounded_rate_limit_backoff(Duration::from_secs(1), 4),
+        floor * 8
+    );
+    assert_eq!(
+        ClaudeOAuthFetcher::bounded_rate_limit_backoff(Duration::from_secs(90 * 60), 1),
+        Duration::from_secs(60 * 60)
+    );
+}
+
+#[test]
 fn invalid_retry_after_uses_default_backoff() {
     let header = HeaderValue::from_static("not-a-date");
     let duration = ClaudeOAuthFetcher::retry_after_duration(Some(&header));

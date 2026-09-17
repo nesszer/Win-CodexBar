@@ -173,6 +173,26 @@ impl AccountManager {
         self.import(current)
     }
 
+    /// Keep an already-saved account's OAuth blob aligned with the live CLI
+    /// login after a token refresh. Does not create a new saved account.
+    pub fn sync_saved_oauth_from_current(&self) -> io::Result<()> {
+        let Some(current) = read_login(&self.config_dir, &self.config_file)? else {
+            return Ok(());
+        };
+        current.validate()?;
+        let id = current.id()?;
+        let mut store = self.load()?;
+        let Some(saved) = store
+            .accounts
+            .iter_mut()
+            .find(|account| account.id().ok().as_deref() == Some(id.as_str()))
+        else {
+            return Ok(());
+        };
+        saved.oauth = current.oauth;
+        self.save(&store)
+    }
+
     pub fn import(&self, login: SavedLogin) -> io::Result<()> {
         login.validate()?;
         let mut store = self.load()?;
@@ -476,6 +496,24 @@ mod tests {
         assert_eq!(
             manager.load().unwrap().accounts[0].oauth["accessToken"],
             "updated"
+        );
+    }
+
+    #[test]
+    fn token_refresh_updates_saved_account_without_creating_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        activate(&manager, &login("a", "one", "rotated"));
+        manager.sync_saved_oauth_from_current().unwrap();
+        assert!(manager.load().unwrap().accounts.is_empty());
+
+        manager.import(login("a", "one", "stale")).unwrap();
+        activate(&manager, &login("a", "one", "rotated"));
+        manager.sync_saved_oauth_from_current().unwrap();
+        assert_eq!(manager.load().unwrap().accounts.len(), 1);
+        assert_eq!(
+            manager.load().unwrap().accounts[0].oauth["accessToken"],
+            "rotated"
         );
     }
 

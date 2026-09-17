@@ -152,7 +152,12 @@ pub struct ClaudeOAuthFetcher {
     client: Client,
 }
 
-static RATE_LIMIT_BACKOFF_UNTIL: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+struct RateLimitGate {
+    until: Instant,
+    consecutive: u32,
+}
+
+static RATE_LIMIT_BACKOFF_UNTIL: OnceLock<Mutex<Option<RateLimitGate>>> = OnceLock::new();
 
 // ── Refresh-token backoff (upstream 0.48.0 #2650) ────────────────────────────
 //
@@ -388,6 +393,12 @@ impl ClaudeOAuthFetcher {
                 credentials_store::store_refreshed(&source, &refreshed);
                 if let Err(err) = credentials_store::persist_refreshed_credentials(&refreshed) {
                     tracing::debug!("Claude OAuth token refreshed but could not persist: {err}");
+                } else if let Err(err) = super::accounts::AccountManager::new()
+                    .and_then(|manager| manager.sync_saved_oauth_from_current())
+                {
+                    tracing::debug!(
+                        "Claude OAuth token refreshed but saved account store was not updated: {err}"
+                    );
                 }
                 tracing::debug!("Refreshed expired Claude OAuth token");
                 (refreshed, None)
@@ -474,8 +485,8 @@ impl ClaudeOAuthFetcher {
             }
 
             if status.as_u16() == 429 {
-                Self::record_rate_limit(retry_after);
-                return Err(Self::rate_limited_error(retry_after));
+                let backoff = Self::record_rate_limit(retry_after);
+                return Err(Self::rate_limited_error(backoff));
             }
 
             return Err(ProviderError::OAuth(format!(
@@ -494,26 +505,47 @@ impl ClaudeOAuthFetcher {
         Ok(usage)
     }
 
-    fn rate_limit_gate() -> &'static Mutex<Option<Instant>> {
+    fn rate_limit_gate() -> &'static Mutex<Option<RateLimitGate>> {
         RATE_LIMIT_BACKOFF_UNTIL.get_or_init(|| Mutex::new(None))
     }
 
     fn rate_limit_backoff_remaining() -> Option<Duration> {
-        let mut guard = Self::rate_limit_gate().lock().ok()?;
-        let until = (*guard)?;
+        let guard = Self::rate_limit_gate().lock().ok()?;
+        let gate = guard.as_ref()?;
         let now = Instant::now();
-        if until <= now {
-            *guard = None;
+        if gate.until <= now {
             None
         } else {
-            Some(until.saturating_duration_since(now))
+            Some(gate.until.saturating_duration_since(now))
         }
     }
 
-    fn record_rate_limit(duration: Duration) {
+    /// Anthropic often returns `Retry-After: 0` or `1` on the usage endpoint.
+    /// Honoring that literally re-hits 429 on the next poll and, after a
+    /// last-good miss, the tray maps the generic OAuth error to sign-in.
+    fn bounded_rate_limit_backoff(retry_after: Duration, consecutive: u32) -> Duration {
+        let floor = Self::DEFAULT_RATE_LIMIT_BACKOFF;
+        let cap = Duration::from_secs(60 * 60);
+        let shift = consecutive.saturating_sub(1).min(3);
+        let exponential = floor.saturating_mul(1u32 << shift);
+        retry_after.max(floor).max(exponential).min(cap)
+    }
+
+    fn record_rate_limit(retry_after: Duration) -> Duration {
+        let consecutive = Self::rate_limit_gate()
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|gate| gate.consecutive))
+            .unwrap_or(0)
+            .saturating_add(1);
+        let backoff = Self::bounded_rate_limit_backoff(retry_after, consecutive);
         if let Ok(mut guard) = Self::rate_limit_gate().lock() {
-            *guard = Some(Instant::now() + duration);
+            *guard = Some(RateLimitGate {
+                until: Instant::now() + backoff,
+                consecutive,
+            });
         }
+        backoff
     }
 
     fn clear_rate_limit() {
