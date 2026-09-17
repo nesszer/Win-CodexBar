@@ -1,6 +1,12 @@
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\secure-file.ps1"
 
+$desktopExe = Get-CodexBarDesktopPath
+if (-not $desktopExe) {
+  throw "CodexBar desktop executable was not found under $env:LOCALAPPDATA\Programs\CodexBar"
+}
+$installDir = Split-Path -Parent $desktopExe
+
 Stop-CodexBarForEdit
 
 $dir = "$env:APPDATA\CodexBar"
@@ -11,6 +17,8 @@ $taBackup = "$taFile.bak"
 $mcBackup = "$mcFile.bak"
 Copy-Item -LiteralPath $taFile -Destination $taBackup -Force
 Copy-Item -LiteralPath $mcFile -Destination $mcBackup -Force
+
+$launchStarted = $false
 
 try {
   # 1. revert token to bare value
@@ -37,9 +45,29 @@ try {
   Write-SecureFile $mcFile ($mc | ConvertTo-Json -Depth 6)
   $hdr = (Read-SecureFile $mcFile | ConvertFrom-Json).cookies.commandcode.cookie_header
   Write-Output "manual cookie restored: header len $($hdr.Length)"
+
+  # 3. preserve the old log before starting a clean capture
+  $log = "$dir\logs\codexbar-desktop.log"
+  if (Test-Path -LiteralPath $log) {
+    $archive = "$log.pre-debug-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'))-$([guid]::NewGuid().ToString('N')).log"
+    Move-Item -LiteralPath $log -Destination $archive
+    Write-Output "previous log preserved at $archive"
+  }
+
+  # 4. launch the verified desktop executable with debug logging
+  $env:RUST_LOG = 'debug'
+  $process = Start-Process -FilePath $desktopExe -WorkingDirectory $installDir -PassThru
+  if ($null -eq $process) {
+    throw "CodexBar desktop process did not start: $desktopExe"
+  }
+  $launchStarted = $true
+  Write-Output "app launched from $desktopExe with RUST_LOG=debug"
 }
 catch {
   $failure = $_
+  if ($launchStarted) {
+    throw $failure
+  }
   $restoreErrors = @()
   foreach ($backup in @(
       @{ Source = $taBackup; Target = $taFile },
@@ -57,16 +85,3 @@ catch {
   }
   throw $failure
 }
-
-# 3. preserve the old log before starting a clean capture
-$log = "$dir\logs\codexbar-desktop.log"
-if (Test-Path -LiteralPath $log) {
-  $archive = "$log.pre-debug-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'))-$([guid]::NewGuid().ToString('N')).log"
-  Move-Item -LiteralPath $log -Destination $archive
-  Write-Output "previous log preserved at $archive"
-}
-
-# 4. launch with debug logging
-$env:RUST_LOG = 'debug'
-Start-Process -FilePath "$env:LOCALAPPDATA\Programs\CodexBar\codexbar.exe" -WorkingDirectory "$env:LOCALAPPDATA\Programs\CodexBar"
-Write-Output "app launched with RUST_LOG=debug"

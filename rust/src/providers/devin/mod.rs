@@ -65,7 +65,7 @@ impl Provider for DevinProvider {
                     &["DEVIN_BEARER_TOKEN", "DEVIN_API_KEY"],
                 )?;
                 let env_org = std::env::var("DEVIN_ORG").ok();
-                let org = ctx
+                let raw_org = ctx
                     .workspace_id
                     .as_deref()
                     .or(env_org.as_deref())
@@ -74,8 +74,8 @@ impl Provider for DevinProvider {
                             "Devin organization not found. Set it in provider extras or DEVIN_ORG."
                                 .into(),
                         )
-                    })?
-                    .to_string();
+                    })?;
+                let org = normalized_org(raw_org);
                 fetch_quota(&self.client, &token, &org, devin_urls(&org)?).await
             }
             SourceMode::Web | SourceMode::Cli => {
@@ -136,7 +136,13 @@ async fn fetch_quota(
                     continue;
                 }
             };
-            return Ok(fetch_result_from_quota(&value, org));
+            match fetch_result_from_quota(&value, org) {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    last_non_auth_error = Some(error);
+                    continue;
+                }
+            }
         }
         let body = match response.bytes().await {
             Ok(body) => body,
@@ -170,7 +176,6 @@ async fn fetch_quota(
 }
 
 fn devin_urls(org: &str) -> Result<Vec<Url>, ProviderError> {
-    let org = normalized_org(org);
     BASE_URLS
         .iter()
         .map(|base| Url::parse(&format!("{base}/{org}/billing/quota/usage")))
@@ -208,23 +213,26 @@ fn normalized_org(raw: &str) -> String {
         .to_string()
 }
 
-fn snapshot_from_quota(value: &Value, org: &str) -> UsageSnapshot {
+fn snapshot_from_quota(value: &Value, org: &str) -> Result<UsageSnapshot, ProviderError> {
     let daily = percent(value, &["daily_percentage", "dailyPercentage"])
-        .unwrap_or_else(|| percent(value, &["used_percent", "usedPercent"]).unwrap_or(0.0));
+        .or_else(|| percent(value, &["used_percent", "usedPercent"]))
+        .ok_or_else(|| {
+            ProviderError::Parse("Devin quota response missing daily usage".to_string())
+        })?;
     let mut snapshot =
         UsageSnapshot::new(RateWindow::new(daily)).with_organization(org.to_string());
     if let Some(weekly) = percent(value, &["weekly_percentage", "weeklyPercentage"]) {
         snapshot = snapshot.with_secondary(RateWindow::new(weekly));
     }
-    snapshot
+    Ok(snapshot)
 }
 
-fn fetch_result_from_quota(value: &Value, org: &str) -> ProviderFetchResult {
-    let mut result = ProviderFetchResult::new(snapshot_from_quota(value, org), "api");
+fn fetch_result_from_quota(value: &Value, org: &str) -> Result<ProviderFetchResult, ProviderError> {
+    let mut result = ProviderFetchResult::new(snapshot_from_quota(value, org)?, "api");
     if let Some(balance) = extra_usage_balance(value) {
         result = result.with_cost(CostSnapshot::new(balance, "USD", "Extra usage balance"));
     }
-    result
+    Ok(result)
 }
 
 fn percent(value: &Value, keys: &[&str]) -> Option<f64> {
@@ -271,14 +279,16 @@ mod tests {
     #[test]
     fn parses_fraction_percent() {
         let snapshot =
-            snapshot_from_quota(&serde_json::json!({"daily_percentage":0.25}), "org/demo");
+            snapshot_from_quota(&serde_json::json!({"daily_percentage":0.25}), "org/demo")
+                .expect("daily usage");
         assert_eq!(snapshot.primary.used_percent, 25.0);
     }
 
     #[test]
     fn parses_exact_one_as_one_percent() {
         let snapshot =
-            snapshot_from_quota(&serde_json::json!({"daily_percentage":1.0}), "org/demo");
+            snapshot_from_quota(&serde_json::json!({"daily_percentage":1.0}), "org/demo")
+                .expect("daily usage");
         assert_eq!(snapshot.primary.used_percent, 1.0);
     }
 
@@ -287,7 +297,8 @@ mod tests {
         let result = fetch_result_from_quota(
             &serde_json::json!({"daily_percentage": 0.2, "overage_balance": 12.34}),
             "org/demo",
-        );
+        )
+        .expect("daily usage");
 
         let cost = result.cost.unwrap();
         assert_eq!(cost.used, 12.34);
@@ -299,7 +310,8 @@ mod tests {
         let result = fetch_result_from_quota(
             &serde_json::json!({"daily_percentage": 0.2, "overage_balance_cents": 7087}),
             "org/demo",
-        );
+        )
+        .expect("daily usage");
 
         assert_eq!(result.cost.unwrap().used, 70.87);
     }
@@ -351,7 +363,8 @@ mod tests {
 
     #[test]
     fn devin_urls_use_bare_org_on_both_hosts() {
-        let urls = devin_urls("org/org_TJ2demo").expect("candidate urls");
+        let org = normalized_org("org/org_TJ2demo");
+        let urls = devin_urls(&org).expect("candidate urls");
         assert_eq!(
             urls.iter().map(|u| u.as_str()).collect::<Vec<_>>(),
             vec![
@@ -395,6 +408,18 @@ mod tests {
         )
         .await
         .expect("the second host should succeed");
+
+        assert_eq!(result.usage.primary.used_percent, 25.0);
+    }
+
+    #[tokio::test]
+    async fn normalized_organization_is_sent_in_quota_request() {
+        let (_server, url) = quota_mock(200, r#"{"daily_percentage":0.25}"#).await;
+        let org = normalized_org("organizations/org_TJ2demo");
+
+        let result = fetch_quota(&test_client(), "test-token", &org, [url])
+            .await
+            .expect("the normalized organization should authenticate");
 
         assert_eq!(result.usage.primary.used_percent, 25.0);
     }
@@ -475,6 +500,44 @@ mod tests {
         .expect("the second host should provide valid JSON");
 
         assert_eq!(result.usage.primary.used_percent, 25.0);
+    }
+
+    #[tokio::test]
+    async fn unrecognized_success_schema_followed_by_valid_json_retries() {
+        let (_first_server, first_url) = quota_mock(200, r#"{"status":"ok"}"#).await;
+        let (_second_server, second_url) = quota_mock(200, r#"{"daily_percentage":0.25}"#).await;
+
+        let result = fetch_quota(
+            &test_client(),
+            "test-token",
+            "org_TJ2demo",
+            [first_url, second_url],
+        )
+        .await
+        .expect("the second host should provide a recognized schema");
+
+        assert_eq!(result.usage.primary.used_percent, 25.0);
+    }
+
+    #[tokio::test]
+    async fn all_unrecognized_success_schemas_return_parse_error() {
+        let (_first_server, first_url) = quota_mock(200, r#"{"status":"ok"}"#).await;
+        let (_second_server, second_url) = quota_mock(200, r#"{"status":"still-ok"}"#).await;
+
+        let error = fetch_quota(
+            &test_client(),
+            "test-token",
+            "org_TJ2demo",
+            [first_url, second_url],
+        )
+        .await
+        .expect_err("unrecognized success schemas should remain a parse error");
+
+        assert!(matches!(
+            error,
+            ProviderError::Parse(message)
+                if message == "Devin quota response missing daily usage"
+        ));
     }
 
     #[tokio::test]

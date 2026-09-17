@@ -19,6 +19,18 @@ from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
+COMMANDCODE_ROOT = "commandcode.ai"
+SESSION_COOKIE_NAMES = frozenset(
+    {
+        "__Secure-commandcode_prod_.session_token",
+        "commandcode_prod_.session_token",
+        "__Host-commandcode_prod_.session_token",
+        "__Host-better-auth.session_token",
+        "__Secure-better-auth.session_token",
+        "better-auth.session_token",
+    }
+)
+
 
 def default_candidates():
     local_app_data = Path(
@@ -153,6 +165,17 @@ def safe_filename(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value)
 
 
+def is_commandcode_host(host: str) -> bool:
+    normalized = host.strip().lstrip(".").rstrip(".").lower()
+    return normalized == COMMANDCODE_ROOT or normalized.endswith(
+        f".{COMMANDCODE_ROOT}"
+    )
+
+
+def is_session_cookie_name(name: str) -> bool:
+    return name in SESSION_COOKIE_NAMES
+
+
 def snapshot_cookie_database(cookies_db: Path, snapshot: Path) -> None:
     """Create a consistent read-only SQLite snapshot, including active WAL data."""
     source_uri = f"{cookies_db.resolve().as_uri()}?mode=ro"
@@ -207,10 +230,14 @@ def try_profile(user_data: Path, label: str, export_dir: Optional[Path]) -> None
                 snapshot_cookie_database(cookies_db, database)
 
                 with closing(sqlite3.connect(database)) as connection:
-                    rows = connection.execute(
-                        "SELECT rowid, host_key, name, encrypted_value, is_httponly "
-                        "FROM cookies WHERE host_key LIKE '%commandcode%'"
-                    ).fetchall()
+                    rows = [
+                        row
+                        for row in connection.execute(
+                            "SELECT rowid, host_key, name, encrypted_value, is_httponly "
+                            "FROM cookies"
+                        ).fetchall()
+                        if is_commandcode_host(row[1])
+                    ]
                     total = (
                         connection.execute("SELECT COUNT(*) FROM cookies").fetchone()[0]
                         if not rows
@@ -237,9 +264,7 @@ def try_profile(user_data: Path, label: str, export_dir: Optional[Path]) -> None
                         f"  {host}  {name}  httponly={bool(httponly)} "
                         f"len={len(value)} sha256={fingerprint(value)}"
                     )
-                    if export_dir is not None and (
-                        "session" in name.lower() or "better-auth" in name.lower()
-                    ):
+                    if export_dir is not None and is_session_cookie_name(name):
                         export_cookie(
                             export_dir, label, user_data, profile, row_id, host, name, value
                         )

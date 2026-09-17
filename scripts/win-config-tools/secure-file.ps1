@@ -49,7 +49,7 @@ function Write-SecureFile([string]$Path, [string]$PlainJson) {
 }
 
 function Stop-CodexBarForEdit([switch]$Force) {
-  $running = @(Get-Process -Name codexbar, codexbar-desktop -ErrorAction SilentlyContinue)
+  $running = Get-CodexBarProcesses
   foreach ($process in $running) {
     Write-Output "requesting graceful exit for $($process.ProcessName)"
     if (-not $process.CloseMainWindow()) {
@@ -60,7 +60,7 @@ function Stop-CodexBarForEdit([switch]$Force) {
   $deadline = [DateTime]::UtcNow.AddSeconds(5)
   do {
     Start-Sleep -Milliseconds 250
-    $remaining = @(Get-Process -Name codexbar, codexbar-desktop -ErrorAction SilentlyContinue)
+    $remaining = Get-CodexBarProcesses
   } while ($remaining.Count -gt 0 -and [DateTime]::UtcNow -lt $deadline)
 
   if ($remaining.Count -gt 0 -and -not $Force) {
@@ -74,7 +74,7 @@ function Stop-CodexBarForEdit([switch]$Force) {
       Stop-Process -Id $process.Id -Force
     }
     Start-Sleep -Milliseconds 250
-    $remaining = @(Get-Process -Name codexbar, codexbar-desktop -ErrorAction SilentlyContinue)
+    $remaining = Get-CodexBarProcesses
     if ($remaining.Count -gt 0) {
       $names = (($remaining | Select-Object -ExpandProperty ProcessName -Unique) -join ', ')
       throw "CodexBar processes remain after force-stop: $names"
@@ -107,4 +107,22 @@ function ConvertTo-RedactedObject($Value) {
 
 function ConvertTo-RedactedJson([string]$PlainJson) {
   ConvertTo-Json (ConvertTo-RedactedObject ($PlainJson | ConvertFrom-Json)) -Depth 20
+}
+
+function Get-CodexBarProcesses {
+  @(Get-Process -Name @('codexbar', 'codexbar-desktop', 'codexbar-desktop-tauri') -ErrorAction SilentlyContinue)
+}
+
+function Get-CodexBarDesktopPath {
+  if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    return $null
+  }
+  $installDir = Join-Path $env:LOCALAPPDATA 'Programs\CodexBar'
+  foreach ($name in @('codexbar-desktop-tauri.exe', 'codexbar.exe', 'codexbar-desktop.exe')) {
+    $candidate = Join-Path $installDir $name
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      return (Resolve-Path -LiteralPath $candidate).Path
+    }
+  }
+  return $null
 }
