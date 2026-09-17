@@ -604,7 +604,7 @@ fn is_safe_reqwest_transport_error(error: &reqwest::Error) -> bool {
     if error.is_timeout() || error.is_body() {
         return true;
     }
-    if !error.is_connect() || error.is_request() {
+    if !error.is_connect() {
         return false;
     }
 
@@ -1118,6 +1118,28 @@ mod tests {
             .await
             .expect_err("invalid URL should fail before a network request");
         assert!(!ProviderError::Network(error).is_transport_failure());
+    }
+
+    #[tokio::test]
+    async fn refused_connection_is_a_retainable_transport_failure() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .expect("a local ephemeral port should be available");
+        let address = listener
+            .local_addr()
+            .expect("the local listener should expose its address");
+        drop(listener);
+
+        let error = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("the test client should build")
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .expect_err("the closed local port should refuse the connection");
+
+        assert!(error.is_connect(), "expected a connect error: {error:?}");
+        assert!(ProviderError::Network(error).is_transport_failure());
     }
 
     #[test]
