@@ -58,9 +58,13 @@ catch {
   throw $failure
 }
 
-# 3. truncate old log for clean capture
+# 3. preserve the old log before starting a clean capture
 $log = "$dir\logs\codexbar-desktop.log"
-if (Test-Path $log) { Clear-Content $log }
+if (Test-Path -LiteralPath $log) {
+  $archive = "$log.pre-debug-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'))-$([guid]::NewGuid().ToString('N')).log"
+  Move-Item -LiteralPath $log -Destination $archive
+  Write-Output "previous log preserved at $archive"
+}
 
 # 4. launch with debug logging
 $env:RUST_LOG = 'debug'

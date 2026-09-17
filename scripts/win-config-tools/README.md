@@ -18,9 +18,9 @@ provider 额度显示问题)。
 
 **编辑三原则**(违反会直接把配置弄坏,或被运行中的应用覆盖):
 
-1. 先 `Stop-Process codexbar* -Force` 再改文件,改完再启动(应用持有内存态,退出/刷新时会回写);
+1. 先请求 `codexbar*` 正常退出并等待确认,再改文件,改完再启动(应用持有内存态,退出/刷新时会回写);
 2. 写回必须 **UTF-8 无 BOM**(PowerShell 5.1 的 `Set-Content -Encoding UTF8` 带 BOM,Rust serde 解析失败后会静默回退默认值);
-3. 动手前留 `.bak`。
+3. 动手前留 `.bak`;调试启动会把旧日志移动到带时间戳的归档文件,不会清空历史。
 
 ## commandcode(Command Code)provider 可用配置
 

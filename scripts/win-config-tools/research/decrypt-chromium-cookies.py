@@ -13,9 +13,9 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
@@ -153,9 +153,18 @@ def safe_filename(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value)
 
 
+def snapshot_cookie_database(cookies_db: Path, snapshot: Path) -> None:
+    """Create a consistent read-only SQLite snapshot, including active WAL data."""
+    source_uri = f"{cookies_db.resolve().as_uri()}?mode=ro"
+    with closing(sqlite3.connect(source_uri, uri=True, timeout=5.0)) as source:
+        with closing(sqlite3.connect(snapshot)) as destination:
+            source.backup(destination)
+
+
 def export_cookie(
     export_dir: Path,
     label: str,
+    user_data: Path,
     profile: str,
     row_id: int,
     host: str,
@@ -163,12 +172,15 @@ def export_cookie(
     value: str,
 ) -> None:
     export_dir.mkdir(parents=True, exist_ok=True)
-    filename = safe_filename(f"cookie_{label}_{profile}_{row_id}_{host}_{name}.json")
+    identity = f"{label}|{user_data}|{profile}|{row_id}|{host}|{name}"
+    identity_hash = hashlib.sha256(identity.encode("utf-8", "replace")).hexdigest()
+    filename = safe_filename(f"cookie_{label}_{profile}_{row_id}_{identity_hash}.json")
     output = export_dir / filename
-    output.write_text(
-        json.dumps({f"{row_id}|{host}|{name}": value}, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    try:
+        with output.open("x", encoding="utf-8") as handle:
+            json.dump({identity: value}, handle, ensure_ascii=False)
+    except FileExistsError as error:
+        raise RuntimeError(f"refusing to overwrite existing cookie export: {output}") from error
     print(f"    exported plaintext cookie to {output}")
 
 
@@ -190,16 +202,9 @@ def try_profile(user_data: Path, label: str, export_dir: Optional[Path]) -> None
         try:
             with tempfile.TemporaryDirectory(prefix="codexbar-cookie-") as temp_dir:
                 database = Path(temp_dir) / "Cookies"
-                shutil.copy2(cookies_db, database)
-                for extension in ("-wal", "-shm", "-journal"):
-                    sidecar = Path(str(cookies_db) + extension)
-                    if sidecar.exists():
-                        try:
-                            shutil.copy2(sidecar, str(database) + extension)
-                        except PermissionError:
-                            print(f"[{label}/{profile}] {extension} sidecar locked - skipped")
+                snapshot_cookie_database(cookies_db, database)
 
-                with sqlite3.connect(database) as connection:
+                with closing(sqlite3.connect(database)) as connection:
                     rows = connection.execute(
                         "SELECT rowid, host_key, name, encrypted_value, is_httponly "
                         "FROM cookies WHERE host_key LIKE '%commandcode%'"
@@ -223,22 +228,25 @@ def try_profile(user_data: Path, label: str, export_dir: Optional[Path]) -> None
                             value = dpapi_unprotect(encrypted_value).decode(
                                 "utf-8", "replace"
                             )
-                        print(
-                            f"  {host}  {name}  httponly={bool(httponly)} "
-                            f"len={len(value)} sha256={fingerprint(value)}"
-                        )
-                        if export_dir is not None and (
-                            "session" in name.lower() or "better-auth" in name.lower()
-                        ):
-                            export_cookie(
-                                export_dir, label, profile, row_id, host, name, value
-                            )
                     except Exception as error:
                         print(f"  {host}  {name}  DECRYPT FAILED: {error}")
+                        continue
+                    print(
+                        f"  {host}  {name}  httponly={bool(httponly)} "
+                        f"len={len(value)} sha256={fingerprint(value)}"
+                    )
+                    if export_dir is not None and (
+                        "session" in name.lower() or "better-auth" in name.lower()
+                    ):
+                        export_cookie(
+                            export_dir, label, user_data, profile, row_id, host, name, value
+                        )
                 if not rows:
                     print(f"  (db total cookies: {total})")
         except PermissionError:
             print(f"[{label}/{profile}] locked (browser running) - skipped")
+        except sqlite3.Error as error:
+            print(f"[{label}/{profile}] consistent SQLite snapshot unavailable - skipped: {error}")
 
 
 def parse_args():
@@ -269,6 +277,8 @@ def main() -> None:
         if user_data.exists():
             try:
                 try_profile(user_data, label, args.export_dir)
+            except FileExistsError:
+                raise
             except Exception as error:
                 print(f"[{label}] ERROR: {error}")
         else:

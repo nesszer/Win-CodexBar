@@ -48,19 +48,37 @@ function Write-SecureFile([string]$Path, [string]$PlainJson) {
   }
 }
 
-function Stop-CodexBarForEdit {
+function Stop-CodexBarForEdit([switch]$Force) {
   $running = @(Get-Process -Name codexbar, codexbar-desktop -ErrorAction SilentlyContinue)
   foreach ($process in $running) {
-    Write-Output "stopping $($process.ProcessName)"
-    Stop-Process -Id $process.Id -Force
+    Write-Output "requesting graceful exit for $($process.ProcessName)"
+    if (-not $process.CloseMainWindow()) {
+      Write-Output "$($process.ProcessName) did not accept a close request"
+    }
   }
-  if ($running.Count -gt 0) {
-    Start-Sleep -Seconds 2
-  }
-  $remaining = @(Get-Process -Name codexbar, codexbar-desktop -ErrorAction SilentlyContinue)
-  if ($remaining.Count -gt 0) {
+
+  $deadline = [DateTime]::UtcNow.AddSeconds(5)
+  do {
+    Start-Sleep -Milliseconds 250
+    $remaining = @(Get-Process -Name codexbar, codexbar-desktop -ErrorAction SilentlyContinue)
+  } while ($remaining.Count -gt 0 -and [DateTime]::UtcNow -lt $deadline)
+
+  if ($remaining.Count -gt 0 -and -not $Force) {
     $names = (($remaining | Select-Object -ExpandProperty ProcessName -Unique) -join ', ')
-    throw "Refusing to modify configuration while CodexBar processes remain active: $names"
+    throw "Refusing to modify configuration while CodexBar processes remain active: $names. Close them and retry."
+  }
+
+  if ($remaining.Count -gt 0) {
+    foreach ($process in $remaining) {
+      Write-Output "force-stopping $($process.ProcessName)"
+      Stop-Process -Id $process.Id -Force
+    }
+    Start-Sleep -Milliseconds 250
+    $remaining = @(Get-Process -Name codexbar, codexbar-desktop -ErrorAction SilentlyContinue)
+    if ($remaining.Count -gt 0) {
+      $names = (($remaining | Select-Object -ExpandProperty ProcessName -Unique) -join ', ')
+      throw "CodexBar processes remain after force-stop: $names"
+    }
   }
 }
 

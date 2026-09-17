@@ -95,9 +95,11 @@ async fn fetch_quota(
     org: &str,
     urls: impl IntoIterator<Item = Url>,
 ) -> Result<ProviderFetchResult, ProviderError> {
-    let mut last_error: Option<ProviderError> = None;
-    let mut auth_error: Option<ProviderError> = None;
+    let mut last_non_auth_error: Option<ProviderError> = None;
+    let mut candidate_count = 0usize;
+    let mut auth_failures = 0usize;
     for url in urls {
+        candidate_count += 1;
         let response = match client
             .get(url)
             .bearer_auth(token)
@@ -112,34 +114,52 @@ async fn fetch_quota(
         {
             Ok(response) => response,
             Err(error) => {
-                last_error = Some(ProviderError::Network(error));
+                last_non_auth_error = Some(ProviderError::Network(error));
                 continue;
             }
         };
         let status = response.status();
         if status.is_success() {
-            let value: Value = response
-                .json()
-                .await
-                .map_err(|e| ProviderError::Parse(format!("Failed to parse Devin quota: {e}")))?;
+            let value: Value = match response.json().await {
+                Ok(value) => value,
+                Err(error) => {
+                    last_non_auth_error = Some(ProviderError::Parse(format!(
+                        "Failed to parse Devin quota: {error}"
+                    )));
+                    continue;
+                }
+            };
             return Ok(fetch_result_from_quota(&value, org));
         }
-        let body = response.bytes().await.unwrap_or_default();
+        let body = match response.bytes().await {
+            Ok(body) => body,
+            Err(error) => {
+                last_non_auth_error = Some(ProviderError::Network(error));
+                continue;
+            }
+        };
         // Web-session tokens (auth1_) are rejected on the API host
         // but work on the web host, and vice versa for service
         // keys, so every candidate is tried before giving up.
         if let Some(error) = auth_response_error(status, &body) {
-            auth_error.get_or_insert(error);
+            if matches!(error, ProviderError::AuthRequired) {
+                auth_failures += 1;
+            } else {
+                last_non_auth_error = Some(error);
+            }
         } else {
-            last_error = Some(ProviderError::Other(format!(
+            last_non_auth_error = Some(ProviderError::Other(format!(
                 "Devin quota returned status {}",
                 status
             )));
         }
     }
-    Err(auth_error
-        .or(last_error)
-        .unwrap_or_else(|| ProviderError::Other("Devin quota request failed".into())))
+    if candidate_count > 0 && auth_failures == candidate_count {
+        Err(ProviderError::AuthRequired)
+    } else {
+        Err(last_non_auth_error
+            .unwrap_or_else(|| ProviderError::Other("Devin quota request failed".into())))
+    }
 }
 
 fn devin_urls(org: &str) -> Result<Vec<Url>, ProviderError> {
@@ -332,6 +352,139 @@ mod tests {
                 "https://app.devin.ai/api/org_TJ2demo/billing/quota/usage",
             ]
         );
+    }
+
+    async fn quota_mock(status: usize, body: &str) -> (mockito::ServerGuard, Url) {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("GET", "/org_TJ2demo/billing/quota/usage")
+            .match_header("x-cog-org-id", "org_TJ2demo")
+            .with_status(status)
+            .with_body(body)
+            .create_async()
+            .await;
+        let url = Url::parse(&format!("{}/org_TJ2demo/billing/quota/usage", server.url()))
+            .expect("the mock server URL should be valid");
+        (server, url)
+    }
+
+    fn test_client() -> Client {
+        Client::builder()
+            .no_proxy()
+            .build()
+            .expect("the test client should build")
+    }
+
+    #[tokio::test]
+    async fn retries_the_next_quota_url_after_auth_failure() {
+        let (_first_server, first_url) = quota_mock(401, r#"{"detail":"Unauthorized"}"#).await;
+        let (_second_server, second_url) = quota_mock(200, r#"{"daily_percentage":0.25}"#).await;
+
+        let result = fetch_quota(
+            &test_client(),
+            "test-token",
+            "org_TJ2demo",
+            [first_url, second_url],
+        )
+        .await
+        .expect("the second host should succeed");
+
+        assert_eq!(result.usage.primary.used_percent, 25.0);
+    }
+
+    #[tokio::test]
+    async fn mixed_auth_and_server_failures_do_not_become_auth_required() {
+        let (_first_server, first_url) = quota_mock(401, r#"{"detail":"Unauthorized"}"#).await;
+        let (_second_server, second_url) = quota_mock(500, "server failure").await;
+
+        let error = fetch_quota(
+            &test_client(),
+            "test-token",
+            "org_TJ2demo",
+            [first_url, second_url],
+        )
+        .await
+        .expect_err("mixed failures should return the non-auth failure");
+
+        assert!(matches!(error, ProviderError::Other(message) if message.contains("500")));
+    }
+
+    #[tokio::test]
+    async fn server_failure_followed_by_auth_failure_preserves_server_failure() {
+        let (_first_server, first_url) = quota_mock(500, "server failure").await;
+        let (_second_server, second_url) = quota_mock(401, r#"{"detail":"Unauthorized"}"#).await;
+
+        let error = fetch_quota(
+            &test_client(),
+            "test-token",
+            "org_TJ2demo",
+            [first_url, second_url],
+        )
+        .await
+        .expect_err("mixed failures should return the non-auth failure");
+
+        assert!(matches!(error, ProviderError::Other(message) if message.contains("500")));
+    }
+
+    #[tokio::test]
+    async fn transport_failure_followed_by_auth_failure_is_not_auth_required() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .expect("a local ephemeral port should be available");
+        let refused_port = listener
+            .local_addr()
+            .expect("the local listener should expose its address")
+            .port();
+        drop(listener);
+        let (_second_server, second_url) = quota_mock(401, r#"{"detail":"Unauthorized"}"#).await;
+        let refused_url = Url::parse(&format!(
+            "http://127.0.0.1:{refused_port}/org_TJ2demo/billing/quota/usage"
+        ))
+        .expect("the refused URL should be valid");
+
+        let error = fetch_quota(
+            &test_client(),
+            "test-token",
+            "org_TJ2demo",
+            [refused_url, second_url],
+        )
+        .await
+        .expect_err("a transport failure must not be hidden as auth");
+
+        assert!(matches!(error, ProviderError::Network(_)));
+    }
+
+    #[tokio::test]
+    async fn invalid_json_success_followed_by_valid_json_retries() {
+        let (_first_server, first_url) = quota_mock(200, "not-json").await;
+        let (_second_server, second_url) = quota_mock(200, r#"{"daily_percentage":0.25}"#).await;
+
+        let result = fetch_quota(
+            &test_client(),
+            "test-token",
+            "org_TJ2demo",
+            [first_url, second_url],
+        )
+        .await
+        .expect("the second host should provide valid JSON");
+
+        assert_eq!(result.usage.primary.used_percent, 25.0);
+    }
+
+    #[tokio::test]
+    async fn all_auth_failures_return_auth_required() {
+        let (_first_server, first_url) = quota_mock(401, r#"{"detail":"Unauthorized"}"#).await;
+        let (_second_server, second_url) = quota_mock(403, r#"{"detail":"Forbidden"}"#).await;
+
+        let error = fetch_quota(
+            &test_client(),
+            "test-token",
+            "org_TJ2demo",
+            [first_url, second_url],
+        )
+        .await
+        .expect_err("all credential failures should remain authentication errors");
+
+        assert!(matches!(error, ProviderError::AuthRequired));
     }
 
     #[tokio::test]
