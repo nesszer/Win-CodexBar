@@ -664,6 +664,7 @@ fn backfill_slot_window(
         .or_else(|| cached.reset_description.clone());
 }
 
+#[cfg(test)]
 pub(super) fn preserve_last_good_transient_failure(
     guard: &mut AppState,
     id: ProviderId,
