@@ -2,7 +2,14 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Security
 
 function Read-SecureFile([string]$Path) {
-  $json = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+  $raw = [System.IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+  $json = $raw | ConvertFrom-Json
+  if ($json.format -ne 'codexbar.secure-file') {
+    return $raw
+  }
+  if (-not $json.payload) {
+    throw "Secure file is missing its protected payload: $Path"
+  }
   $bytes = [Convert]::FromBase64String($json.payload)
   $plain = [System.Security.Cryptography.ProtectedData]::Unprotect($bytes, $null, 'CurrentUser')
   [Text.Encoding]::UTF8.GetString($plain)
@@ -17,7 +24,20 @@ function Write-SecureFile([string]$Path, [string]$PlainJson) {
     protection = 'windows-dpapi-user'
     payload = [Convert]::ToBase64String($enc)
   } | ConvertTo-Json
-  [System.IO.File]::WriteAllText($Path, $wrapper, (New-Object Text.UTF8Encoding($false)))
+  $tempPath = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
+  try {
+    [System.IO.File]::WriteAllText($tempPath, $wrapper, (New-Object Text.UTF8Encoding($false)))
+    if ([System.IO.File]::Exists($Path)) {
+      [System.IO.File]::Move($tempPath, $Path, $true)
+    } else {
+      [System.IO.File]::Move($tempPath, $Path)
+    }
+  }
+  finally {
+    if ([System.IO.File]::Exists($tempPath)) {
+      [System.IO.File]::Delete($tempPath)
+    }
+  }
 }
 
 function Stop-CodexBarForEdit {
