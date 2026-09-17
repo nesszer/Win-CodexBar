@@ -11,7 +11,13 @@ Copy-Item -LiteralPath $mcFile -Destination $mcBackup -Force
 
 # token value comes from token-accounts.json - no secrets in this script
 $ta = Read-SecureFile $taFile | ConvertFrom-Json
-$token = $ta.providers.commandcode.accounts[0].token
+$rawToken = [string]$ta.providers.commandcode.accounts[0].token
+$tokenPrefix = 'Cookie: __Secure-commandcode_prod_.session_token='
+$token = if ($rawToken.StartsWith($tokenPrefix)) {
+  $rawToken.Substring($tokenPrefix.Length)
+} else {
+  $rawToken
+}
 if (-not $token) { throw "no commandcode token in token-accounts.json" }
 
 try {

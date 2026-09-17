@@ -28,7 +28,15 @@ function Write-SecureFile([string]$Path, [string]$PlainJson) {
   try {
     [System.IO.File]::WriteAllText($tempPath, $wrapper, (New-Object Text.UTF8Encoding($false)))
     if ([System.IO.File]::Exists($Path)) {
-      [System.IO.File]::Move($tempPath, $Path, $true)
+      $replacementBackup = "$Path.$([guid]::NewGuid().ToString('N')).replace-bak"
+      try {
+        [System.IO.File]::Replace($tempPath, $Path, $replacementBackup)
+      }
+      finally {
+        if ([System.IO.File]::Exists($replacementBackup)) {
+          [System.IO.File]::Delete($replacementBackup)
+        }
+      }
     } else {
       [System.IO.File]::Move($tempPath, $Path)
     }

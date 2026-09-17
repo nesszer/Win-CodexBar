@@ -86,6 +86,8 @@ def aes_gcm_decrypt(key: bytes, nonce: bytes, ciphertext: bytes) -> bytes:
         try:
             class AuthInfo(ctypes.Structure):
                 _fields_ = [
+                    ("cbSize", ctypes.ULONG),
+                    ("dwInfoVersion", ctypes.ULONG),
                     ("pbNonce", ctypes.POINTER(ctypes.c_char)),
                     ("cbNonce", ctypes.ULONG),
                     ("pbAuthData", ctypes.POINTER(ctypes.c_char)),
@@ -105,6 +107,8 @@ def aes_gcm_decrypt(key: bytes, nonce: bytes, ciphertext: bytes) -> bytes:
             encrypted_buf = ctypes.create_string_buffer(encrypted, len(encrypted))
             plain_buf = ctypes.create_string_buffer(len(encrypted))
             auth = AuthInfo()
+            auth.cbSize = ctypes.sizeof(AuthInfo)
+            auth.dwInfoVersion = 1
             auth.pbNonce = ctypes.cast(nonce_buf, ctypes.POINTER(ctypes.c_char))
             auth.cbNonce = len(nonce)
             auth.pbTag = ctypes.cast(tag_buf, ctypes.POINTER(ctypes.c_char))
@@ -153,15 +157,16 @@ def export_cookie(
     export_dir: Path,
     label: str,
     profile: str,
+    row_id: int,
     host: str,
     name: str,
     value: str,
 ) -> None:
     export_dir.mkdir(parents=True, exist_ok=True)
-    filename = safe_filename(f"cookie_{label}_{profile}_{host}_{name}.json")
+    filename = safe_filename(f"cookie_{label}_{profile}_{row_id}_{host}_{name}.json")
     output = export_dir / filename
     output.write_text(
-        json.dumps({f"{host}|{name}": value}, ensure_ascii=False),
+        json.dumps({f"{row_id}|{host}|{name}": value}, ensure_ascii=False),
         encoding="utf-8",
     )
     print(f"    exported plaintext cookie to {output}")
@@ -196,7 +201,7 @@ def try_profile(user_data: Path, label: str, export_dir: Optional[Path]) -> None
 
                 with sqlite3.connect(database) as connection:
                     rows = connection.execute(
-                        "SELECT host_key, name, encrypted_value, is_httponly "
+                        "SELECT rowid, host_key, name, encrypted_value, is_httponly "
                         "FROM cookies WHERE host_key LIKE '%commandcode%'"
                     ).fetchall()
                     total = (
@@ -206,7 +211,7 @@ def try_profile(user_data: Path, label: str, export_dir: Optional[Path]) -> None
                     )
 
                 print(f"[{label}/{profile}] commandcode cookies: {len(rows)}")
-                for host, name, encrypted_value, httponly in rows:
+                for row_id, host, name, encrypted_value, httponly in rows:
                     try:
                         if encrypted_value[:3] in (b"v10", b"v20"):
                             value = aes_gcm_decrypt(
@@ -225,7 +230,9 @@ def try_profile(user_data: Path, label: str, export_dir: Optional[Path]) -> None
                         if export_dir is not None and (
                             "session" in name.lower() or "better-auth" in name.lower()
                         ):
-                            export_cookie(export_dir, label, profile, host, name, value)
+                            export_cookie(
+                                export_dir, label, profile, row_id, host, name, value
+                            )
                     except Exception as error:
                         print(f"  {host}  {name}  DECRYPT FAILED: {error}")
                 if not rows:
