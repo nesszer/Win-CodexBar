@@ -180,7 +180,9 @@ def export_cookie(
         with output.open("x", encoding="utf-8") as handle:
             json.dump({identity: value}, handle, ensure_ascii=False)
     except FileExistsError as error:
-        raise RuntimeError(f"refusing to overwrite existing cookie export: {output}") from error
+        raise FileExistsError(
+            f"refusing to overwrite existing cookie export: {output}"
+        ) from error
     print(f"    exported plaintext cookie to {output}")
 
 

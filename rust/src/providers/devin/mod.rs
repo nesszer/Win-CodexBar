@@ -120,7 +120,14 @@ async fn fetch_quota(
         };
         let status = response.status();
         if status.is_success() {
-            let value: Value = match response.json().await {
+            let body = match response.bytes().await {
+                Ok(body) => body,
+                Err(error) => {
+                    last_non_auth_error = Some(ProviderError::Network(error));
+                    continue;
+                }
+            };
+            let value: Value = match serde_json::from_slice(&body) {
                 Ok(value) => value,
                 Err(error) => {
                     last_non_auth_error = Some(ProviderError::Parse(format!(
