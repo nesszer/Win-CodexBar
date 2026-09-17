@@ -59,6 +59,7 @@ API:`GET https://api.commandcode.ai/internal/billing/credits`(及 `/internal/bil
 | `read-all-configs.ps1` | 解密并列出 settings / api_keys / manual_cookies |
 | `read-token-accounts.ps1` | 解密 token-accounts.json |
 | `read-provider-configs.ps1` | 只看 settings.json 的 provider_configs / enabled_providers |
+| `secure-file.ps1` | 共享 DPAPI 读写与脱敏 JSON helper(供其它脚本 dot-source) |
 | `fix-commandcode-cookie.ps1` | 停应用 → 从 token-accounts 读 token → 重建完整表单 manual cookie → 校验 |
 | `debug-launch.ps1` | 恢复 commandcode 已知可用状态并以 `RUST_LOG=debug` 启动应用 |
 | `research/strings-dump.ps1` | 从 codexbar.exe 提取字符串上下文(定位 provider 端点 / cookie 名候选) |
@@ -71,5 +72,8 @@ API:`GET https://api.commandcode.ai/internal/billing/credits`(及 `/internal/bil
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\win-config-tools\read-all-configs.ps1
 ```
+
+读取脚本默认会脱敏 token / key / cookie 等字段;浏览器 cookie 研究脚本默认只输出长度和指纹。
+只有显式传入 `--export-dir` 才会写出解密后的 cookie,请把该目录视为敏感数据。
 
 所有脚本只操作当前用户(`%APPDATA%` / DPAPI CurrentUser),不需要管理员权限。

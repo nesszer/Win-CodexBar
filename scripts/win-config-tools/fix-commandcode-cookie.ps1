@@ -1,27 +1,13 @@
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Security
+. "$PSScriptRoot\secure-file.ps1"
 
 $dir = "$env:APPDATA\CodexBar"
 $mcFile = "$dir\manual_cookies.json"
 $taFile = "$dir\token-accounts.json"
+$mcBackup = "$mcFile.bak"
 
-function Read-SecureFile($path) {
-  $json = Get-Content -Raw -Encoding UTF8 $path | ConvertFrom-Json
-  $bytes = [Convert]::FromBase64String($json.payload)
-  $plain = [System.Security.Cryptography.ProtectedData]::Unprotect($bytes, $null, 'CurrentUser')
-  [Text.Encoding]::UTF8.GetString($plain)
-}
-function Write-SecureFile($path, $plainJson) {
-  $bytes = [Text.Encoding]::UTF8.GetBytes($plainJson)
-  $enc = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, 'CurrentUser')
-  $wrapper = @{
-    format = 'codexbar.secure-file'
-    version = 1
-    protection = 'windows-dpapi-user'
-    payload = [Convert]::ToBase64String($enc)
-  } | ConvertTo-Json
-  [System.IO.File]::WriteAllText($path, $wrapper, (New-Object Text.UTF8Encoding($false)))
-}
+Stop-CodexBarForEdit
+Copy-Item -LiteralPath $mcFile -Destination $mcBackup -Force
 
 # token value comes from token-accounts.json - no secrets in this script
 $ta = Read-SecureFile $taFile | ConvertFrom-Json
@@ -43,5 +29,5 @@ Write-SecureFile $mcFile $plain
 
 $check = (Read-SecureFile $mcFile | ConvertFrom-Json).cookies.commandcode.cookie_header
 if (-not $check.StartsWith('__Secure-commandcode_prod_.session_token=')) { throw "VERIFY FAILED" }
-Write-Output "manual cookie restored: header len $($check.Length), starts with $($check.Substring(0,45))..."
+Write-Output "manual cookie restored: header len $($check.Length)"
 Write-Output ("no-BOM check first bytes: " + (([System.IO.File]::ReadAllBytes($mcFile))[0..2] -join ' '))

@@ -69,6 +69,8 @@ nul
 !/docs/adr/*.md
 /scripts/*
 !/scripts/win-config-tools/
+/scripts/win-config-tools/**/__pycache__/
+/scripts/win-config-tools/**/*.pyc
 /docs/ui-parity-workflow.md
 /scripts/crop_vm_preferences_proof.sh
 /scripts/fetch_vm_preferences_proof.sh

@@ -76,44 +76,7 @@ impl Provider for DevinProvider {
                         )
                     })?
                     .to_string();
-                let mut last_error: Option<ProviderError> = None;
-                let mut auth_error: Option<ProviderError> = None;
-                for url in devin_urls(&org)? {
-                    let response = self
-                        .client
-                        .get(url)
-                        .bearer_auth(&token)
-                        // Auth1 sessions resolve their organization context
-                        // from this header; without it the gateway answers 401
-                        // "No organizations found for auth1 user" even for a
-                        // valid session token.
-                        .header("x-cog-org-id", &org)
-                        .header("Accept", "application/json")
-                        .send()
-                        .await?;
-                    let status = response.status();
-                    if status.is_success() {
-                        let value: Value = response.json().await.map_err(|e| {
-                            ProviderError::Parse(format!("Failed to parse Devin quota: {e}"))
-                        })?;
-                        return Ok(fetch_result_from_quota(&value, &org));
-                    }
-                    let body = response.bytes().await.unwrap_or_default();
-                    // Web-session tokens (auth1_) are rejected on the API host
-                    // but work on the web host, and vice versa for service
-                    // keys, so every candidate is tried before giving up.
-                    if let Some(error) = auth_response_error(status, &body) {
-                        auth_error = auth_error.or(Some(error));
-                    } else {
-                        last_error = Some(ProviderError::Other(format!(
-                            "Devin quota returned status {}",
-                            status
-                        )));
-                    }
-                }
-                Err(auth_error
-                    .or(last_error)
-                    .unwrap_or_else(|| ProviderError::Other("Devin quota request failed".into())))
+                fetch_quota(&self.client, &token, &org, devin_urls(&org)?).await
             }
             SourceMode::Web | SourceMode::Cli => {
                 Err(ProviderError::UnsupportedSource(ctx.source_mode))
@@ -124,6 +87,59 @@ impl Provider for DevinProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::OAuth]
     }
+}
+
+async fn fetch_quota(
+    client: &Client,
+    token: &str,
+    org: &str,
+    urls: impl IntoIterator<Item = Url>,
+) -> Result<ProviderFetchResult, ProviderError> {
+    let mut last_error: Option<ProviderError> = None;
+    let mut auth_error: Option<ProviderError> = None;
+    for url in urls {
+        let response = match client
+            .get(url)
+            .bearer_auth(token)
+            // Auth1 sessions resolve their organization context
+            // from this header; without it the gateway answers 401
+            // "No organizations found for auth1 user" even for a
+            // valid session token.
+            .header("x-cog-org-id", org)
+            .header("Accept", "application/json")
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = Some(ProviderError::Network(error));
+                continue;
+            }
+        };
+        let status = response.status();
+        if status.is_success() {
+            let value: Value = response
+                .json()
+                .await
+                .map_err(|e| ProviderError::Parse(format!("Failed to parse Devin quota: {e}")))?;
+            return Ok(fetch_result_from_quota(&value, org));
+        }
+        let body = response.bytes().await.unwrap_or_default();
+        // Web-session tokens (auth1_) are rejected on the API host
+        // but work on the web host, and vice versa for service
+        // keys, so every candidate is tried before giving up.
+        if let Some(error) = auth_response_error(status, &body) {
+            auth_error.get_or_insert(error);
+        } else {
+            last_error = Some(ProviderError::Other(format!(
+                "Devin quota returned status {}",
+                status
+            )));
+        }
+    }
+    Err(auth_error
+        .or(last_error)
+        .unwrap_or_else(|| ProviderError::Other("Devin quota request failed".into())))
 }
 
 fn devin_urls(org: &str) -> Result<Vec<Url>, ProviderError> {
@@ -316,5 +332,47 @@ mod tests {
                 "https://app.devin.ai/api/org_TJ2demo/billing/quota/usage",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn retries_the_next_quota_url_after_a_transport_failure() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .expect("a local ephemeral port should be available");
+        let refused_port = listener
+            .local_addr()
+            .expect("the local listener should expose its address")
+            .port();
+        drop(listener);
+
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/org_TJ2demo/billing/quota/usage")
+            .match_header("x-cog-org-id", "org_TJ2demo")
+            .with_status(200)
+            .with_body(r#"{"daily_percentage":0.25}"#)
+            .create_async()
+            .await;
+        let fallback_url = Url::parse(&format!("{}/org_TJ2demo/billing/quota/usage", server.url()))
+            .expect("the mock server URL should be valid");
+        let refused_url = Url::parse(&format!(
+            "http://127.0.0.1:{refused_port}/org_TJ2demo/billing/quota/usage"
+        ))
+        .expect("the refused URL should be valid");
+        let client = Client::builder()
+            .no_proxy()
+            .build()
+            .expect("the test client should build");
+
+        let result = fetch_quota(
+            &client,
+            "test-token",
+            "org_TJ2demo",
+            [refused_url, fallback_url],
+        )
+        .await
+        .expect("the fallback URL should succeed");
+
+        assert_eq!(result.usage.primary.used_percent, 25.0);
+        mock.assert_async().await;
     }
 }

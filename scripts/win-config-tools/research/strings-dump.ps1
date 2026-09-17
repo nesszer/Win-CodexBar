@@ -19,7 +19,7 @@ foreach ($needle in $Needles) {
   $idx = 0; $count = 0
   while (($idx = $text.IndexOf($needle, $idx)) -ge 0 -and $count -lt $Max) {
     $start = [Math]::Max(0, $idx - $Before)
-    $len = [Math]::Min($Before + $After, $text.Length - $start)
+    $len = [Math]::Min($Before + $needle.Length + $After, $text.Length - $start)
     $snippet = $text.Substring($start, $len) -replace '[^\x20-\x7E]', '.'
     Write-Output "  @$idx  $snippet"
     $idx += $needle.Length; $count++

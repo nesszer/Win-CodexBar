@@ -1,27 +1,50 @@
 # -*- coding: utf-8 -*-
-"""Try to decrypt commandcode.ai cookies from Edge (and other Chromium) profiles."""
+"""Inspect commandcode.ai cookies from local Chromium profiles.
+
+The default output contains only counts, lengths, and fingerprints. Use
+``--export-dir`` explicitly when a plaintext cookie export is required.
+"""
+
+import argparse
 import base64
 import ctypes
 import ctypes.wintypes as wt
+import hashlib
 import json
+import os
+import re
 import shutil
 import sqlite3
 import tempfile
 from pathlib import Path
+from typing import Optional
 
-CANDIDATES = [
-    (Path(r"C:\Users\rwu3\AppData\Local\Microsoft\Edge\User Data"), "Edge"),
-    (Path(r"C:\Users\rwu3\AppData\Local\Google\Chrome\User Data"), "Chrome"),
-]
+
+def default_candidates():
+    local_app_data = Path(
+        os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
+    )
+    return [
+        (local_app_data / "Microsoft" / "Edge" / "User Data", "Edge"),
+        (local_app_data / "Google" / "Chrome" / "User Data", "Chrome"),
+    ]
+
+
+def check_bcrypt(status: int, operation: str) -> None:
+    if status != 0:
+        raise OSError(f"{operation} failed: 0x{status:08x}")
 
 
 def dpapi_unprotect(data: bytes) -> bytes:
-    class DATA_BLOB(ctypes.Structure):
+    if not data:
+        raise ValueError("cannot decrypt an empty DPAPI value")
+
+    class DataBlob(ctypes.Structure):
         _fields_ = [("cbData", wt.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
 
     buf = ctypes.create_string_buffer(data, len(data))
-    blob_in = DATA_BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
-    blob_out = DATA_BLOB()
+    blob_in = DataBlob(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
+    blob_out = DataBlob()
     if not ctypes.windll.crypt32.CryptUnprotectData(
         ctypes.byref(blob_in), None, None, None, None, 0, ctypes.byref(blob_out)
     ):
@@ -33,51 +56,119 @@ def dpapi_unprotect(data: bytes) -> bytes:
 
 
 def aes_gcm_decrypt(key: bytes, nonce: bytes, ciphertext: bytes) -> bytes:
-    bcrypt = ctypes.windll.bcrypt
-    AES = "AES".encode("utf-16-le")
-    CM = "ChainingMode".encode("utf-16-le")
-    GCM = "ChainingModeGCM".encode("utf-16-le")
+    if len(ciphertext) < 16:
+        raise ValueError("AES-GCM value is missing its authentication tag")
 
-    hAlg = ctypes.c_void_p()
-    assert bcrypt.BCryptOpenAlgorithmProvider(ctypes.byref(hAlg), AES, None, 0) == 0
+    bcrypt = ctypes.windll.bcrypt
+    aes = "AES".encode("utf-16-le")
+    chaining_mode = "ChainingMode".encode("utf-16-le")
+    gcm = "ChainingModeGCM".encode("utf-16-le")
+
+    algorithm = ctypes.c_void_p()
+    check_bcrypt(
+        bcrypt.BCryptOpenAlgorithmProvider(ctypes.byref(algorithm), aes, None, 0),
+        "BCryptOpenAlgorithmProvider",
+    )
     try:
-        assert bcrypt.BCryptSetProperty(hAlg, CM, GCM, len(GCM) + 2, 0) == 0
-        hKey = ctypes.c_void_p()
-        assert bcrypt.BCryptGenerateSymmetricKey(
-            hAlg, ctypes.byref(hKey), None, 0, key, len(key), 0) == 0
+        check_bcrypt(
+            bcrypt.BCryptSetProperty(
+                algorithm, chaining_mode, gcm, len(gcm) + 2, 0
+            ),
+            "BCryptSetProperty",
+        )
+        key_handle = ctypes.c_void_p()
+        check_bcrypt(
+            bcrypt.BCryptGenerateSymmetricKey(
+                algorithm, ctypes.byref(key_handle), None, 0, key, len(key), 0
+            ),
+            "BCryptGenerateSymmetricKey",
+        )
         try:
-            class AUTH(ctypes.Structure):
+            class AuthInfo(ctypes.Structure):
                 _fields_ = [
-                    ("pbNonce", ctypes.POINTER(ctypes.c_char)), ("cbNonce", ctypes.ULONG),
-                    ("pbAuthData", ctypes.POINTER(ctypes.c_char)), ("cbAuthData", ctypes.ULONG),
-                    ("pbTag", ctypes.POINTER(ctypes.c_char)), ("cbTag", ctypes.ULONG),
-                    ("pbMacContext", ctypes.POINTER(ctypes.c_char)), ("cbMacContext", ctypes.ULONG),
-                    ("cbAAD", ctypes.ULONG), ("cbData", ctypes.c_ulonglong), ("dwFlags", ctypes.ULONG),
+                    ("pbNonce", ctypes.POINTER(ctypes.c_char)),
+                    ("cbNonce", ctypes.ULONG),
+                    ("pbAuthData", ctypes.POINTER(ctypes.c_char)),
+                    ("cbAuthData", ctypes.ULONG),
+                    ("pbTag", ctypes.POINTER(ctypes.c_char)),
+                    ("cbTag", ctypes.ULONG),
+                    ("pbMacContext", ctypes.POINTER(ctypes.c_char)),
+                    ("cbMacContext", ctypes.ULONG),
+                    ("cbAAD", ctypes.ULONG),
+                    ("cbData", ctypes.c_ulonglong),
+                    ("dwFlags", ctypes.ULONG),
                 ]
+
             nonce_buf = ctypes.create_string_buffer(nonce, len(nonce))
             tag_buf = ctypes.create_string_buffer(ciphertext[-16:])
-            ct = ciphertext[:-16]
-            ct_buf = ctypes.create_string_buffer(ct, len(ct))
-            pt_buf = ctypes.create_string_buffer(len(ct))
-            auth = AUTH()
+            encrypted = ciphertext[:-16]
+            encrypted_buf = ctypes.create_string_buffer(encrypted, len(encrypted))
+            plain_buf = ctypes.create_string_buffer(len(encrypted))
+            auth = AuthInfo()
             auth.pbNonce = ctypes.cast(nonce_buf, ctypes.POINTER(ctypes.c_char))
             auth.cbNonce = len(nonce)
             auth.pbTag = ctypes.cast(tag_buf, ctypes.POINTER(ctypes.c_char))
             auth.cbTag = 16
-            pt_len = ctypes.c_ulong()
-            st = bcrypt.BCryptDecrypt(hKey, ct_buf, len(ct), ctypes.byref(auth), None, 0,
-                                      pt_buf, len(ct), ctypes.byref(pt_len), 0)
-            assert st == 0, f"decrypt {st:#x}"
-            return pt_buf.raw[: pt_len.value]
+            plain_len = ctypes.c_ulong()
+            check_bcrypt(
+                bcrypt.BCryptDecrypt(
+                    key_handle,
+                    encrypted_buf,
+                    len(encrypted),
+                    ctypes.byref(auth),
+                    None,
+                    0,
+                    plain_buf,
+                    len(encrypted),
+                    ctypes.byref(plain_len),
+                    0,
+                ),
+                "BCryptDecrypt",
+            )
+            return plain_buf.raw[: plain_len.value]
         finally:
-            bcrypt.BCryptDestroyKey(hKey)
+            bcrypt.BCryptDestroyKey(key_handle)
     finally:
-        bcrypt.BCryptCloseAlgorithmProvider(hAlg, 0)
+        bcrypt.BCryptCloseAlgorithmProvider(algorithm, 0)
 
 
-def try_profile(user_data: Path, label: str):
-    profiles = [p for p in user_data.glob("*/Network/Cookies") if p.parent.parent.name in
-                ("Default",) or (p.parent.parent / "Preferences").exists()]
+def profile_paths(user_data: Path):
+    return [
+        path
+        for path in user_data.glob("*/Network/Cookies")
+        if path.parent.parent.name == "Default"
+        or (path.parent.parent / "Preferences").exists()
+    ]
+
+
+def fingerprint(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:12]
+
+
+def safe_filename(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+
+
+def export_cookie(
+    export_dir: Path,
+    label: str,
+    profile: str,
+    host: str,
+    name: str,
+    value: str,
+) -> None:
+    export_dir.mkdir(parents=True, exist_ok=True)
+    filename = safe_filename(f"cookie_{label}_{profile}_{host}_{name}.json")
+    output = export_dir / filename
+    output.write_text(
+        json.dumps({f"{host}|{name}": value}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    print(f"    exported plaintext cookie to {output}")
+
+
+def try_profile(user_data: Path, label: str, export_dir: Optional[Path]) -> None:
+    profiles = profile_paths(user_data)
     if not profiles:
         print(f"[{label}] no cookie DBs found")
         return
@@ -85,58 +176,97 @@ def try_profile(user_data: Path, label: str):
     if not local_state.exists():
         print(f"[{label}] no Local State")
         return
-    ls = json.loads(local_state.read_text(encoding="utf-8"))
-    enc_key = base64.b64decode(ls["os_crypt"]["encrypted_key"])
-    aes_key = dpapi_unprotect(enc_key[5:])
+    local_state_json = json.loads(local_state.read_text(encoding="utf-8"))
+    encrypted_key = base64.b64decode(local_state_json["os_crypt"]["encrypted_key"])
+    aes_key = dpapi_unprotect(encrypted_key[5:])
 
     for cookies_db in profiles:
-        pname = cookies_db.parent.parent.name
+        profile = cookies_db.parent.parent.name
         try:
-            tmp = Path(tempfile.mkdtemp(prefix="ck_"))
-            db = tmp / "Cookies"
-            shutil.copy2(cookies_db, db)
+            with tempfile.TemporaryDirectory(prefix="codexbar-cookie-") as temp_dir:
+                database = Path(temp_dir) / "Cookies"
+                shutil.copy2(cookies_db, database)
+                for extension in ("-wal", "-shm", "-journal"):
+                    sidecar = Path(str(cookies_db) + extension)
+                    if sidecar.exists():
+                        try:
+                            shutil.copy2(sidecar, str(database) + extension)
+                        except PermissionError:
+                            print(f"[{label}/{profile}] {extension} sidecar locked - skipped")
+
+                with sqlite3.connect(database) as connection:
+                    rows = connection.execute(
+                        "SELECT host_key, name, encrypted_value, is_httponly "
+                        "FROM cookies WHERE host_key LIKE '%commandcode%'"
+                    ).fetchall()
+                    total = (
+                        connection.execute("SELECT COUNT(*) FROM cookies").fetchone()[0]
+                        if not rows
+                        else None
+                    )
+
+                print(f"[{label}/{profile}] commandcode cookies: {len(rows)}")
+                for host, name, encrypted_value, httponly in rows:
+                    try:
+                        if encrypted_value[:3] in (b"v10", b"v20"):
+                            value = aes_gcm_decrypt(
+                                aes_key,
+                                encrypted_value[3:15],
+                                encrypted_value[15:],
+                            ).decode("utf-8", "replace")
+                        else:
+                            value = dpapi_unprotect(encrypted_value).decode(
+                                "utf-8", "replace"
+                            )
+                        print(
+                            f"  {host}  {name}  httponly={bool(httponly)} "
+                            f"len={len(value)} sha256={fingerprint(value)}"
+                        )
+                        if export_dir is not None and (
+                            "session" in name.lower() or "better-auth" in name.lower()
+                        ):
+                            export_cookie(export_dir, label, profile, host, name, value)
+                    except Exception as error:
+                        print(f"  {host}  {name}  DECRYPT FAILED: {error}")
+                if not rows:
+                    print(f"  (db total cookies: {total})")
         except PermissionError:
-            print(f"[{label}/{pname}] locked (browser running) - skipped")
-            continue
-        for ext in ("-wal", "-shm", "-journal"):
-            src = Path(str(cookies_db) + ext)
-            if src.exists():
-                try:
-                    shutil.copy2(src, str(db) + ext)
-                except PermissionError:
-                    pass
-        con = sqlite3.connect(str(db))
-        rows = con.execute(
-            "SELECT host_key, name, encrypted_value, is_httponly FROM cookies "
-            "WHERE host_key LIKE '%commandcode%'").fetchall()
-        con.close()
-        print(f"[{label}/{pname}] commandcode cookies: {len(rows)}")
-        for host, name, ev, httponly in rows:
+            print(f"[{label}/{profile}] locked (browser running) - skipped")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--user-data-dir",
+        action="append",
+        type=Path,
+        dest="user_data_dirs",
+        help="Chromium user-data directory; repeat for multiple profiles",
+    )
+    parser.add_argument(
+        "--export-dir",
+        type=Path,
+        help="explicitly export decrypted session cookies to this directory",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    candidates = (
+        [(path, path.name or "Browser") for path in args.user_data_dirs]
+        if args.user_data_dirs
+        else default_candidates()
+    )
+    for user_data, label in candidates:
+        if user_data.exists():
             try:
-                if ev[:3] in (b"v10", b"v20"):
-                    val = aes_gcm_decrypt(aes_key, ev[3:15], ev[15:]).decode("utf-8", "replace")
-                else:
-                    val = dpapi_unprotect(ev).decode("utf-8", "replace")
-                print(f"  {host}  {name}  httponly={bool(httponly)}  len={len(val)}  {val[:24]}...")
-                if "session" in name or "better-auth" in name:
-                    out = Path(f"cookie_{label}_{pname}.json")
-                    out.write_text(json.dumps({f"{host}|{name}": val}), encoding="utf-8")
-                    print(f"    -> saved to {out.name}")
-            except Exception as e:
-                print(f"  {host}  {name}  DECRYPT FAILED: {e}")
-        if not rows:
-            # show what hosts exist for sanity
-            con = sqlite3.connect(str(db))
-            n = con.execute("SELECT COUNT(*) FROM cookies").fetchone()[0]
-            con.close()
-            print(f"  (db total cookies: {n})")
+                try_profile(user_data, label, args.export_dir)
+            except Exception as error:
+                print(f"[{label}] ERROR: {error}")
+        else:
+            print(f"[{label}] not installed")
 
 
-for ud, label in CANDIDATES:
-    if ud.exists():
-        try:
-            try_profile(ud, label)
-        except Exception as e:
-            print(f"[{label}] ERROR: {e}")
-    else:
-        print(f"[{label}] not installed")
+if __name__ == "__main__":
+    main()
