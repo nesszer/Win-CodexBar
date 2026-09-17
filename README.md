@@ -190,6 +190,7 @@ More release automation notes live in [docs/release/ci-cd.md](docs/release/ci-cd
 ## Local integrations
 
 - [AI Usage Limits](https://github.com/lenadweb/stream-deck-ai-limits) — Elgato Stream Deck integration that can consume the local `codexbar serve` dashboard/API to show provider, account, quota, or payload metrics.
+- [AI Monitor](https://github.com/tobymarks/esp32-ai-monitor) — ESP32 desk display (Cheap Yellow Display) with a Windows companion app (beta) that calls the installed CLI (`codexbar-cli usage -p <provider> --json`) and streams Claude, Codex, Copilot, Cursor, Gemini, or Antigravity limits to the display over USB serial.
 
 ## Credits
 
