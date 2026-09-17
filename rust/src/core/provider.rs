@@ -614,6 +614,12 @@ fn is_safe_reqwest_transport_error(error: &reqwest::Error) -> bool {
         return false;
     }
 
+    // reqwest does not expose a TLS-specific predicate. Rustls surfaces a
+    // failed handshake through the typed InvalidData source in its chain.
+    if has_io_error_kind(error, std::io::ErrorKind::InvalidData) {
+        return false;
+    }
+
     // Keep malformed URLs and certificate/secure-channel failures out of the
     // last-good path. They require configuration or trust-store recovery, not
     // a retry of an otherwise healthy provider connection.
@@ -628,6 +634,35 @@ fn is_safe_reqwest_transport_error(error: &reqwest::Error) -> bool {
     ]
     .iter()
     .any(|marker| message.contains(marker))
+}
+
+fn has_io_error_kind(error: &reqwest::Error, kind: std::io::ErrorKind) -> bool {
+    fn contains_kind(
+        source: Option<&(dyn std::error::Error + 'static)>,
+        kind: std::io::ErrorKind,
+    ) -> bool {
+        let Some(current) = source else {
+            return false;
+        };
+        if let Some(io_error) = current.downcast_ref::<std::io::Error>() {
+            if io_error.kind() == kind {
+                return true;
+            }
+            let mut nested = io_error.get_ref();
+            while let Some(inner) = nested {
+                let Some(inner_io) = inner.downcast_ref::<std::io::Error>() else {
+                    break;
+                };
+                if inner_io.kind() == kind {
+                    return true;
+                }
+                nested = inner_io.get_ref();
+            }
+        }
+        contains_kind(std::error::Error::source(current), kind)
+    }
+
+    contains_kind(std::error::Error::source(error), kind)
 }
 
 /// Context passed to provider fetch operations
@@ -1146,6 +1181,48 @@ mod tests {
 
         assert!(error.is_connect(), "expected a connect error: {error:?}");
         assert!(ProviderError::Network(error).is_transport_failure());
+    }
+
+    #[tokio::test]
+    async fn tls_handshake_failure_is_not_a_retainable_transport_failure() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a local ephemeral port should be available");
+        let address = listener
+            .local_addr()
+            .expect("the local listener should expose its address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("the client should connect to the local listener");
+            let mut client_hello_byte = [0_u8; 1];
+            stream
+                .read_exact(&mut client_hello_byte)
+                .await
+                .expect("the TLS client hello should be readable");
+            stream
+                .write_all(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n")
+                .await
+                .expect("the local TLS peer should respond");
+        });
+
+        let error = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(1))
+            .build()
+            .expect("the test client should build")
+            .get(format!("https://{address}/"))
+            .send()
+            .await
+            .expect_err("a plaintext peer must fail the TLS handshake");
+
+        server.await.expect("the local TLS peer should finish");
+        assert!(error.is_connect(), "expected a connect error: {error:?}");
+        assert!(!ProviderError::Network(error).is_transport_failure());
     }
 
     #[tokio::test]
