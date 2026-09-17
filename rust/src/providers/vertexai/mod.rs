@@ -16,8 +16,8 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 
 use crate::core::{
-    FetchContext, LastGoodFailurePolicy, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 /// Vertex AI provider
@@ -369,6 +369,7 @@ impl Provider for VertexAIProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::LastGoodFailurePolicy;
 
     #[test]
     fn access_token_response_accepts_usable_token() {

@@ -624,13 +624,13 @@ fn classify_reqwest_error(error: &reqwest::Error) -> ReqwestFailureClass {
         return ReqwestFailureClass::Terminal;
     }
 
-    // reqwest does not expose a TLS-specific predicate. Rustls surfaces a
-    // failed handshake through the typed InvalidData source in its chain.
-    if has_io_error_kind(error, std::io::ErrorKind::InvalidData) {
-        return ReqwestFailureClass::Terminal;
+    // A connect classification alone is too broad: it also covers protocol
+    // and TLS-handshake failures. Retain only a typed transient socket error.
+    if has_io_error_kind(error, std::io::ErrorKind::ConnectionRefused) {
+        return ReqwestFailureClass::Connect;
     }
 
-    ReqwestFailureClass::Connect
+    ReqwestFailureClass::Terminal
 }
 
 fn has_io_error_kind(error: &reqwest::Error, kind: std::io::ErrorKind) -> bool {

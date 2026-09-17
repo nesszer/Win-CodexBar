@@ -669,12 +669,10 @@ pub(super) fn preserve_last_good_transient_failure(
     guard: &mut AppState,
     id: ProviderId,
     snapshot: ProviderUsageSnapshot,
+    error: &codexbar::core::ProviderError,
 ) -> ProviderUsageSnapshot {
-    let policy = snapshot
-        .error
-        .as_deref()
-        .map(|error| instantiate_provider(id).last_good_failure_policy(error));
-    preserve_last_good_transient_failure_with_policy(guard, id, snapshot, policy)
+    let policy = instantiate_provider(id).last_good_failure_policy_for_error(error);
+    preserve_last_good_transient_failure_with_policy(guard, id, snapshot, Some(policy))
 }
 
 fn preserve_last_good_transient_failure_with_policy(
@@ -688,7 +686,7 @@ fn preserve_last_good_transient_failure_with_policy(
         return snapshot;
     };
 
-    let policy = policy.unwrap_or_else(|| instantiate_provider(id).last_good_failure_policy(error));
+    let policy = policy.unwrap_or(codexbar::core::LastGoodFailurePolicy::Replace);
     if policy == codexbar::core::LastGoodFailurePolicy::Replace {
         guard.transient_provider_failure_counts.remove(&id);
         return snapshot;

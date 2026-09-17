@@ -8,8 +8,8 @@ use crate::state::AppState;
 use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
 use codexbar::core::{
-    FetchContext, ProviderAccountData, ProviderFetchResult, ProviderId, SourceMode, TokenAccount,
-    instantiate_provider,
+    FetchContext, ProviderAccountData, ProviderError, ProviderFetchResult, ProviderId, SourceMode,
+    TokenAccount, instantiate_provider,
 };
 use codexbar::host::session::launch_block_reason;
 use codexbar::settings::{ApiKeys, Language, ManualCookies, Settings};
@@ -1065,19 +1065,55 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
     };
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
-    let error = ProviderUsageSnapshot::from_error(
+    let snapshot = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
         "Unauthorized".to_string(),
         codexbar::core::ProviderStateKind::NeedsAuthentication,
     );
+    let error = ProviderError::AuthRequired;
     let mut state = crate::state::AppState::new();
     state.provider_cache.push(good.clone());
 
     let preserved = super::providers::preserve_last_good_transient_failure(
         &mut state,
         ProviderId::Claude,
-        error,
+        snapshot,
+        &error,
+    );
+
+    assert_eq!(preserved.error, None);
+    assert_eq!(preserved.primary.used_percent, 42.0);
+}
+
+#[test]
+fn codex_transient_transport_failure_helper_uses_typed_policy() {
+    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        cost: None,
+        wayfinder_usage: None,
+        source_label: "OAuth".to_string(),
+        has_successful_claude_cli_quota: false,
+        pace_authoritative: true,
+        account_identity: None,
+    };
+    let good =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+    let snapshot = ProviderUsageSnapshot::from_error(
+        ProviderId::Codex,
+        &metadata,
+        "Timeout".to_string(),
+        codexbar::core::ProviderStateKind::Unknown,
+    );
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good);
+
+    let preserved = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Codex,
+        snapshot,
+        &ProviderError::Timeout,
     );
 
     assert_eq!(preserved.error, None);
@@ -1105,6 +1141,7 @@ fn claude_repeated_auth_failure_surfaces_error() {
         codexbar::core::ProviderStateKind::NeedsAuthentication,
     );
     let second_error = first_error.clone();
+    let failure = ProviderError::AuthRequired;
     let mut state = crate::state::AppState::new();
     state.provider_cache.push(good);
 
@@ -1112,11 +1149,13 @@ fn claude_repeated_auth_failure_surfaces_error() {
         &mut state,
         ProviderId::Claude,
         first_error,
+        &failure,
     );
     let surfaced = super::providers::preserve_last_good_transient_failure(
         &mut state,
         ProviderId::Claude,
         second_error,
+        &failure,
     );
 
     assert!(surfaced.error.is_some());
@@ -1143,6 +1182,7 @@ fn claude_cloudflare_challenge_retains_prior_usage_while_surfaceing_guidance() {
         challenge.to_string(),
         codexbar::core::ProviderStateKind::Unknown,
     );
+    let failure = ProviderError::Other(challenge.to_string());
     let mut state = crate::state::AppState::new();
     state.provider_cache.push(good);
 
@@ -1150,6 +1190,7 @@ fn claude_cloudflare_challenge_retains_prior_usage_while_surfaceing_guidance() {
         &mut state,
         ProviderId::Claude,
         error,
+        &failure,
     );
 
     assert_eq!(surfaced.error, None);
@@ -1164,6 +1205,7 @@ fn claude_cloudflare_challenge_retains_prior_usage_while_surfaceing_guidance() {
                 challenge.to_string(),
                 codexbar::core::ProviderStateKind::Unknown,
             ),
+            &failure,
         )
         .error
         .as_deref(),
@@ -1192,6 +1234,8 @@ fn claude_cloudflare_challenge_keeps_prior_usage_when_guidance_surfaces() {
         codexbar::providers::claude::CLOUDFLARE_CHALLENGE_MESSAGE.to_string(),
         codexbar::core::ProviderStateKind::Unknown,
     );
+    let failure =
+        ProviderError::Other(codexbar::providers::claude::CLOUDFLARE_CHALLENGE_MESSAGE.to_string());
     let mut state = crate::state::AppState::new();
     state.provider_cache.push(good.clone());
 
@@ -1199,11 +1243,13 @@ fn claude_cloudflare_challenge_keeps_prior_usage_when_guidance_surfaces() {
         &mut state,
         ProviderId::Claude,
         error.clone(),
+        &failure,
     );
     let second = super::providers::preserve_last_good_transient_failure(
         &mut state,
         ProviderId::Claude,
         error,
+        &failure,
     );
 
     assert_eq!(first.error, None);
@@ -1236,6 +1282,7 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
         "Parse error: Empty output from Claude CLI".to_string(),
         codexbar::core::ProviderStateKind::Unknown,
     );
+    let failure = ProviderError::Parse("Empty output from Claude CLI".to_string());
     let mut state = crate::state::AppState::new();
     state.provider_cache.push(good.clone());
 
@@ -1243,9 +1290,14 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
         &mut state,
         ProviderId::Claude,
         err.clone(),
+        &failure,
     );
-    let second =
-        super::providers::preserve_last_good_transient_failure(&mut state, ProviderId::Claude, err);
+    let second = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        err,
+        &failure,
+    );
 
     assert_eq!(first.error, None);
     assert_eq!(first.primary.used_percent, 17.0);
@@ -1276,11 +1328,18 @@ fn claude_hard_credentials_missing_does_not_preserve_stale() {
             .to_string(),
         codexbar::core::ProviderStateKind::NeedsAuthentication,
     );
+    let failure = ProviderError::OAuth(
+        "Claude OAuth credentials not found. Run `claude` to authenticate.".to_string(),
+    );
     let mut state = crate::state::AppState::new();
     state.provider_cache.push(good);
 
-    let out =
-        super::providers::preserve_last_good_transient_failure(&mut state, ProviderId::Claude, err);
+    let out = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        err,
+        &failure,
+    );
     assert!(out.error.is_some());
     assert_eq!(
         out.error_state,

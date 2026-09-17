@@ -14,8 +14,8 @@ use reqwest::Url;
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, LastGoodFailurePolicy, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::settings::ApiKeys;
 
@@ -570,6 +570,7 @@ fn ollama_api_key_error() -> ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::LastGoodFailurePolicy;
 
     #[tokio::test]
     async fn settings_fetch_follows_same_origin_redirects() {

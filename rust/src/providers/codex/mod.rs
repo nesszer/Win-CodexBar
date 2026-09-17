@@ -12,8 +12,8 @@ use async_trait::async_trait;
 use std::os::windows::process::CommandExt;
 
 use crate::core::{
-    FetchContext, LastGoodFailurePolicy, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, SourceMode,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
+    SourceMode,
 };
 
 pub use api::CodexApi;
@@ -187,6 +187,7 @@ fn detect_codex_version() -> Option<String> {
 #[cfg(test)]
 mod pat_strategy_tests {
     use super::*;
+    use crate::core::LastGoodFailurePolicy;
 
     #[test]
     fn pat_auto_fallback_is_narrow() {

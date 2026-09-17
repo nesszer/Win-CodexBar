@@ -10,8 +10,8 @@ mod token_cost;
 use async_trait::async_trait;
 
 use crate::core::{
-    CostSnapshot, FetchContext, LastGoodFailurePolicy, Provider, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
+    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
 pub use api::CursorApi;
@@ -267,7 +267,7 @@ impl Provider for CursorProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::FetchContext;
+    use crate::core::{FetchContext, LastGoodFailurePolicy};
 
     #[tokio::test]
     async fn cli_mode_does_not_return_unsupported_source() {
