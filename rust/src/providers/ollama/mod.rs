@@ -412,12 +412,8 @@ impl Provider for OllamaProvider {
         false
     }
 
-    fn last_good_failure_policy_for_error(&self, error: &ProviderError) -> LastGoodFailurePolicy {
-        if error.is_transport_failure() {
-            LastGoodFailurePolicy::Preserve
-        } else {
-            LastGoodFailurePolicy::Replace
-        }
+    fn retains_last_good_on_transport_failure(&self) -> bool {
+        true
     }
 }
 
