@@ -601,6 +601,12 @@ impl ProviderError {
 }
 
 fn is_safe_reqwest_transport_error(error: &reqwest::Error) -> bool {
+    // A response-body failure can also carry the timeout flag when the peer
+    // stalls while the body is being read. It is terminal for the snapshot,
+    // because retaining last-good data would hide a truncated response.
+    if error.is_body() || error.is_decode() {
+        return false;
+    }
     if error.is_timeout() {
         return true;
     }
@@ -1187,6 +1193,61 @@ mod tests {
 
         server.await.expect("the local response task should finish");
         assert!(error.is_decode(), "expected a body decode error: {error:?}");
+        assert!(!ProviderError::Network(error).is_transport_failure());
+    }
+
+    #[tokio::test]
+    async fn response_body_timeout_is_not_a_retainable_transport_failure() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a local ephemeral port should be available");
+        let address = listener
+            .local_addr()
+            .expect("the local listener should expose its address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("the client should connect to the local listener");
+            let mut request = [0_u8; 1024];
+            stream
+                .read(&mut request)
+                .await
+                .map(|_| ())
+                .expect("the local request should be readable");
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 32\r\nConnection: keep-alive\r\n\r\npartial",
+                )
+                .await
+                .expect("the local response should be writable");
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        });
+
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .expect("the test client should build")
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .expect("the response headers should be valid");
+        let error = response
+            .bytes()
+            .await
+            .expect_err("the stalled response body should time out");
+
+        server.abort();
+        assert!(
+            server.await.is_err(),
+            "the stalled server should be cancelled"
+        );
+        assert!(error.is_decode(), "expected a body decode error: {error:?}");
+        assert!(error.is_timeout(), "expected a body timeout: {error:?}");
         assert!(!ProviderError::Network(error).is_transport_failure());
     }
 
