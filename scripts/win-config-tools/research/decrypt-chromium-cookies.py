@@ -30,6 +30,9 @@ SESSION_COOKIE_NAMES = frozenset(
         "better-auth.session_token",
     }
 )
+NORMALIZED_SESSION_COOKIE_NAMES = frozenset(
+    name.casefold() for name in SESSION_COOKIE_NAMES
+)
 
 
 def default_candidates():
@@ -173,7 +176,7 @@ def is_commandcode_host(host: str) -> bool:
 
 
 def is_session_cookie_name(name: str) -> bool:
-    return name in SESSION_COOKIE_NAMES
+    return name.casefold() in NORMALIZED_SESSION_COOKIE_NAMES
 
 
 def snapshot_cookie_database(cookies_db: Path, snapshot: Path) -> None:
