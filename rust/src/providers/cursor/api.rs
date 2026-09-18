@@ -5,10 +5,16 @@
 use crate::core::{CostSnapshot, NamedRateWindow, ProviderError, RateWindow};
 use crate::providers::browser_cookie_header;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
+use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 const BASE_URL: &str = "https://cursor.com";
 const COOKIE_DOMAINS: [&str; 2] = ["cursor.com", "cursor.sh"];
+const TEAM_LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
+const TEAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const TEAM_PAGE_SIZE: usize = 50;
+const MAX_TEAM_PAGES: u32 = 20;
 
 #[derive(Debug)]
 pub struct CursorUsageResult {
@@ -58,7 +64,22 @@ impl CursorApi {
 
         let usage_summary = usage_result?;
         let user_info = user_result.ok();
-        let mut result = self.build_result(usage_summary, user_info)?;
+        let team_budget = if usage_summary.is_team_plan() {
+            if let Some(email) = user_info.as_ref().and_then(UserInfo::verified_email) {
+                // Team spend is optional enrichment. A failed or ambiguous lookup must
+                // leave the already-valid usage-summary result available.
+                self.fetch_team_budget(cookie_header, email)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let mut result =
+            self.build_result_with_team_budget(usage_summary, user_info, team_budget)?;
         result.grok_bot = sand_result.ok().flatten();
         Ok(result)
     }
@@ -157,10 +178,120 @@ impl CursorApi {
             .map_err(|e| ProviderError::Parse(e.to_string()))
     }
 
+    async fn fetch_team_budget(
+        &self,
+        cookie_header: &str,
+        email: &str,
+    ) -> Result<Option<CursorMemberBudget>, ProviderError> {
+        let deadline = Instant::now() + TEAM_LOOKUP_TIMEOUT;
+        let teams: CursorTeams = self
+            .fetch_team_dashboard("teams", serde_json::json!({}), cookie_header, deadline)
+            .await?;
+        let Some(team_id) = teams.selected_id(cookie_header) else {
+            return Ok(None);
+        };
+
+        let mut expected_pages = None;
+        let mut candidate = None;
+        for page in 1..=MAX_TEAM_PAGES {
+            let spend: CursorTeamSpend = self
+                .fetch_team_dashboard(
+                    "get-team-spend",
+                    serde_json::json!({
+                        "teamId": team_id,
+                        "page": page,
+                        "pageSize": TEAM_PAGE_SIZE,
+                        "sortBy": "name",
+                        "sortDirection": "asc"
+                    }),
+                    cookie_header,
+                    deadline,
+                )
+                .await?;
+            let Some(total_pages) = spend
+                .total_pages
+                .filter(|pages| (1..=MAX_TEAM_PAGES).contains(pages))
+            else {
+                return Ok(None);
+            };
+            if expected_pages.is_some_and(|expected| expected != total_pages)
+                || spend.team_member_spend.is_empty()
+                || spend.team_member_spend.len() > TEAM_PAGE_SIZE
+                || (page != total_pages && spend.team_member_spend.len() != TEAM_PAGE_SIZE)
+            {
+                return Ok(None);
+            }
+            expected_pages = Some(total_pages);
+
+            match select_member_budget(&spend.team_member_spend, email) {
+                Err(()) => return Ok(None),
+                Ok(Some(page_candidate)) => {
+                    if candidate.is_some() {
+                        return Ok(None);
+                    }
+                    candidate = Some(page_candidate);
+                }
+                Ok(None) => {}
+            }
+
+            if page == total_pages {
+                return Ok(candidate);
+            }
+        }
+        Ok(None)
+    }
+
+    async fn fetch_team_dashboard<Response: DeserializeOwned>(
+        &self,
+        endpoint: &str,
+        body: serde_json::Value,
+        cookie_header: &str,
+        deadline: Instant,
+    ) -> Result<Response, ProviderError> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(ProviderError::Timeout);
+        }
+        let response = self
+            .client
+            .post(format!("{BASE_URL}/api/dashboard/{endpoint}"))
+            .header("Cookie", cookie_header)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .header("Origin", BASE_URL)
+            .header("Referer", format!("{BASE_URL}/dashboard"))
+            .json(&body)
+            .timeout(remaining.min(TEAM_REQUEST_TIMEOUT))
+            .send()
+            .await?;
+        if response.status() == 401 || response.status() == 403 {
+            return Err(ProviderError::AuthRequired);
+        }
+        if !response.status().is_success() {
+            return Err(ProviderError::Other(format!(
+                "Cursor team API returned {}",
+                response.status()
+            )));
+        }
+        response
+            .json()
+            .await
+            .map_err(|error| ProviderError::Parse(error.to_string()))
+    }
+
     fn build_result(
         &self,
         summary: UsageSummary,
         user_info: Option<UserInfo>,
+    ) -> Result<CursorUsageResult, ProviderError> {
+        self.build_result_with_team_budget(summary, user_info, None)
+    }
+
+    fn build_result_with_team_budget(
+        &self,
+        summary: UsageSummary,
+        user_info: Option<UserInfo>,
+        team_budget: Option<CursorMemberBudget>,
     ) -> Result<CursorUsageResult, ProviderError> {
         let billing_end = summary
             .billing_cycle_end
@@ -168,7 +299,31 @@ impl CursorApi {
             .and_then(|s| parse_iso_date(s));
 
         let (percent_used, secondary, model_specific, cost_snapshot) =
-            if let Some(individual) = &summary.individual_usage {
+            if let Some(team_budget) = team_budget.filter(|_| summary.is_team_plan()) {
+                let percent = clamp_percent(team_budget.used_usd / team_budget.limit_usd * 100.0);
+                let cost = Self::on_demand_cost(
+                    summary
+                        .individual_usage
+                        .as_ref()
+                        .and_then(|individual| individual.on_demand.as_ref()),
+                    billing_end,
+                )
+                .or_else(|| {
+                    summary
+                        .team_usage
+                        .as_ref()
+                        .and_then(|team| Self::on_demand_cost(team.on_demand.as_ref(), billing_end))
+                })
+                .or_else(|| {
+                    Some(Self::plan_cost(
+                        team_budget.used_usd,
+                        team_budget.limit_usd,
+                        summary.billing_cycle_start.as_deref(),
+                        billing_end,
+                    ))
+                });
+                (percent, None, None, cost)
+            } else if let Some(individual) = &summary.individual_usage {
                 if let Some(plan) = &individual.plan {
                     let used_cents = plan.used.unwrap_or(0) as f64;
                     let limit_cents = plan
@@ -202,18 +357,12 @@ impl CursorApi {
                         })
                         .unwrap_or_else(|| {
                             // Plan-included spend (cents → USD) when on-demand is off.
-                            let mut cost = CostSnapshot::new(
+                            Self::plan_cost(
                                 used_cents / 100.0,
-                                "USD",
-                                plan_period_label(summary.billing_cycle_start.as_deref()),
-                            );
-                            if limit_cents > 0.0 {
-                                cost = cost.with_limit(limit_cents / 100.0);
-                            }
-                            if let Some(reset) = billing_end {
-                                cost = cost.with_resets_at(reset);
-                            }
-                            cost
+                                limit_cents / 100.0,
+                                summary.billing_cycle_start.as_deref(),
+                                billing_end,
+                            )
                         });
 
                     (percent, secondary, model_specific, Some(cost))
@@ -260,6 +409,22 @@ impl CursorApi {
             plan_type,
             grok_bot: None,
         })
+    }
+
+    fn plan_cost(
+        used_usd: f64,
+        limit_usd: f64,
+        billing_cycle_start: Option<&str>,
+        billing_end: Option<DateTime<Utc>>,
+    ) -> CostSnapshot {
+        let mut cost = CostSnapshot::new(used_usd, "USD", plan_period_label(billing_cycle_start));
+        if limit_usd > 0.0 {
+            cost = cost.with_limit(limit_usd);
+        }
+        if let Some(reset) = billing_end {
+            cost = cost.with_resets_at(reset);
+        }
+        cost
     }
 
     fn on_demand_cost(
@@ -345,6 +510,122 @@ struct UsageSummary {
     is_unlimited: Option<bool>,
     individual_usage: Option<IndividualUsage>,
     team_usage: Option<TeamUsage>,
+}
+
+impl UsageSummary {
+    fn is_team_plan(&self) -> bool {
+        matches!(
+            self.membership_type
+                .as_deref()
+                .map(|membership| membership.to_ascii_lowercase())
+                .as_deref(),
+            Some("enterprise" | "business" | "team" | "teams")
+        ) || self
+            .limit_type
+            .as_deref()
+            .is_some_and(|limit_type| limit_type.eq_ignore_ascii_case("team"))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CursorTeamSpend {
+    team_member_spend: Vec<CursorTeamMember>,
+    total_pages: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CursorTeamMember {
+    email: Option<String>,
+    overall_spend_cents: Option<f64>,
+    effective_per_user_limit_dollars: Option<f64>,
+    monthly_limit_dollars: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CursorMemberBudget {
+    used_usd: f64,
+    limit_usd: f64,
+}
+
+impl CursorTeamMember {
+    fn budget(&self) -> Option<CursorMemberBudget> {
+        let used_usd = self.overall_spend_cents? / 100.0;
+        let limit_usd = self
+            .effective_per_user_limit_dollars
+            .or(self.monthly_limit_dollars)?;
+        (used_usd.is_finite() && used_usd >= 0.0 && limit_usd.is_finite() && limit_usd > 0.0)
+            .then_some(CursorMemberBudget {
+                used_usd,
+                limit_usd,
+            })
+    }
+}
+
+fn select_member_budget(
+    members: &[CursorTeamMember],
+    email: &str,
+) -> Result<Option<CursorMemberBudget>, ()> {
+    let mut candidate = None;
+    for member in members {
+        if member
+            .email
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|member_email| member_email.eq_ignore_ascii_case(email))
+        {
+            // More than one matching member, or an invalid matching budget, is
+            // ambiguous and must not select an arbitrary record.
+            if candidate.is_some() {
+                return Err(());
+            }
+            candidate = Some(member.budget().ok_or(())?);
+        }
+    }
+    Ok(candidate)
+}
+
+#[derive(Debug, Deserialize)]
+struct CursorTeams {
+    teams: Vec<CursorTeam>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CursorTeam {
+    id: i64,
+}
+
+impl CursorTeams {
+    fn selected_id(&self, cookie_header: &str) -> Option<i64> {
+        let ids: HashSet<i64> = self
+            .teams
+            .iter()
+            .map(|team| team.id)
+            .filter(|id| *id > 0)
+            .collect();
+        if ids.len() != self.teams.len() {
+            return None;
+        }
+
+        for name in ["portal-selected-team-id", "team_id"] {
+            let values: Vec<&str> = cookie_header
+                .split(';')
+                .filter_map(|part| {
+                    let (cookie_name, value) = part.trim().split_once('=')?;
+                    (cookie_name.trim() == name).then_some(value.trim())
+                })
+                .collect();
+            if !values.is_empty() {
+                let [value] = values.as_slice() else {
+                    return None;
+                };
+                let id = value.parse::<i64>().ok().filter(|id| ids.contains(id))?;
+                return Some(id);
+            }
+        }
+        (ids.len() == 1).then(|| ids.into_iter().next()).flatten()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -459,6 +740,17 @@ struct UserInfo {
     created_at: Option<String>,
     updated_at: Option<String>,
     picture: Option<String>,
+}
+
+impl UserInfo {
+    /// The email comes from the authenticated `/api/auth/me` response, so it is
+    /// the only identity allowed to select a team member budget.
+    fn verified_email(&self) -> Option<&str> {
+        self.email
+            .as_deref()
+            .map(str::trim)
+            .filter(|email| !email.is_empty())
+    }
 }
 
 // --- Helper functions ---
@@ -791,5 +1083,134 @@ mod tests {
         let result = api().build_result(summary, None).unwrap();
         assert!((result.primary.used_percent - 50.0).abs() < 0.01);
         assert_eq!(result.cost.unwrap().used, 50.0);
+    }
+
+    #[test]
+    fn team_member_budget_preserves_true_zero_and_rejects_invalid_limits() {
+        let zero: CursorTeamMember = serde_json::from_str(
+            r#"{"overallSpendCents":0,"effectivePerUserLimitDollars":150,"monthlyLimitDollars":200}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            zero.budget(),
+            Some(CursorMemberBudget {
+                used_usd: 0.0,
+                limit_usd: 150.0
+            })
+        );
+        let monthly_fallback: CursorTeamMember =
+            serde_json::from_str(r#"{"overallSpendCents":1312,"monthlyLimitDollars":150}"#)
+                .unwrap();
+        assert_eq!(
+            monthly_fallback.budget(),
+            Some(CursorMemberBudget {
+                used_usd: 13.12,
+                limit_usd: 150.0
+            })
+        );
+        assert_eq!(
+            select_member_budget(&[monthly_fallback], "missing@example.com"),
+            Ok(None)
+        );
+        let duplicate = CursorTeamMember {
+            email: Some("member@example.com".into()),
+            overall_spend_cents: Some(1312.0),
+            effective_per_user_limit_dollars: Some(150.0),
+            monthly_limit_dollars: None,
+        };
+        assert!(
+            select_member_budget(&[duplicate.clone(), duplicate], "member@example.com").is_err()
+        );
+
+        for json in [
+            r#"{"overallSpendCents":1312,"effectivePerUserLimitDollars":0,"monthlyLimitDollars":150}"#,
+            r#"{"overallSpendCents":-1,"monthlyLimitDollars":150}"#,
+            r#"{"overallSpendCents":1312,"monthlyLimitDollars":-1}"#,
+        ] {
+            let member: CursorTeamMember = serde_json::from_str(json).unwrap();
+            assert!(
+                member.budget().is_none(),
+                "invalid budget must fail closed: {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn team_selection_requires_one_valid_identity() {
+        let teams: CursorTeams =
+            serde_json::from_str(r#"{"teams":[{"id":11},{"id":22}]}"#).unwrap();
+        assert_eq!(
+            teams.selected_id("auth=fixture; portal-selected-team-id=22"),
+            Some(22)
+        );
+        assert_eq!(teams.selected_id("auth=fixture"), None);
+        assert_eq!(
+            teams.selected_id("auth=fixture; portal-selected-team-id=99; team_id=11"),
+            None
+        );
+        assert_eq!(
+            teams.selected_id("auth=fixture; team_id=11; team_id=22"),
+            None
+        );
+
+        let single: CursorTeams = serde_json::from_str(r#"{"teams":[{"id":22}]}"#).unwrap();
+        assert_eq!(single.selected_id("auth=fixture"), Some(22));
+    }
+
+    #[test]
+    fn member_lookup_requires_nonempty_authenticated_email() {
+        for email in [None, Some(String::new()), Some("  ".to_string())] {
+            let user = UserInfo {
+                email,
+                email_verified: None,
+                name: None,
+                sub: None,
+                created_at: None,
+                updated_at: None,
+                picture: None,
+            };
+            assert!(user.verified_email().is_none());
+        }
+    }
+
+    #[test]
+    fn verified_team_budget_replaces_summary_plan_and_keeps_zero_summary_fallback() {
+        let summary = parse_summary(
+            r#"{
+                "billingCycleStart":"2026-09-01T00:00:00Z",
+                "billingCycleEnd":"2026-10-01T00:00:00Z",
+                "membershipType":"enterprise",
+                "individualUsage":{"plan":{"used":0,"limit":2000,"totalPercentUsed":0}}
+            }"#,
+        );
+        let result = api()
+            .build_result_with_team_budget(
+                summary,
+                None,
+                Some(CursorMemberBudget {
+                    used_usd: 13.12,
+                    limit_usd: 150.0,
+                }),
+            )
+            .unwrap();
+        assert!((result.primary.used_percent - 8.7466666667).abs() < 0.00001);
+        let cost = result.cost.expect("verified member budget cost");
+        assert!((cost.used - 13.12).abs() < 0.00001);
+        assert_eq!(cost.limit, Some(150.0));
+
+        let fallback_summary = parse_summary(
+            r#"{
+                "billingCycleStart":"2026-09-01T00:00:00Z",
+                "billingCycleEnd":"2026-10-01T00:00:00Z",
+                "membershipType":"enterprise",
+                "individualUsage":{"plan":{"used":0,"limit":2000,"totalPercentUsed":0}}
+            }"#,
+        );
+        let fallback = api().build_result(fallback_summary, None).unwrap();
+        assert_eq!(fallback.primary.used_percent, 0.0);
+        assert_eq!(
+            fallback.cost.expect("summary fallback cost").limit,
+            Some(20.0)
+        );
     }
 }
