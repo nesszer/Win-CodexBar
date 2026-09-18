@@ -131,12 +131,22 @@ function pctClass(used) {
 function visibleWindows(windows) {
   return (windows || []).filter(w => w.idle !== true);
 }
+function windowPercent(w, showUsed) {
+  if (w && w.usageKnown === false) return null;
+  const raw = showUsed ? w.usedPercent : (w.remainingPercent ?? (100 - w.usedPercent));
+  return Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : null;
+}
 function windowRow(w) {
-  const used = Number.isFinite(w.usedPercent) ? Math.max(0, Math.min(100, w.usedPercent)) : 0;
+  const showUsed = Boolean(state.snapshot && state.snapshot.host && state.snapshot.host.usageBarsShowUsed);
+  const pct = windowPercent(w, showUsed);
+  const suffix = showUsed ? "used" : "left";
+  const value = pct === null ? "unknown" : pct.toFixed(0) + "% " + suffix;
+  const width = pct === null ? 0 : pct;
+  const ariaNow = pct === null ? "" : ' aria-valuenow="' + width + '"';
   return '<div class="wrow">' +
     '<span class="wlabel" title="' + esc(w.label) + '">' + esc(w.label) + "</span>" +
-    '<span class="' + pctClass(used) + '"><i style="width:' + used.toFixed(1) + '%"></i></span>' +
-    '<span class="wpct">' + used.toFixed(0) + "%</span>" +
+    '<span class="' + (pct === null ? "bar unknown" : pctClass(pct)) + '" role="progressbar" aria-label="' + esc(w.label || "Usage") + '" aria-valuemin="0" aria-valuemax="100" aria-valuetext="' + esc(value) + '"' + ariaNow + '><i style="width:' + width.toFixed(1) + '%"></i></span>' +
+    '<span class="wpct">' + esc(value) + "</span>" +
     '<span class="wreset">' + esc(untilTime(w.resetAt)) + "</span></div>";
 }
 function iconHtml(id, name) {
