@@ -956,6 +956,7 @@ fn test_provider_configs_roundtrip() {
     settings.set_historical_tracking(ProviderId::Codex, true);
     settings.set_avoid_keychain_prompts(ProviderId::Claude, true);
     settings.set_auto_resume_after_quota_reset(ProviderId::Codex, true);
+    settings.set_seat_credit_entitlement(ProviderId::Copilot, Some(300.0));
 
     let json = serde_json::to_string(&settings).unwrap();
     // The legacy flat fields must NOT appear in serialized output.
@@ -984,6 +985,10 @@ fn test_provider_configs_roundtrip() {
     assert!(loaded.historical_tracking(ProviderId::Codex));
     assert!(loaded.avoid_keychain_prompts(ProviderId::Claude));
     assert!(loaded.auto_resume_after_quota_reset(ProviderId::Codex));
+    assert_eq!(
+        loaded.seat_credit_entitlement(ProviderId::Copilot),
+        Some(300.0)
+    );
     assert_eq!(
         loaded.provider_configs.get(&ProviderId::Codex),
         settings.provider_configs.get(&ProviderId::Codex)

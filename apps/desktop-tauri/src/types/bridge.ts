@@ -261,6 +261,8 @@ export interface SettingsSnapshot {
   claudeAllowReadingClaudeCodeCredentials: boolean;
   /** Alibaba Token Plan region: cn | intl | cn-personal | intl-personal. */
   alibabaTokenPlanRegion: string;
+  /** Optional user-entered Copilot seat AI-credit allowance. */
+  copilotSeatCreditEntitlement?: number | null;
   /** Optional work-week length [2,6] for session-equivalent weekly forecast. */
   weeklyProgressWorkDays?: number | null;
   /** How cost is rendered on provider cards (#2976). */
@@ -341,6 +343,8 @@ export interface SettingsUpdate {
   promoteTrayIcon?: boolean;
   claudeDailyRoutinesUsageVisible?: boolean;
   alibabaTokenPlanRegion?: string;
+  /** Optional user-entered Copilot seat AI-credit allowance; null clears it. */
+  copilotSeatCreditEntitlement?: number | null;
   weeklyProgressWorkDays?: number | null;
   costSummaryDisplayStyle?: CostSummaryDisplayStyle;
   openCodexUsageLogsEnabled?: boolean;

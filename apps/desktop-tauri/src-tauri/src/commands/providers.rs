@@ -208,6 +208,7 @@ pub(crate) fn build_fetch_context(
         manual_cookie_header: cookie_header,
         api_key,
         workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
+        seat_credit_entitlement: settings.seat_credit_entitlement(id),
         api_region: (!api_region.is_empty()).then_some(api_region),
         gateway_url,
         auto_prefer_web,

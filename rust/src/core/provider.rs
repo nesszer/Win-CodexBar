@@ -689,6 +689,10 @@ pub struct FetchContext {
     /// Optional provider workspace/project scope from persisted settings.
     pub workspace_id: Option<String>,
 
+    /// Optional Copilot seat AI-credit allowance supplied by the app settings.
+    /// The provider keeps the credit counter unknown when this is absent.
+    pub seat_credit_entitlement: Option<f64>,
+
     /// Optional provider API/web region from persisted settings.
     pub api_region: Option<String>,
 
@@ -717,6 +721,7 @@ impl Default for FetchContext {
             manual_cookie_header: None,
             api_key: None,
             workspace_id: None,
+            seat_credit_entitlement: None,
             api_region: None,
             gateway_url: None,
             auto_prefer_web: false,

@@ -954,6 +954,23 @@ impl Settings {
         self.provider_config_mut(id).workspace_id = Some(value.into());
     }
 
+    /// Optional user-entered allowance for Copilot seat AI credits.
+    ///
+    /// GitHub reports the absolute `credits_used` counter but does not expose
+    /// a documented included-credit ceiling, so callers must keep an absent
+    /// or non-positive value as unknown rather than inventing a denominator.
+    pub fn seat_credit_entitlement(&self, id: ProviderId) -> Option<f64> {
+        self.provider_configs
+            .get(&id)
+            .and_then(|config| config.seat_credit_entitlement)
+            .filter(|value| value.is_finite() && *value > 0.0)
+    }
+
+    pub fn set_seat_credit_entitlement(&mut self, id: ProviderId, value: Option<f64>) {
+        self.provider_config_mut(id).seat_credit_entitlement =
+            value.filter(|value| value.is_finite() && *value > 0.0);
+    }
+
     /// Wayfinder gateway URL, defaulting to the local loopback gateway.
     pub fn gateway_url(&self, id: ProviderId) -> &str {
         self.provider_configs

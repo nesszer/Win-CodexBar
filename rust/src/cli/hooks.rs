@@ -291,6 +291,7 @@ async fn hooks_watch_observation(
         manual_cookie_header: None,
         api_key: None,
         workspace_id: (!workspace.is_empty()).then(|| workspace.to_string()),
+        seat_credit_entitlement: settings.seat_credit_entitlement(provider_id),
         api_region: (!region.is_empty()).then(|| region.to_string()),
         gateway_url: (!gateway.is_empty()).then(|| gateway.to_string()),
         auto_prefer_web: false,

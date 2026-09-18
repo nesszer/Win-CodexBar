@@ -643,6 +643,7 @@ pub struct SettingsSnapshot {
     claude_daily_routines_usage_visible: bool,
     claude_allow_reading_claude_code_credentials: bool,
     alibaba_token_plan_region: String,
+    copilot_seat_credit_entitlement: Option<f64>,
     weekly_progress_work_days: Option<u8>,
     cost_summary_display_style: &'static str,
     open_codex_usage_logs_enabled: bool,
@@ -762,6 +763,7 @@ impl From<Settings> for SettingsSnapshot {
             claude_allow_reading_claude_code_credentials: settings
                 .claude_allow_reading_claude_code_credentials,
             alibaba_token_plan_region: settings.alibaba_token_plan_region,
+            copilot_seat_credit_entitlement: settings.seat_credit_entitlement(ProviderId::Copilot),
             weekly_progress_work_days: settings.weekly_progress_work_days,
             cost_summary_display_style: cost_summary_display_style_label(
                 settings.cost_summary_display_style,
