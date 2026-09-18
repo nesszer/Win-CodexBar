@@ -6,7 +6,9 @@ mod pending_range;
 mod reconciliation;
 use cache_days::rebuild_cache_days;
 use logical_target::*;
-use pending_range::{CodexPendingScanContext, codex_cache_has_validated_state};
+use pending_range::{
+    CodexPendingScanContext, codex_cache_has_validated_state, codex_only_unresolved_forks_pending,
+};
 use reconciliation::*;
 
 fn summary_from_cached_report(
@@ -397,10 +399,24 @@ impl CostScanner {
         cache.codex_pending_paths = pending_next;
         cache.codex_scan_incomplete =
             !discovery_complete || is_cancelled(cancel) || !cache.codex_pending_paths.is_empty();
+        let unresolved_only_pending = cache.codex_scan_incomplete
+            && discovery_complete
+            && !is_cancelled(cancel)
+            && codex_only_unresolved_forks_pending(&cache);
         rebuild_cache_days(&mut cache);
         cache.last_scan_unix_ms = now_ms;
         if cache.codex_scan_incomplete {
-            if cache.previous_report.is_none() {
+            if unresolved_only_pending {
+                // Preserve the live, verified daily rows while the unresolved
+                // fork remains queued. Its missing parent affects only that
+                // file, so an old global report would hide healthy new days.
+                cache.previous_report = None;
+                // The healthy files in this range are now validated. Keep the
+                // incomplete flag as the coverage marker while acknowledging
+                // the range so unchanged files stay on the cache fast path.
+                cache.scan_since_key = Some(scan_range.scan_since_key.clone());
+                cache.scan_until_key = Some(scan_range.scan_until_key.clone());
+            } else if cache.previous_report.is_none() {
                 cache.previous_report = established_report_before_scan;
             }
             if !is_cancelled(cancel) {
@@ -408,6 +424,8 @@ impl CostScanner {
                     Some(CodexScanPauseReason::Error(
                         "Codex session source unavailable".to_string(),
                     ))
+                } else if unresolved_only_pending {
+                    None
                 } else if !pruned_paths_pending.is_empty()
                     || (bytes_read_this_refresh == 0 && !cache.codex_pending_paths.is_empty())
                 {
@@ -740,7 +758,9 @@ impl CostScanner {
                 .flatten()
         });
         let codex_forked_from_id = session_metadata.forked_from_id.clone().or_else(|| {
-            cached_identity_matches
+            // A parsed identity makes the metadata authoritative: an absent
+            // billing parent must clear any dependency cached by older parsers.
+            (cached_identity_matches && session_metadata.session_id.is_none())
                 .then(|| cached.as_ref()?.codex_forked_from_id.clone())
                 .flatten()
         });
@@ -760,6 +780,9 @@ impl CostScanner {
                     .as_ref()
                     .zip(entry.codex_forked_from_id.as_ref())
                     .is_some_and(|(current, previous)| current != previous)
+                || (session_metadata.session_id.is_some()
+                    && session_metadata.forked_from_id.is_none()
+                    && entry.codex_forked_from_id.is_some())
         });
         let is_fork = codex_forked_from_id.is_some();
         let fork_baseline = codex_forked_from_id.as_deref().and_then(|parent_id| {

@@ -1057,6 +1057,90 @@ fn session_meta_pre_read_accepts_snake_and_camel_fork_identity() {
 }
 
 #[test]
+fn session_meta_paginated_v2_subagents_have_independent_usage_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("subagent.jsonl");
+    for source in [
+        serde_json::json!({"thread_source": "subagent"}),
+        serde_json::json!({"source": {"subagent": {"thread_spawn": {
+            "parent_thread_id": "parent-id", "depth": 1
+        }}}}),
+    ] {
+        let mut payload = serde_json::json!({
+            "id": "child-id",
+            "session_id": "parent-id",
+            "forked_from_id": "parent-id",
+            "parent_thread_id": "parent-id",
+            "history_mode": "paginated",
+            "subagent_history_start_ordinal": 42,
+            "multi_agent_version": "v2"
+        });
+        payload
+            .as_object_mut()
+            .unwrap()
+            .extend(source.as_object().unwrap().clone());
+        let row = serde_json::json!({
+            "type": "session_meta",
+            "timestamp": "2026-09-17T10:00:00Z",
+            "payload": payload
+        });
+        std::fs::write(&path, format!("{row}\n")).unwrap();
+
+        let metadata = JsonlScanner::read_codex_session_metadata(&path).unwrap();
+        assert_eq!(metadata.session_id.as_deref(), Some("child-id"));
+        assert_eq!(metadata.forked_from_id, None, "source: {source}");
+        assert_eq!(
+            metadata.fork_timestamp.as_deref(),
+            Some("2026-09-17T10:00:00Z")
+        );
+    }
+}
+
+#[test]
+fn session_meta_incomplete_v2_markers_preserve_inherited_fork_accounting() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("fork.jsonl");
+    for markers in [
+        serde_json::json!({"history_mode": "paginated", "multi_agent_version": "v2"}),
+        serde_json::json!({
+            "history_mode": "paginated", "multi_agent_version": "v2", "thread_source": "cli"
+        }),
+        serde_json::json!({"history_mode": "paginated", "thread_source": "subagent"}),
+        serde_json::json!({"multi_agent_version": "v2", "thread_source": "subagent"}),
+        serde_json::json!({
+            "history_mode": "paginated", "multi_agent_version": "v1", "thread_source": "subagent"
+        }),
+        serde_json::json!({
+            "history_mode": "full", "multi_agent_version": "v2", "thread_source": "subagent"
+        }),
+        serde_json::json!({
+            "history_mode": "paginated", "multi_agent_version": "v2",
+            "source": {"subagent": {"thread_spawn": null}}
+        }),
+    ] {
+        let mut payload = serde_json::json!({
+            "id": "child-id",
+            "session_id": "parent-id",
+            "forked_from_id": "parent-id"
+        });
+        payload
+            .as_object_mut()
+            .unwrap()
+            .extend(markers.as_object().unwrap().clone());
+        let row = serde_json::json!({"type": "session_meta", "payload": payload});
+        std::fs::write(&path, format!("{row}\n")).unwrap();
+
+        let metadata = JsonlScanner::read_codex_session_metadata(&path).unwrap();
+        assert_eq!(metadata.session_id.as_deref(), Some("child-id"));
+        assert_eq!(
+            metadata.forked_from_id.as_deref(),
+            Some("parent-id"),
+            "incomplete markers must not opt into independent counters: {markers}"
+        );
+    }
+}
+
+#[test]
 fn legacy_file_usage_json_defaults_fork_metadata() {
     let usage: CostUsageFileUsage = serde_json::from_str(
         r#"{"mtime_unix_ms":0,"size":0,"days":{},"parsed_bytes":null,"last_model":null,"last_totals":null}"#,
@@ -1235,6 +1319,43 @@ fn codex_cache_round_trip_preserves_64_bit_counts_and_rebuilds_legacy_schema() {
     assert!(invalidated.files.is_empty());
     let status = JsonlScanner::load_cache_status(ProviderId::Codex, Some(cache_root));
     assert!(!status.has_days);
+    assert!(status.previous_report.is_none());
+}
+
+#[test]
+fn codex_v1_cache_rebuild_clears_stalled_subagent_refresh_state() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cache = CostUsageCache {
+        codex_scan_incomplete: true,
+        codex_pending_paths: vec!["stalled-subagent.jsonl".to_string()],
+        codex_scan_pause_reason: Some(CodexScanPauseReason::NoProgress),
+        previous_report: Some(CachedCostReport {
+            total_cost_usd: 1.0,
+            input_tokens: 11,
+            cached_tokens: 2,
+            output_tokens: 3,
+            reasoning_tokens: None,
+            sessions_count: 1,
+            updated_at: Some("2026-09-16T10:00:00Z".to_string()),
+            partial: false,
+        }),
+        last_scan_unix_ms: i64::MAX,
+        ..CostUsageCache::default()
+    };
+    JsonlScanner::save_cache(ProviderId::Codex, &mut cache, Some(root.path()));
+    let cache_path = JsonlScanner::cache_path(ProviderId::Codex, Some(root.path()));
+    let mut old: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+    old["codex_cache_schema_version"] = serde_json::json!(1);
+    std::fs::write(&cache_path, serde_json::to_vec(&old).unwrap()).unwrap();
+
+    let rebuilt = JsonlScanner::load_cache(ProviderId::Codex, Some(root.path()));
+    assert!(!rebuilt.codex_scan_incomplete);
+    assert!(rebuilt.codex_pending_paths.is_empty());
+    assert!(rebuilt.codex_scan_pause_reason.is_none());
+    assert!(rebuilt.previous_report.is_none());
+    assert_eq!(rebuilt.last_scan_unix_ms, 0);
+    let status = JsonlScanner::load_cache_status(ProviderId::Codex, Some(root.path()));
     assert!(status.previous_report.is_none());
 }
 

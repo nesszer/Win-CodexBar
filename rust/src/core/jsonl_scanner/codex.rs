@@ -9,9 +9,10 @@ use helpers::{
 };
 use parser::CodexParserState;
 
-/// Persisted Codex cache schema version. Version 0 is any pre-64-bit cache
-/// and must be rebuilt from source logs.
-pub(crate) const CODEX_CACHE_SCHEMA_VERSION: u32 = 1;
+/// Persisted Codex cache schema version. Version 0 predates 64-bit totals;
+/// version 1 can retain a terminal pause after treating a paginated v2
+/// subagent's independent counters as an inherited fork. Rebuild both.
+pub(crate) const CODEX_CACHE_SCHEMA_VERSION: u32 = 2;
 
 /// Whether a persisted Codex cache artifact matches the current schema.
 /// A mismatched artifact (e.g. a pre-64-bit cache from an older release) is
@@ -171,18 +172,34 @@ impl JsonlScanner {
             }
 
             let payload = obj.get("payload").filter(|value| value.is_object());
+            // Desktop v2 subagents fetch inherited context through pagination,
+            // but their token counters start at zero. `forked_from_id` describes
+            // conversation ancestry, not an inherited billing baseline. Keep
+            // legacy/unknown fork formats conservative by requiring all markers.
+            let independent_subagent = payload.is_some_and(|value| {
+                value.get("history_mode").and_then(Value::as_str) == Some("paginated")
+                    && value.get("multi_agent_version").and_then(Value::as_str) == Some("v2")
+                    && (value.get("thread_source").and_then(Value::as_str) == Some("subagent")
+                        || value
+                            .pointer("/source/subagent/thread_spawn")
+                            .is_some_and(Value::is_object))
+            });
             return Ok(CodexSessionMetadata {
                 session_id: session_meta_field(&obj, payload, &["id", "session_id", "sessionId"]),
-                forked_from_id: session_meta_field(
-                    &obj,
-                    payload,
-                    &[
-                        "forked_from_id",
-                        "forkedFromId",
-                        "parent_session_id",
-                        "parentSessionId",
-                    ],
-                ),
+                forked_from_id: if independent_subagent {
+                    None
+                } else {
+                    session_meta_field(
+                        &obj,
+                        payload,
+                        &[
+                            "forked_from_id",
+                            "forkedFromId",
+                            "parent_session_id",
+                            "parentSessionId",
+                        ],
+                    )
+                },
                 fork_timestamp: nonempty_json_string(obj.get("timestamp")).or_else(|| {
                     payload.and_then(|value| nonempty_json_string(value.get("timestamp")))
                 }),

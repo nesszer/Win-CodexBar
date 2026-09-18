@@ -58,8 +58,35 @@ impl CodexPendingScanContext {
         cache: &CostUsageCache,
         is_app_driven: bool,
     ) -> bool {
-        cache.codex_scan_incomplete && cache.codex_scan_pause_reason.is_some() && !is_app_driven
+        if is_app_driven || !cache.codex_scan_incomplete {
+            return false;
+        }
+
+        // A legacy fork whose parent is outside the requested history window
+        // is intentionally unresolved, but it must not freeze unrelated
+        // healthy sessions. Keep retrying that one queued path on scheduled
+        // refreshes. Other source errors and no-progress states remain
+        // foreground-only until an explicit refresh can safely retry them.
+        if matches!(
+            cache.codex_scan_pause_reason,
+            Some(CodexScanPauseReason::NoProgress)
+        ) && codex_only_unresolved_forks_pending(cache)
+        {
+            return false;
+        }
+
+        cache.codex_scan_pause_reason.is_some()
     }
+}
+
+pub(super) fn codex_only_unresolved_forks_pending(cache: &CostUsageCache) -> bool {
+    !cache.codex_pending_paths.is_empty()
+        && cache.codex_pending_paths.iter().all(|path| {
+            cache
+                .files
+                .get(path)
+                .is_some_and(|usage| usage.codex_unresolved_fork_parent)
+        })
 }
 
 pub(super) fn codex_cache_has_validated_state(cache: &CostUsageCache) -> bool {
