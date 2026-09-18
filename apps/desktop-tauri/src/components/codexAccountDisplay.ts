@@ -36,6 +36,38 @@ export function buildCodexAccountDisplayNames(
   return result;
 }
 
+/**
+ * Build the labels rendered by account rows in the tray and Settings.
+ * Privacy mode redacts only the ambient/System account; managed account
+ * labels continue to use the canonical display-name projection.
+ */
+export function buildCodexAccountSurfaceLabels(
+  accounts: readonly CodexAccount[],
+  canonical: Readonly<Record<string, string>> = {},
+  accountOrdinals: Readonly<Record<string, number>> = {},
+  hidePersonalInfo = false,
+  accountWord = "Account",
+): Record<string, string> {
+  const displayNames = buildCodexAccountDisplayNames(accounts, canonical);
+  const stableOrdinals = new Map(
+    [...accounts]
+      .map((account) => account.id)
+      .sort()
+      .map((id, index) => [id, index + 1] as const),
+  );
+  const generic = accountWord.trim() || "Account";
+
+  return Object.fromEntries(
+    accounts.map((account) => {
+      if (hidePersonalInfo && account.source === "ambient") {
+        const ordinal = accountOrdinals[account.id] ?? stableOrdinals.get(account.id) ?? 1;
+        return [account.id, `${generic} ${ordinal}`];
+      }
+      return [account.id, displayNames[account.id] ?? "Workspace"];
+    }),
+  );
+}
+
 export function codexAccountBaseName(account: CodexAccount): string {
   const nickname = account.nickname?.trim();
   const email = account.emailHint?.trim().toLowerCase();

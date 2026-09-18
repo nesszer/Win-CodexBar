@@ -153,6 +153,25 @@ impl CodexAccount {
         self.display_label_base()
     }
 
+    /// Return the label used by a user-facing account surface.
+    ///
+    /// Privacy mode applies to the ambient/System account only. Managed
+    /// accounts retain their existing display names so account actions and
+    /// identity siloing continue to address the same account.
+    pub fn privacy_safe_display_name(
+        &self,
+        hide_personal_info: bool,
+        ordinal: usize,
+        generic_label: &str,
+    ) -> String {
+        if hide_personal_info && self.source == CodexAccountSource::Ambient {
+            let label = generic_label.trim();
+            let label = if label.is_empty() { "Account" } else { label };
+            return format!("{label} {ordinal}");
+        }
+        self.display_name()
+    }
+
     /// Return the user-facing account label without falling back to
     /// credentials, provider identifiers, or filesystem paths.
     fn display_label_base(&self) -> String {
@@ -850,6 +869,33 @@ mod tests {
         assert!(!label.contains("secret-workspace"));
         assert!(!label.contains("secret-subject"));
         assert!(!label.contains("C:/private"));
+    }
+
+    #[test]
+    fn privacy_safe_display_name_hides_system_identity_but_preserves_managed_labels() {
+        let mut system =
+            display_account("11111111-1111-1111-1111-111111111111", "system-workspace");
+        system.source = CodexAccountSource::Ambient;
+        system.nickname = Some("Private System Name".to_string());
+        let mut managed =
+            display_account("22222222-2222-2222-2222-222222222222", "managed-workspace");
+        managed.nickname = Some("Work".to_string());
+
+        let hidden_system = system.privacy_safe_display_name(true, 1, "Account");
+        let hidden_managed = managed.privacy_safe_display_name(true, 2, "Account");
+        assert_eq!(hidden_system, "Account 1");
+        assert!(!hidden_system.contains("@"));
+        assert!(!hidden_system.contains("Private System Name"));
+        assert_eq!(hidden_managed, "user@example.com — Work");
+
+        assert_eq!(
+            system.privacy_safe_display_name(false, 1, "Account"),
+            "user@example.com — Private System Name"
+        );
+        assert_eq!(
+            managed.privacy_safe_display_name(false, 2, "Account"),
+            "user@example.com — Work"
+        );
     }
 
     #[test]
