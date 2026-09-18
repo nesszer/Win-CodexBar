@@ -29,7 +29,18 @@ const MAX_SCAN_DURATION: StdDuration = StdDuration::from_secs(5);
 #[derive(Debug)]
 pub(super) enum SQLiteScan {
     NoDatabases,
+    /// Discovered SQLite files were present, but none had an Antigravity schema.
+    ///
+    /// This is non-authoritative: callers may continue with another local
+    /// history source instead of treating the scan as known-empty history.
+    Unsupported,
     Summary(LocalSessionSummary),
+}
+
+#[derive(Debug)]
+enum DatabaseScan {
+    Supported { events: Vec<Event>, complete: bool },
+    Unsupported,
 }
 
 struct Budget {
@@ -124,6 +135,8 @@ pub(super) fn summarize(roots: &[PathBuf], now: DateTime<Utc>, days: u32) -> SQL
         - Duration::days(i64::from(days.clamp(1, 365).saturating_sub(1)));
     let mut complete = discovery_complete && budget.check();
     let mut events = Vec::new();
+    let mut authoritative_database = false;
+    let mut unsupported_database = false;
 
     for path in &paths {
         if !budget.check() {
@@ -136,16 +149,31 @@ pub(super) fn summarize(roots: &[PathBuf], now: DateTime<Utc>, days: u32) -> SQL
             break;
         }
         match read_database(path, &mut budget) {
-            Ok((mut rows, is_complete)) => {
-                events.append(&mut rows);
-                complete &= is_complete;
+            Ok(DatabaseScan::Supported {
+                events: mut database_events,
+                complete: database_complete,
+            }) => {
+                authoritative_database = true;
+                events.append(&mut database_events);
+                complete &= database_complete;
             }
-            Err(_) => complete = false,
+            Ok(DatabaseScan::Unsupported) => unsupported_database = true,
+            Err(_) => {
+                // Preserve existing source-specific read failures as partial
+                // native history rather than treating them as foreign files.
+                authoritative_database = true;
+                complete = false;
+            }
         }
+        complete &= budget.check();
         if budget.rows >= MAX_ROWS || budget.bytes >= MAX_TOTAL_BYTES {
             complete = false;
             break;
         }
+    }
+
+    if unsupported_database && !authoritative_database && complete {
+        return SQLiteScan::Unsupported;
     }
 
     let mut total_tokens = 0_u64;
@@ -298,14 +326,17 @@ fn discover_databases(roots: &[PathBuf], budget: &mut Budget) -> (Vec<PathBuf>, 
     (paths, complete)
 }
 
-fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<(Vec<Event>, bool)> {
+fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<DatabaseScan> {
     if !budget.check() {
-        return Ok((Vec::new(), false));
+        return Ok(DatabaseScan::Supported {
+            events: Vec::new(),
+            complete: false,
+        });
     }
     let mut conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
     if !supported_schema(&tx, budget)? {
-        return Ok((Vec::new(), false));
+        return Ok(DatabaseScan::Unsupported);
     }
 
     let session = path
@@ -315,17 +346,26 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<(Vec<Even
         .to_string();
     let mut rows = read_generation_rows(&tx, &session, budget)?;
     if rows.pending.is_empty() {
-        return Ok((rows.events, rows.complete));
+        return Ok(DatabaseScan::Supported {
+            events: rows.events,
+            complete: rows.complete,
+        });
     }
 
     // Never realign step timestamps after a malformed or truncated primary scan.
     if !rows.complete {
-        return Ok((rows.events, false));
+        return Ok(DatabaseScan::Supported {
+            events: rows.events,
+            complete: false,
+        });
     }
 
     let has_steps = supported_steps_schema(&tx, budget).unwrap_or_default();
     if !has_steps {
-        return Ok((rows.events, false));
+        return Ok(DatabaseScan::Supported {
+            events: rows.events,
+            complete: false,
+        });
     }
 
     let needed_occurrences = rows
@@ -346,14 +386,25 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<(Vec<Even
     let step_scan =
         match read_step_timestamps(&tx, &needed_occurrences, budget, &mut rows.database_bytes) {
             Ok(scan) => scan,
-            Err(_) => return Ok((rows.events, false)),
+            Err(_) => {
+                return Ok(DatabaseScan::Supported {
+                    events: rows.events,
+                    complete: false,
+                });
+            }
         };
     if !step_scan.complete {
-        return Ok((rows.events, false));
+        return Ok(DatabaseScan::Supported {
+            events: rows.events,
+            complete: false,
+        });
     }
 
     if !embedded_timestamps_agree(&rows.occurrences, &step_scan, &rows.bot_id_uses) {
-        return Ok((rows.events, false));
+        return Ok(DatabaseScan::Supported {
+            events: rows.events,
+            complete: false,
+        });
     }
 
     let resolved = resolve_step_timestamps(
@@ -374,7 +425,10 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<(Vec<Even
     if recovered < rows.pending.len() {
         rows.complete = false;
     }
-    Ok((rows.events, rows.complete))
+    Ok(DatabaseScan::Supported {
+        events: rows.events,
+        complete: rows.complete,
+    })
 }
 
 fn read_generation_rows(
@@ -747,7 +801,7 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_database_is_partial_not_zero() {
+    fn foreign_database_is_non_authoritative() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join(".gemini/antigravity-cli/conversations");
         fs::create_dir_all(&root).unwrap();
@@ -755,13 +809,10 @@ mod tests {
         conn.execute("CREATE TABLE wrong(idx INTEGER, data BLOB)", [])
             .unwrap();
         drop(conn);
-        let SQLiteScan::Summary(summary) =
-            summarize(&database_roots(&dir.path().join(".gemini")), Utc::now(), 30)
-        else {
-            panic!("database should be attempted");
-        };
-        assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-        assert_eq!(summary.total_tokens, 0);
+        assert!(matches!(
+            summarize(&database_roots(&dir.path().join(".gemini")), Utc::now(), 30),
+            SQLiteScan::Unsupported
+        ));
     }
 
     #[test]
