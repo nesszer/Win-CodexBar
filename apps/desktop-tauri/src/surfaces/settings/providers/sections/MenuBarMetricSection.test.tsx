@@ -50,22 +50,27 @@ function rateWindow(usedPercent: number) {
 }
 
 describe("MenuBarMetricSection", () => {
-  it("offers Monthly for OpenCode Go only after a tertiary window is observed", () => {
+  it("offers Monthly for OpenCode Go before a tertiary window is observed", () => {
     const base = provider(false);
     base.id = "opencodego";
     base.displayName = "OpenCode Go";
     base.tertiary = null;
+    const onChange = vi.fn();
     const { rerender } = render(
       <MenuBarMetricSection
         provider={base}
         providerMetrics={{}}
         disabled={false}
         t={(key) => key}
-        onChange={vi.fn()}
+        onChange={onChange}
       />,
     );
 
-    expect(screen.queryByRole("option", { name: "DetailWindowTertiary" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ProviderMonthly" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "tertiary" } });
+    expect(onChange).toHaveBeenCalledWith({
+      providerMetrics: { opencodego: "tertiary" },
+    });
 
     const observed = { ...base, tertiary: rateWindow(37) };
     rerender(
@@ -78,7 +83,7 @@ describe("MenuBarMetricSection", () => {
       />,
     );
 
-    expect(screen.getByRole("option", { name: "DetailWindowTertiary" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ProviderMonthly" })).toBeInTheDocument();
   });
   it("offers extra usage when a provider has extra rate windows", () => {
     const onChange = vi.fn();

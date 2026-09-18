@@ -87,8 +87,11 @@ function metricOptions(
   if (provider.modelSpecific) {
     options.push({ value: "model", label: t("DetailWindowModelSpecific") });
   }
-  if (provider.tertiary) {
-    options.push({ value: "tertiary", label: t("DetailWindowTertiary") });
+  if (provider.tertiary || provider.id === "opencodego") {
+    options.push({
+      value: "tertiary",
+      label: provider.id === "opencodego" ? t("ProviderMonthly") : t("DetailWindowTertiary"),
+    });
   }
   if (provider.id === "cursor" || provider.extraRateWindows.length > 0) {
     options.push({ value: "extraUsage", label: t("ExtraUsage") });
