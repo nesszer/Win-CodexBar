@@ -69,6 +69,9 @@ pub struct SnapshotPayload {
 pub struct HostPayload {
     pub codex_bar_version: Option<String>,
     pub refresh_interval_seconds: u32,
+    /// Whether dashboard bars show used quota (true) or remaining quota.
+    /// The page treats an absent legacy value as false.
+    pub usage_bars_show_used: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -177,6 +180,9 @@ pub struct SnapshotInput {
     pub collection: SnapshotCollection,
     pub identity: DashboardIdentity,
     pub version: Option<String>,
+    /// None represents a caller with no fill preference. Dashboard output
+    /// defaults that case to remaining quota.
+    pub usage_bars_show_used: Option<bool>,
 }
 
 /// Build the stable display-oriented snapshot (pure; no I/O).
@@ -231,6 +237,7 @@ pub fn build_snapshot(input: &SnapshotInput) -> SnapshotPayload {
         host: HostPayload {
             codex_bar_version: input.version.clone(),
             refresh_interval_seconds: refresh,
+            usage_bars_show_used: input.usage_bars_show_used.unwrap_or(false),
         },
         providers,
     }
