@@ -144,13 +144,15 @@ impl CodexWorkspacesIndex {
         let sidecar = self.sidecar()?;
         let source_status = read_catalog_status(&scope.state_database);
 
-        if !force_refresh
-            && let Ok(Some(cached)) =
-                sidecar.load_latest_snapshot(scope.scope_signature(), self.history_days)
-        {
-            let mut snap = cached;
-            snap.source_status = source_status;
-            return Ok(snap);
+        if !force_refresh {
+            match sidecar.load_latest_snapshot(scope.scope_signature(), self.history_days) {
+                Ok(Some(mut cached)) => {
+                    cached.source_status = source_status;
+                    return Ok(cached);
+                }
+                Ok(None) => {}
+                Err(error) => return Err(error.into()),
+            }
         }
 
         progress(Progress::phase(ProgressPhase::ScanningLogs));
@@ -831,6 +833,46 @@ mod tests {
         // Cached load works.
         let cached = index.load_cached_snapshot().unwrap().expect("cached");
         assert_eq!(cached.indexed_file_count, 2);
+    }
+
+    #[test]
+    fn cached_snapshot_is_not_reused_for_another_codex_home() {
+        let tmp = TempDir::new().unwrap();
+        let first_home = tmp.path().join("first-codex");
+        let first_sessions = first_home.join("sessions");
+        fs::create_dir_all(&first_sessions).unwrap();
+        let day = Local::now().date_naive().format("%Y-%m-%d").to_string();
+        write_session(
+            &first_sessions,
+            &day,
+            "first-session.jsonl",
+            &tmp.path().join("first-project").to_string_lossy(),
+            "gpt-5",
+            100,
+            20,
+        );
+
+        let sidecar = tmp.path().join("sidecar.sqlite");
+        let first = CodexWorkspacesIndex::new(30)
+            .with_codex_home(&first_home)
+            .with_sidecar_path(&sidecar);
+        let first_snapshot = first.load_snapshot(true, |_| {}).unwrap();
+        assert_eq!(first_snapshot.indexed_file_count, 1);
+
+        let second_home = tmp.path().join("second-codex");
+        fs::create_dir_all(second_home.join("sessions")).unwrap();
+        let second = CodexWorkspacesIndex::new(30)
+            .with_codex_home(&second_home)
+            .with_sidecar_path(&sidecar);
+
+        assert!(second.load_cached_snapshot().unwrap().is_none());
+        let second_snapshot = second.load_snapshot(false, |_| {}).unwrap();
+        assert_eq!(second_snapshot.indexed_file_count, 0);
+        assert!(second_snapshot.projects.is_empty());
+        assert_ne!(
+            first_snapshot.scope_signature,
+            second_snapshot.scope_signature
+        );
     }
 
     #[test]
