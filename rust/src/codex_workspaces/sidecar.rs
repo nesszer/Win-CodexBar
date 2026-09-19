@@ -23,8 +23,15 @@ pub enum SidecarError {
         "workspaces sidecar schema incompatible (user_version={found}, expected {SCHEMA_VERSION})"
     )]
     Incompatible { found: i32 },
-    #[error("workspaces sidecar cache scope mismatch (expected {expected}, found {found})")]
-    ScopeMismatch { expected: String, found: String },
+    #[error(
+        "workspaces sidecar cache scope mismatch (expected scope={expected}, history_days={expected_history_days}; found scope={found}, history_days={found_history_days})"
+    )]
+    ScopeMismatch {
+        expected: String,
+        expected_history_days: u32,
+        found: String,
+        found_history_days: u32,
+    },
     #[error("workspaces sidecar error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("workspaces sidecar encode/decode failed: {0}")]
@@ -89,7 +96,9 @@ impl WorkspaceUsageSidecar {
         if snapshot.scope_signature != scope_signature || snapshot.history_days != history_days {
             return Err(SidecarError::ScopeMismatch {
                 expected: scope_signature.to_string(),
+                expected_history_days: history_days,
                 found: snapshot.scope_signature,
+                found_history_days: snapshot.history_days,
             });
         }
         Ok(Some(snapshot))
@@ -194,5 +203,25 @@ impl WorkspaceUsageSidecar {
             )?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SidecarError;
+
+    #[test]
+    fn scope_mismatch_error_includes_both_history_windows() {
+        let error = SidecarError::ScopeMismatch {
+            expected: "codex-workspaces:expected".to_string(),
+            expected_history_days: 30,
+            found: "codex-workspaces:expected".to_string(),
+            found_history_days: 7,
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "workspaces sidecar cache scope mismatch (expected scope=codex-workspaces:expected, history_days=30; found scope=codex-workspaces:expected, history_days=7)"
+        );
     }
 }
