@@ -1021,6 +1021,32 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
 }
 
 #[test]
+fn venice_display_details_map_to_the_bridge_without_identity() {
+    let metadata = instantiate_provider(ProviderId::Venice).metadata().clone();
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::informational(
+            "Venice web credits",
+        )),
+        "web",
+    )
+    .with_display_detail(
+        ProviderDisplayDetail::new("used-this-cycle", "Used this cycle", "12")
+            .with_secondary_value("Monthly refill: 100")
+            .with_progress(12.0, 100.0),
+    );
+
+    let snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Venice, &metadata, &result, None);
+
+    assert!(snapshot.primary.is_informational);
+    assert_eq!(snapshot.source_label, "web");
+    assert_eq!(snapshot.display_details.len(), 1);
+    assert_eq!(snapshot.display_details[0].id, "used-this-cycle");
+    assert_eq!(snapshot.account_email, None);
+    assert_eq!(snapshot.account_organization, None);
+}
+
+#[test]
 fn provider_cache_is_fresh_inside_stale_window() {
     assert!(super::is_provider_cache_fresh(
         Some(std::time::Instant::now()),
