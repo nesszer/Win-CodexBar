@@ -43,6 +43,13 @@ enum DatabaseScan {
     Unsupported,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SchemaInspection {
+    Supported,
+    Unsupported,
+    Incomplete,
+}
+
 struct Budget {
     directory_entries: usize,
     databases: usize,
@@ -335,8 +342,15 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<DatabaseS
     }
     let mut conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
-    if !supported_schema(&tx, budget)? {
-        return Ok(DatabaseScan::Unsupported);
+    match supported_schema(&tx, budget)? {
+        SchemaInspection::Supported => {}
+        SchemaInspection::Unsupported => return Ok(DatabaseScan::Unsupported),
+        SchemaInspection::Incomplete => {
+            return Ok(DatabaseScan::Supported {
+                events: Vec::new(),
+                complete: false,
+            });
+        }
     }
 
     let session = path
@@ -360,8 +374,10 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<DatabaseS
         });
     }
 
-    let has_steps = supported_steps_schema(&tx, budget).unwrap_or_default();
-    if !has_steps {
+    if !matches!(
+        supported_steps_schema(&tx, budget),
+        Ok(SchemaInspection::Supported)
+    ) {
         return Ok(DatabaseScan::Supported {
             events: rows.events,
             complete: false,
@@ -668,7 +684,7 @@ fn read_step_timestamps(
     })
 }
 
-fn supported_schema(conn: &Connection, budget: &mut Budget) -> rusqlite::Result<bool> {
+fn supported_schema(conn: &Connection, budget: &mut Budget) -> rusqlite::Result<SchemaInspection> {
     let mut statement =
         conn.prepare("SELECT name, type, rootpage FROM main.sqlite_master LIMIT ?1")?;
     let mut rows = statement.query([i64::try_from(MAX_SCHEMA_ENTRIES + 1).unwrap_or(i64::MAX)])?;
@@ -676,34 +692,37 @@ fn supported_schema(conn: &Connection, budget: &mut Budget) -> rusqlite::Result<
     let mut schema_entries = 0usize;
     while let Some(row) = rows.next()? {
         if !budget.check() {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         schema_entries += 1;
         if schema_entries > MAX_SCHEMA_ENTRIES {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         let name: String = row.get(0)?;
         let kind: String = row.get(1)?;
         if !budget.charge_schema_text(&name) || !budget.charge_schema_text(&kind) {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         if !name.eq_ignore_ascii_case("gen_metadata") {
             continue;
         }
         let rootpage: i64 = row.get(2)?;
         if kind != "table" || rootpage <= 0 || found {
-            return Ok(false);
+            return Ok(SchemaInspection::Unsupported);
         }
         found = true;
     }
     if !found {
-        return Ok(false);
+        return Ok(SchemaInspection::Unsupported);
     }
 
     has_stored_columns(conn, "gen_metadata", &["idx", "data"], budget)
 }
 
-fn supported_steps_schema(conn: &Connection, budget: &mut Budget) -> rusqlite::Result<bool> {
+fn supported_steps_schema(
+    conn: &Connection,
+    budget: &mut Budget,
+) -> rusqlite::Result<SchemaInspection> {
     let mut statement =
         conn.prepare("SELECT name, type, rootpage FROM main.sqlite_master LIMIT ?1")?;
     let mut rows = statement.query([i64::try_from(MAX_SCHEMA_ENTRIES + 1).unwrap_or(i64::MAX)])?;
@@ -711,28 +730,28 @@ fn supported_steps_schema(conn: &Connection, budget: &mut Budget) -> rusqlite::R
     let mut schema_entries = 0usize;
     while let Some(row) = rows.next()? {
         if !budget.check() {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         schema_entries += 1;
         if schema_entries > MAX_SCHEMA_ENTRIES {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         let name: String = row.get(0)?;
         let kind: String = row.get(1)?;
         if !budget.charge_schema_text(&name) || !budget.charge_schema_text(&kind) {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         if !name.eq_ignore_ascii_case("steps") {
             continue;
         }
         let rootpage: i64 = row.get(2)?;
         if kind != "table" || rootpage <= 0 || found {
-            return Ok(false);
+            return Ok(SchemaInspection::Unsupported);
         }
         found = true;
     }
     if !found {
-        return Ok(false);
+        return Ok(SchemaInspection::Unsupported);
     }
 
     has_stored_columns(conn, "steps", &["idx", "metadata"], budget)
@@ -743,10 +762,10 @@ fn has_stored_columns(
     table: &str,
     required: &[&str],
     budget: &mut Budget,
-) -> rusqlite::Result<bool> {
+) -> rusqlite::Result<SchemaInspection> {
     let table = match table {
         "gen_metadata" | "steps" => table,
-        _ => return Ok(false),
+        _ => return Ok(SchemaInspection::Unsupported),
     };
 
     let mut columns = HashSet::new();
@@ -756,30 +775,34 @@ fn has_stored_columns(
     let mut rows = info.query([])?;
     while let Some(row) = rows.next()? {
         if !budget.check() {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         schema_columns += 1;
         if schema_columns > MAX_SCHEMA_COLUMNS {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         let hidden: i64 = row.get(6)?;
         if hidden != 0 {
-            return Ok(false);
+            return Ok(SchemaInspection::Unsupported);
         }
         let name: String = row.get(1)?;
         let column_type: String = row.get(2).unwrap_or_default();
         let default_value: Option<String> = row.get(4).ok();
         if !budget.charge_schema_text(&name) || !budget.charge_schema_text(&column_type) {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         if let Some(default_value) = default_value.as_deref()
             && !budget.charge_schema_text(default_value)
         {
-            return Ok(false);
+            return Ok(SchemaInspection::Incomplete);
         }
         columns.insert(name.to_ascii_lowercase());
     }
-    Ok(required.iter().all(|column| columns.contains(*column)))
+    Ok(if required.iter().all(|column| columns.contains(*column)) {
+        SchemaInspection::Supported
+    } else {
+        SchemaInspection::Unsupported
+    })
 }
 
 #[cfg(test)]
@@ -895,7 +918,10 @@ mod tests {
         )
         .unwrap();
         let mut budget = Budget::new();
-        assert!(supported_schema(&conn, &mut budget).unwrap());
+        assert_eq!(
+            supported_schema(&conn, &mut budget).unwrap(),
+            SchemaInspection::Supported
+        );
     }
 
     #[test]
@@ -907,6 +933,23 @@ mod tests {
         )
         .unwrap();
         let mut budget = Budget::new();
-        assert!(!supported_schema(&conn, &mut budget).unwrap());
+        assert_eq!(
+            supported_schema(&conn, &mut budget).unwrap(),
+            SchemaInspection::Unsupported
+        );
+    }
+
+    #[test]
+    fn schema_entry_budget_is_incomplete_not_foreign() {
+        let conn = Connection::open_in_memory().unwrap();
+        for index in 0..=MAX_SCHEMA_ENTRIES {
+            conn.execute(&format!("CREATE TABLE unrelated_{index}(value TEXT)"), [])
+                .unwrap();
+        }
+        let mut budget = Budget::new();
+        assert_eq!(
+            supported_schema(&conn, &mut budget).unwrap(),
+            SchemaInspection::Incomplete
+        );
     }
 }
