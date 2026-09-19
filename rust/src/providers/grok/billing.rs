@@ -53,18 +53,7 @@ pub(super) fn parse_grpc_web_reset_coupons(
     data: &[u8],
     now: DateTime<Utc>,
 ) -> Result<Vec<GrokResetCoupon>, ProviderError> {
-    let mut payloads = grpc_web_data_frames(data);
-    if data.is_empty() || data == [0, 0, 0, 0, 0] {
-        return Ok(Vec::new());
-    }
-    if payloads.is_empty() && looks_like_protobuf_payload(data) {
-        payloads.push(data.to_vec());
-    }
-    if payloads.is_empty() {
-        return Err(ProviderError::Parse(
-            "Grok reset-credit response had no payload".to_string(),
-        ));
-    }
+    let payloads = grpc_web_reset_payloads(data)?;
 
     let mut coupons = Vec::new();
     for payload in payloads {
@@ -72,6 +61,97 @@ pub(super) fn parse_grpc_web_reset_coupons(
     }
     coupons.sort_by_key(|coupon| coupon.expires_at);
     Ok(coupons)
+}
+
+fn grpc_web_reset_payloads(data: &[u8]) -> Result<Vec<Vec<u8>>, ProviderError> {
+    if data.is_empty() || data == [0, 0, 0, 0, 0] {
+        return Ok(Vec::new());
+    }
+
+    // A raw protobuf payload is retained as a compatibility fallback for the
+    // captured endpoint fixtures. Valid protobuf keys cannot begin with a
+    // gRPC-web data/trailer flag, so a leading 0/0x80 unambiguously selects
+    // framed parsing and makes truncated frames fail closed.
+    let is_framed = data.first().is_some_and(|flag| *flag == 0 || *flag == 0x80);
+    if !is_framed {
+        return looks_like_protobuf_payload(data)
+            .then(|| vec![data.to_vec()])
+            .ok_or_else(|| {
+                ProviderError::Parse("Grok reset-credit response had no payload".to_string())
+            });
+    }
+
+    let mut payloads = Vec::new();
+    let mut index = 0;
+    while index < data.len() {
+        if index + 5 > data.len() {
+            return Err(ProviderError::Parse(
+                "Grok reset-credit gRPC-web frame is truncated".to_string(),
+            ));
+        }
+        let flags = data[index];
+        let len = u32::from_be_bytes([
+            data[index + 1],
+            data[index + 2],
+            data[index + 3],
+            data[index + 4],
+        ]) as usize;
+        let start = index + 5;
+        let end = start.checked_add(len).ok_or_else(|| {
+            ProviderError::Parse("Grok reset-credit gRPC-web frame is too large".to_string())
+        })?;
+        if end > data.len() {
+            return Err(ProviderError::Parse(
+                "Grok reset-credit gRPC-web frame is truncated".to_string(),
+            ));
+        }
+        let payload = &data[start..end];
+        if flags & 0x80 != 0 {
+            validate_grpc_web_reset_trailer(payload)?;
+        } else {
+            payloads.push(payload.to_vec());
+        }
+        index = end;
+    }
+    Ok(payloads)
+}
+
+fn validate_grpc_web_reset_trailer(payload: &[u8]) -> Result<(), ProviderError> {
+    let text = std::str::from_utf8(payload).map_err(|_| {
+        ProviderError::Parse("Grok reset-credit gRPC-web trailer is not UTF-8".to_string())
+    })?;
+    let mut grpc_status = None;
+    for line in text
+        .split(['\r', '\n'])
+        .filter(|line| !line.trim().is_empty())
+    {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("grpc-status") {
+            let status = value.trim().parse::<u16>().map_err(|_| {
+                ProviderError::Parse("Grok reset-credit gRPC status is malformed".to_string())
+            })?;
+            if grpc_status.is_some_and(|previous| previous != status) {
+                return Err(ProviderError::Parse(
+                    "Grok reset-credit gRPC status is conflicting".to_string(),
+                ));
+            }
+            grpc_status = Some(status);
+        }
+    }
+    let status = grpc_status.ok_or_else(|| {
+        ProviderError::Parse("Grok reset-credit gRPC status is missing".to_string())
+    })?;
+    if status != 0 {
+        if status == 16 {
+            return Err(ProviderError::AuthRequired);
+        }
+        return Err(ProviderError::Other(format!(
+            "Grok reset-credit RPC failed with status {status}"
+        )));
+    }
+    Ok(())
 }
 
 fn parse_reset_coupon_container(
@@ -910,6 +990,29 @@ mod tests {
         assert!(parse_grpc_web_reset_coupons(&payload, fixed_time(1_800_000_000)).is_err());
     }
 
+    #[test]
+    fn reset_coupon_nonzero_grpc_web_trailer_is_rejected() {
+        let payload = reset_coupon_record("valid", 1_900_000_000);
+        let mut framed = grpc_web_frame(0, &payload);
+        framed.extend(grpc_web_frame(0x80, b"grpc-status: 13\r\n"));
+
+        assert!(matches!(
+            parse_grpc_web_reset_coupons(&framed, fixed_time(1_800_000_000)),
+            Err(ProviderError::Other(message)) if message.contains("status 13")
+        ));
+    }
+
+    #[test]
+    fn reset_coupon_zero_grpc_web_trailer_is_accepted() {
+        let payload = reset_coupon_record("valid", 1_900_000_000);
+        let mut framed = grpc_web_frame(0, &payload);
+        framed.extend(grpc_web_frame(0x80, b"grpc-status: 0\r\n"));
+
+        let coupons = parse_grpc_web_reset_coupons(&framed, fixed_time(1_800_000_000)).unwrap();
+        assert_eq!(coupons.len(), 1);
+        assert_eq!(coupons[0].token_id, "valid");
+    }
+
     fn reset_coupon_record(token_id: &str, expires_at: u64) -> Vec<u8> {
         let timestamp = {
             let mut bytes = vec![0x08];
@@ -953,6 +1056,17 @@ mod tests {
         encoded.extend(varint(contents.len() as u64));
         encoded.extend(contents);
         encoded
+    }
+
+    fn grpc_web_frame(flags: u8, payload: &[u8]) -> Vec<u8> {
+        let mut frame = vec![flags];
+        frame.extend(
+            u32::try_from(payload.len())
+                .expect("test gRPC-web payload length fits u32")
+                .to_be_bytes(),
+        );
+        frame.extend(payload);
+        frame
     }
 
     fn fixed32_field(value: f32) -> Vec<u8> {
