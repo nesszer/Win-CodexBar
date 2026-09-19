@@ -8,6 +8,7 @@ import {
   updateSettings,
   writeUsageSpendExport,
 } from "../../../lib/tauri";
+import { usageSpendShareFooter } from "../../../lib/usageSpendSharing";
 import type { CostSummaryDisplayStyle, SettingsSnapshot, SpendContract, UsageSpendSummary } from "../../../types/bridge";
 import type { LocaleKey } from "../../../i18n/keys";
 import type { TabProps } from "../settingsTabs";
@@ -55,7 +56,7 @@ function renderSharePng(summary: UsageSpendSummary, title: string): string {
   const headerH = 48;
   const colW = [160, 100, 100, 80, 160];
   const width = pad * 2 + colW.reduce((a, b) => a + b, 0);
-  const height = pad * 2 + headerH + Math.max(1, rows.length) * rowH + 36;
+  const height = pad * 2 + headerH + Math.max(1, rows.length) * rowH + 52;
   const canvas = document.createElement("canvas");
   canvas.width = width * 2;
   canvas.height = height * 2;
@@ -125,6 +126,10 @@ function renderSharePng(summary: UsageSpendSummary, title: string): string {
       });
     });
   }
+
+  ctx.fillStyle = "#8b9bb4";
+  ctx.font = "12px system-ui,Segoe UI,sans-serif";
+  ctx.fillText(usageSpendShareFooter(summary), pad, height - pad);
 
   return canvas.toDataURL("image/png");
 }
@@ -218,7 +223,7 @@ export default function UsageSpendTab(_props: TabProps) {
         setShareError(t("UsageSpendShareFailed"));
         return;
       }
-      const stamp = new Date().toISOString().slice(0, 10);
+      const stamp = summary.reportingDay;
       downloadDataUrl(dataUrl, `codexbar-usage-spend-${stamp}.png`);
     } catch {
       setShareError(t("UsageSpendShareFailed"));
@@ -245,7 +250,7 @@ export default function UsageSpendTab(_props: TabProps) {
       return;
     }
     try {
-      const stamp = new Date().toISOString().slice(0, 10);
+      const stamp = summary.reportingDay;
       const path = await save({
         defaultPath: `codexbar-usage-spend-${stamp}.json`,
         filters: [{ name: "JSON", extensions: ["json"] }],
