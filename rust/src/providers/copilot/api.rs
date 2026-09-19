@@ -372,7 +372,7 @@ fn snapshot_from_response_with_seat_entitlement(
     let primary = primary_quota
         .as_ref()
         .map(|quota| quota.to_rate_window(reset))
-        .unwrap_or_else(|| RateWindow::new(0.0));
+        .unwrap_or_else(|| RateWindow::informational("No Copilot quota reported"));
 
     let mut usage =
         UsageSnapshot::new(primary).with_login_method(plan_label(&response.copilot_plan));
@@ -430,11 +430,15 @@ fn append_seat_credit_window(
     if !credits_used.is_finite() || credits_used < 0.0 {
         return;
     }
+    let used_percent = (credits_used / entitlement) * 100.0;
+    if !used_percent.is_finite() {
+        return;
+    }
 
     usage.extra_rate_windows.push(NamedRateWindow::new(
         "copilot-seat-credits",
         "Credits used",
-        RateWindow::with_details((credits_used / entitlement) * 100.0, None, reset, None),
+        RateWindow::with_details(used_percent, None, reset, None),
     ));
 }
 
@@ -1165,6 +1169,53 @@ mod tests {
         assert!((seat.window.used_percent - 25.0).abs() < 0.001);
         assert!(!seat.window.is_informational);
         assert_eq!(seat.title, "Credits used");
+    }
+
+    #[test]
+    fn missing_primary_quota_is_informational_when_seat_credit_is_available() {
+        let response: CopilotUsageResponse = serde_json::from_str(
+            r#"{
+                "copilot_plan": "business",
+                "quota_snapshots": {
+                    "additional_budget": {
+                        "credits_used": 50
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let usage = snapshot_from_response_with_seat_entitlement(response, Some(200.0)).unwrap();
+
+        assert!(usage.primary.is_informational);
+        assert!(
+            usage
+                .extra_rate_windows
+                .iter()
+                .any(|window| window.id == "copilot-seat-credits")
+        );
+    }
+
+    #[test]
+    fn non_finite_derived_seat_credit_percentage_is_omitted() {
+        let response: CopilotUsageResponse = serde_json::from_str(
+            r#"{
+                "copilot_plan": "business",
+                "quota_snapshots": {
+                    "premium_interactions": {
+                        "credits_used": 1e308
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let usage = snapshot_from_response_with_seat_entitlement(response, Some(1e-308)).unwrap();
+
+        assert!(
+            usage
+                .extra_rate_windows
+                .iter()
+                .all(|window| window.id != "copilot-seat-credits")
+        );
     }
 
     #[test]

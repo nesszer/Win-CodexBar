@@ -686,6 +686,8 @@ impl From<Settings> for SettingsSnapshot {
             .cloned()
             .collect();
 
+        let copilot_seat_credit_entitlement = settings.seat_credit_entitlement(ProviderId::Copilot);
+
         let provider_metrics = settings
             .provider_metrics
             .into_iter()
@@ -763,7 +765,7 @@ impl From<Settings> for SettingsSnapshot {
             claude_allow_reading_claude_code_credentials: settings
                 .claude_allow_reading_claude_code_credentials,
             alibaba_token_plan_region: settings.alibaba_token_plan_region,
-            copilot_seat_credit_entitlement: settings.seat_credit_entitlement(ProviderId::Copilot),
+            copilot_seat_credit_entitlement,
             weekly_progress_work_days: settings.weekly_progress_work_days,
             cost_summary_display_style: cost_summary_display_style_label(
                 settings.cost_summary_display_style,
