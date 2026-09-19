@@ -592,6 +592,13 @@ export interface SubscriptionMetadataSnapshot {
   renewsAt: string | null;
 }
 
+export interface ProviderInventoryItem {
+  id: string;
+  title: string;
+  availableCount: number;
+  nextExpiresAt: string | null;
+}
+
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
   | "ready"
@@ -618,6 +625,8 @@ export interface ProviderUsageSnapshot {
     title: string;
     window: RateWindowSnapshot;
   }>;
+  /** Display-only discrete provider inventory; never used as quota math. */
+  inventory?: ProviderInventoryItem[];
   cost: CostSnapshotBridge | null;
   planName: string | null;
   accountEmail: string | null;
@@ -892,6 +901,8 @@ export interface ProviderDetail {
     title: string;
     window: RateWindowSnapshot;
   }>;
+  /** Display-only discrete provider inventory; never used as quota math. */
+  inventory?: ProviderInventoryItem[];
 
   cost: CostSnapshotBridge | null;
   pace: PaceSnapshot | null;

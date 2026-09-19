@@ -1,11 +1,13 @@
 //! Usage command implementation
 
+use chrono::{DateTime, Utc};
 use clap::Args;
 use serde::Serialize;
 
 use crate::core::{
-    CostSnapshot, FetchContext, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
-    TokenAccountStore, TokenAccountSupport, UsagePace, UsageSnapshot, instantiate_provider,
+    CostSnapshot, FetchContext, ProviderFetchResult, ProviderId, ProviderInventoryItem, RateWindow,
+    SourceMode, TokenAccountStore, TokenAccountSupport, UsagePace, UsageSnapshot,
+    instantiate_provider,
 };
 use crate::settings::ApiKeys;
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel, fetch_provider_status};
@@ -396,6 +398,23 @@ fn render_json_result(
         });
     }
 
+    if !result.inventory.is_empty() {
+        json_result["inventory"] = serde_json::Value::Array(
+            result
+                .inventory
+                .iter()
+                .map(|item| {
+                    serde_json::json!({
+                        "id": &item.id,
+                        "title": &item.title,
+                        "availableCount": item.available_count,
+                        "nextExpiresAt": item.next_expires_at.map(|date| date.to_rfc3339()),
+                    })
+                })
+                .collect(),
+        );
+    }
+
     if let Some(s) = status {
         json_result["status"] = serde_json::json!({
             "level": format!("{:?}", s.level).to_lowercase(),
@@ -460,6 +479,7 @@ pub fn render_text_with_status(
     append_status_line(&mut lines, status);
     append_account_lines(&mut lines, &result.usage);
     append_usage_window_lines(&mut lines, &result.usage, &metadata, use_color);
+    append_inventory_lines(&mut lines, &result.inventory);
     append_cost_line(&mut lines, result.cost.as_ref());
 
     lines.join("\n")
@@ -576,6 +596,38 @@ fn append_usage_window_lines(
         if extra.usage_known {
             append_window_line(lines, &extra.title, &extra.window, use_color);
         }
+    }
+}
+
+fn append_inventory_lines(lines: &mut Vec<String>, inventory: &[ProviderInventoryItem]) {
+    if inventory.is_empty() {
+        return;
+    }
+    let now = Utc::now();
+    for item in inventory {
+        lines.push(format!(
+            "  {}: {} available",
+            item.title, item.available_count
+        ));
+        if let Some(expires_at) = item.next_expires_at {
+            lines.push(format!(
+                "    Next expires in {}",
+                format_inventory_countdown(expires_at, now)
+            ));
+        }
+    }
+}
+
+fn format_inventory_countdown(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let seconds = expires_at.signed_duration_since(now).num_seconds();
+    if seconds <= 0 {
+        return "now".to_string();
+    }
+    let minutes = (seconds + 59) / 60;
+    if minutes >= 24 * 60 {
+        format!("{}d {}h", minutes / (24 * 60), (minutes / 60) % 24)
+    } else {
+        format!("{}h {}m", minutes / 60, minutes % 60)
     }
 }
 
@@ -932,6 +984,50 @@ mod tests {
         assert_eq!(
             output,
             "Claude: Session (5h) <1%, Weekly 100%, resets n/a, Pro"
+        );
+    }
+
+    #[test]
+    fn inventory_is_rendered_in_full_text_but_not_brief_text() {
+        let result = fetch_result(UsageSnapshot::new(RateWindow::new(10.0))).with_inventory_item(
+            ProviderInventoryItem {
+                id: "reset-credits".to_string(),
+                title: "Limit Reset Credits".to_string(),
+                available_count: 2,
+                next_expires_at: Some(Utc::now() + chrono::Duration::hours(3)),
+            },
+        );
+
+        let full = render_text_with_status(ProviderId::Grok, &result, None, false);
+        let brief = render_brief_text(ProviderId::Grok, &result);
+
+        assert!(full.contains("Limit Reset Credits: 2 available"));
+        assert!(full.contains("Next expires in"));
+        assert!(!brief.contains("Limit Reset Credits"));
+    }
+
+    #[test]
+    fn json_inventory_is_additive_and_contains_no_redemption_token() {
+        let result = fetch_result(UsageSnapshot::new(RateWindow::new(10.0))).with_inventory_item(
+            ProviderInventoryItem {
+                id: "reset-credits".to_string(),
+                title: "Limit Reset Credits".to_string(),
+                available_count: 1,
+                next_expires_at: None,
+            },
+        );
+
+        let json = render_json_result(ProviderId::Grok, result, None);
+        assert_eq!(json["inventory"][0]["availableCount"], 1);
+        assert!(
+            serde_json::to_string(&json)
+                .unwrap()
+                .contains("reset-credits")
+        );
+        assert!(
+            !serde_json::to_string(&json)
+                .unwrap()
+                .contains("coupon-token-secret")
         );
     }
 

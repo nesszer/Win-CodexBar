@@ -3,6 +3,7 @@ import type {
   CostSummaryDisplayStyle,
   DailyCostPoint,
   PaceSnapshot,
+  ProviderInventoryItem,
   ProviderChartData,
   ProviderLocalUsageSummary,
   ProviderUsageSnapshot,
@@ -413,6 +414,7 @@ function MetricRow({
 
 export interface MenuCardPresence {
   hasMetrics: boolean;
+  hasInventory: boolean;
   hasCost: boolean;
   hasPace: boolean;
   hasCharts: boolean;
@@ -456,6 +458,7 @@ export function describeCard(
   const localUsage = provider.error ? null : chartData?.localUsage ?? null;
   const wayfinderUsage = isWayfinder ? provider.wayfinderUsage : null;
   const hasMetrics = visibleMetrics.length > 0;
+  const hasInventory = !provider.error && (provider.inventory?.length ?? 0) > 0;
   const hasCost =
     !!provider.cost &&
     (costSummaryDisplayStyle !== "hidden" || provider.cost.alwaysVisible === true);
@@ -465,9 +468,16 @@ export function describeCard(
     !!provider.pace;
   const hasDetails =
     !provider.error &&
-    (hasMetrics || hasCost || hasPace || hasCharts || !!localUsage || !!wayfinderUsage);
+    (hasMetrics ||
+      hasInventory ||
+      hasCost ||
+      hasPace ||
+      hasCharts ||
+      !!localUsage ||
+      !!wayfinderUsage);
   return {
     hasMetrics,
+    hasInventory,
     hasCost,
     hasPace,
     hasCharts,
@@ -505,6 +515,7 @@ export default function MenuCardDetails({
 
   const {
     hasMetrics,
+    hasInventory,
     hasCost,
     hasPace,
     hasCharts,
@@ -535,6 +546,18 @@ export default function MenuCardDetails({
                 );
                 requestAnimationFrame(() => onLayoutChange?.());
               }}
+            />
+          ))}
+        </section>
+      )}
+
+      {!provider.error && hasInventory && (
+        <section className="menu-card__group menu-card__inventory">
+          {provider.inventory?.map((item) => (
+            <InventoryItemRow
+              key={item.id}
+              item={item}
+              resetTimeRelative={display.resetTimeRelative}
             />
           ))}
         </section>
@@ -708,6 +731,32 @@ export default function MenuCardDetails({
             )}
           </div>
         </details>
+      )}
+    </div>
+  );
+}
+
+function InventoryItemRow({
+  item,
+  resetTimeRelative,
+}: {
+  item: ProviderInventoryItem;
+  resetTimeRelative: boolean;
+}) {
+  const formattedExpiry = useFormattedResetTime(
+    item.nextExpiresAt,
+    null,
+    resetTimeRelative,
+    "expires",
+  );
+
+  return (
+    <div className="menu-card__cost-line">
+      <span>{item.title}: {item.availableCount} available</span>
+      {formattedExpiry && (
+        <span className="menu-card__cost-line--muted">
+          {formattedExpiry}
+        </span>
       )}
     </div>
   );
