@@ -275,11 +275,21 @@ async fn fetch_provider_json_output(
 ) -> serde_json::Value {
     match fetch_provider_result(provider_id, command).await {
         Ok((result, status)) => render_json_result(provider_id, result, status.as_ref()),
-        Err(e) => serde_json::json!({
-            "provider": provider_id.cli_name(),
-            "error": e.to_string(),
-        }),
+        Err(e) => render_json_error(provider_id, &e),
     }
+}
+
+fn render_json_error(provider_id: ProviderId, error: &anyhow::Error) -> serde_json::Value {
+    let mut output = serde_json::json!({
+        "provider": provider_id.cli_name(),
+        "error": error.to_string(),
+    });
+    if provider_id == ProviderId::Antigravity {
+        // ProviderError does not carry a trustworthy final-strategy marker;
+        // expose the terminal error outcome without inventing fallback history.
+        output["strategy_outcome"] = serde_json::json!("error");
+    }
+    output
 }
 
 async fn fetch_provider_result(
@@ -385,12 +395,24 @@ fn render_json_result(
         .and_then(|w| UsagePace::weekly(w, None, w.window_minutes.unwrap_or(10080)))
         .map(pace_json);
 
+    let strategy_id = if provider_id == ProviderId::Antigravity {
+        crate::providers::antigravity::strategy_from_source_label(&result.source_label)
+            .map(|strategy| strategy.as_str())
+    } else {
+        None
+    };
     let mut json_result = serde_json::json!({
         "provider": provider_id.cli_name(),
         "source": result.source_label,
         "usage": result.usage,
         "cost": result.cost,
     });
+    if provider_id == ProviderId::Antigravity {
+        json_result["strategy_outcome"] = serde_json::json!("success");
+        if let Some(strategy_id) = strategy_id {
+            json_result["strategy_id"] = serde_json::json!(strategy_id);
+        }
+    }
     if primary_pace.is_some() || secondary_pace.is_some() {
         json_result["pace"] = serde_json::json!({
             "primary": primary_pace,
@@ -1075,6 +1097,39 @@ mod tests {
                 .unwrap()
                 .contains("coupon-token-secret")
         );
+    }
+
+    #[test]
+    fn antigravity_json_reports_only_the_terminal_strategy() {
+        let mut result = fetch_result(UsageSnapshot::new(RateWindow::new(10.0)));
+        result.source_label = "cli".to_string();
+
+        let json = render_json_result(ProviderId::Antigravity, result, None);
+
+        assert_eq!(json["strategy_id"], "cli");
+        assert_eq!(json["strategy_outcome"], "success");
+        assert_eq!(json["source"], "cli");
+    }
+
+    #[test]
+    fn non_antigravity_json_omits_strategy_metadata() {
+        let json = render_json_result(
+            ProviderId::Grok,
+            fetch_result(UsageSnapshot::new(RateWindow::new(10.0))),
+            None,
+        );
+
+        assert!(json.get("strategy_id").is_none());
+        assert!(json.get("strategy_outcome").is_none());
+    }
+
+    #[test]
+    fn antigravity_json_error_does_not_fabricate_strategy_history() {
+        let json = render_json_error(ProviderId::Antigravity, &anyhow::anyhow!("probe failed"));
+
+        assert_eq!(json["strategy_outcome"], "error");
+        assert!(json.get("strategy_id").is_none());
+        assert_eq!(json["error"], "probe failed");
     }
 
     #[test]
