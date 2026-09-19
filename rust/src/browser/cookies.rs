@@ -717,6 +717,60 @@ pub fn get_cookies_for_domain(domain: &str) -> Result<Vec<Cookie>, CookieError> 
     Err(CookieError::NotFound(domain.to_string()))
 }
 
+/// Get cookie-header candidates from every detected browser that has readable
+/// cookies for a domain.
+///
+/// The older `get_cookie_header` helper intentionally stops at the first
+/// browser with any matching cookie. Providers whose session cookie is only in
+/// one browser need the complete candidate set so they can validate the
+/// session-bearing header and try the next browser after an auth failure.
+pub fn get_cookie_headers_for_domain(
+    domain: &str,
+) -> Result<Vec<(BrowserType, String)>, CookieError> {
+    use super::detection::BrowserDetector;
+
+    let browsers = BrowserDetector::detect_all();
+    if browsers.is_empty() {
+        return Err(CookieError::BrowserNotInstalled);
+    }
+
+    let mut candidates = Vec::new();
+    let mut abe_error_seen = false;
+
+    for browser in browsers {
+        match CookieExtractor::extract_for_domain(&browser, domain) {
+            Ok(cookies) => {
+                let header = CookieExtractor::build_cookie_header(&cookies);
+                if !header.trim().is_empty() {
+                    candidates.push((browser.browser_type, header));
+                }
+            }
+            Err(CookieError::AppBoundEncryption) => {
+                abe_error_seen = true;
+                tracing::debug!(
+                    browser = %browser.browser_type.display_name(),
+                    "App-Bound Encryption prevented cookie candidate extraction"
+                );
+            }
+            Err(error) => {
+                tracing::debug!(
+                    browser = %browser.browser_type.display_name(),
+                    %error,
+                    "Failed to extract browser cookie candidates"
+                );
+            }
+        }
+    }
+
+    if candidates.is_empty() && abe_error_seen {
+        return Err(CookieError::AppBoundEncryption);
+    }
+    if candidates.is_empty() {
+        return Err(CookieError::NotFound(domain.to_string()));
+    }
+    Ok(candidates)
+}
+
 /// Get a cookie header string for a domain
 pub fn get_cookie_header(domain: &str) -> Result<String, CookieError> {
     let cookies = get_cookies_for_domain(domain)?;

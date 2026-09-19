@@ -67,5 +67,6 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["sub2api", "sub2api"],
   ["qwencloud", "Qwen Cloud"],
   ["notion", "Notion AI"],
+  ["replicate", "Replicate"],
   ["meta", "Meta"],
 ];

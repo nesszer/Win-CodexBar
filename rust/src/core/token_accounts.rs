@@ -213,6 +213,14 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: true,
                 cookie_name: Some("token_v2"),
             }),
+            ProviderId::Replicate => Some(TokenAccountSupport {
+                title: "Session tokens",
+                subtitle: "Store multiple Replicate Cookie headers from the billing page.",
+                placeholder: "Cookie: sessionid=...; ...",
+                injection: TokenInjection::CookieHeader,
+                requires_manual_cookie_source: true,
+                cookie_name: Some("sessionid"),
+            }),
             ProviderId::Sub2Api => Some(TokenAccountSupport {
                 title: "Group API keys",
                 subtitle: "Store multiple sub2api group API keys with labels such as Claude, Codex, or Gemini.",
