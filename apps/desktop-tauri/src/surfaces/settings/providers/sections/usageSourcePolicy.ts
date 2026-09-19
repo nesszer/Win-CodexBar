@@ -40,6 +40,12 @@ const POLICIES: Readonly<Record<string, UsageSourcePolicy>> = {
       },
     ],
   },
+  nous: {
+    options: [
+      { value: "auto", label: "Auto", description: "Uses the Hermes Agent login or the configured Nous token." },
+      { value: "oauth", label: "Hermes OAuth", description: "Uses the read-only Nous Portal token from Hermes Agent." },
+    ],
+  },
 };
 
 export function usageSourcePolicy(providerId: string): UsageSourcePolicy | null {

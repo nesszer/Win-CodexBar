@@ -218,6 +218,10 @@ static ICONS: &[(&str, &[u8])] = &[
         include_bytes!("icons/ProviderIcon-notion.svg"),
     ),
     (
+        "ProviderIcon-nous",
+        include_bytes!("icons/ProviderIcon-nous.svg"),
+    ),
+    (
         "ProviderIcon-ollama",
         include_bytes!("icons/ProviderIcon-ollama.svg"),
     ),
