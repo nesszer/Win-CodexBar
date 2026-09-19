@@ -67,14 +67,17 @@ export function formatUsageSpendReportingDay(
 
   try {
     const target = civilDateInstant(civilDate);
-    const observed = partsInTimeZone(target, dashboardTimezone);
-    const corrected = new Date(target.getTime() + target.getTime() - civilDateInstant(observed).getTime());
+    // Validate the configured zone, but keep the reporting day as the civil
+    // date supplied by the dashboard. Applying the zone offset to the instant
+    // can move October 1 (and other boundary dates) into a different calendar
+    // day in zones with a non-hour offset or a DST transition.
+    partsInTimeZone(target, dashboardTimezone);
     return new Intl.DateTimeFormat(locale, {
-      timeZone: dashboardTimezone,
+      timeZone: "UTC",
       year: "numeric",
       month: "short",
       day: "numeric",
-    }).format(corrected);
+    }).format(target);
   } catch {
     return reportingDay;
   }
