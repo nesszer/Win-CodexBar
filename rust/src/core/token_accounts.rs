@@ -331,6 +331,7 @@ impl TokenAccountSupport {
             | ProviderId::Kilo
             | ProviderId::Bedrock
             | ProviderId::Codebuff
+            | ProviderId::CodeRabbit
             | ProviderId::DeepSeek
             | ProviderId::Windsurf
             | ProviderId::Doubao

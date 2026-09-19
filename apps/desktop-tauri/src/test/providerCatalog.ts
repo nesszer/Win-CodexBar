@@ -32,6 +32,7 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["kilo", "Kilo"],
   ["bedrock", "AWS Bedrock"],
   ["codebuff", "Codebuff"],
+  ["coderabbit", "CodeRabbit"],
   ["deepseek", "DeepSeek"],
   ["deepinfra", "DeepInfra"],
   ["fireworks", "Fireworks"],
