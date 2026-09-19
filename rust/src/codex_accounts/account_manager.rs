@@ -15,7 +15,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use super::api::CodexApiError;
-use super::credentials::{AuthBackedIdentity, load_identity};
+use super::credentials::{AuthBackedIdentity, load_identity, parse_credentials_json};
 use super::file_locations::{
     ambient_codex_home, auth_backups_directory, codex_desktop_session_root,
     desktop_session_snapshot_path, ensure_directories, managed_homes_directory,
@@ -267,6 +267,11 @@ impl CodexAccountManager {
     }
 
     /// Copy the ambient account into an app-managed home.
+    ///
+    /// Reuses the managed home already holding this account's credentials when
+    /// one exists. Minting a fresh home on every call let repeated switches
+    /// accumulate one duplicate directory per switch, each holding a copy of
+    /// whatever `auth.json` happened to be ambient at the time.
     pub fn materialize_as_managed(
         &self,
         account: &CodexAccount,
@@ -280,9 +285,23 @@ impl CodexAccountManager {
             ));
         }
 
-        let destination_home = managed_homes_directory().join(Uuid::new_v4().to_string());
-        fs::create_dir_all(&destination_home)?;
-        fs::copy(&source_auth_path, destination_home.join("auth.json"))?;
+        let destination_home = match self.existing_managed_home_matching(account) {
+            Some(existing) => {
+                let existing_auth_path = existing.join("auth.json");
+                // Never let a stale ambient file overwrite newer managed
+                // credentials; that turns a working account into a dead one.
+                if credentials_are_at_least_as_fresh(&source_auth_path, &existing_auth_path) {
+                    fs::copy(&source_auth_path, &existing_auth_path)?;
+                }
+                existing
+            }
+            None => {
+                let fresh_home = managed_homes_directory().join(Uuid::new_v4().to_string());
+                fs::create_dir_all(&fresh_home)?;
+                fs::copy(&source_auth_path, fresh_home.join("auth.json"))?;
+                fresh_home
+            }
+        };
 
         let now = utc_now();
         let mut materialized = CodexAccount::new(
@@ -386,6 +405,27 @@ impl CodexAccountManager {
         // Best-effort teardown: persisting the rewritten payload is advisory
         // and a write error cannot change the in-memory rewrite result.
         let _written_payload = fs::write(path, format!("{encoded}\n"));
+    }
+
+    /// Find an app-managed home that already holds credentials for `account`.
+    ///
+    /// Returns the lowest-named match so repeated calls are stable, and `None`
+    /// when the managed-homes directory is unreadable — callers then create a
+    /// fresh home, matching the previous behaviour.
+    fn existing_managed_home_matching(&self, account: &CodexAccount) -> Option<PathBuf> {
+        let Ok(entries) = fs::read_dir(managed_homes_directory()) else {
+            return None;
+        };
+        let mut matches: Vec<PathBuf> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|home_path| home_path.is_dir())
+            .filter(|home_path| {
+                self.discovered_managed_account(home_path, std::slice::from_ref(account))
+                    .is_some_and(|candidate| candidate.matches(account))
+            })
+            .collect();
+        matches.sort();
+        matches.into_iter().next()
     }
 
     fn managed_home_paths_matching(
@@ -641,6 +681,23 @@ fn directory_timestamp(path: &Path) -> DateTime<Utc> {
         .unwrap_or_else(|_| utc_now())
 }
 
+/// Whether `candidate` holds credentials at least as recently refreshed as
+/// `incumbent`, so reusing a managed home cannot downgrade a live account to a
+/// stale token. Unreadable or undated credentials fall back to `true`, keeping
+/// the previous "latest write wins" behaviour.
+fn credentials_are_at_least_as_fresh(candidate: &Path, incumbent: &Path) -> bool {
+    let last_refresh = |path: &Path| {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|json| parse_credentials_json(&json).ok())
+            .and_then(|credentials| credentials.last_refresh)
+    };
+    match (last_refresh(candidate), last_refresh(incumbent)) {
+        (Some(candidate), Some(incumbent)) => candidate >= incumbent,
+        _ => true,
+    }
+}
+
 fn managed_home_key(path: &Path) -> String {
     std::path::absolute(path)
         .unwrap_or_else(|_| path.to_path_buf())
@@ -766,6 +823,124 @@ mod tests {
         assert!(!first_home.exists());
         assert!(!duplicate_home.exists());
         assert!(other_home.exists());
+
+        super::super::file_locations::clear_app_support_directory_override();
+    }
+
+    /// Write an auth.json whose credentials carry an explicit refresh time.
+    fn write_auth_refreshed_at(
+        home_path: &Path,
+        email: &str,
+        account_id: &str,
+        last_refresh: &str,
+    ) {
+        write_auth(home_path, email, account_id);
+        let auth_path = home_path.join("auth.json");
+        let mut auth: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&auth_path).unwrap()).unwrap();
+        auth["last_refresh"] = serde_json::Value::String(last_refresh.to_string());
+        std::fs::write(&auth_path, serde_json::to_vec_pretty(&auth).unwrap()).unwrap();
+    }
+
+    fn managed_home_count(root: &Path) -> usize {
+        std::fs::read_dir(root.join("managed-homes"))
+            .map(|entries| entries.filter_map(Result::ok).count())
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn materialize_reuses_the_existing_home_for_the_same_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        super::super::file_locations::with_app_support_directory(root.to_path_buf());
+
+        let account_id = "b3f1c0de-0000-4000-8000-00000000cafe";
+        let ambient_home = root.join("ambient");
+        let existing_home = root.join("managed-homes").join("existing");
+        for home in [&ambient_home, &existing_home] {
+            std::fs::create_dir_all(home).unwrap();
+        }
+        write_auth(&ambient_home, "user@example.com", account_id);
+        write_auth(&existing_home, "user@example.com", account_id);
+
+        let ambient = make_account(ambient_home, "user@example.com", account_id);
+        let manager = CodexAccountManager::new();
+
+        // Repeated switches must not leave a trail of duplicate homes.
+        let first = manager.materialize_as_managed(&ambient).unwrap();
+        let second = manager.materialize_as_managed(&ambient).unwrap();
+
+        assert_eq!(first.codex_home_path, existing_home);
+        assert_eq!(second.codex_home_path, existing_home);
+        assert_eq!(managed_home_count(root), 1);
+
+        super::super::file_locations::clear_app_support_directory_override();
+    }
+
+    #[test]
+    fn materialize_creates_a_home_when_no_managed_copy_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        super::super::file_locations::with_app_support_directory(root.to_path_buf());
+
+        let ambient_home = root.join("ambient");
+        let unrelated_home = root.join("managed-homes").join("unrelated");
+        for home in [&ambient_home, &unrelated_home] {
+            std::fs::create_dir_all(home).unwrap();
+        }
+        write_auth(&ambient_home, "user@example.com", "account-one");
+        write_auth(&unrelated_home, "other@example.com", "account-two");
+
+        let ambient = make_account(ambient_home, "user@example.com", "account-one");
+        let materialized = CodexAccountManager::new()
+            .materialize_as_managed(&ambient)
+            .unwrap();
+
+        assert_ne!(materialized.codex_home_path, unrelated_home);
+        assert!(materialized.codex_home_path.join("auth.json").exists());
+        assert_eq!(managed_home_count(root), 2);
+
+        super::super::file_locations::clear_app_support_directory_override();
+    }
+
+    #[test]
+    fn materialize_does_not_overwrite_newer_managed_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        super::super::file_locations::with_app_support_directory(root.to_path_buf());
+
+        let account_id = "0ff1ce00-0000-4000-8000-0000000000aa";
+        let ambient_home = root.join("ambient");
+        let existing_home = root.join("managed-homes").join("existing");
+        for home in [&ambient_home, &existing_home] {
+            std::fs::create_dir_all(home).unwrap();
+        }
+        // The ambient file is the stale one here: expired, left behind by an
+        // earlier session. Reuse must not copy it over live credentials.
+        write_auth_refreshed_at(
+            &ambient_home,
+            "user@example.com",
+            account_id,
+            "2026-01-01T00:00:00Z",
+        );
+        write_auth_refreshed_at(
+            &existing_home,
+            "user@example.com",
+            account_id,
+            "2026-06-01T00:00:00Z",
+        );
+        let preserved = std::fs::read(existing_home.join("auth.json")).unwrap();
+
+        let ambient = make_account(ambient_home, "user@example.com", account_id);
+        let materialized = CodexAccountManager::new()
+            .materialize_as_managed(&ambient)
+            .unwrap();
+
+        assert_eq!(materialized.codex_home_path, existing_home);
+        assert_eq!(
+            std::fs::read(existing_home.join("auth.json")).unwrap(),
+            preserved
+        );
 
         super::super::file_locations::clear_app_support_directory_override();
     }
