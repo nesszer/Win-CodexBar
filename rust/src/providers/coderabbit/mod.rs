@@ -95,10 +95,10 @@ impl Provider for CodeRabbitProvider {
                 let mut combined = output.stdout;
                 combined.push(b'\n');
                 combined.extend_from_slice(&output.stderr);
-                let combined = String::from_utf8_lossy(&combined);
+                let combined = decode_cli_output(&combined)?;
 
                 if !output.status.success() {
-                    if looks_signed_out(&combined) {
+                    if looks_signed_out(combined) {
                         return Err(ProviderError::AuthRequired);
                     }
                     return Err(ProviderError::Other(format!(
@@ -110,7 +110,7 @@ impl Provider for CodeRabbitProvider {
                     )));
                 }
 
-                let usage = parse_usage(&combined)?;
+                let usage = parse_usage(combined)?;
                 Ok(fetch_result(&usage))
             }
             SourceMode::OAuth | SourceMode::Web => {
@@ -238,6 +238,12 @@ async fn run_cli(program: &str) -> Result<CliOutput, ProviderError> {
     }
 }
 
+fn decode_cli_output(bytes: &[u8]) -> Result<&str, ProviderError> {
+    std::str::from_utf8(bytes).map_err(|_| {
+        ProviderError::Parse("CodeRabbit CLI returned invalid UTF-8 output.".to_string())
+    })
+}
+
 async fn read_stream<R: AsyncRead + Unpin>(
     kind: StreamKind,
     mut reader: R,
@@ -291,17 +297,31 @@ fn parse_usage(text: &str) -> Result<CodeRabbitUsage, ProviderError> {
         ));
     }
 
-    let text = strip_ansi_codes(text);
+    if text
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
+    {
+        return Err(ProviderError::Parse(
+            "CodeRabbit CLI returned an invalid field.".to_string(),
+        ));
+    }
+    if looks_signed_out(text) {
+        return Err(ProviderError::AuthRequired);
+    }
+
     let mut usage = CodeRabbitUsage::default();
+    let mut seen_organization = false;
+    let mut seen_user = false;
+    let mut seen_plan = false;
+    let mut seen_reviews = false;
+    let mut seen_usage_billing = false;
+    let mut seen_period_resets = false;
     for line in text.lines() {
         let Some((label, raw_value)) = line.split_once(':') else {
             continue;
         };
         let label = label.trim().to_ascii_lowercase();
         let value = raw_value.trim();
-        if value.is_empty() {
-            continue;
-        }
         if value.chars().count() > MAX_FIELD_CHARS || value.chars().any(char::is_control) {
             return Err(ProviderError::Parse(
                 "CodeRabbit CLI returned an invalid field.".to_string(),
@@ -309,28 +329,49 @@ fn parse_usage(text: &str) -> Result<CodeRabbitUsage, ProviderError> {
         }
 
         match label.as_str() {
-            "organization" if usage.organization.is_none() => {
-                usage.organization = Some(value.to_string())
+            "organization" if !seen_organization => {
+                seen_organization = true;
+                if !value.is_empty() {
+                    usage.organization = Some(value.to_string());
+                }
             }
-            "user" if usage.user.is_none() => usage.user = Some(value.to_string()),
-            "plan" if usage.plan.is_none() => usage.plan = Some(value.to_string()),
-            "your reviews" if usage.reviews.is_none() => {
-                usage.reviews = value.parse::<u64>().ok();
+            "user" if !seen_user => {
+                seen_user = true;
+                if !value.is_empty() {
+                    usage.user = Some(value.to_string());
+                }
             }
-            "usage billing" if usage.usage_billing.is_none() => {
-                usage.usage_billing = Some(value.to_string())
+            "plan" if !seen_plan => {
+                seen_plan = true;
+                if !value.is_empty() {
+                    usage.plan = Some(value.to_string());
+                }
             }
-            "period resets" if usage.period_resets.is_none() => {
-                usage.period_resets = Some(value.to_string())
+            "your reviews" if !seen_reviews => {
+                seen_reviews = true;
+                usage.reviews = Some(value.parse::<u64>().map_err(|_| {
+                    ProviderError::Parse(
+                        "CodeRabbit CLI returned an invalid review count.".to_string(),
+                    )
+                })?);
+            }
+            "usage billing" if !seen_usage_billing => {
+                seen_usage_billing = true;
+                if !value.is_empty() {
+                    usage.usage_billing = Some(value.to_string());
+                }
+            }
+            "period resets" if !seen_period_resets => {
+                seen_period_resets = true;
+                if !value.is_empty() {
+                    usage.period_resets = Some(value.to_string());
+                }
             }
             _ => {}
         }
     }
 
-    if usage.reviews.is_none() && usage.usage_billing.is_none() && usage.period_resets.is_none() {
-        if looks_signed_out(&text) {
-            return Err(ProviderError::AuthRequired);
-        }
+    if usage.reviews.is_none() && usage.usage_billing.is_none() {
         return Err(ProviderError::Parse(
             "CodeRabbit CLI returned no usage fields.".to_string(),
         ));
@@ -389,47 +430,12 @@ fn looks_signed_out(text: &str) -> bool {
     [
         "not authenticated",
         "please log in",
-        "auth login",
         "authentication required",
         "unauthorized",
         "no session found",
     ]
     .iter()
     .any(|marker| lower.contains(marker))
-}
-
-fn strip_ansi_codes(text: &str) -> String {
-    let mut output = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\u{1b}' {
-            output.push(ch);
-            continue;
-        }
-
-        match chars.peek().copied() {
-            Some('[') => {
-                chars.next();
-                for control in chars.by_ref() {
-                    if ('@'..='~').contains(&control) {
-                        break;
-                    }
-                }
-            }
-            Some(']') => {
-                chars.next();
-                let mut previous = None;
-                for control in chars.by_ref() {
-                    if control == '\u{7}' || (previous == Some('\u{1b}') && control == '\\') {
-                        break;
-                    }
-                    previous = Some(control);
-                }
-            }
-            _ => {}
-        }
-    }
-    output
 }
 
 #[cfg(test)]
@@ -453,12 +459,14 @@ mod tests {
     }
 
     #[test]
-    fn strips_ansi_and_rejects_signed_out_or_unrelated_output() {
-        let usage = parse_usage("\u{1b}[32mYour reviews: 3\u{1b}[0m").unwrap();
-        assert_eq!(usage.reviews, Some(3));
+    fn rejects_control_sequences_and_signed_out_output_even_with_usage() {
+        assert!(matches!(
+            parse_usage("\u{1b}[32mYour reviews: 3\u{1b}[0m"),
+            Err(ProviderError::Parse(_))
+        ));
 
         assert!(matches!(
-            parse_usage("Please log in with auth login"),
+            parse_usage("Your reviews: 3\nPlease log in with auth login"),
             Err(ProviderError::AuthRequired)
         ));
         assert!(matches!(
@@ -468,13 +476,17 @@ mod tests {
     }
 
     #[test]
-    fn ignores_negative_review_counts_and_requires_usage_structure() {
+    fn rejects_invalid_review_counts_and_requires_usage_structure() {
         assert!(matches!(
             parse_usage("Your reviews: -1"),
             Err(ProviderError::Parse(_))
         ));
-        let usage = parse_usage("Period resets: tomorrow").unwrap();
-        assert_eq!(usage.period_resets.as_deref(), Some("tomorrow"));
+        assert!(matches!(
+            parse_usage("Period resets: tomorrow"),
+            Err(ProviderError::Parse(_))
+        ));
+        let usage = parse_usage("Your reviews: 0").unwrap();
+        assert_eq!(usage.reviews, Some(0));
     }
 
     #[test]
@@ -488,6 +500,29 @@ mod tests {
             parse_usage(&oversized),
             Err(ProviderError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn rejects_invalid_utf8_before_parsing() {
+        assert!(matches!(
+            decode_cli_output(b"Your reviews: 3\xff"),
+            Err(ProviderError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn malformed_first_review_value_cannot_be_replaced_by_a_later_duplicate() {
+        assert!(matches!(
+            parse_usage("Your reviews: unknown\nYour reviews: 3\nUsage billing: Included"),
+            Err(ProviderError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn help_text_can_mention_login_without_marking_a_valid_report_signed_out() {
+        let usage =
+            parse_usage("Your reviews: 3\nTo switch accounts, run coderabbit auth login.").unwrap();
+        assert_eq!(usage.reviews, Some(3));
     }
 
     #[test]
