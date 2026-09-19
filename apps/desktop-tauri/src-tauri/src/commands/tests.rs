@@ -1021,6 +1021,35 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
 }
 
 #[test]
+fn coderabbit_display_details_map_to_the_bridge_without_identity() {
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::informational(
+            "CodeRabbit CLI",
+        )),
+        "cli",
+    )
+    .with_display_detail(ProviderDisplayDetail::new("reviews", "Reviews", "42"))
+    .with_display_detail(ProviderDisplayDetail::new(
+        "usage-billing",
+        "Usage billing",
+        "Included",
+    ));
+    let metadata = instantiate_provider(ProviderId::CodeRabbit)
+        .metadata()
+        .clone();
+    let snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::CodeRabbit, &metadata, &result, None);
+
+    assert_eq!(snapshot.display_details.len(), 2);
+    assert_eq!(snapshot.display_details[0].id, "reviews");
+    assert_eq!(snapshot.display_details[0].value, "42");
+    assert_eq!(snapshot.display_details[1].title, "Usage billing");
+    assert!(snapshot.account_email.is_none());
+    assert!(snapshot.account_organization.is_none());
+    assert!(snapshot.plan_name.is_none());
+}
+
+#[test]
 fn provider_cache_is_fresh_inside_stale_window() {
     assert!(super::is_provider_cache_fresh(
         Some(std::time::Instant::now()),
