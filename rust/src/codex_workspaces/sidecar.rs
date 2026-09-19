@@ -23,6 +23,8 @@ pub enum SidecarError {
         "workspaces sidecar schema incompatible (user_version={found}, expected {SCHEMA_VERSION})"
     )]
     Incompatible { found: i32 },
+    #[error("workspaces sidecar cache scope mismatch (expected {expected}, found {found})")]
+    ScopeMismatch { expected: String, found: String },
     #[error("workspaces sidecar error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("workspaces sidecar encode/decode failed: {0}")]
@@ -83,7 +85,13 @@ impl WorkspaceUsageSidecar {
         if format_version != PAYLOAD_FORMAT_VERSION {
             return Ok(None);
         }
-        let snapshot = serde_json::from_slice(&payload)?;
+        let snapshot: CodexLocalProjectUsageSnapshot = serde_json::from_slice(&payload)?;
+        if snapshot.scope_signature != scope_signature || snapshot.history_days != history_days {
+            return Err(SidecarError::ScopeMismatch {
+                expected: scope_signature.to_string(),
+                found: snapshot.scope_signature,
+            });
+        }
         Ok(Some(snapshot))
     }
 
