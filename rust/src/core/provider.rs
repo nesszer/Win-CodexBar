@@ -352,6 +352,7 @@ impl ProviderId {
             ProviderId::MiMo => Some("platform.xiaomimimo.com"),
             ProviderId::CommandCode => Some("commandcode.ai"),
             ProviderId::Grok => Some("grok.com"),
+            ProviderId::Venice => Some("venice.ai"),
             ProviderId::Qoder => Some("qoder.com"),
             ProviderId::CodeBuddy => Some("codebuddy.cn"),
             ProviderId::Sakana => Some("console.sakana.ai"),
@@ -378,7 +379,6 @@ impl ProviderId {
             ProviderId::Doubao => None,
             ProviderId::Crof => None,
             ProviderId::StepFun => None,
-            ProviderId::Venice => None,
             ProviderId::OpenAIApi => None,
             ProviderId::ElevenLabs => None,
             ProviderId::Deepgram => None,
@@ -1177,6 +1177,7 @@ mod tests {
         assert_eq!(ProviderId::Kiro.cookie_domain(), Some("kiro.dev"));
         assert_eq!(ProviderId::Kimi.cookie_domain(), Some("kimi.moonshot.cn"));
         assert_eq!(ProviderId::OpenCode.cookie_domain(), Some("opencode.ai"));
+        assert_eq!(ProviderId::Venice.cookie_domain(), Some("venice.ai"));
 
         // Token-based providers (no cookies)
         assert_eq!(ProviderId::Copilot.cookie_domain(), None);
