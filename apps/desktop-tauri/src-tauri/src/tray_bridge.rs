@@ -1081,6 +1081,7 @@ mod tests {
             tertiary_label: None,
             extra_rate_windows: Vec::new(),
             inventory: Vec::new(),
+            display_details: Vec::new(),
             cost: cost.map(|(used, limit)| crate::commands::CostSnapshotBridge {
                 used,
                 limit: Some(limit),

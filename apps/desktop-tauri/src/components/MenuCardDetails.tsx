@@ -2,6 +2,7 @@ import { useState } from "react";
 import type {
   CostSummaryDisplayStyle,
   DailyCostPoint,
+  ProviderDisplayDetail,
   PaceSnapshot,
   ProviderInventoryItem,
   ProviderChartData,
@@ -415,6 +416,7 @@ function MetricRow({
 export interface MenuCardPresence {
   hasMetrics: boolean;
   hasInventory: boolean;
+  hasDisplayDetails: boolean;
   hasCost: boolean;
   hasPace: boolean;
   hasCharts: boolean;
@@ -459,6 +461,7 @@ export function describeCard(
   const wayfinderUsage = isWayfinder ? provider.wayfinderUsage : null;
   const hasMetrics = visibleMetrics.length > 0;
   const hasInventory = !provider.error && (provider.inventory?.length ?? 0) > 0;
+  const hasDisplayDetails = !provider.error && (provider.displayDetails?.length ?? 0) > 0;
   const hasCost =
     !!provider.cost &&
     (costSummaryDisplayStyle !== "hidden" || provider.cost.alwaysVisible === true);
@@ -470,6 +473,7 @@ export function describeCard(
     !provider.error &&
     (hasMetrics ||
       hasInventory ||
+      hasDisplayDetails ||
       hasCost ||
       hasPace ||
       hasCharts ||
@@ -478,6 +482,7 @@ export function describeCard(
   return {
     hasMetrics,
     hasInventory,
+    hasDisplayDetails,
     hasCost,
     hasPace,
     hasCharts,
@@ -516,6 +521,7 @@ export default function MenuCardDetails({
   const {
     hasMetrics,
     hasInventory,
+    hasDisplayDetails,
     hasCost,
     hasPace,
     hasCharts,
@@ -559,6 +565,14 @@ export default function MenuCardDetails({
               item={item}
               resetTimeRelative={display.resetTimeRelative}
             />
+          ))}
+        </section>
+      )}
+
+      {!provider.error && hasDisplayDetails && (
+        <section className="menu-card__group menu-card__provider-details">
+          {provider.displayDetails?.map((detail, index) => (
+            <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
           ))}
         </section>
       )}
@@ -757,6 +771,29 @@ function InventoryItemRow({
         <span className="menu-card__cost-line--muted">
           {formattedExpiry}
         </span>
+      )}
+    </div>
+  );
+}
+
+function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
+  const progress = detail.progress;
+  const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
+    ? Math.max(0, Math.min(100, (progress.used / progress.total) * 100))
+    : null;
+
+  return (
+    <div className="menu-card__provider-detail">
+      <div className="menu-card__cost-line">
+        <span>{detail.title}: {detail.value}</span>
+        {detail.secondaryValue && (
+          <span className="menu-card__cost-line--muted">{detail.secondaryValue}</span>
+        )}
+      </div>
+      {progressPercent != null && (
+        <div className="menu-metric__bar" aria-label={`${detail.title} progress`}>
+          <div className="menu-metric__bar-fill" style={{ width: `${progressPercent}%` }} />
+        </div>
       )}
     </div>
   );

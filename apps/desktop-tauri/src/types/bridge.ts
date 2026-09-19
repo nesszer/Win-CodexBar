@@ -599,6 +599,20 @@ export interface ProviderInventoryItem {
   nextExpiresAt: string | null;
 }
 
+export interface ProviderDisplayProgress {
+  used: number;
+  total: number;
+}
+
+/** Transient provider detail row; it is display-only and never quota math. */
+export interface ProviderDisplayDetail {
+  id: string;
+  title: string;
+  value: string;
+  secondaryValue: string | null;
+  progress: ProviderDisplayProgress | null;
+}
+
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
   | "ready"
@@ -627,6 +641,8 @@ export interface ProviderUsageSnapshot {
   }>;
   /** Display-only discrete provider inventory; never used as quota math. */
   inventory?: ProviderInventoryItem[];
+  /** Provider-specific display rows; never used as quota math or persistence. */
+  displayDetails?: ProviderDisplayDetail[];
   cost: CostSnapshotBridge | null;
   planName: string | null;
   accountEmail: string | null;
@@ -903,6 +919,8 @@ export interface ProviderDetail {
   }>;
   /** Display-only discrete provider inventory; never used as quota math. */
   inventory?: ProviderInventoryItem[];
+  /** Provider-specific display rows; never used as quota math or persistence. */
+  displayDetails?: ProviderDisplayDetail[];
 
   cost: CostSnapshotBridge | null;
   pace: PaceSnapshot | null;

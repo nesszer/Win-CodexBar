@@ -415,6 +415,28 @@ fn render_json_result(
         );
     }
 
+    if result.display_details().next().is_some() {
+        json_result["details"] = serde_json::Value::Array(
+            result
+                .display_details()
+                .map(|detail| {
+                    serde_json::json!({
+                        "id": detail.id(),
+                        "title": detail.title(),
+                        "value": detail.value(),
+                        "secondaryValue": detail.secondary_value(),
+                        "progress": detail.progress().map(|progress| {
+                            serde_json::json!({
+                                "used": progress.used(),
+                                "total": progress.total(),
+                            })
+                        }),
+                    })
+                })
+                .collect(),
+        );
+    }
+
     if let Some(s) = status {
         json_result["status"] = serde_json::json!({
             "level": format!("{:?}", s.level).to_lowercase(),
@@ -480,6 +502,7 @@ pub fn render_text_with_status(
     append_account_lines(&mut lines, &result.usage);
     append_usage_window_lines(&mut lines, &result.usage, &metadata, use_color);
     append_inventory_lines(&mut lines, &result.inventory);
+    append_display_detail_lines(&mut lines, result.display_details());
     append_cost_line(&mut lines, result.cost.as_ref());
 
     lines.join("\n")
@@ -615,6 +638,29 @@ fn append_inventory_lines(lines: &mut Vec<String>, inventory: &[ProviderInventor
                 format_inventory_countdown(expires_at, now)
             ));
         }
+    }
+}
+
+fn append_display_detail_lines<'a>(
+    lines: &mut Vec<String>,
+    details: impl IntoIterator<Item = &'a crate::core::ProviderDisplayDetail>,
+) {
+    for detail in details {
+        let secondary = detail
+            .secondary_value()
+            .map(|value| format!(" ({value})"))
+            .unwrap_or_default();
+        let progress = detail
+            .progress()
+            .map(|value| format!(" [{:.2}/{:.2}]", value.used(), value.total()))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  {}: {}{}{}",
+            detail.title(),
+            detail.value(),
+            secondary,
+            progress
+        ));
     }
 }
 
@@ -1029,6 +1075,22 @@ mod tests {
                 .unwrap()
                 .contains("coupon-token-secret")
         );
+    }
+
+    #[test]
+    fn display_details_are_rendered_in_full_text_and_json() {
+        let result = fetch_result(UsageSnapshot::new(RateWindow::new(10.0))).with_display_detail(
+            crate::core::ProviderDisplayDetail::new("credits", "Used this cycle", "12")
+                .with_secondary_value("Monthly refill: 100")
+                .with_progress(12.0, 100.0),
+        );
+
+        let full = render_text_with_status(ProviderId::Grok, &result, None, false);
+        let json = render_json_result(ProviderId::Grok, result, None);
+
+        assert!(full.contains("Used this cycle: 12 (Monthly refill: 100) [12.00/100.00]"));
+        assert_eq!(json["details"][0]["title"], "Used this cycle");
+        assert_eq!(json["details"][0]["progress"]["total"], 100.0);
     }
 
     #[test]
