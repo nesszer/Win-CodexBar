@@ -470,6 +470,21 @@ fn fetch_context_opencode_empty_manual_remaps_to_web() {
 }
 
 #[test]
+fn fetch_context_replicate_empty_manual_fails_closed_without_browser_import() {
+    let settings = Settings::default();
+    let ctx = super::build_fetch_context(
+        ProviderId::Replicate,
+        &settings,
+        &ManualCookies::default(),
+        &ApiKeys::default(),
+        &HashMap::new(),
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Web);
+    assert_eq!(ctx.manual_cookie_header.as_deref(), Some(""));
+}
+
+#[test]
 fn fetch_context_codex_manual_cookie_never_forces_unsupported_web() {
     // Default cookie source is "manual". Pasting a chatgpt.com cookie used to flip
     // Codex into SourceMode::Web, which CodexProvider rejects with

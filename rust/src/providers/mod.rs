@@ -160,6 +160,19 @@ pub(crate) fn browser_cookie_header(
         .map_err(map_browser_cookie_error)
 }
 
+pub(crate) fn browser_cookie_headers_for_domain(
+    domain: &str,
+) -> Result<Vec<(String, String)>, crate::core::ProviderError> {
+    crate::browser::cookies::get_cookie_headers_for_domain(domain)
+        .map(|candidates| {
+            candidates
+                .into_iter()
+                .map(|(browser, header)| (browser.display_name().to_string(), header))
+                .collect()
+        })
+        .map_err(map_browser_cookie_error)
+}
+
 pub(crate) fn browser_cookies_for_domain(
     domain: &str,
 ) -> Result<Vec<crate::browser::cookies::Cookie>, crate::core::ProviderError> {

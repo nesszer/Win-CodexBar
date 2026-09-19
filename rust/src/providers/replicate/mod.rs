@@ -3,12 +3,12 @@
 //! Replicate exposes spend and prepaid credit information through its
 //! authenticated billing page and read-only account endpoints. The Windows
 //! port keeps credential selection native: it accepts a manually supplied
-//! Cookie header, reuses the shared browser-cookie cache, or imports the
-//! `replicate.com` browser session. It never uses a Replicate API token as a
-//! website credential and never logs cookie material.
+//! Cookie header or imports the `replicate.com` browser session. Browser
+//! credentials stay in memory for the current fetch only. It never uses a
+//! Replicate API token as a website credential and never logs cookie material.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use futures::StreamExt;
 use reqwest::{Client, StatusCode, Url, header::HeaderMap};
 use serde_json::Value;
@@ -16,7 +16,6 @@ use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::time::timeout;
 
-use crate::browser::cookie_cache::{CookieHeaderCache, CookieHeaderEntry};
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
     ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
@@ -162,26 +161,25 @@ impl ReplicateProvider {
     }
 
     async fn fetch_browser_cookie(&self) -> Result<ProviderFetchResult, ProviderError> {
-        let mut observed = CookieHeaderCache::load(ProviderId::Replicate);
-        if let Some(cached) = observed.as_ref() {
-            match self
-                .fetch_with_cookie(&cached.cookie_header, &cached.source_label)
-                .await
-            {
+        let candidates = normalized_browser_candidates(
+            crate::providers::browser_cookie_headers_for_domain("replicate.com")?,
+        );
+        let mut authentication_failed = false;
+        for (source_label, normalized) in candidates {
+            match self.fetch_with_cookie(&normalized, &source_label).await {
                 Ok(result) => return Ok(result),
                 Err(error) if is_authentication_failure(&error) => {
-                    clear_cache_if_current(cached);
-                    observed = None;
+                    authentication_failed = true;
                 }
                 Err(error) => return Err(error),
             }
         }
 
-        let imported = crate::providers::browser_cookie_header(&["replicate.com"])?;
-        let normalized = normalize_cookie_header(&imported).ok_or(ProviderError::NoCookies)?;
-        let result = self.fetch_with_cookie(&normalized, "browser").await?;
-        store_cache_if_current(observed.as_ref(), &normalized, "browser");
-        Ok(result)
+        if authentication_failed {
+            Err(ProviderError::AuthRequired)
+        } else {
+            Err(ProviderError::NoCookies)
+        }
     }
 
     async fn fetch_auto(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -433,9 +431,7 @@ fn parse_current_invoice(body: &str, now: DateTime<Utc>) -> Result<InvoiceSpend,
         match object.get("ended_before") {
             None | Some(Value::Null) => true,
             Some(Value::String(value)) if !value.trim().is_empty() => {
-                DateTime::parse_from_rfc3339(value)
-                    .map(|end| end.with_timezone(&Utc) > now)
-                    .unwrap_or(false)
+                parse_invoice_end(value).is_some_and(|end| end > now)
             }
             _ => false,
         }
@@ -446,6 +442,31 @@ fn parse_current_invoice(body: &str, now: DateTime<Utc>) -> Result<InvoiceSpend,
         .and_then(parse_money)
         .ok_or_else(|| parse_failure("missing or invalid total_cost_before_adjustments"))?;
     Ok(InvoiceSpend { used })
+}
+
+fn parse_invoice_end(value: &str) -> Option<DateTime<Utc>> {
+    let value = value.trim();
+    if let Ok(end) = DateTime::parse_from_rfc3339(value) {
+        return Some(end.with_timezone(&Utc));
+    }
+    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        return Some(DateTime::<Utc>::from_naive_utc_and_offset(
+            date.and_hms_opt(0, 0, 0)?,
+            Utc,
+        ));
+    }
+    [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S%.f",
+    ]
+    .into_iter()
+    .find_map(|format| {
+        NaiveDateTime::parse_from_str(value, format)
+            .ok()
+            .map(|datetime| DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc))
+    })
 }
 
 fn parse_money(value: &Value) -> Option<f64> {
@@ -547,6 +568,15 @@ fn normalize_cookie_header(raw: &str) -> Option<String> {
         })
 }
 
+fn normalized_browser_candidates(candidates: Vec<(String, String)>) -> Vec<(String, String)> {
+    candidates
+        .into_iter()
+        .filter_map(|(source_label, header)| {
+            normalize_cookie_header(&header).map(|normalized| (source_label, normalized))
+        })
+        .collect()
+}
+
 fn validate_status(status: StatusCode, headers: &HeaderMap) -> Result<(), ProviderError> {
     if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
         return Err(ProviderError::AuthRequired);
@@ -558,12 +588,12 @@ fn validate_status(status: StatusCode, headers: &HeaderMap) -> Result<(), Provid
     );
     if status == StatusCode::TOO_MANY_REQUESTS {
         return Err(ProviderError::Other(format!(
-            "Replicate rate limit reached; retry after {retry_after:.0}s."
+            "Replicate rate limit reached; retry after {retry_after:.3}s."
         )));
     }
     if status == StatusCode::REQUEST_TIMEOUT || status.is_server_error() {
         return Err(ProviderError::Other(format!(
-            "Replicate billing is unavailable; retry after {retry_after:.0}s."
+            "Replicate billing is unavailable; retry after {retry_after:.3}s."
         )));
     }
     if !status.is_success() {
@@ -590,40 +620,6 @@ fn parse_failure(field: &str) -> ProviderError {
 
 fn is_authentication_failure(error: &ProviderError) -> bool {
     matches!(error, ProviderError::AuthRequired)
-}
-
-fn same_cache_entry(left: &CookieHeaderEntry, right: &CookieHeaderEntry) -> bool {
-    left.cookie_header == right.cookie_header
-        && left.source_label == right.source_label
-        && left.stored_at == right.stored_at
-}
-
-fn clear_cache_if_current(expected: &CookieHeaderEntry) {
-    if CookieHeaderCache::load(ProviderId::Replicate)
-        .as_ref()
-        .is_some_and(|current| same_cache_entry(current, expected))
-    {
-        CookieHeaderCache::clear(ProviderId::Replicate);
-    }
-}
-
-fn store_cache_if_current(
-    expected: Option<&CookieHeaderEntry>,
-    cookie_header: &str,
-    source_label: &str,
-) {
-    let current = CookieHeaderCache::load(ProviderId::Replicate);
-    let unchanged = match (expected, current.as_ref()) {
-        (None, None) => true,
-        (Some(expected), Some(current)) => same_cache_entry(expected, current),
-        _ => false,
-    };
-    if unchanged
-        && let Err(error) =
-            CookieHeaderCache::store(ProviderId::Replicate, cookie_header, source_label)
-    {
-        tracing::debug!(%error, "Replicate: failed to persist browser cookie cache");
-    }
 }
 
 #[cfg(test)]
@@ -712,6 +708,27 @@ mod tests {
     }
 
     #[test]
+    fn invoice_selection_accepts_date_only_and_common_naive_dates() {
+        let now = DateTime::parse_from_rfc3339("2026-09-20T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        for ended_before in ["2026-09-21", "2026-09-21 00:00:00", "2026-09-21T00:00:00"] {
+            let body = serde_json::json!({
+                "invoices": [{
+                    "type": "monthly-usage",
+                    "ended_before": ended_before,
+                    "total_cost_before_adjustments": "3.25"
+                }]
+            });
+            assert_eq!(
+                parse_current_invoice(&body.to_string(), now).unwrap().used,
+                3.25,
+                "{ended_before}"
+            );
+        }
+    }
+
+    #[test]
     fn invoice_selection_fails_for_ended_missing_or_invalid_required_values() {
         let now = Utc::now();
         for value in [
@@ -776,6 +793,19 @@ mod tests {
     }
 
     #[test]
+    fn browser_candidates_skip_headers_without_a_session_cookie() {
+        let candidates = normalized_browser_candidates(vec![
+            ("Google Chrome".into(), "theme=dark".into()),
+            ("Firefox".into(), "Cookie: sessionid=valid".into()),
+        ]);
+
+        assert_eq!(
+            candidates,
+            vec![("Firefox".to_string(), "sessionid=valid".to_string())]
+        );
+    }
+
+    #[test]
     fn status_and_retry_after_classification_is_bounded() {
         let headers = HeaderMap::new();
         assert!(matches!(
@@ -797,6 +827,15 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("unavailable")
+        );
+
+        let mut retry_headers = HeaderMap::new();
+        retry_headers.insert("retry-after", "0.5".parse().unwrap());
+        assert!(
+            validate_status(StatusCode::TOO_MANY_REQUESTS, &retry_headers)
+                .unwrap_err()
+                .to_string()
+                .contains("0.500s")
         );
     }
 
