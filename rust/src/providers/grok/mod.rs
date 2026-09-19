@@ -17,14 +17,16 @@ use std::path::PathBuf;
 use std::os::windows::process::CommandExt;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderInventoryItem,
+    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
 use self::accounts::{GrokAuthKind, ParsedGrokAuthFile};
 use self::billing::GrokBillingSnapshot;
 
 const BILLING_ENDPOINT: &str = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
+const REMAINING_RESETS_ENDPOINT: &str =
+    "https://grok.com/prod_mc_billing.ConsumerUiSvc/GetRemainingResets";
 const CLI_SETTINGS_ENDPOINT: &str = "https://cli-chat-proxy.grok.com/v1/settings";
 
 pub struct GrokProvider {
@@ -104,7 +106,10 @@ impl GrokProvider {
             None
         }
         .or_else(|| credentials.login_method());
-        Ok(result_from_billing(
+        let reset_credits = self
+            .fetch_remaining_resets(Some(&credentials.access_token), None)
+            .await;
+        let result = result_from_billing(
             billing,
             if kind == GrokAuthKind::Cli {
                 "grok-cli"
@@ -114,7 +119,11 @@ impl GrokProvider {
             credentials.email.clone(),
             credentials.team_id.clone(),
             plan,
-        ))
+        );
+        Ok(match reset_credits {
+            Some(credits) => result.with_inventory_item(credits),
+            None => result,
+        })
     }
 
     async fn fetch_cli_subscription_tier(&self, credentials: &GrokCredentials) -> Option<String> {
@@ -150,10 +159,15 @@ impl GrokProvider {
         let billing = self
             .fetch_billing(None, Some(cookie_header.to_string()))
             .await?;
+        let reset_credits = self.fetch_remaining_resets(None, Some(cookie_header)).await;
         // v0.56.0: a browser session is its own principal. Never enrich a
         // successful cookie billing result from ambient auth.json metadata,
         // which may belong to a different account or change during the fetch.
-        Ok(result_from_cookie_billing(billing))
+        let result = result_from_cookie_billing(billing);
+        Ok(match reset_credits {
+            Some(credits) => result.with_inventory_item(credits),
+            None => result,
+        })
     }
 
     async fn fetch_auto(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -278,6 +292,74 @@ impl GrokProvider {
         }
         billing::validate_grpc_headers(&headers)?;
         billing::parse_grpc_web_response(&bytes)
+    }
+
+    /// Fetch optional SuperGrok reset-credit inventory using the same principal
+    /// that produced the successful billing result. This is deliberately
+    /// best-effort: billing remains valid when this secondary endpoint is down,
+    /// malformed, unauthorized, or empty.
+    async fn fetch_remaining_resets(
+        &self,
+        access_token: Option<&str>,
+        cookie_header: Option<&str>,
+    ) -> Option<ProviderInventoryItem> {
+        let mut request = self
+            .client
+            .post(REMAINING_RESETS_ENDPOINT)
+            .body(vec![0, 0, 0, 0, 0])
+            .timeout(std::time::Duration::from_secs(2))
+            .header("Origin", "https://grok.com")
+            .header("Referer", "https://grok.com/?_s=usage")
+            .header("Accept", "*/*")
+            .header("Content-Type", "application/grpc-web+proto")
+            .header("x-grpc-web", "1")
+            .header("x-user-agent", "connect-es/2.1.1")
+            .header("User-Agent", "CodexBar");
+        if let Some(access_token) = access_token {
+            request = request.header("Authorization", format!("Bearer {access_token}"));
+        }
+        if let Some(cookie_header) = cookie_header {
+            request = request.header("Cookie", cookie_header);
+        }
+
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::debug!("Grok reset-credit lookup failed: {error}");
+                return None;
+            }
+        };
+        if !response.status().is_success() {
+            tracing::debug!(status = %response.status(), "Grok reset-credit lookup returned a non-success status");
+            return None;
+        }
+        let headers = response.headers().clone();
+        let bytes = match response.bytes().await {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                tracing::debug!("Grok reset-credit response read failed: {error}");
+                return None;
+            }
+        };
+        if let Err(error) = billing::validate_grpc_headers(&headers) {
+            tracing::debug!("Grok reset-credit RPC failed: {error}");
+            return None;
+        }
+        let coupons = match billing::parse_grpc_web_reset_coupons(&bytes, Utc::now()) {
+            Ok(coupons) => coupons,
+            Err(error) => {
+                tracing::debug!("Grok reset-credit response was invalid: {error}");
+                return None;
+            }
+        };
+        let next_expiry = coupons.first().map(|coupon| coupon.expires_at);
+        let available_count = u32::try_from(coupons.len()).ok()?;
+        (!coupons.is_empty()).then_some(ProviderInventoryItem {
+            id: "reset-credits".to_string(),
+            title: "Limit Reset Credits".to_string(),
+            available_count,
+            next_expires_at: next_expiry,
+        })
     }
 
     fn detect_cli_version() -> Option<String> {
