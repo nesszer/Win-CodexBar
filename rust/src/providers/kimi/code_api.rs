@@ -131,14 +131,19 @@ pub(super) fn snapshot_from_code_api_response(
         .as_ref()
         .and_then(|pools| pools.monthly.as_ref())
         .and_then(|pool| pool.rate_window(43_200));
-    let primary = session_pool
-        .or_else(|| {
-            response
-                .usage
-                .as_ref()
-                .and_then(|detail| KimiProvider::rate_window_from_usage_detail(detail, None).ok())
-        })
-        .ok_or_else(|| ProviderError::Parse("Kimi Code API has no usable quota window".into()))?;
+    let primary = if pools_present {
+        session_pool.ok_or_else(|| {
+            ProviderError::Parse("Kimi Code API returned an unusable session quota pool".into())
+        })?
+    } else {
+        response
+            .usage
+            .as_ref()
+            .and_then(|detail| KimiProvider::rate_window_from_usage_detail(detail, None).ok())
+            .ok_or_else(|| {
+                ProviderError::Parse("Kimi Code API has no usable quota window".into())
+            })?
+    };
     let mut usage = UsageSnapshot::new(primary).with_login_method(
         response
             .plan_name()
@@ -453,5 +458,20 @@ mod tests {
                 serde_json::from_value(fixture).expect("fixture parses");
             assert!(snapshot_from_code_api_response(response).is_err());
         }
+    }
+
+    #[test]
+    fn unusable_explicit_session_pool_does_not_fall_back_to_legacy_usage() {
+        let response: KimiCodeApiUsageResponse = serde_json::from_value(json!({
+            "usages": { "limit_5h": { "used_ratio": -0.1 } },
+            "usage": { "limit": "100", "used": "20" }
+        }))
+        .expect("fixture parses");
+
+        assert!(matches!(
+            snapshot_from_code_api_response(response),
+            Err(ProviderError::Parse(message))
+                if message.contains("unusable session quota pool")
+        ));
     }
 }
