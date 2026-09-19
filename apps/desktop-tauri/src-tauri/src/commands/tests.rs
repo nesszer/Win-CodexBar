@@ -305,6 +305,32 @@ fn fetch_context_defaults_to_manual_cookies_without_browser_import() {
 }
 
 #[test]
+fn fetch_context_huggingface_uses_api_token_lane() {
+    let settings = Settings::default();
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::HuggingFace,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Auto);
+    let provider = instantiate_provider(ProviderId::HuggingFace);
+    assert_eq!(
+        provider.available_sources(),
+        vec![SourceMode::Auto, SourceMode::OAuth]
+    );
+    assert!(!provider.supports_web());
+    assert!(!provider.supports_cli());
+    assert_eq!(provider.metadata().display_name, "Hugging Face");
+}
+
+#[test]
 fn fetch_context_cursor_cookie_off_stays_cli() {
     let mut settings = Settings::default();
     settings.set_cookie_source(ProviderId::Cursor, "off");
