@@ -236,6 +236,7 @@ fn build_usage_fetch_context(args: &UsageArgs, source_mode: SourceMode) -> Fetch
         manual_cookie_header: None,
         api_key: None,
         workspace_id: None,
+        seat_credit_entitlement: None,
         api_region: None,
         gateway_url: None,
         auto_prefer_web: false,

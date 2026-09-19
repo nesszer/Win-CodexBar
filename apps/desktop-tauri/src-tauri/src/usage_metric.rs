@@ -7,6 +7,8 @@ use codexbar::settings::{MetricPreference, Settings};
 
 use crate::commands::{ProviderUsageSnapshot, RateWindowSnapshot};
 
+const COPILOT_SEAT_CREDIT_WINDOW_ID: &str = "copilot-seat-credits";
+
 pub(crate) fn selected_usage_window(
     snapshot: &ProviderUsageSnapshot,
     settings: &Settings,
@@ -16,9 +18,16 @@ pub(crate) fn selected_usage_window(
         .map(|id| settings.get_provider_metric(id))
         .unwrap_or_default();
 
-    preferred_window(snapshot, provider, preference)
-        .or_else(|| automatic_window(snapshot, provider))
-        .unwrap_or_else(|| snapshot.primary.clone())
+    if let Some(selected) = preferred_window(snapshot, provider, preference) {
+        return selected;
+    }
+    // A configured Copilot seat allowance is an Automatic-only fallback.
+    // Preserve an explicit metric choice when its corresponding lane is not
+    // available instead of silently replacing it with seat-credit progress.
+    if provider == Some(ProviderId::Copilot) && preference != MetricPreference::Automatic {
+        return snapshot.primary.clone();
+    }
+    automatic_window(snapshot, provider).unwrap_or_else(|| snapshot.primary.clone())
 }
 
 /// Select the primary tray metric and, when there are multiple meaningful core
@@ -112,8 +121,17 @@ fn automatic_window(
             }
         }
         if snapshot.primary.is_informational {
-            return weekly.cloned();
+            if let Some(weekly) = weekly {
+                return Some(weekly.clone());
+            }
         }
+    }
+
+    if snapshot.primary.is_informational
+        && provider != Some(ProviderId::Copilot)
+        && snapshot.secondary.is_none()
+    {
+        return None;
     }
 
     let policy = automatic_metric_policy(provider);
@@ -122,11 +140,21 @@ fn automatic_window(
     windows.extend(snapshot.secondary.iter());
     windows.extend(snapshot.model_specific.iter());
     windows.extend(snapshot.tertiary.iter());
+    let has_real_core_window = std::iter::once(&snapshot.primary)
+        .chain(snapshot.secondary.iter())
+        .chain(snapshot.model_specific.iter())
+        .chain(snapshot.tertiary.iter())
+        .any(|window| !window.is_informational);
     if policy.uses_extra_windows {
         windows.extend(
             snapshot
                 .extra_rate_windows
                 .iter()
+                .filter(|extra| {
+                    provider != Some(ProviderId::Copilot)
+                        || !has_real_core_window
+                        || extra.id != COPILOT_SEAT_CREDIT_WINDOW_ID
+                })
                 .map(|extra| &extra.window),
         );
     }
@@ -348,6 +376,67 @@ mod tests {
             selected_usage_window(&snapshot, &Settings::default()).used_percent,
             60.0
         );
+    }
+
+    #[test]
+    fn copilot_automatic_uses_seat_credit_progress_without_metered_quota() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "copilot".to_string();
+        snapshot.primary = RateWindowSnapshot {
+            is_informational: true,
+            ..window(0.0)
+        };
+        snapshot.secondary = None;
+        snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: COPILOT_SEAT_CREDIT_WINDOW_ID.to_string(),
+            title: "Credits used".to_string(),
+            window: window(35.0),
+        }];
+
+        assert_eq!(
+            selected_usage_window(&snapshot, &Settings::default()).used_percent,
+            35.0
+        );
+    }
+
+    #[test]
+    fn copilot_automatic_keeps_metered_quota_authoritative_over_seat_credits() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "copilot".to_string();
+        snapshot.primary = window(20.0);
+        snapshot.secondary = None;
+        snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: COPILOT_SEAT_CREDIT_WINDOW_ID.to_string(),
+            title: "Credits used".to_string(),
+            window: window(90.0),
+        }];
+
+        assert_eq!(
+            selected_usage_window(&snapshot, &Settings::default()).used_percent,
+            20.0
+        );
+    }
+
+    #[test]
+    fn copilot_explicit_session_does_not_fall_back_to_seat_credits() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "copilot".to_string();
+        snapshot.primary = RateWindowSnapshot {
+            is_informational: true,
+            ..window(0.0)
+        };
+        snapshot.secondary = None;
+        snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: COPILOT_SEAT_CREDIT_WINDOW_ID.to_string(),
+            title: "Credits used".to_string(),
+            window: window(35.0),
+        }];
+        let mut settings = Settings::default();
+        settings.set_provider_metric(ProviderId::Copilot, MetricPreference::Session);
+
+        let selected = selected_usage_window(&snapshot, &settings);
+        assert!(selected.is_informational);
+        assert_eq!(selected.used_percent, 0.0);
     }
 
     #[test]

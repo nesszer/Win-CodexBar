@@ -75,6 +75,9 @@ pub struct SettingsUpdate {
     pub promote_tray_icon: Option<bool>,
     pub claude_daily_routines_usage_visible: Option<bool>,
     pub alibaba_token_plan_region: Option<String>,
+    /// Optional user-entered Copilot seat AI-credit allowance; `null` clears it.
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub copilot_seat_credit_entitlement: Option<Option<f64>>,
     pub weekly_progress_work_days: Option<u8>,
     pub cost_summary_display_style: Option<String>,
     pub open_codex_usage_logs_enabled: Option<bool>,
@@ -87,6 +90,7 @@ impl SettingsUpdate {
             || self.claude_daily_routines_usage_visible.is_some()
             || self.claude_allow_reading_claude_code_credentials.is_some()
             || self.alibaba_token_plan_region.is_some()
+            || self.copilot_seat_credit_entitlement.is_some()
             || self.weekly_progress_work_days.is_some()
     }
 
@@ -123,6 +127,7 @@ impl SettingsUpdate {
             || self.menu_bar_display_mode.is_some()
             || self.provider_metrics.is_some()
             || self.codex_spark_usage_visible.is_some()
+            || self.copilot_seat_credit_entitlement.is_some()
             || self.enabled_providers.is_some()
             || self.ui_language.is_some()
     }
@@ -285,7 +290,7 @@ impl SettingsUpdate {
         Ok(self)
     }
 
-    fn apply_advanced_settings(self, settings: &mut Settings) -> Self {
+    fn apply_advanced_settings(self, settings: &mut Settings) -> Result<Self, String> {
         if let Some(v) = self.enable_animations {
             settings.enable_animations = v;
         }
@@ -364,6 +369,17 @@ impl SettingsUpdate {
                 region.as_str(),
             );
         }
+        if let Some(value) = self.copilot_seat_credit_entitlement {
+            if let Some(value) = value
+                && (!value.is_finite() || value <= 0.0)
+            {
+                return Err(
+                    "Copilot seat AI-credit allowance must be a finite number greater than zero"
+                        .to_string(),
+                );
+            }
+            settings.set_seat_credit_entitlement(codexbar::core::ProviderId::Copilot, value);
+        }
         if let Some(v) = self.weekly_progress_work_days {
             settings.weekly_progress_work_days = if (2..=6).contains(&v) { Some(v) } else { None };
         }
@@ -374,7 +390,7 @@ impl SettingsUpdate {
         {
             settings.cost_summary_display_style = v;
         }
-        self
+        Ok(self)
     }
 
     fn float_bar_patch(&self) -> crate::floatbar::SettingsPatch {
@@ -403,10 +419,17 @@ impl SettingsUpdate {
             .apply_general_settings(settings)?
             .apply_display_settings(settings)
             .apply_notification_settings(settings)?
-            .apply_advanced_settings(settings);
+            .apply_advanced_settings(settings)?;
         float_bar_patch.apply(settings);
         Ok(float_bar_patch)
     }
+}
+
+fn deserialize_double_option<'de, D>(deserializer: D) -> Result<Option<Option<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<f64>::deserialize(deserializer)?))
 }
 
 fn normalize_custom_sessions_dirs(dirs: Vec<String>) -> Vec<String> {
@@ -567,15 +590,31 @@ mod tests {
             claude_allow_reading_claude_code_credentials: Some(true),
             ..Default::default()
         }
-        .apply_advanced_settings(&mut settings);
+        .apply_advanced_settings(&mut settings)
+        .unwrap();
         assert!(settings.claude_allow_reading_claude_code_credentials);
 
         SettingsUpdate {
             claude_allow_reading_claude_code_credentials: Some(false),
             ..Default::default()
         }
-        .apply_advanced_settings(&mut settings);
+        .apply_advanced_settings(&mut settings)
+        .unwrap();
         assert!(!settings.claude_allow_reading_claude_code_credentials);
+    }
+
+    #[test]
+    fn copilot_seat_credit_update_distinguishes_missing_clear_and_value() {
+        let missing: SettingsUpdate = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.copilot_seat_credit_entitlement, None);
+
+        let clear: SettingsUpdate =
+            serde_json::from_str(r#"{"copilotSeatCreditEntitlement":null}"#).unwrap();
+        assert_eq!(clear.copilot_seat_credit_entitlement, Some(None));
+
+        let value: SettingsUpdate =
+            serde_json::from_str(r#"{"copilotSeatCreditEntitlement":300}"#).unwrap();
+        assert_eq!(value.copilot_seat_credit_entitlement, Some(Some(300.0)));
     }
 
     #[test]
