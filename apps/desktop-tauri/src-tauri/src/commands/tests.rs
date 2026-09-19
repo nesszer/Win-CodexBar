@@ -857,6 +857,19 @@ fn fetch_context_openrouter_falls_back_to_stored_api_key_without_token_accounts(
 }
 
 #[test]
+fn nous_provider_is_oauth_only_and_has_no_cookie_or_cli_lane() {
+    let provider = instantiate_provider(ProviderId::Nous);
+    assert_eq!(provider.metadata().display_name, "Nous Portal");
+    assert_eq!(
+        provider.available_sources(),
+        vec![SourceMode::Auto, SourceMode::OAuth]
+    );
+    assert!(provider.supports_oauth());
+    assert!(!provider.supports_web());
+    assert!(!provider.supports_cli());
+}
+
+#[test]
 fn provider_region_set_rejects_non_regional_provider() {
     let mut s = Settings::default();
     let err = super::provider_region_set(&mut s, "claude", "global".into()).unwrap_err();
