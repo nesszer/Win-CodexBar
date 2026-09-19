@@ -279,6 +279,20 @@ fn minimax_cookie_domain_follows_selected_region() {
 }
 
 #[test]
+fn replicate_cookie_source_and_domain_are_exposed() {
+    let mut settings = Settings::default();
+    super::provider_cookie_source_set(&mut settings, "replicate", "manual".to_string()).unwrap();
+    assert_eq!(
+        provider_cookie_source_lookup(&settings, "replicate").as_deref(),
+        Some("manual")
+    );
+    assert_eq!(
+        super::provider_cookie_domain(ProviderId::Replicate, &settings),
+        Some("replicate.com")
+    );
+}
+
+#[test]
 fn provider_cookie_source_set_rejects_unknown_provider() {
     let mut s = Settings::default();
     let err = super::provider_cookie_source_set(&mut s, "nope", "x".into()).unwrap_err();
@@ -1702,6 +1716,13 @@ fn cookie_options_for_cookie_supporting_provider() {
     assert!(opts.iter().any(|o| o.label == "Automatic"));
     assert!(opts.iter().any(|o| o.label == "Manual"));
     assert!(opts.iter().any(|o| o.label == "Disabled"));
+}
+
+#[test]
+fn replicate_cookie_options_allow_automatic_and_manual_sessions() {
+    let opts = super::cookie_source_options_for("replicate", Language::English);
+    let values: Vec<_> = opts.iter().map(|option| option.value.as_str()).collect();
+    assert_eq!(values, vec!["auto", "manual"]);
 }
 
 #[test]

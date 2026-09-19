@@ -112,6 +112,7 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | Venice | API Key | USD / DIEM Balance |
 | OpenAI | Admin API / API Key | Usage, Requests, Project-scoped cost, Credit Balance |
 | Grok | Cookies / auth.json | Billing |
+| Replicate | Cookies / token accounts | Monthly spend, credit balance |
 | ElevenLabs | API Key | Subscription Credits, Voice Slots |
 | Deepgram | API Key | Project Usage |
 | Groq | API Key | Enterprise Metrics |

@@ -84,6 +84,7 @@ pub enum ProviderId {
     Fireworks,
     #[serde(alias = "metaspark")]
     Meta,
+    Replicate,
 }
 
 impl ProviderId {
@@ -161,6 +162,7 @@ impl ProviderId {
             ProviderId::Xai,
             ProviderId::Fireworks,
             ProviderId::Meta,
+            ProviderId::Replicate,
         ]
     }
 
@@ -238,6 +240,7 @@ impl ProviderId {
             ProviderId::QwenCloud => "qwen-cloud",
             ProviderId::Notion => "notion",
             ProviderId::Xai => "xai",
+            ProviderId::Replicate => "replicate",
         }
     }
 
@@ -317,6 +320,7 @@ impl ProviderId {
             ProviderId::QwenCloud => "Qwen Cloud",
             ProviderId::Notion => "Notion AI",
             ProviderId::Xai => "xAI",
+            ProviderId::Replicate => "Replicate",
         }
     }
 
@@ -356,6 +360,7 @@ impl ProviderId {
             ProviderId::CodeBuddy => Some("codebuddy.cn"),
             ProviderId::Sakana => Some("console.sakana.ai"),
             ProviderId::LongCat => Some("longcat.chat"),
+            ProviderId::Replicate => Some("replicate.com"),
             // Token-based providers (don't use cookies)
             ProviderId::Copilot => None,
             ProviderId::Zai => None,
@@ -492,6 +497,7 @@ impl ProviderId {
             }
             "zoommate" | "zoom-mate" | "zoom mate" => Some(ProviderId::ZoomMate),
             "notion" | "notion-ai" | "notionai" | "notion ai" => Some(ProviderId::Notion),
+            "replicate" | "r8" => Some(ProviderId::Replicate),
             _ => None,
         }
     }
@@ -976,6 +982,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::Xai => "#8E8E93",
         ProviderId::Fireworks => "#F25B1C",
         ProviderId::Meta => "#0467DF",
+        ProviderId::Replicate => "#000000",
     }
 }
 
@@ -990,7 +997,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 71);
+        assert_eq!(all.len(), 72);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Fireworks));
@@ -1042,6 +1049,7 @@ mod tests {
         assert!(all.contains(&ProviderId::Notion));
         assert!(all.contains(&ProviderId::Xai));
         assert!(all.contains(&ProviderId::Meta));
+        assert!(all.contains(&ProviderId::Replicate));
     }
 
     #[test]
