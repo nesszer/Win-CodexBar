@@ -1,4 +1,5 @@
 import type {
+  ProviderInventoryItem,
   ProviderDetail,
   RateWindowSnapshot,
 } from "../../../../types/bridge";
@@ -60,7 +61,8 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
     });
   }
 
-  if (bars.length === 0) {
+  const inventory = provider.inventory ?? [];
+  if (bars.length === 0 && inventory.length === 0) {
     return null;
   }
 
@@ -76,7 +78,36 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
           t={t}
         />
       ))}
+      {inventory.map((item) => (
+        <InventoryRow
+          key={item.id}
+          item={item}
+          resetTimeRelative={resetTimeRelative}
+        />
+      ))}
     </section>
+  );
+}
+
+function InventoryRow({
+  item,
+  resetTimeRelative,
+}: {
+  item: ProviderInventoryItem;
+  resetTimeRelative: boolean;
+}) {
+  const formattedExpiry = useFormattedResetTime(
+    item.nextExpiresAt,
+    null,
+    resetTimeRelative,
+    "expires",
+  );
+
+  return (
+    <div className="provider-usage-inventory">
+      <span>{item.title}: {item.availableCount} available</span>
+      {formattedExpiry && <span>{formattedExpiry}</span>}
+    </div>
   );
 }
 
