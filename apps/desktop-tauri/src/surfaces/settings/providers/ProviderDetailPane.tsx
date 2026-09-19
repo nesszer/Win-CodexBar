@@ -46,6 +46,7 @@ import { ProviderIssueNotice } from "./sections/ProviderIssueNotice";
 import { CredentialStorageSection } from "./sections/CredentialStorageSection";
 import { CredentialsDispatcher } from "./sections/CredentialsDispatcher";
 import { WayfinderGatewaySection } from "./sections/WayfinderGatewaySection";
+import { AzureApiVersionSection } from "./sections/AzureApiVersionSection";
 
 interface Props {
   providerId: string | null;
@@ -348,6 +349,13 @@ export function ProviderDetailPane({
         t={t}
         onChanged={reload}
       />
+      {detail.id === "azureopenai" && (
+        <AzureApiVersionSection
+          providerId={detail.id}
+          disabled={settingsDisabled}
+          onChanged={reload}
+        />
+      )}
       <CredentialsDispatcher providerId={detail.id} t={t} />
       {detail.id === "codex" && <CodexUsageOptions t={t} />}
       <CredentialStorageSection
