@@ -7,6 +7,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, Duration as ChronoDuration, Utc};
+use futures::StreamExt;
 use reqwest::{Client, StatusCode, Url};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -110,12 +111,7 @@ impl NousProvider {
             ));
         }
 
-        let body = response.bytes().await.map_err(ProviderError::Network)?;
-        if body.len() > MAX_RESPONSE_BYTES {
-            return Err(ProviderError::Parse(
-                "Nous Portal returned an oversized response.".to_string(),
-            ));
-        }
+        let body = read_bounded_body(response).await?;
         parse_response(&body)
     }
 }
@@ -435,6 +431,25 @@ fn status_error(status: StatusCode) -> ProviderError {
             status.as_u16()
         )),
     }
+}
+
+async fn read_bounded_body(response: reqwest::Response) -> Result<Vec<u8>, ProviderError> {
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        append_bounded_body(&mut body, &chunk?)?;
+    }
+    Ok(body)
+}
+
+fn append_bounded_body(body: &mut Vec<u8>, chunk: &[u8]) -> Result<(), ProviderError> {
+    if chunk.len() > MAX_RESPONSE_BYTES.saturating_sub(body.len()) {
+        return Err(ProviderError::Parse(
+            "Nous Portal returned an oversized response.".to_string(),
+        ));
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
 }
 
 fn parse_response(body: &[u8]) -> Result<ProviderFetchResult, ProviderError> {
@@ -849,6 +864,12 @@ mod tests {
                 .to_string()
                 .contains("HTTP 400")
         );
+    }
+
+    #[test]
+    fn streaming_response_cap_rejects_oversized_chunk_without_content_length() {
+        let mut body = vec![0_u8; MAX_RESPONSE_BYTES];
+        assert!(append_bounded_body(&mut body, &[0]).is_err());
     }
 
     #[test]
