@@ -687,6 +687,15 @@ fn append_cost_line(lines: &mut Vec<String>, cost: Option<&CostSnapshot>) {
         return;
     };
 
+    // Provider-supplied OpenRouter Activity is a completed reporting window,
+    // rather than the ordinary current-cost meter. Keep its source period and
+    // known zero visible in text output without adding a second generic cost
+    // line. The daily points remain available in the JSON cost payload.
+    if cost.limit.is_none() && cost.period == "Last 30 days (UTC)" {
+        lines.push(format!("  {}: {}", cost.period, cost.format_used()));
+        return;
+    }
+
     if let Some(limit) = cost.format_limit() {
         lines.push(format!(
             "  Cost:    {} / {} ({})",
@@ -971,5 +980,32 @@ mod tests {
 
         assert!(output.contains("Plan:    Gemini Code Assist in Google One AI Pro"));
         assert!(!output.contains("Google One Ai Pro"));
+    }
+
+    #[test]
+    fn openrouter_history_preserves_period_and_known_zero_in_text() {
+        let result = fetch_result(UsageSnapshot::new(RateWindow::new(0.0)))
+            .with_cost(CostSnapshot::new(0.0, "USD", "Last 30 days (UTC)"));
+
+        let output = render_text_with_status(ProviderId::OpenRouter, &result, None, false);
+
+        assert!(output.contains("Last 30 days (UTC): $0.00"));
+        assert!(!output.contains("Cost:    $0.00"));
+
+        let json = render_json_result(ProviderId::OpenRouter, result, None);
+        assert!(json.get("usage").is_some());
+        assert!(json.get("cost").is_some());
+        assert!(json.get("history").is_none());
+    }
+
+    #[test]
+    fn ordinary_costs_keep_the_existing_cost_line() {
+        let result = fetch_result(UsageSnapshot::new(RateWindow::new(0.0)))
+            .with_cost(CostSnapshot::new(2.5, "EUR", "This month (API key)"));
+
+        let output = render_text_with_status(ProviderId::OpenRouter, &result, None, false);
+
+        assert!(output.contains("Cost:    €2.50 (This month (API key))"));
+        assert!(!output.contains("Last 30 days"));
     }
 }
