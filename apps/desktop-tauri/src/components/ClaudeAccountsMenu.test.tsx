@@ -1,10 +1,22 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClaudeAccount } from "../types/bridge";
 
-const mocks = vi.hoisted(() => ({ claudeAccountsList: vi.fn(), claudeAccountSwitch: vi.fn(), refreshProviders: vi.fn() }));
+const mocks = vi.hoisted(() => {
+  const listeners = new Map<string, () => void>();
+  return {
+    claudeAccountsList: vi.fn(),
+    claudeAccountSwitch: vi.fn(),
+    refreshProviders: vi.fn(),
+    listeners,
+    listen: vi.fn((event: string, callback: () => void) => {
+      listeners.set(event, callback);
+      return Promise.resolve(() => listeners.delete(event));
+    }),
+  };
+});
 vi.mock("../lib/tauri", () => mocks);
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
 vi.mock("../hooks/useLocale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
 import ClaudeAccountsMenu from "./ClaudeAccountsMenu";
 
@@ -13,8 +25,10 @@ const second: ClaudeAccount = { ...first, id: "second:org", email: "second@examp
 
 describe("ClaudeAccountsMenu", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
+    mocks.listeners.clear();
     mocks.claudeAccountsList.mockResolvedValue([first, second]);
+    mocks.claudeAccountSwitch.mockResolvedValue(undefined);
     mocks.refreshProviders.mockResolvedValue(undefined);
   });
 
@@ -37,6 +51,32 @@ describe("ClaudeAccountsMenu", () => {
     expect(button).not.toBeDisabled();
     await act(async () => fireEvent.click(button));
     expect(mocks.claudeAccountSwitch).toHaveBeenCalledWith(second.id);
+  });
+
+  it("keeps the menu in activating and reconciling phases until the switch settles", async () => {
+    let resolveSwitch: (() => void) | undefined;
+    mocks.claudeAccountSwitch.mockImplementation(() => new Promise<void>(resolve => {
+      resolveSwitch = resolve;
+    }));
+    render(<ClaudeAccountsMenu hideEmail={false} />);
+    await screen.findByText(first.email);
+    const details = () => document.querySelector("details[data-claude-account-phase]") as HTMLDetailsElement;
+    const button = screen.getAllByText("CodexAccountsSwitchButton")[1];
+
+    await act(async () => fireEvent.click(button));
+    expect(details().dataset.claudeAccountPhase).toBe("activating");
+    expect(details()).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      mocks.listeners.get("claude-accounts-reconciling")?.();
+    });
+    expect(details().dataset.claudeAccountPhase).toBe("reconciling");
+
+    await act(async () => {
+      resolveSwitch?.();
+    });
+    await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("settled"));
+    expect(details()).toHaveAttribute("aria-busy", "false");
   });
 
   it("masks emails, including tooltips, when hideEmail is enabled", async () => {

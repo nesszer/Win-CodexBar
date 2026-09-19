@@ -177,7 +177,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
       } else {
         throw new Error("This claude-swap account is not actionable.");
       }
-      // The backend emits `claude-accounts-updated` after invalidating usage;
+      // The backend emits `claude-accounts-updated` after reconciliation;
       // the listener above performs the single reload.
       if (mounted.current) {
         setMessage(

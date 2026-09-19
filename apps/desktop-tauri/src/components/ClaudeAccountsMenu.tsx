@@ -5,6 +5,8 @@ import { claudeAccountsList, claudeAccountSwitch } from "../lib/tauri";
 import { useLocale } from "../hooks/useLocale";
 import { maskEmail } from "./MenuCard";
 
+type ClaudeAccountPhase = "idle" | "activating" | "reconciling" | "settled";
+
 export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
   hideEmail: boolean;
   onLayoutChange?: () => void;
@@ -14,6 +16,7 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [switched, setSwitched] = useState(false);
+  const [phase, setPhase] = useState<ClaudeAccountPhase>("idle");
   const mounted = useRef(false);
   const load = useCallback(async () => {
     const next = await claudeAccountsList();
@@ -30,26 +33,40 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
     reload();
     window.addEventListener("focus", reload);
     const unlisten = listen("claude-accounts-updated", reload);
+    const unlistenReconciling = listen("claude-accounts-reconciling", () => {
+      if (mounted.current) {
+        setPhase("reconciling");
+        setSwitched(false);
+      }
+    });
     return () => {
       mounted.current = false;
       window.removeEventListener("focus", reload);
       void unlisten.then(fn => fn()).catch(() => {});
+      void unlistenReconciling.then(fn => fn()).catch(() => {});
     };
   }, [load]);
   useEffect(() => {
     onLayoutChange?.();
-  }, [accounts.length, error, switched, onLayoutChange]);
+  }, [accounts.length, error, phase, switched, onLayoutChange]);
 
   const switchAccount = async (id: string) => {
     setBusy(true);
+    setPhase("activating");
     setError(null);
     setSwitched(false);
     try {
       await claudeAccountSwitch(id);
       await load();
-      if (mounted.current) setSwitched(true);
+      if (mounted.current) {
+        setPhase("settled");
+        setSwitched(true);
+      }
     } catch (e) {
-      if (mounted.current) setError(String(e));
+      if (mounted.current) {
+        setPhase("idle");
+        setError(String(e));
+      }
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -58,7 +75,12 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
   const hasSwitchableAccount = accounts.some(account => account.isSaved && !account.isActive);
   if (accounts.length <= 1 && !hasSwitchableAccount && !error) return null;
   return (
-    <details className="codex-menu-accounts" onToggle={onLayoutChange}>
+    <details
+      className="codex-menu-accounts"
+      data-claude-account-phase={phase}
+      aria-busy={phase === "activating" || phase === "reconciling"}
+      onToggle={onLayoutChange}
+    >
       <summary className="codex-menu-accounts__summary">
         <span className="codex-menu-accounts__title">{t("ClaudeAccountsTitle")}</span>
         <span className="codex-menu-accounts__count">{accounts.length}</span>
@@ -83,7 +105,7 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
                 <button
                   type="button"
                   className="codex-menu-accounts__switch"
-                  disabled={busy || account.isActive || !account.isSaved}
+                  disabled={busy || phase === "activating" || phase === "reconciling" || account.isActive || !account.isSaved}
                   onClick={() => void switchAccount(account.id)}
                 >
                   {t("CodexAccountsSwitchButton")}

@@ -99,18 +99,17 @@ fn account_row_for_slot(
         .ok_or_else(|| "claude-swap did not report that account slot.".to_string())
 }
 
-fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String> {
+async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String> {
     let pending = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().map_err(|e| e.to_string())?;
         invalidate_account_usage(&mut state, ProviderId::Claude)
     };
     crate::events::emit_provider_updated(&app, &pending);
+    let _emit = app.emit("claude-accounts-reconciling", ());
+    let refresh_result = super::refresh_providers(app.clone()).await;
     changed(&app);
-    tauri::async_runtime::spawn(async move {
-        let _refresh = super::refresh_providers(app).await;
-    });
-    Ok(())
+    refresh_result
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -210,14 +209,14 @@ fn run_claude_swap_operation(
     }
 }
 
-fn finish_claude_swap_mutation(
+async fn finish_claude_swap_mutation(
     app: tauri::AppHandle,
     outcome: ClaudeSwapMutationOutcome,
 ) -> Result<(), String> {
     if !outcome.applied {
         return outcome.error.map_or(Ok(()), Err);
     }
-    let refresh_error = refresh_after_claude_change(app).err();
+    let refresh_error = refresh_after_claude_change(app).await.err();
     match (outcome.error, refresh_error) {
         (None, None) => Ok(()),
         (Some(operation_error), None) => Err(operation_error),
@@ -247,7 +246,7 @@ pub async fn claude_swap_account_switch(app: tauri::AppHandle, slot: u32) -> Res
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
-    finish_claude_swap_mutation(app, outcome)
+    finish_claude_swap_mutation(app, outcome).await
 }
 
 /// Re-authenticate an active slot whose current Claude credential belongs to a
@@ -269,7 +268,7 @@ pub async fn claude_swap_account_reauthenticate(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
-    finish_claude_swap_mutation(app, outcome)
+    finish_claude_swap_mutation(app, outcome).await
 }
 
 fn changed(app: &tauri::AppHandle) {
@@ -344,7 +343,7 @@ pub async fn claude_account_switch(app: tauri::AppHandle, id: String) -> Result<
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
     drop(_credentials);
-    refresh_after_claude_change(app)
+    refresh_after_claude_change(app).await
 }
 
 #[cfg(test)]
