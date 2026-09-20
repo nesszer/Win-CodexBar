@@ -290,26 +290,26 @@ pub struct ProviderUsagePresentationSnapshot {
     #[serde(flatten)]
     pub snapshot: ProviderUsageSnapshot,
     pub selected_metric: RateWindowSnapshot,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hidden_usage_item_ids: Vec<String>,
 }
 
 impl ProviderUsagePresentationSnapshot {
     pub(crate) fn new(snapshot: ProviderUsageSnapshot, settings: &Settings) -> Self {
         let selected_metric = crate::usage_metric::selected_usage_window(&snapshot, settings);
+        let hidden_usage_item_ids = snapshot
+            .provider_id
+            .trim()
+            .parse::<String>()
+            .ok()
+            .and_then(|id| ProviderId::from_cli_name(&id))
+            .map(|id| settings.hidden_usage_item_ids(id))
+            .unwrap_or_default();
         Self {
             snapshot,
             selected_metric,
+            hidden_usage_item_ids,
         }
-    }
-}
-
-pub(crate) fn filter_hidden_codex_spark_rows(
-    snapshot: &mut ProviderUsageSnapshot,
-    spark_usage_visible: bool,
-) {
-    if snapshot.provider_id == "codex" && !spark_usage_visible {
-        snapshot
-            .extra_rate_windows
-            .retain(|extra| !matches!(extra.id.as_str(), "codex-spark" | "codex-spark-weekly"));
     }
 }
 
