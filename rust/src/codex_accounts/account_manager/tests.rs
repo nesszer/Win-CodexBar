@@ -31,6 +31,20 @@ mod tests {
         .unwrap();
     }
 
+    /// Write an auth.json with no `last_refresh` field, so its freshness is
+    /// unknown to `credentials_are_at_least_as_fresh`.
+    fn write_auth_undated(home_path: &Path, email: &str, account_id: &str) {
+        write_auth(home_path, email, account_id);
+        let auth_path = home_path.join("auth.json");
+        let mut auth: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&auth_path).unwrap()).unwrap();
+        auth.as_object_mut()
+            .unwrap()
+            .remove("last_refresh")
+            .unwrap();
+        std::fs::write(&auth_path, serde_json::to_vec_pretty(&auth).unwrap()).unwrap();
+    }
+
     fn make_account(home_path: PathBuf, email: &str, account_id: &str) -> CodexAccount {
         CodexAccount::new(
             Uuid::new_v4(),
@@ -188,6 +202,118 @@ mod tests {
             std::fs::read(existing_home.join("auth.json")).unwrap(),
             preserved
         );
+
+        super::super::file_locations::clear_app_support_directory_override();
+    }
+
+    #[test]
+    fn materialize_does_not_clobber_when_freshness_is_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        super::super::file_locations::with_app_support_directory(root.to_path_buf());
+
+        let account_id = "0ff1ce00-0000-4000-8000-0000000000bb";
+        let ambient_home = root.join("ambient");
+        let existing_home = root.join("managed-homes").join("existing");
+        for home in [&ambient_home, &existing_home] {
+            std::fs::create_dir_all(home).unwrap();
+        }
+        // Neither file carries a `last_refresh`: freshness is unknown on both
+        // sides. The incumbent managed credentials must survive untouched.
+        write_auth_undated(&ambient_home, "user@example.com", account_id);
+        write_auth_undated(&existing_home, "user@example.com", account_id);
+        let preserved = std::fs::read(existing_home.join("auth.json")).unwrap();
+
+        let ambient = make_account(ambient_home, "user@example.com", account_id);
+        let materialized = CodexAccountManager::new()
+            .materialize_as_managed(&ambient)
+            .unwrap();
+
+        assert_eq!(materialized.codex_home_path, existing_home);
+        assert_eq!(
+            std::fs::read(existing_home.join("auth.json")).unwrap(),
+            preserved
+        );
+
+        super::super::file_locations::clear_app_support_directory_override();
+    }
+
+    #[test]
+    fn freshness_unknown_when_both_files_are_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        let candidate = dir.path().join("candidate").join("auth.json");
+        let incumbent = dir.path().join("incumbent").join("auth.json");
+        std::fs::create_dir_all(candidate.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(incumbent.parent().unwrap()).unwrap();
+        std::fs::write(&candidate, b"{not json").unwrap();
+        std::fs::write(&incumbent, b"{not json either").unwrap();
+
+        // Unknown freshness must keep the incumbent, never clobber it.
+        assert!(!super::credentials_are_at_least_as_fresh(
+            &candidate, &incumbent
+        ));
+    }
+
+    #[test]
+    fn freshness_unknown_when_last_refresh_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let candidate = dir.path().join("candidate").join("auth.json");
+        let incumbent = dir.path().join("incumbent").join("auth.json");
+        std::fs::create_dir_all(candidate.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(incumbent.parent().unwrap()).unwrap();
+        write_auth_undated(candidate.parent().unwrap(), "user@example.com", "cafe");
+        write_auth_undated(incumbent.parent().unwrap(), "user@example.com", "cafe");
+
+        assert!(!super::credentials_are_at_least_as_fresh(
+            &candidate, &incumbent
+        ));
+    }
+
+    #[test]
+    fn materialize_reuses_the_lowest_keyed_matching_home() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        super::super::file_locations::with_app_support_directory(root.to_path_buf());
+
+        let account_id = "0ff1ce00-0000-4000-8000-0000000000dd";
+        let ambient_home = root.join("ambient");
+        let newer_home = root.join("managed-homes").join("aaa-newer");
+        let older_home = root.join("managed-homes").join("zzz-older");
+        for home in [&ambient_home, &newer_home, &older_home] {
+            std::fs::create_dir_all(home).unwrap();
+        }
+        // Two managed homes for one account: the lowest-keyed ("aaa-newer")
+        // holds the fresher credentials. Reuse must pick it, and the ambient
+        // copy (older) must not downgrade it.
+        write_auth_refreshed_at(
+            &ambient_home,
+            "user@example.com",
+            account_id,
+            "2026-03-01T00:00:00Z",
+        );
+        write_auth_refreshed_at(
+            &newer_home,
+            "user@example.com",
+            account_id,
+            "2026-06-01T00:00:00Z",
+        );
+        write_auth_refreshed_at(
+            &older_home,
+            "user@example.com",
+            account_id,
+            "2026-01-01T00:00:00Z",
+        );
+
+        let ambient = make_account(ambient_home, "user@example.com", account_id);
+        let materialized = CodexAccountManager::new()
+            .materialize_as_managed(&ambient)
+            .unwrap();
+
+        assert_eq!(materialized.codex_home_path, newer_home);
+        let reused: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(newer_home.join("auth.json")).unwrap())
+                .unwrap();
+        assert_eq!(reused["last_refresh"], "2026-06-01T00:00:00Z");
 
         super::super::file_locations::clear_app_support_directory_override();
     }

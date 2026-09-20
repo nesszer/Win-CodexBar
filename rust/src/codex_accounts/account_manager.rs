@@ -407,25 +407,47 @@ impl CodexAccountManager {
         let _written_payload = fs::write(path, format!("{encoded}\n"));
     }
 
-    /// Find an app-managed home that already holds credentials for `account`.
+    /// Find app-managed homes holding credentials for `account`.
     ///
-    /// Returns the lowest-named match so repeated calls are stable, and `None`
-    /// when the managed-homes directory is unreadable — callers then create a
-    /// fresh home, matching the previous behaviour.
-    fn existing_managed_home_matching(&self, account: &CodexAccount) -> Option<PathBuf> {
-        let Ok(entries) = fs::read_dir(managed_homes_directory()) else {
-            return None;
-        };
-        let mut matches: Vec<PathBuf> = entries
+    /// Results are sorted by `managed_home_key` and deduplicated, so repeated
+    /// calls return the same order and the same first element regardless of
+    /// filesystem iteration order. The first entry is the canonical reuse
+    /// target for `materialize_as_managed`; all entries are removal targets
+    /// for `remove_managed_files_if_owned`. Returns `Err` when the
+    /// managed-homes directory is unreadable; `remove` surfaces the error and
+    /// `materialize` falls back to creating a fresh home.
+    fn managed_homes_matching(
+        &self,
+        account: &CodexAccount,
+    ) -> Result<Vec<PathBuf>, CodexAccountManagerError> {
+        let mut matches: Vec<(String, PathBuf)> = fs::read_dir(managed_homes_directory())?
             .filter_map(|entry| entry.ok().map(|entry| entry.path()))
             .filter(|home_path| home_path.is_dir())
             .filter(|home_path| {
                 self.discovered_managed_account(home_path, std::slice::from_ref(account))
                     .is_some_and(|candidate| candidate.matches(account))
             })
+            .map(|home_path| {
+                let resolved =
+                    std::path::absolute(&home_path).unwrap_or_else(|_| home_path.clone());
+                (managed_home_key(resolved.as_path()), resolved)
+            })
             .collect();
-        matches.sort();
-        matches.into_iter().next()
+        matches.sort_by(|a, b| a.0.cmp(&b.0));
+        matches.dedup_by(|a, b| a.0 == b.0);
+        Ok(matches.into_iter().map(|(_, path)| path).collect())
+    }
+
+    /// Find an app-managed home that already holds credentials for `account`.
+    ///
+    /// Returns `None` when no managed home matches or the directory is
+    /// unreadable — callers then create a fresh home, matching the previous
+    /// behaviour.
+    fn existing_managed_home_matching(&self, account: &CodexAccount) -> Option<PathBuf> {
+        self.managed_homes_matching(account)
+            .ok()?
+            .into_iter()
+            .next()
     }
 
     fn managed_home_paths_matching(
@@ -445,35 +467,14 @@ impl CodexAccountManager {
             std::path::absolute(&account.codex_home_path)
                 .unwrap_or_else(|_| account.codex_home_path.clone()),
         ];
-        let mut seen_keys: std::collections::HashSet<String> =
-            [managed_home_key(targets[0].as_path())]
+        // The account's own home is always first; skip the walk's duplicate
+        // of it so removal never processes the same home twice.
+        let head_key = managed_home_key(targets[0].as_path());
+        targets.extend(
+            self.managed_homes_matching(account)?
                 .into_iter()
-                .collect();
-
-        for entry in fs::read_dir(managed_homes_directory())? {
-            let Ok(entry) = entry else {
-                continue;
-            };
-            let home_path = entry.path();
-            if !home_path.is_dir() {
-                continue;
-            }
-            let Some(candidate) =
-                self.discovered_managed_account(&home_path, std::slice::from_ref(account))
-            else {
-                continue;
-            };
-            if !candidate.matches(account) {
-                continue;
-            }
-            let resolved = std::path::absolute(&home_path).unwrap_or_else(|_| home_path.clone());
-            let key = managed_home_key(resolved.as_path());
-            if seen_keys.contains(&key) {
-                continue;
-            }
-            targets.push(resolved);
-            seen_keys.insert(key);
-        }
+                .filter(|home| managed_home_key(home.as_path()) != head_key),
+        );
         Ok(targets)
     }
 
@@ -634,8 +635,11 @@ fn build_discovered_account(
     identity: AuthBackedIdentity,
     home_path: PathBuf,
     source: CodexAccountSource,
-    discovered_at: DateTime<Utc>,
+    discovered_at: Option<DateTime<Utc>>,
 ) -> CodexAccount {
+    // No readable timestamp on a home we just found is a filesystem oddity;
+    // "now" is the only honest fallback for discovery ordering.
+    let discovered_at = discovered_at.unwrap_or_else(utc_now);
     let mut discovered = CodexAccount::new(
         matched
             .map(|account| account.id)
@@ -667,24 +671,27 @@ fn build_discovered_account(
     discovered
 }
 
-fn directory_timestamp(path: &Path) -> DateTime<Utc> {
+fn directory_timestamp(path: &Path) -> Option<DateTime<Utc>> {
     let auth_path = path.join("auth.json");
     if auth_path.exists()
         && let Ok(metadata) = fs::metadata(&auth_path)
         && let Ok(modified) = metadata.modified()
     {
-        return modified.into();
+        return Some(modified.into());
     }
     fs::metadata(path)
         .and_then(|metadata| metadata.modified())
         .map(Into::into)
-        .unwrap_or_else(|_| utc_now())
+        .ok()
 }
 
 /// Whether `candidate` holds credentials at least as recently refreshed as
 /// `incumbent`, so reusing a managed home cannot downgrade a live account to a
-/// stale token. Unreadable or undated credentials fall back to `true`, keeping
-/// the previous "latest write wins" behaviour.
+/// stale token. When either side's freshness is unknown — unreadable JSON,
+/// missing `last_refresh`, or an unrecognized schema — this defaults to
+/// `false`: the incumbent is kept rather than clobbered. Clobbering on
+/// unknown freshness is how a stale ambient token kills a working account
+/// (the failure mode that motivated home reuse in the first place).
 fn credentials_are_at_least_as_fresh(candidate: &Path, incumbent: &Path) -> bool {
     let last_refresh = |path: &Path| {
         fs::read_to_string(path)
@@ -694,7 +701,8 @@ fn credentials_are_at_least_as_fresh(candidate: &Path, incumbent: &Path) -> bool
     };
     match (last_refresh(candidate), last_refresh(incumbent)) {
         (Some(candidate), Some(incumbent)) => candidate >= incumbent,
-        _ => true,
+        // Unknown freshness must not destroy a possibly-live incumbent.
+        _ => false,
     }
 }
 
