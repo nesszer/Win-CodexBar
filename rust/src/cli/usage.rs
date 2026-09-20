@@ -1,6 +1,5 @@
 //! Usage command implementation
 
-use chrono::{DateTime, Utc};
 use clap::Args;
 use serde::Serialize;
 
@@ -260,3 +259,6 @@ fn build_usage_fetch_context(args: &UsageArgs, source_mode: SourceMode) -> Fetch
     }
 }
 
+#[cfg(test)]
+#[path = "usage_tests.rs"]
+mod tests;

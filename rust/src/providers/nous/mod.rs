@@ -6,12 +6,10 @@
 //! monthly subscription-credit display used by the rest of the app.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Datelike, Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use futures::StreamExt;
-use reqwest::{Client, StatusCode, Url};
+use reqwest::{Client, StatusCode};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use tokio::time::{Duration, timeout};
 
 use crate::core::{
@@ -19,36 +17,11 @@ use crate::core::{
     ProviderMetadata, RateWindow, SourceMode, SubscriptionMetadata, UsageSnapshot,
 };
 
-const DEFAULT_PORTAL_URL: &str = "https://portal.nousresearch.com";
 const PORTAL_ACCOUNT_PATH: &str = "api/oauth/account";
-const ACCESS_TOKEN_ENV: &str = "NOUS_PORTAL_ACCESS_TOKEN";
-const PORTAL_URL_ENVS: &[&str] = &["NOUS_PORTAL_BASE_URL", "HERMES_PORTAL_BASE_URL"];
-const HERMES_HOME_ENV: &str = "HERMES_HOME";
 const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
-const EXPIRY_SKEW: i64 = 60;
-const TRUSTED_PORTAL_HOST: &str = "nousresearch.com";
 
-#[derive(Debug, Clone)]
-struct Credential {
-    token: String,
-    portal_url: Url,
-    expires_at: Option<DateTime<Utc>>,
-}
-
-impl Credential {
-    fn is_expired(&self, now: DateTime<Utc>) -> bool {
-        self.expires_at
-            .is_some_and(|expires_at| expires_at <= now + ChronoDuration::seconds(EXPIRY_SKEW))
-    }
-}
-
-#[derive(Debug, Clone)]
-struct StoredCredential {
-    token: String,
-    portal_base_url: Option<String>,
-    expires_at: Option<DateTime<Utc>>,
-}
+mod credentials;
 
 pub struct NousProvider {
     metadata: ProviderMetadata,
@@ -69,6 +42,7 @@ impl NousProvider {
                 is_primary: false,
                 dashboard_url: Some("https://portal.nousresearch.com/usage"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
@@ -81,7 +55,7 @@ impl NousProvider {
         &self,
         explicit_token: Option<&str>,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let credential = resolve_credential(explicit_token)?;
+        let credential = credentials::resolve_credential(explicit_token)?;
         let endpoint = credential
             .portal_url
             .join(PORTAL_ACCOUNT_PATH)
@@ -150,266 +124,6 @@ impl Provider for NousProvider {
     }
 }
 
-fn resolve_credential(explicit_token: Option<&str>) -> Result<Credential, ProviderError> {
-    let environment: HashMap<String, String> = std::env::vars().collect();
-    let home = dirs::home_dir().ok_or_else(missing_credentials)?;
-    resolve_credential_from(explicit_token, &environment, &home, Utc::now())
-}
-
-fn resolve_credential_from(
-    explicit_token: Option<&str>,
-    environment: &HashMap<String, String>,
-    home_directory: &Path,
-    now: DateTime<Utc>,
-) -> Result<Credential, ProviderError> {
-    if let Some(token) = cleaned(explicit_token) {
-        return usable_credential(token, resolve_portal_url(environment, None), now);
-    }
-    if let Some(token) = cleaned(environment.get(ACCESS_TOKEN_ENV).map(String::as_str)) {
-        return usable_credential(token, resolve_portal_url(environment, None), now);
-    }
-
-    let candidates = auth_file_candidates(environment, home_directory);
-    let mut saw_file = false;
-    let mut expired: Option<Credential> = None;
-    for path in &candidates {
-        let Ok(contents) = std::fs::read(path) else {
-            continue;
-        };
-        saw_file = true;
-        let Some(stored) = parse_auth_file(&contents) else {
-            continue;
-        };
-        let credential = Credential {
-            expires_at: stored.expires_at.or_else(|| jwt_expiry(&stored.token)),
-            portal_url: resolve_portal_url(environment, stored.portal_base_url.as_deref()),
-            token: stored.token,
-        };
-        if credential.is_expired(now) {
-            expired.get_or_insert(credential);
-        } else {
-            return Ok(credential);
-        }
-    }
-
-    if expired.is_some() {
-        return Err(ProviderError::OAuthExpired(
-            "Nous Portal Hermes login expired. Run hermes to refresh it.".to_string(),
-        ));
-    }
-    if saw_file {
-        return Err(ProviderError::NotInstalled(
-            "Nous Portal auth files contain no usable login. Run hermes to sign in again."
-                .to_string(),
-        ));
-    }
-    Err(missing_credentials())
-}
-
-fn usable_credential(
-    token: String,
-    portal_url: Url,
-    now: DateTime<Utc>,
-) -> Result<Credential, ProviderError> {
-    let credential = Credential {
-        expires_at: jwt_expiry(&token),
-        token,
-        portal_url,
-    };
-    if credential.is_expired(now) {
-        return Err(ProviderError::OAuthExpired(
-            "Nous Portal access token expired. Run hermes to refresh it.".to_string(),
-        ));
-    }
-    Ok(credential)
-}
-
-fn missing_credentials() -> ProviderError {
-    ProviderError::NotInstalled(
-        "Nous Portal login not found. Run hermes to sign in, then refresh CodexBar.".to_string(),
-    )
-}
-
-fn auth_file_candidates(
-    environment: &HashMap<String, String>,
-    home_directory: &Path,
-) -> Vec<PathBuf> {
-    let root = environment
-        .get(HERMES_HOME_ENV)
-        .and_then(|raw| cleaned(Some(raw.as_str())))
-        .map(|raw| expand_home(&raw, home_directory))
-        .unwrap_or_else(|| {
-            let home = environment
-                .get("HOME")
-                .and_then(|raw| cleaned(Some(raw.as_str())))
-                .map(|raw| expand_home(&raw, home_directory))
-                .unwrap_or_else(|| home_directory.to_path_buf());
-            home.join(".hermes")
-        });
-    vec![
-        root.join("auth.json"),
-        root.join("shared").join("nous_auth.json"),
-    ]
-}
-
-fn expand_home(raw: &str, home_directory: &Path) -> PathBuf {
-    if raw == "~" {
-        return home_directory.to_path_buf();
-    }
-    if let Some(rest) = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\")) {
-        return home_directory.join(rest);
-    }
-    PathBuf::from(raw)
-}
-
-fn parse_auth_file(contents: &[u8]) -> Option<StoredCredential> {
-    let root: Value = serde_json::from_slice(contents).ok()?;
-    let root_object = root.as_object()?;
-
-    if let Some(providers) = root_object.get("providers").and_then(Value::as_object)
-        && let Some(nous) = providers.get("nous")
-        && let Some(stored) = stored_credential(nous)
-    {
-        return Some(stored);
-    }
-
-    if let Some(entries) = root_object
-        .get("credential_pool")
-        .and_then(Value::as_object)
-        .and_then(|pool| pool.get("nous"))
-        .and_then(Value::as_array)
-    {
-        return select_pool_credential(entries);
-    }
-
-    stored_credential(&root)
-}
-
-fn select_pool_credential(entries: &[Value]) -> Option<StoredCredential> {
-    let mut selected: Option<(StoredCredential, i64, i64, i64)> = None;
-    for entry in entries {
-        let Some(stored) = stored_credential(entry) else {
-            continue;
-        };
-        let agent_expiry = entry
-            .get("agent_key_expires_at")
-            .and_then(Value::as_str)
-            .and_then(parse_iso)
-            .map(|value| value.timestamp())
-            .unwrap_or(0);
-        let access_expiry = stored
-            .expires_at
-            .or_else(|| jwt_expiry(&stored.token))
-            .map(|value| value.timestamp())
-            .unwrap_or(0);
-        let priority = entry.get("priority").and_then(Value::as_i64).unwrap_or(0);
-        let should_replace =
-            selected
-                .as_ref()
-                .is_none_or(|(_, old_agent, old_access, old_priority)| {
-                    agent_expiry > *old_agent
-                        || (agent_expiry == *old_agent
-                            && (access_expiry > *old_access
-                                || (access_expiry == *old_access && priority < *old_priority)))
-                });
-        if should_replace {
-            selected = Some((stored, agent_expiry, access_expiry, priority));
-        }
-    }
-    selected.map(|(stored, _, _, _)| stored)
-}
-
-fn stored_credential(value: &Value) -> Option<StoredCredential> {
-    let object = value.as_object()?;
-    let token = cleaned(object.get("access_token").and_then(Value::as_str))?;
-    Some(StoredCredential {
-        token,
-        portal_base_url: cleaned(object.get("portal_base_url").and_then(Value::as_str)),
-        expires_at: object
-            .get("expires_at")
-            .and_then(Value::as_str)
-            .and_then(parse_iso),
-    })
-}
-
-fn resolve_portal_url(environment: &HashMap<String, String>, stored: Option<&str>) -> Url {
-    for key in PORTAL_URL_ENVS {
-        if let Some(raw) = environment.get(*key).and_then(|value| cleaned(Some(value)))
-            && let Some(url) = normalized_https_url(&raw)
-        {
-            return url;
-        }
-    }
-    if let Some(raw) = stored.and_then(|value| cleaned(Some(value)))
-        && let Some(url) = normalized_https_url(&raw)
-        && is_trusted_portal_host(url.host_str())
-    {
-        return url;
-    }
-    Url::parse(DEFAULT_PORTAL_URL).expect("default Nous Portal URL is valid")
-}
-
-fn normalized_https_url(raw: &str) -> Option<Url> {
-    let value = raw.trim_end_matches('/').trim();
-    let url = Url::parse(value).ok()?;
-    if url.scheme() != "https"
-        || url.host_str().is_none_or(str::is_empty)
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || (!url.path().is_empty() && url.path() != "/")
-    {
-        return None;
-    }
-    Some(url)
-}
-
-fn is_trusted_portal_host(host: Option<&str>) -> bool {
-    let Some(host) = host.map(str::to_ascii_lowercase) else {
-        return false;
-    };
-    host == TRUSTED_PORTAL_HOST || host.ends_with(&format!(".{TRUSTED_PORTAL_HOST}"))
-}
-
-fn cleaned(value: Option<&str>) -> Option<String> {
-    let mut value = value?.trim().to_string();
-    if value.len() >= 2
-        && ((value.starts_with('"') && value.ends_with('"'))
-            || (value.starts_with('\'') && value.ends_with('\'')))
-    {
-        value = value[1..value.len() - 1].trim().to_string();
-    }
-    (!value.is_empty()).then_some(value)
-}
-
-fn parse_iso(value: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|value| value.with_timezone(&Utc))
-}
-
-fn jwt_expiry(token: &str) -> Option<DateTime<Utc>> {
-    use base64::Engine;
-
-    let payload = token.split('.').nth(1)?;
-    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(payload))
-        .ok()?;
-    let claims: Value = serde_json::from_slice(&decoded).ok()?;
-    let seconds = claims.get("exp")?.as_f64()?;
-    if !seconds.is_finite() || seconds <= 0.0 {
-        return None;
-    }
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "JWT expiration is converted to whole epoch seconds"
-    )]
-    let seconds = seconds.trunc() as i64;
-    DateTime::from_timestamp(seconds, 0)
-}
-
 fn status_error(status: StatusCode) -> ProviderError {
     match status {
         StatusCode::UNAUTHORIZED => ProviderError::OAuthExpired(
@@ -461,48 +175,27 @@ fn parse_response(body: &[u8]) -> Result<ProviderFetchResult, ProviderError> {
             "Invalid Nous Portal account response: expected an object.".to_string(),
         )
     })?;
-    if root.get("error").is_some_and(is_truthy) {
+    if root.get("error").is_some_and(reports_error) {
         return Err(ProviderError::Other(
             "Nous Portal account endpoint reported an error.".to_string(),
         ));
     }
-
     let subscription = optional_object(root.get("subscription"), "subscription")?;
     let access = optional_object(root.get("paid_service_access"), "paid_service_access")?;
     let user = optional_object(root.get("user"), "user")?;
     let organization = optional_object(root.get("organisation"), "organisation")?;
 
-    let monthly = number(
-        subscription.and_then(|value| value.get("monthly_credits")),
-        "monthly_credits",
-    )?;
+    let monthly = field_number(subscription, "monthly_credits")?;
     if monthly.is_some_and(|value| value < 0.0) {
         return Err(parse_failure("monthly_credits"));
     }
-    let remaining = number(
-        subscription.and_then(|value| value.get("credits_remaining")),
-        "credits_remaining",
-    )?
-    .or(number(
-        access.and_then(|value| value.get("subscription_credits_remaining")),
-        "subscription_credits_remaining",
-    )?);
-    let rollover = number(
-        subscription.and_then(|value| value.get("rollover_credits")),
-        "rollover_credits",
+    let remaining = first_number(
+        &[subscription, access],
+        &["credits_remaining", "subscription_credits_remaining"],
     )?;
-    let purchased = number(
-        root.get("purchased_credits_remaining"),
-        "purchased_credits_remaining",
-    )?
-    .or(number(
-        access.and_then(|value| value.get("purchased_credits_remaining")),
-        "paid_service_access.purchased_credits_remaining",
-    )?);
-    let total = number(
-        access.and_then(|value| value.get("total_usable_credits")),
-        "total_usable_credits",
-    )?;
+    let rollover = field_number(subscription, "rollover_credits")?;
+    let purchased = first_number(&[Some(root), access], &["purchased_credits_remaining"])?;
+    let total = field_number(access, "total_usable_credits")?;
     if [monthly, remaining, rollover, purchased, total]
         .iter()
         .all(Option::is_none)
@@ -511,7 +204,7 @@ fn parse_response(body: &[u8]) -> Result<ProviderFetchResult, ProviderError> {
     }
 
     let renewal = optional_date(
-        subscription.and_then(|value| value.get("current_period_end")),
+        field(subscription, "current_period_end"),
         "current_period_end",
     )?;
     let primary = if let (Some(monthly), Some(remaining)) =
@@ -533,20 +226,14 @@ fn parse_response(body: &[u8]) -> Result<ProviderFetchResult, ProviderError> {
         )
     };
 
-    let plan = text(
-        subscription.and_then(|value| value.get("plan")),
-        "subscription.plan",
-    )?;
+    let plan = text(field(subscription, "plan"), "subscription.plan")?;
     let active_subscription = access
         .and_then(|value| value.get("has_active_subscription"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let login_method = plan.or_else(|| active_subscription.then(|| "Subscription".to_string()));
-    let email = text(user.and_then(|value| value.get("email")), "user.email")?;
-    let organization_name = text(
-        organization.and_then(|value| value.get("name")),
-        "organisation.name",
-    )?;
+    let email = text(field(user, "email"), "user.email")?;
+    let organization_name = text(field(organization, "name"), "organisation.name")?;
 
     let mut usage = UsageSnapshot::new(primary);
     if let Some(plan) = login_method {
@@ -616,6 +303,37 @@ fn parse_response(body: &[u8]) -> Result<ProviderFetchResult, ProviderError> {
     Ok(result)
 }
 
+/// Numeric value of one field on an optional object; the name appears once.
+fn field_number(
+    object: Option<&Map<String, Value>>,
+    name: &str,
+) -> Result<Option<f64>, ProviderError> {
+    number(object.and_then(|object| object.get(name)), name)
+}
+
+/// Read one field from an optional object; the name appears once per call.
+fn field<'a>(object: Option<&'a Map<String, Value>>, name: &str) -> Option<&'a Value> {
+    object.and_then(|object| object.get(name))
+}
+
+/// First numeric value found for any of `names`, scanned across the
+/// response dialects in `sources` order. `sources` names the dialect
+/// objects; `names` the per-dialect field names — a rename between
+/// dialects stays explicit here.
+fn first_number(
+    sources: &[Option<&Map<String, Value>>],
+    names: &[&str],
+) -> Result<Option<f64>, ProviderError> {
+    for source in sources.iter().flatten() {
+        for name in names {
+            if let Some(value) = source.get(*name) {
+                return number(Some(value), name);
+            }
+        }
+    }
+    Ok(None)
+}
+
 fn optional_object<'a>(
     value: Option<&'a Value>,
     field: &str,
@@ -658,7 +376,9 @@ fn optional_date(
         return Ok(None);
     }
     let raw = value.as_str().ok_or_else(|| parse_failure(field))?;
-    parse_iso(raw).map(Some).ok_or_else(|| parse_failure(field))
+    credentials::parse_iso(raw)
+        .map(Some)
+        .ok_or_else(|| parse_failure(field))
 }
 
 fn text(value: Option<&Value>, field: &str) -> Result<Option<String>, ProviderError> {
@@ -681,12 +401,19 @@ fn text(value: Option<&Value>, field: &str) -> Result<Option<String>, ProviderEr
     Ok(Some(value.to_string()))
 }
 
-fn is_truthy(value: &Value) -> bool {
+/// Pinned error-field policy, matching the upstream Hermes plugin's
+/// JavaScript `if (root.error)` check (Plugins/nous.js in the 0.61.0 port):
+/// an error is reported exactly when the field is a non-empty object/array
+/// or a non-empty string. Booleans, numbers (including 0), empty strings,
+/// and empty arrays are treated as "no error" — the portal never reports
+/// errors through numeric or boolean fields, so treating them as truthy
+/// here would only manufacture failures the API does not send.
+fn reports_error(value: &Value) -> bool {
     match value {
-        Value::Null | Value::Bool(false) => false,
-        Value::Number(value) => value.as_f64().is_none_or(|number| number != 0.0),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
         Value::String(value) => !value.is_empty(),
-        Value::Array(_) | Value::Object(_) | Value::Bool(true) => true,
+        Value::Array(value) => !value.is_empty(),
+        Value::Object(value) => !value.is_empty(),
     }
 }
 
@@ -714,8 +441,15 @@ fn parse_failure(field: impl Into<String>) -> ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::fs;
+    use std::path::Path;
     use tempfile::tempdir;
+
+    use credentials::{
+        ACCESS_TOKEN_ENV, HERMES_HOME_ENV, PORTAL_URL_ENVS, parse_auth_file,
+        resolve_credential_from, resolve_portal_url,
+    };
 
     fn environment(entries: &[(&str, &str)]) -> HashMap<String, String> {
         entries
@@ -835,6 +569,39 @@ mod tests {
             let error = parse_response(&serde_json::to_vec(&payload).unwrap()).unwrap_err();
             assert!(matches!(error, ProviderError::Parse(_)));
             assert!(!error.to_string().contains("nope"));
+        }
+    }
+
+    #[test]
+    fn error_field_is_reported_only_for_meaningful_shapes() {
+        // Reported: non-empty string, non-empty array, non-empty object.
+        for payload in [
+            serde_json::json!({"error": "invalid token"}),
+            serde_json::json!({"error": ["details"]}),
+            serde_json::json!({"error": {"code": 7}}),
+        ] {
+            let error = parse_response(&serde_json::to_vec(&payload).unwrap()).unwrap_err();
+            assert!(
+                error.to_string().contains("reported an error"),
+                "shape {:?} must report an error",
+                payload
+            );
+        }
+        // Not reported: null, false, empty string, empty array, empty
+        // object, zero. The portal reports errors via a truthy `error` field
+        // (upstream Hermes plugin `if (root.error)`), so these shapes mean
+        // "no error here".
+        for payload in [
+            serde_json::json!({"subscription": {"monthly_credits": 1}, "error": null}),
+            serde_json::json!({"subscription": {"monthly_credits": 1}, "error": false}),
+            serde_json::json!({"subscription": {"monthly_credits": 1}, "error": true}),
+            serde_json::json!({"subscription": {"monthly_credits": 1}, "error": ""}),
+            serde_json::json!({"subscription": {"monthly_credits": 1}, "error": []}),
+            serde_json::json!({"subscription": {"monthly_credits": 1}, "error": {}}),
+            serde_json::json!({"subscription": {"monthly_credits": 1}, "error": 0}),
+        ] {
+            let result = parse_response(&serde_json::to_vec(&payload).unwrap()).unwrap();
+            assert_eq!(result.source_label, "api");
         }
     }
 

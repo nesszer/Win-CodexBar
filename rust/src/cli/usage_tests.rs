@@ -308,3 +308,19 @@ fn json_inventory_is_additive_and_contains_no_redemption_token() {
             .contains("coupon-token-secret")
     );
 }
+
+#[test]
+fn display_details_are_rendered_in_full_text_and_json() {
+    let result = fetch_result(UsageSnapshot::new(RateWindow::new(10.0))).with_display_detail(
+        crate::core::ProviderDisplayDetail::new("credits", "Used this cycle", "12")
+            .with_secondary_value("Monthly refill: 100")
+            .with_progress(12.0, 100.0),
+    );
+
+    let full = render_text_with_status(ProviderId::Grok, &result, None, false);
+    let json = render_json_result(ProviderId::Grok, result, None);
+
+    assert!(full.contains("Used this cycle: 12 (Monthly refill: 100) [12.00/100.00]"));
+    assert_eq!(json["details"][0]["title"], "Used this cycle");
+    assert_eq!(json["details"][0]["progress"]["total"], 100.0);
+}
