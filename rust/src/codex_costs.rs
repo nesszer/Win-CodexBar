@@ -1,15 +1,267 @@
 //! Codex local-log cost aggregation helpers.
 
-#[cfg(test)]
-use chrono::Local;
-use chrono::{Duration, NaiveDate};
+use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::core::{
-    CodexUsageRecord, CostUsageDayRange, CostUsagePricing, JsonlScanner,
+    CodexUsageRecord, CostUsageDayRange, CostUsagePricing, JsonlScanner, ProviderId,
     is_unpriced_codex_routing_model,
 };
 use crate::cost_scanner::{CostSummary, ModelPricingCompleteness, ModelTokenCounts};
+use crate::spend_contract::{CostCoverageCounts, CostProvenance};
+
+pub(crate) const CODEX_COST_SUMMARY_SCHEMA_VERSION: u32 = 1;
+pub(crate) const MAX_REMOTE_CODEX_COST_BYTES: usize = 16 * 1024;
+pub(crate) const REMOTE_CODEX_COST_UNAVAILABLE: &str = "Could not read remote Codex costs. Check SSH and that the remote CodexBar CLI supports --summary-only.";
+pub(crate) const REMOTE_CODEX_COST_INVALID: &str = "The remote CLI returned an unsupported or invalid cost summary. Update CodexBar on the remote host.";
+
+/// A path-free, host-local cost window used by the SSH comparison transport.
+///
+/// The local scanner does not expose per-request incomplete counts, so the
+/// count remains zero while `history_coverage_established` carries the
+/// scanner's authoritative complete/partial distinction.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexHostCostWindow {
+    pub total_tokens: Option<u64>,
+    #[serde(rename = "costUSD")]
+    pub cost_usd: Option<f64>,
+    pub incomplete_request_count: u32,
+    pub coverage: CostCoverageCounts,
+    pub provenance: CostProvenance,
+}
+
+impl CodexHostCostWindow {
+    fn from_summary(summary: &CostSummary) -> Self {
+        let coverage = coverage_from_summary(summary);
+        let provenance = if coverage.estimated > 0 {
+            CostProvenance::ListPriceEstimate
+        } else {
+            CostProvenance::Unknown
+        };
+        let complete = summary.history_coverage_established;
+        let total_tokens =
+            complete.then_some(summary.input_tokens.saturating_add(summary.output_tokens));
+        let cost_usd = complete
+            .then_some(summary.total_cost_usd)
+            .filter(|cost| cost.is_finite() && *cost >= 0.0);
+
+        Self {
+            total_tokens,
+            cost_usd,
+            incomplete_request_count: 0,
+            coverage,
+            provenance,
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self
+            .cost_usd
+            .is_some_and(|cost| !cost.is_finite() || cost < 0.0)
+            || self.incomplete_request_count > i32::MAX as u32
+        {
+            return Err(REMOTE_CODEX_COST_INVALID.to_string());
+        }
+
+        let mut total = 0_u32;
+        for value in [
+            self.coverage.priced,
+            self.coverage.unpriced,
+            self.coverage.unmetered,
+            self.coverage.estimated,
+        ] {
+            total = total
+                .checked_add(value)
+                .ok_or_else(|| REMOTE_CODEX_COST_INVALID.to_string())?;
+        }
+        let _ = total;
+        Ok(())
+    }
+}
+
+/// Versioned, path-free Codex cost summary exchanged over SSH.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexCostSummary {
+    pub schema_version: u32,
+    pub provider: String,
+    pub updated_at: DateTime<Utc>,
+    pub bucket_time_zone: String,
+    pub currency_code: String,
+    pub history_days: u32,
+    pub history_coverage_is_established: bool,
+    pub today: CodexHostCostWindow,
+    pub history: CodexHostCostWindow,
+}
+
+impl CodexCostSummary {
+    pub(crate) fn from_summaries_at(
+        history: &CostSummary,
+        today: &CostSummary,
+        history_days: u32,
+        updated_at: DateTime<Utc>,
+        bucket_time_zone: impl Into<String>,
+    ) -> Self {
+        Self {
+            schema_version: CODEX_COST_SUMMARY_SCHEMA_VERSION,
+            provider: "codex".to_string(),
+            updated_at,
+            bucket_time_zone: bucket_time_zone.into(),
+            currency_code: "USD".to_string(),
+            history_days,
+            history_coverage_is_established: history.history_coverage_established,
+            today: CodexHostCostWindow::from_summary(today),
+            history: CodexHostCostWindow::from_summary(history),
+        }
+    }
+
+    pub(crate) fn validate(&self, expected_history_days: u32) -> Result<(), String> {
+        if self.schema_version != CODEX_COST_SUMMARY_SCHEMA_VERSION
+            || self.provider != "codex"
+            || !(1..=365).contains(&expected_history_days)
+            || self.history_days != expected_history_days
+            || self.currency_code != "USD"
+            || self.bucket_time_zone.parse::<chrono_tz::Tz>().is_err()
+            || !(0..=253_402_300_799).contains(&self.updated_at.timestamp())
+        {
+            return Err(REMOTE_CODEX_COST_INVALID.to_string());
+        }
+        self.today.validate()?;
+        self.history.validate()?;
+        Ok(())
+    }
+}
+
+/// One host's report in the comparison output. The error row preserves a
+/// successful local report when the SSH host is unavailable.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexHostCostReport {
+    pub host: String,
+    pub source: String,
+    pub summary: Option<CodexCostSummary>,
+    pub error: Option<String>,
+}
+
+impl CodexHostCostReport {
+    pub(crate) fn success(
+        host: impl Into<String>,
+        source: impl Into<String>,
+        summary: CodexCostSummary,
+    ) -> Self {
+        Self {
+            host: host.into(),
+            source: source.into(),
+            summary: Some(summary),
+            error: None,
+        }
+    }
+
+    pub(crate) fn failure(
+        host: impl Into<String>,
+        source: impl Into<String>,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            host: host.into(),
+            source: source.into(),
+            summary: None,
+            error: Some(error.into()),
+        }
+    }
+}
+
+pub(crate) fn decode_remote_codex_summary(
+    output: &str,
+    history_days: u32,
+) -> Result<CodexCostSummary, String> {
+    if output.len() > MAX_REMOTE_CODEX_COST_BYTES {
+        return Err(REMOTE_CODEX_COST_INVALID.to_string());
+    }
+
+    let reports = serde_json::from_str::<Vec<CodexCostSummary>>(output)
+        .map_err(|_| REMOTE_CODEX_COST_INVALID.to_string())?;
+    if reports.len() != 1 {
+        return Err(REMOTE_CODEX_COST_INVALID.to_string());
+    }
+
+    let report = reports
+        .into_iter()
+        .next()
+        .ok_or_else(|| REMOTE_CODEX_COST_INVALID.to_string())?;
+    report.validate(history_days)?;
+    Ok(report)
+}
+
+/// Build the host summary after one native Codex scan. The persisted cache is
+/// already the exact decoded view used by the scan, so today's bucket can be
+/// folded without a second filesystem walk.
+pub(crate) fn build_codex_cost_summary(
+    history: CostSummary,
+    history_days: u32,
+) -> CodexCostSummary {
+    let today = codex_today_summary_from_cache(&history);
+    CodexCostSummary::from_summaries_at(
+        &history,
+        &today,
+        history_days,
+        Utc::now(),
+        crate::core::local_timezone_name(),
+    )
+}
+
+fn codex_today_summary_from_cache(history: &CostSummary) -> CostSummary {
+    let today = Local::now().date_naive();
+    let range = CostUsageDayRange::new(today, today);
+    let cache = JsonlScanner::load_cache(ProviderId::Codex, None);
+    let mut summary = CostSummary {
+        period_start: Some(today),
+        period_end: Some(today),
+        history_coverage_established: history.history_coverage_established,
+        ..CostSummary::default()
+    };
+    let (cost, _) = add_codex_days_map_to_summary(&mut summary, &cache.days, &range);
+    summary.total_cost_usd = cost;
+    summary.sessions_count = cache
+        .files
+        .values()
+        .filter(|usage| usage.days.contains_key(&range.until_key))
+        .count()
+        .try_into()
+        .unwrap_or(u32::MAX);
+    summary.known_zero = summary.history_coverage_established && summary.sessions_count == 0;
+    summary
+}
+
+fn coverage_from_summary(summary: &CostSummary) -> CostCoverageCounts {
+    let mut model_names = HashSet::new();
+    model_names.extend(summary.by_model.keys().cloned());
+    model_names.extend(summary.by_model_tokens.keys().cloned());
+    model_names.extend(summary.unknown_models.iter().cloned());
+
+    let mut unpriced_models = summary.unknown_models.clone();
+    if let ModelPricingCompleteness::Partial {
+        unpriced_models: partial_models,
+    } = &summary.model_pricing_completeness
+    {
+        unpriced_models.extend(partial_models.iter().cloned());
+    }
+    let unpriced = model_names
+        .iter()
+        .filter(|model| unpriced_models.contains(*model))
+        .count();
+    let estimated = model_names.len().saturating_sub(unpriced);
+
+    CostCoverageCounts {
+        priced: 0,
+        unpriced: unpriced.try_into().unwrap_or(u32::MAX),
+        unmetered: 0,
+        estimated: estimated.try_into().unwrap_or(u32::MAX),
+    }
+}
 
 pub(crate) fn codex_period_start(today: NaiveDate, days: u32) -> NaiveDate {
     today - Duration::days(days.saturating_sub(1) as i64)
@@ -736,5 +988,90 @@ mod tests {
         assert_eq!(codex_speed_bucket("gpt-5.5-fast"), "fast");
         assert_eq!(codex_speed_bucket("gpt-5.3-codex-spark"), "fast");
         assert_eq!(codex_speed_bucket("gpt-5-codex"), "standard");
+    }
+
+    #[test]
+    fn summary_wire_is_versioned_and_path_free() {
+        let complete = CostSummary {
+            total_cost_usd: 0.25,
+            input_tokens: 100,
+            output_tokens: 50,
+            cached_tokens: 20,
+            sessions_count: 1,
+            by_model: std::collections::HashMap::from([("fixture-model".to_string(), 0.25)]),
+            by_model_tokens: std::collections::HashMap::from([(
+                "fixture-model".to_string(),
+                ModelTokenCounts {
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cached_tokens: 20,
+                    reasoning_tokens: None,
+                },
+            )]),
+            history_coverage_established: true,
+            ..CostSummary::default()
+        };
+        let summary = CodexCostSummary::from_summaries_at(
+            &complete,
+            &complete,
+            30,
+            DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+
+        summary.validate(30).unwrap();
+        let wire = serde_json::to_string(&[summary]).unwrap();
+        assert!(wire.contains("schemaVersion"));
+        assert!(wire.contains("costUSD"));
+        assert!(wire.contains("bucketTimeZone"));
+        assert!(!wire.contains("fixture-model"));
+        assert!(!wire.contains("sessions"));
+        assert!(!wire.contains("project"));
+    }
+
+    #[test]
+    fn incomplete_scan_keeps_remote_totals_unknown() {
+        let partial = CostSummary {
+            total_cost_usd: 9.0,
+            input_tokens: 1_000,
+            output_tokens: 200,
+            history_coverage_established: false,
+            ..CostSummary::default()
+        };
+        let summary = CodexCostSummary::from_summaries_at(
+            &partial,
+            &partial,
+            30,
+            DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+
+        assert_eq!(summary.history.total_tokens, None);
+        assert_eq!(summary.history.cost_usd, None);
+        assert_eq!(summary.today.total_tokens, None);
+        assert_eq!(summary.today.cost_usd, None);
+        summary.validate(30).unwrap();
+    }
+
+    #[test]
+    fn remote_summary_decoder_rejects_wrong_version_and_oversized_output() {
+        let source = CostSummary {
+            history_coverage_established: true,
+            known_zero: true,
+            ..CostSummary::default()
+        };
+        let mut summary = CodexCostSummary::from_summaries_at(
+            &source,
+            &source,
+            30,
+            DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+        summary.schema_version = 2;
+        let wire = serde_json::to_string(&[summary]).unwrap();
+        assert!(decode_remote_codex_summary(&wire, 30).is_err());
+        assert!(
+            decode_remote_codex_summary(&"x".repeat(MAX_REMOTE_CODEX_COST_BYTES + 1), 30).is_err()
+        );
     }
 }

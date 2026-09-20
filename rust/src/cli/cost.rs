@@ -5,6 +5,11 @@
 use clap::Args;
 
 use super::usage::{OutputFormat, ProviderSelection};
+use crate::agent_sessions::RemoteSessionFetcher;
+use crate::codex_costs::{
+    CodexCostSummary, CodexHostCostReport, REMOTE_CODEX_COST_INVALID,
+    REMOTE_CODEX_COST_UNAVAILABLE, build_codex_cost_summary, decode_remote_codex_summary,
+};
 use crate::core::{CostScanOptions, ProviderId};
 use crate::cost_scanner::{CostScanner, CostSummary};
 use crate::settings::Settings;
@@ -51,6 +56,14 @@ pub struct CostArgs {
     /// Group text output by Codex local conversation/session.
     #[arg(long = "group-by", value_parser = ["session"])]
     pub group_by: Option<String>,
+
+    /// Also report native Codex costs from one SSH host as a separate report.
+    #[arg(long)]
+    pub remote: Option<String>,
+
+    /// Emit the versioned native Codex summary contract as JSON.
+    #[arg(long = "summary-only")]
+    pub summary_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +92,11 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     let providers = ProviderSelection::from_arg(args.provider.as_deref())?;
     let group_by = CostGroupBy::from_arg(args.group_by.as_deref());
     let use_color = !args.no_color && is_terminal();
+
+    if args.remote.is_some() || args.summary_only {
+        return run_codex_host_costs(&args, format, &providers).await;
+    }
+
     let mut scan_options = CostScanOptions::app_driven();
     scan_options.include_pi_sessions = !args.provider_native_only;
     let scanner = CostScanner::new(args.days).with_options(scan_options);
@@ -149,6 +167,196 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn run_codex_host_costs(
+    args: &CostArgs,
+    format: OutputFormat,
+    providers: &ProviderSelection,
+) -> anyhow::Result<()> {
+    if providers.as_list() != vec![ProviderId::Codex] {
+        anyhow::bail!(
+            "--remote and --summary-only require exactly --provider codex; they do not support all or both"
+        );
+    }
+    if args.group_by.is_some() {
+        anyhow::bail!("--remote and --summary-only cannot be combined with --group-by");
+    }
+    if args.remote.is_some() && args.summary_only {
+        anyhow::bail!("--remote and --summary-only cannot be combined");
+    }
+    if args.summary_only && format != OutputFormat::Json {
+        anyhow::bail!("--summary-only requires --format json or --json");
+    }
+    if !(1..=365).contains(&args.days) {
+        anyhow::bail!("--days must be between 1 and 365 for host cost reports");
+    }
+
+    let remote = args
+        .remote
+        .as_deref()
+        .map(RemoteSessionFetcher::validate_codex_cost_host)
+        .transpose()
+        .map_err(anyhow::Error::msg)?;
+    let has_remote = remote.is_some();
+
+    // Host comparison is deliberately native-only on both sides. This keeps
+    // provider-owned Codex totals comparable and avoids sending or combining
+    // any pi/OMP session mirror details.
+    let local = scan_local_codex_summary(args.days);
+    let mut reports = vec![CodexHostCostReport::success("local", "local", local)];
+    let mut remote_failed = false;
+
+    if let Some(host) = remote {
+        let fetcher = RemoteSessionFetcher::default();
+        match fetcher
+            .fetch_codex_cost_summary(&host, args.days, false)
+            .await
+        {
+            Ok(output) => {
+                let result = decode_remote_codex_summary(&output, args.days)
+                    .map_err(|_| REMOTE_CODEX_COST_INVALID);
+                remote_failed |= append_remote_codex_report(&mut reports, host, result);
+            }
+            Err(error) => {
+                let message = if error == REMOTE_CODEX_COST_INVALID {
+                    REMOTE_CODEX_COST_INVALID
+                } else {
+                    REMOTE_CODEX_COST_UNAVAILABLE
+                };
+                remote_failed |= append_remote_codex_report(&mut reports, host, Err(message));
+            }
+        }
+    }
+
+    if args.summary_only {
+        let summaries: Vec<_> = reports
+            .iter()
+            .filter_map(|report| report.summary.as_ref())
+            .collect();
+        let output = if args.pretty {
+            serde_json::to_string_pretty(&summaries)?
+        } else {
+            serde_json::to_string(&summaries)?
+        };
+        println!("{output}");
+    } else {
+        match format {
+            OutputFormat::Text => {
+                println!(
+                    "{}",
+                    reports
+                        .iter()
+                        .map(render_codex_host_report)
+                        .collect::<Vec<_>>()
+                        .join("\n\n")
+                );
+                if has_remote {
+                    println!(
+                        "\nHost reports are separate; overlapping histories are not added together."
+                    );
+                }
+            }
+            OutputFormat::Json => {
+                let output = if args.pretty {
+                    serde_json::to_string_pretty(&reports)?
+                } else {
+                    serde_json::to_string(&reports)?
+                };
+                println!("{output}");
+            }
+        }
+    }
+
+    if remote_failed {
+        anyhow::bail!("Remote Codex cost report failed; local results were retained.");
+    }
+    Ok(())
+}
+
+fn append_remote_codex_report(
+    reports: &mut Vec<CodexHostCostReport>,
+    host: String,
+    result: Result<CodexCostSummary, &'static str>,
+) -> bool {
+    let failed = result.is_err();
+    match result {
+        Ok(summary) => reports.push(CodexHostCostReport::success(host, "ssh", summary)),
+        Err(error) => reports.push(CodexHostCostReport::failure(host, "ssh", error)),
+    }
+    failed
+}
+
+fn scan_local_codex_summary(days: u32) -> CodexCostSummary {
+    let mut scan_options = CostScanOptions::app_driven();
+    scan_options.include_pi_sessions = false;
+    let history = CostScanner::new(days)
+        .with_options(scan_options)
+        .scan_codex();
+    build_codex_cost_summary(history, days)
+}
+
+fn render_codex_host_report(report: &CodexHostCostReport) -> String {
+    let title = if report.source == "local" {
+        "This machine".to_string()
+    } else {
+        report.host.clone()
+    };
+    let Some(summary) = report.summary.as_ref() else {
+        return format!(
+            "{title}: {}",
+            report
+                .error
+                .as_deref()
+                .unwrap_or("Cost history unavailable")
+        );
+    };
+
+    let window_line = |label: &str, window: &crate::codex_costs::CodexHostCostWindow| {
+        let cost = window
+            .cost_usd
+            .map(|value| format!("${value:.2}"))
+            .unwrap_or_else(|| "—".to_string());
+        let tokens = window
+            .total_tokens
+            .map(format_number)
+            .unwrap_or_else(|| "—".to_string());
+        let mut line = format!("{label}: {cost} · {tokens} tokens");
+        if window.incomplete_request_count > 0 {
+            line.push_str(&format!(
+                " ({} incomplete requests excluded)",
+                window.incomplete_request_count
+            ));
+        }
+        if window.coverage.unpriced > 0 || window.coverage.unmetered > 0 {
+            line.push_str(" (some usage has no known price)");
+        }
+        line
+    };
+
+    let history = if summary.history_days == 1 {
+        String::new()
+    } else {
+        format!(
+            "\n{}",
+            window_line(
+                &format!("Last {} days", summary.history_days),
+                &summary.history
+            )
+        )
+    };
+    let coverage = if summary.history_coverage_is_established {
+        String::new()
+    } else {
+        "\nPartial history; scan is incomplete.".to_string()
+    };
+    format!(
+        "{title} — Codex API-equivalent estimate (not billed)\n{}{}\nDay boundaries: {}{}",
+        window_line("Today", &summary.today),
+        history,
+        summary.bucket_time_zone,
+        coverage
+    )
 }
 
 /// Cost result for a provider
@@ -555,5 +763,59 @@ mod tests {
     fn short_session_id_is_privacy_conscious() {
         assert_eq!(short_session_id("abc"), "abc");
         assert_eq!(short_session_id("1234567890abcdef"), "1234...90abcdef");
+    }
+
+    #[test]
+    fn remote_failure_retains_local_report() {
+        let local_summary = CodexCostSummary::from_summaries_at(
+            &CostSummary {
+                history_coverage_established: true,
+                known_zero: true,
+                ..CostSummary::default()
+            },
+            &CostSummary {
+                history_coverage_established: true,
+                known_zero: true,
+                ..CostSummary::default()
+            },
+            30,
+            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+        let mut reports = vec![CodexHostCostReport::success(
+            "local",
+            "local",
+            local_summary,
+        )];
+
+        assert!(append_remote_codex_report(
+            &mut reports,
+            "build-host".to_string(),
+            Err(REMOTE_CODEX_COST_UNAVAILABLE),
+        ));
+        assert_eq!(reports.len(), 2);
+        assert!(reports[0].summary.is_some());
+        assert_eq!(reports[1].summary, None);
+        assert_eq!(
+            reports[1].error.as_deref(),
+            Some(REMOTE_CODEX_COST_UNAVAILABLE)
+        );
+    }
+
+    #[test]
+    fn host_text_preserves_unknown_values_and_separate_boundaries() {
+        let partial = CodexCostSummary::from_summaries_at(
+            &CostSummary::default(),
+            &CostSummary::default(),
+            30,
+            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+        let text =
+            render_codex_host_report(&CodexHostCostReport::success("local", "local", partial));
+        assert!(text.contains("Today: — · — tokens"));
+        assert!(text.contains("Last 30 days: — · — tokens"));
+        assert!(text.contains("Partial history"));
+        assert!(text.contains("Day boundaries: UTC"));
     }
 }
