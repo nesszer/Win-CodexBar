@@ -145,10 +145,12 @@ function LocalUsageBlock({
           <span className="menu-card__local-label">{t("PanelThirtyDayTokens")}</span>
           <strong>{formatCompactCount(summary.thirtyDayTokens)}</strong>
         </div>
-        <div>
-          <span className="menu-card__local-label">{t("PanelLatestTokens")}</span>
-          <strong>{formatCompactCount(summary.latestTokens)}</strong>
-        </div>
+        {!isMuse && (
+          <div>
+            <span className="menu-card__local-label">{t("PanelLatestTokens")}</span>
+            <strong>{formatCompactCount(summary.latestTokens)}</strong>
+          </div>
+        )}
       </div>
 
       {isCodex && visibleHistory.length > 0 && (

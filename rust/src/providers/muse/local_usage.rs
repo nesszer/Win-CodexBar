@@ -6,8 +6,8 @@
 //! provider-owned cache of parsed events.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs;
-use std::io::{BufRead, BufReader};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -15,10 +15,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::{Local, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::spend_contract::LocalHistoryCoverage;
 
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
 const CACHE_FILE: &str = "muse-sessions-v1.json";
 const MAX_CACHE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_FILES: usize = 20_000;
@@ -76,6 +77,7 @@ struct Event {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct FileStamp {
+    identity: String,
     length: u64,
     modified_ms: u128,
 }
@@ -85,6 +87,7 @@ struct CachedFile {
     stamp: FileStamp,
     events: Vec<Event>,
     complete: bool,
+    digest: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -169,6 +172,7 @@ fn day_window(days: u32) -> (String, String) {
 fn file_stamp(path: &Path) -> Option<FileStamp> {
     let metadata = fs::metadata(path).ok()?;
     Some(FileStamp {
+        identity: platform_file_identity(path, &metadata)?,
         length: metadata.len(),
         modified_ms: metadata
             .modified()
@@ -177,6 +181,68 @@ fn file_stamp(path: &Path) -> Option<FileStamp> {
             .ok()?
             .as_millis(),
     })
+}
+
+#[cfg(windows)]
+fn platform_file_identity(path: &Path, _metadata: &fs::Metadata) -> Option<String> {
+    use std::os::windows::io::AsRawHandle;
+
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let file = File::open(path).ok()?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: The file handle is open for the duration of this call and the
+    // output structure is valid for writes.
+    let ok = unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) };
+    if ok.is_err() {
+        return None;
+    }
+    let file_index = ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64;
+    Some(format!("{}:{file_index}", info.dwVolumeSerialNumber))
+}
+
+#[cfg(unix)]
+fn platform_file_identity(_path: &Path, metadata: &fs::Metadata) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+
+    Some(format!("{}:{}", metadata.dev(), metadata.ino()))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn platform_file_identity(_path: &Path, metadata: &fs::Metadata) -> Option<String> {
+    metadata
+        .created()
+        .ok()
+        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map(|value| value.as_nanos().to_string())
+}
+
+fn digest_bytes(path: &Path, stamp: &FileStamp, state: &mut ScanState) -> Option<String> {
+    if !state.charge_file(stamp.length) {
+        return None;
+    }
+    let mut file = File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut bytes_read = 0_u64;
+    loop {
+        let read = file.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        bytes_read = bytes_read.checked_add(u64::try_from(read).ok()?)?;
+        if state.check() {
+            return None;
+        }
+    }
+    if bytes_read != stamp.length || file_stamp(path).as_ref() != Some(stamp) {
+        return None;
+    }
+    Some(format!("{:x}", hasher.finalize()))
 }
 
 fn cache_path(root: &Path) -> PathBuf {
@@ -324,7 +390,7 @@ fn parse_line(line: &[u8]) -> Result<Option<Event>, bool> {
         && object.get("payload_type").and_then(Value::as_str) == Some("runtime.session")
         && object.get("payload_schema_version").and_then(Value::as_u64) == Some(1);
     if !valid_envelope {
-        return Err(has_token_fields(&object));
+        return Err(true);
     }
     let event = object
         .get("payload")
@@ -405,25 +471,31 @@ fn parse_line(line: &[u8]) -> Result<Option<Event>, bool> {
     }))
 }
 
-fn parse_file(path: &Path, stamp: &FileStamp, state: &mut ScanState) -> (Vec<Event>, bool) {
+fn parse_file(
+    path: &Path,
+    stamp: &FileStamp,
+    state: &mut ScanState,
+) -> (Vec<Event>, bool, Option<String>) {
     if stamp.length > MAX_FILE_BYTES || !state.charge_file(stamp.length) {
-        return (Vec::new(), false);
+        return (Vec::new(), false, None);
     }
     let Ok(file) = fs::File::open(path) else {
-        return (Vec::new(), false);
+        return (Vec::new(), false, None);
     };
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
     let mut events = Vec::new();
+    let mut hasher = Sha256::new();
     let mut complete = true;
     loop {
         line.clear();
         let Ok(read) = reader.read_until(b'\n', &mut line) else {
-            return (events, false);
+            return (events, false, None);
         };
         if read == 0 {
             break;
         }
+        hasher.update(&line);
         if line.len() > MAX_LINE_BYTES {
             complete = false;
             continue;
@@ -431,7 +503,7 @@ fn parse_file(path: &Path, stamp: &FileStamp, state: &mut ScanState) -> (Vec<Eve
         match parse_line(&line) {
             Ok(Some(event)) => {
                 if !state.charge_event(&event) {
-                    return (events, false);
+                    return (events, false, None);
                 }
                 events.push(event);
             }
@@ -439,10 +511,12 @@ fn parse_file(path: &Path, stamp: &FileStamp, state: &mut ScanState) -> (Vec<Eve
             Err(drift) => complete &= !drift,
         }
         if state.check() {
-            return (events, false);
+            return (events, false, None);
         }
     }
-    (events, complete && file_stamp(path).as_ref() == Some(stamp))
+    let stable = complete && file_stamp(path).as_ref() == Some(stamp);
+    let digest = stable.then(|| format!("{:x}", hasher.finalize()));
+    (events, stable && digest.is_some(), digest)
 }
 
 fn add_checked(target: &mut u64, value: u64) -> bool {
@@ -491,6 +565,7 @@ pub fn scan_in(
     let mut days = BTreeMap::<String, DailyUsage>::new();
     let mut complete = discovery_complete;
     let mut scanned = HashSet::new();
+    let mut sessions_with_usage = 0_usize;
     for path in paths {
         let key = path.to_string_lossy().into_owned();
         scanned.insert(key.clone());
@@ -498,13 +573,16 @@ pub fn scan_in(
             complete = false;
             continue;
         };
-        let entry = cache_data
+        let cached = cache_data
             .files
             .get(&key)
             .filter(|entry| entry.stamp == stamp && entry.complete)
             .cloned();
-        let (events, file_complete) = entry
-            .map(|entry| (entry.events, true))
+        let cached = cached.filter(|entry| {
+            digest_bytes(&path, &stamp, &mut state).as_deref() == Some(entry.digest.as_str())
+        });
+        let (events, file_complete, digest) = cached
+            .map(|entry| (entry.events, true, Some(entry.digest)))
             .unwrap_or_else(|| parse_file(&path, &stamp, &mut state));
         cache_data.files.insert(
             key,
@@ -512,13 +590,16 @@ pub fn scan_in(
                 stamp,
                 events: events.clone(),
                 complete: file_complete,
+                digest: digest.unwrap_or_default(),
             },
         );
         complete &= file_complete;
+        let mut file_had_usage = false;
         for event in events
             .into_iter()
             .filter(|event| event.day.as_str() >= since && event.day.as_str() <= until)
         {
+            file_had_usage = true;
             if let Some(previous) = seen.get(&event.id) {
                 if previous != &event {
                     complete = false;
@@ -569,6 +650,9 @@ pub fn scan_in(
                     .unwrap_or(false);
             complete &= valid;
         }
+        if file_had_usage {
+            sessions_with_usage = sessions_with_usage.saturating_add(1);
+        }
         if state.check() {
             complete = false;
             break;
@@ -584,6 +668,9 @@ pub fn scan_in(
     let total_tokens = daily
         .iter()
         .try_fold(0u64, |total, day| total.checked_add(day.total_tokens));
+    if total_tokens.is_none() {
+        complete = false;
+    }
     let today = daily
         .last()
         .filter(|day| day.day == until)
@@ -613,7 +700,7 @@ pub fn scan_in(
         daily,
         total_tokens,
         today_tokens: today,
-        session_count: seen.len(),
+        session_count: sessions_with_usage,
         top_model,
         coverage,
     }
@@ -663,6 +750,9 @@ mod tests {
             "muse-1",
         );
         assert_eq!(parse_line(unknown.as_bytes(),), Err(true));
+
+        let schema_drift = telemetry.replace("\"schema_version\":1", "\"schema_version\":2");
+        assert_eq!(parse_line(schema_drift.as_bytes()), Err(true));
     }
 
     #[test]
@@ -670,20 +760,92 @@ mod tests {
         let root = tempdir().unwrap();
         let session = root.path().join("2026/08/31/a");
         fs::create_dir_all(&session).unwrap();
-        let line = record(
-            "shared",
+        let first = record(
+            "first",
             1_788_177_600_000_000,
             "model_completed",
             r#"{"input_tokens":10,"output_tokens":2}"#,
             "muse-1",
         );
-        fs::write(session.join("session.jsonl"), format!("{line}\n{line}\n")).unwrap();
+        let second = record(
+            "second",
+            1_788_177_601_000_000,
+            "model_completed",
+            r#"{"input_tokens":20,"output_tokens":4}"#,
+            "muse-1",
+        );
+        fs::write(
+            session.join("session.jsonl"),
+            format!("{first}\n{second}\n{first}\n"),
+        )
+        .unwrap();
         let cache = tempdir().unwrap();
         let cold = scan_in(root.path(), cache.path(), "2026-08-31", "2026-08-31", None);
         let warm = scan_in(root.path(), cache.path(), "2026-08-31", "2026-08-31", None);
         assert_eq!(cold.coverage, LocalHistoryCoverage::Complete);
-        assert_eq!(cold.total_tokens, Some(12));
+        assert_eq!(cold.total_tokens, Some(36));
         assert_eq!(cold.session_count, 1);
         assert_eq!(warm.total_tokens, cold.total_tokens);
+    }
+
+    #[test]
+    fn aggregate_overflow_downgrades_coverage_without_publishing_total() {
+        let root = tempdir().unwrap();
+        let first_session = root.path().join("2026/08/30/first");
+        let second_session = root.path().join("2026/08/31/second");
+        fs::create_dir_all(&first_session).unwrap();
+        fs::create_dir_all(&second_session).unwrap();
+        let value = u64::MAX;
+        fs::write(
+            first_session.join("session.jsonl"),
+            record(
+                "first",
+                1_777_000_000_000_000,
+                "model_completed",
+                &format!(r#"{{"input_tokens":{value},"output_tokens":0}}"#),
+                "muse-1",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            second_session.join("session.jsonl"),
+            record(
+                "second",
+                1_777_086_400_000_000,
+                "model_completed",
+                &format!(r#"{{"input_tokens":{value},"output_tokens":0}}"#),
+                "muse-1",
+            ),
+        )
+        .unwrap();
+
+        let report = scan_in(
+            root.path(),
+            tempdir().unwrap().path(),
+            "2026-04-01",
+            "2026-12-31",
+            None,
+        );
+        assert_eq!(report.total_tokens, None);
+        assert_eq!(report.coverage, LocalHistoryCoverage::Partial);
+    }
+
+    #[test]
+    fn content_digest_changes_when_same_size_content_changes() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        fs::write(&path, b"aaaaaaaa").unwrap();
+        let stamp = file_stamp(&path).unwrap();
+        let mut state = ScanState {
+            started: SystemTime::now(),
+            files: 0,
+            bytes: 0,
+            retained_event_bytes: 0,
+            cancelled: None,
+        };
+        let before = digest_bytes(&path, &stamp, &mut state).unwrap();
+        fs::write(&path, b"bbbbbbbb").unwrap();
+        let after = digest_bytes(&path, &stamp, &mut state);
+        assert_ne!(after.as_deref(), Some(before.as_str()));
     }
 }
