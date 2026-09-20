@@ -296,6 +296,39 @@ describe("TrayPanel provider grid", () => {
     });
   });
 
+  it("offers an Overview share snapshot using only included spend rows", async () => {
+    tauriMocks.getUsageSpendSummary.mockResolvedValue({
+      contract: {},
+      reportingDay: "2026-09-19",
+      dashboardTimezone: "UTC",
+      rows: [
+        {
+          providerId: "codex",
+          displayName: "Codex",
+          sevenDay: 1,
+          thirtyDay: 2,
+          currency: "USD",
+          source: "local",
+          includedInOverview: true,
+        },
+        {
+          providerId: "claude",
+          displayName: "Claude",
+          sevenDay: 3,
+          thirtyDay: 4,
+          currency: "USD",
+          source: "hidden",
+          includedInOverview: false,
+        },
+      ],
+    });
+
+    renderTrayPanel([provider("codex", "Codex", 35)]);
+
+    expect(await screen.findByRole("button", { name: "UsageSpendShare" })).toBeInTheDocument();
+    expect(screen.getByText(/1 of 1 OverviewSpendProviderCoverage/)).toBeInTheDocument();
+  });
+
   it("dismisses the tray panel on unmodified Escape", async () => {
     const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
 
