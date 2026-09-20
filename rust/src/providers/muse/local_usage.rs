@@ -54,7 +54,7 @@ pub struct Report {
 
 impl Report {
     pub fn is_available(&self) -> bool {
-        !self.daily.is_empty()
+        self.coverage != LocalHistoryCoverage::Unavailable
     }
 
     pub fn is_complete(&self) -> bool {
@@ -309,7 +309,14 @@ fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
         Ok(entries) => entries,
         Err(_) => return (files, false),
     };
-    for year in years.flatten() {
+    for year in years {
+        let year = match year {
+            Ok(entry) => entry,
+            Err(_) => {
+                complete = false;
+                continue;
+            }
+        };
         let months = match fs::read_dir(year.path()) {
             Ok(entries) => entries,
             Err(_) => {
@@ -317,7 +324,14 @@ fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
                 continue;
             }
         };
-        for month in months.flatten() {
+        for month in months {
+            let month = match month {
+                Ok(entry) => entry,
+                Err(_) => {
+                    complete = false;
+                    continue;
+                }
+            };
             let days = match fs::read_dir(month.path()) {
                 Ok(entries) => entries,
                 Err(_) => {
@@ -325,7 +339,14 @@ fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
                     continue;
                 }
             };
-            for day in days.flatten() {
+            for day in days {
+                let day = match day {
+                    Ok(entry) => entry,
+                    Err(_) => {
+                        complete = false;
+                        continue;
+                    }
+                };
                 let sessions = match fs::read_dir(day.path()) {
                     Ok(entries) => entries,
                     Err(_) => {
@@ -333,13 +354,22 @@ fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
                         continue;
                     }
                 };
-                for session in sessions.flatten() {
+                for session in sessions {
+                    let session = match session {
+                        Ok(entry) => entry,
+                        Err(_) => {
+                            complete = false;
+                            continue;
+                        }
+                    };
                     if state.check() || files.len() >= MAX_FILES {
                         return (files, false);
                     }
                     let path = session.path().join("session.jsonl");
-                    if path.is_file() {
-                        files.push(path);
+                    match fs::metadata(&path) {
+                        Ok(metadata) if metadata.is_file() => files.push(path),
+                        Ok(_) => {}
+                        Err(_) => complete = false,
                     }
                 }
             }
@@ -561,6 +591,7 @@ pub fn scan_in(
     };
     let mut cache_data = load_cache(cache_root, root, since, until);
     let (paths, discovery_complete) = discover(root, &mut state);
+    let paths_discovered = paths.len();
     let mut seen = HashMap::<String, Event>::new();
     let mut days = BTreeMap::<String, DailyUsage>::new();
     let mut complete = discovery_complete;
@@ -689,8 +720,12 @@ pub fn scan_in(
         .into_iter()
         .max_by_key(|(_, total)| *total)
         .map(|(model, _)| model);
-    let coverage = if daily.is_empty() {
-        LocalHistoryCoverage::Unavailable
+    let coverage = if paths_discovered == 0 {
+        if discovery_complete {
+            LocalHistoryCoverage::Unavailable
+        } else {
+            LocalHistoryCoverage::Partial
+        }
     } else if complete {
         LocalHistoryCoverage::Complete
     } else {
@@ -827,6 +862,52 @@ mod tests {
             None,
         );
         assert_eq!(report.total_tokens, None);
+        assert_eq!(report.coverage, LocalHistoryCoverage::Partial);
+    }
+
+    #[test]
+    fn complete_scan_with_only_ignored_records_is_a_known_zero() {
+        let root = tempdir().unwrap();
+        let session = root.path().join("2026/08/31/empty");
+        fs::create_dir_all(&session).unwrap();
+        fs::write(
+            session.join("session.jsonl"),
+            record(
+                "telemetry",
+                1_788_177_600_000_000,
+                "resource_usage_sampled",
+                r#"{"cpu_self_ms":1}"#,
+                "unknown",
+            ),
+        )
+        .unwrap();
+
+        let report = scan_in(
+            root.path(),
+            tempdir().unwrap().path(),
+            "2026-08-31",
+            "2026-08-31",
+            None,
+        );
+        assert!(report.is_available());
+        assert!(report.is_complete());
+        assert_eq!(report.total_tokens, Some(0));
+        assert_eq!(report.coverage, LocalHistoryCoverage::Complete);
+    }
+
+    #[test]
+    fn discovery_errors_downgrade_coverage() {
+        let root = tempdir().unwrap();
+        fs::write(root.path().join("2026"), b"not a directory").unwrap();
+
+        let report = scan_in(
+            root.path(),
+            tempdir().unwrap().path(),
+            "2026-08-31",
+            "2026-08-31",
+            None,
+        );
+        assert!(!report.is_complete());
         assert_eq!(report.coverage, LocalHistoryCoverage::Partial);
     }
 

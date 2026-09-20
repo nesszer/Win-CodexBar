@@ -283,8 +283,8 @@ fn muse_local_usage_summary(
     Some(ProviderLocalUsageSummary {
         today_cost: None,
         thirty_day_cost: None,
-        thirty_day_tokens: non_zero_u64(total_tokens),
-        latest_tokens: non_zero_u64(report.today_tokens.unwrap_or(0)),
+        thirty_day_tokens: Some(total_tokens),
+        latest_tokens: Some(report.today_tokens.unwrap_or(0)),
         top_model: report.top_model.clone(),
         estimate_note: "Local token history · dollar costs unavailable".to_string(),
         token_cost_updated_at_ms: current_unix_ms(),
