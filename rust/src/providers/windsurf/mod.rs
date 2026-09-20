@@ -67,6 +67,7 @@ impl WindsurfProvider {
                 is_primary: false,
                 dashboard_url: Some("https://windsurf.com/subscription"),
                 status_page_url: Some("https://status.windsurf.com"),
+                tertiary_label_key: None,
             },
         }
     }

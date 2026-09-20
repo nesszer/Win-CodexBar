@@ -16,10 +16,11 @@ import {
   codexAccountSwitch,
   getCodexAccountsState,
 } from "../../../../../lib/tauri";
-import { buildCodexAccountDisplayNames } from "../../../../../components/codexAccountDisplay";
+import { buildCodexAccountSurfaceLabels } from "../../../../../components/codexAccountDisplay";
 
 interface Props {
   t: (key: LocaleKey) => string;
+  hidePersonalInfo?: boolean;
 }
 
 /**
@@ -33,12 +34,13 @@ interface Props {
  * ambient identity, and remove managed homes. For MSIX Codex Desktop installs
  * a restart action is offered when a session snapshot is available to restore.
  */
-export function CodexAccountsSection({ t }: Props) {
+export function CodexAccountsSection({ t, hidePersonalInfo = false }: Props) {
   const [accounts, setAccounts] = useState<CodexAccount[]>([]);
   const [snapshots, setSnapshots] = useState<
     Record<string, CodexAccountUsageSnapshot>
   >({});
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
+  const [accountOrdinals, setAccountOrdinals] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +55,7 @@ export function CodexAccountsSection({ t }: Props) {
       const next: CodexAccountsStateBridge = await getCodexAccountsState();
       setAccounts(next.accounts);
       setDisplayNames(next.displayNames ?? {});
+      setAccountOrdinals(next.accountOrdinals);
       setSnapshots(next.snapshots);
       setLoaded(true);
     } catch (err: unknown) {
@@ -167,9 +170,12 @@ export function CodexAccountsSection({ t }: Props) {
     return null;
   }
 
-  const accountDisplayNames = buildCodexAccountDisplayNames(
+  const accountDisplayNames = buildCodexAccountSurfaceLabels(
     accounts,
     displayNames,
+    accountOrdinals,
+    hidePersonalInfo,
+    t("Account"),
   );
 
   return (

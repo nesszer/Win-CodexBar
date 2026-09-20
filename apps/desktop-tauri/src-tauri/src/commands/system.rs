@@ -335,7 +335,7 @@ async fn run_copilot_device_login(app: &tauri::AppHandle) -> Result<(), String> 
     let api = CopilotApi::new();
     let identity = api.fetch_identity_with_token(&token, None).await.ok();
     let plan = api
-        .fetch_usage_with_token(&token, None)
+        .fetch_usage_with_token(&token, None, None)
         .await
         .ok()
         .and_then(|usage| usage.login_method);

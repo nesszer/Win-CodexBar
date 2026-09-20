@@ -1192,6 +1192,7 @@ fn superseded_refresh_generation_is_not_current() {
 }
 
 #[test]
+
 fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
     let result = ProviderFetchResult {

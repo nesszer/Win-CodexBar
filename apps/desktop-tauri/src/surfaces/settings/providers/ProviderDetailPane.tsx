@@ -34,6 +34,8 @@ import { CookieSourceSection } from "./sections/CookieSourceSection";
 import { UsageSourceSection } from "./sections/UsageSourceSection";
 import { shouldShowCookieSource } from "./sections/usageSourcePolicy";
 import { RegionSection } from "./sections/RegionSection";
+import { CodexUsageOptions } from "./sections/credentials/CodexUsageOptions";
+import { CopilotSeatCreditOptions } from "./sections/credentials/CopilotSeatCreditOptions";
 import { CodexAccountsSection } from "./sections/credentials/CodexAccountsSection";
 import { ClaudeAccountsSection } from "./sections/credentials/ClaudeAccountsSection";
 import { GrokAccountsSection } from "./sections/credentials/GrokAccountsSection";
@@ -46,15 +48,18 @@ import { ProviderIssueNotice } from "./sections/ProviderIssueNotice";
 import { CredentialStorageSection } from "./sections/CredentialStorageSection";
 import { CredentialsDispatcher } from "./sections/CredentialsDispatcher";
 import { WayfinderGatewaySection } from "./sections/WayfinderGatewaySection";
+import { AzureApiVersionSection } from "./sections/AzureApiVersionSection";
 
 interface Props {
   providerId: string | null;
   cookieDomain?: string | null;
   resetTimeRelative: boolean;
   providerMetrics: SettingsSnapshot["providerMetrics"];
+  copilotSeatCreditEntitlement: SettingsSnapshot["copilotSeatCreditEntitlement"];
   /** Per-provider accent color overrides (CLI name → hex color). */
   providerAccentColors: SettingsSnapshot["providerAccentColors"];
   wayfinderGatewayUrl: string;
+  hidePersonalInfo: boolean;
   settingsDisabled: boolean;
   onSettingsChange: (patch: SettingsUpdate) => void;
 }
@@ -71,8 +76,10 @@ export function ProviderDetailPane({
   cookieDomain = null,
   resetTimeRelative,
   providerMetrics,
+  copilotSeatCreditEntitlement,
   providerAccentColors,
   wayfinderGatewayUrl,
+  hidePersonalInfo,
   settingsDisabled,
   onSettingsChange,
 }: Props) {
@@ -284,7 +291,9 @@ export function ProviderDetailPane({
     <div className="provider-detail">
       <IdentitySection provider={detail} subtitle={subtitle} t={t} />
 
-      {detail.id === "codex" && <CodexAccountsSection t={t} />}
+      {detail.id === "codex" && (
+        <CodexAccountsSection t={t} hidePersonalInfo={hidePersonalInfo} />
+      )}
       {detail.id === "claude" && <ClaudeAccountsSection t={t} language={language} />}
       {detail.id === "grok" && <GrokAccountsSection t={t} />}
 
@@ -369,7 +378,15 @@ export function ProviderDetailPane({
         t={t}
         onChanged={reload}
       />
+      {detail.id === "azureopenai" && (
+        <AzureApiVersionSection
+          providerId={detail.id}
+          disabled={settingsDisabled}
+          onChanged={reload}
+        />
+      )}
       <CredentialsDispatcher providerId={detail.id} t={t} />
+
       <CredentialStorageSection
         status={credentialStatus}
         busy={busy}

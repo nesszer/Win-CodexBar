@@ -388,6 +388,7 @@ impl FactoryProvider {
                 is_primary: false,
                 dashboard_url: Some("https://app.factory.ai"),
                 status_page_url: Some("https://status.factory.ai"),
+                tertiary_label_key: None,
             },
         }
     }

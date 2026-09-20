@@ -156,6 +156,7 @@ impl DeepInfraProvider {
                 is_primary: false,
                 dashboard_url: Some("https://deepinfra.com/dash"),
                 status_page_url: Some("https://status.deepinfra.com"),
+                tertiary_label_key: None,
             },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(30))

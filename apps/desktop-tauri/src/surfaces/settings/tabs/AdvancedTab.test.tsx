@@ -39,6 +39,7 @@ const settings: SettingsSnapshot = {
   resetTimeRelative: true,
   showResetWhenExhausted: false,
   menuBarDisplayMode: "compact",
+  overviewLayout: "detailed",
   notificationSoundPaths: {
     predictiveWarning: null,
     highUsage: null,

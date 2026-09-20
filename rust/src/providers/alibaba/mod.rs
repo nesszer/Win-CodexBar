@@ -45,6 +45,7 @@ impl AlibabaProvider {
                 is_primary: false,
                 dashboard_url: Some("https://modelstudio.console.alibabacloud.com"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

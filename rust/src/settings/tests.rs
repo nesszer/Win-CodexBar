@@ -21,6 +21,7 @@ fn test_settings_default() {
     assert!(!settings.predictive_pace_warning_enabled);
     assert!(!settings.float_bar_show_cost);
     assert!(!settings.tray_panel_always_on_top);
+    assert_eq!(settings.overview_layout, "compact");
     assert!(settings.promote_tray_icon);
     assert!(settings.claude_daily_routines_usage_visible);
     assert!(!settings.claude_allow_reading_claude_code_credentials);
@@ -28,6 +29,26 @@ fn test_settings_default() {
         settings.low_power_mode_preference,
         LowPowerModePreference::Off
     );
+}
+
+#[test]
+fn overview_layout_defaults_to_compact_and_round_trips() {
+    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
+        .expect("missing overview layout defaults to compact");
+    assert_eq!(defaulted.overview_layout, "compact");
+
+    let compact = Settings {
+        overview_layout: "compact".to_string(),
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&compact).expect("serialize overview layout");
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize overview layout");
+    assert_eq!(loaded.overview_layout, "compact");
+
+    let unknown: Settings =
+        serde_json::from_str(r#"{ "enabled_providers": [], "overview_layout": "unsupported" }"#)
+            .expect("unknown overview layout is accepted and normalized");
+    assert_eq!(unknown.overview_layout, "compact");
 }
 
 #[test]
@@ -956,6 +977,9 @@ fn test_provider_configs_roundtrip() {
     settings.set_historical_tracking(ProviderId::Codex, true);
     settings.set_avoid_keychain_prompts(ProviderId::Claude, true);
     settings.set_auto_resume_after_quota_reset(ProviderId::Codex, true);
+    settings
+        .set_seat_credit_entitlement(ProviderId::Copilot, Some(300.0))
+        .expect("valid seat credit entitlement");
 
     let json = serde_json::to_string(&settings).unwrap();
     // The legacy flat fields must NOT appear in serialized output.
@@ -984,6 +1008,10 @@ fn test_provider_configs_roundtrip() {
     assert!(loaded.historical_tracking(ProviderId::Codex));
     assert!(loaded.avoid_keychain_prompts(ProviderId::Claude));
     assert!(loaded.auto_resume_after_quota_reset(ProviderId::Codex));
+    assert_eq!(
+        loaded.seat_credit_entitlement(ProviderId::Copilot),
+        Some(300.0)
+    );
     assert_eq!(
         loaded.provider_configs.get(&ProviderId::Codex),
         settings.provider_configs.get(&ProviderId::Codex)

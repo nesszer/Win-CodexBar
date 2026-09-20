@@ -144,6 +144,7 @@ pub(super) fn codex_cache_has_validated_state(cache: &CostUsageCache) -> bool {
         || !cache.files.is_empty()
         || !cache.days.is_empty()
         || !cache.codex_pending_paths.is_empty()
+        || !cache.codex_source_rows.is_empty()
         || cache.codex_pending_scan_since_key.is_some()
 }
 

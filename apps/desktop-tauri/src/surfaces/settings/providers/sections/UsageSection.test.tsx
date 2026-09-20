@@ -69,7 +69,9 @@ function provider(): ProviderDetail {
 describe("UsageSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle());
+    tauriMocks.getLocaleStrings.mockResolvedValue(
+      buildBundle({ InventoryAvailableCount: "{} available" }),
+    );
     eventMocks.listen.mockResolvedValue(() => {});
   });
 
