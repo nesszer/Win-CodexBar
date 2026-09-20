@@ -6,6 +6,8 @@ use serde_json::Value;
 use crate::core::{CostDailyPoint, CostSnapshot, ProviderError};
 
 const MAX_ACTIVITY_ROWS: usize = 20_000;
+/// Distinct identity rows tracked for dedupe; bounds the `seen` map.
+const MAX_DISTINCT_ROWS: usize = 10_000;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 pub(super) fn parse_activity_cost(
@@ -131,7 +133,7 @@ pub(super) fn parse_activity_cost(
                 continue;
             }
             seen.insert(identity, signature);
-            if seen.len() > 10_000 {
+            if seen.len() > MAX_DISTINCT_ROWS {
                 return Err(ProviderError::Parse(
                     "OpenRouter activity.data exceeds 10000 distinct rows".into(),
                 ));
@@ -146,14 +148,14 @@ pub(super) fn parse_activity_cost(
             "OpenRouter Activity spend overflowed".into(),
         ));
     }
-    Ok(
-        CostSnapshot::new(total, "USD", "Last 30 days (UTC)").with_daily(
+    Ok(CostSnapshot::new(total, "USD", "Last 30 days (UTC)")
+        .with_daily(
             daily
                 .into_iter()
                 .map(|(day, amount)| CostDailyPoint { day, amount })
                 .collect(),
-        ),
-    )
+        )
+        .always_visible())
 }
 
 fn normalize_activity_day(raw: &str) -> Option<&str> {
