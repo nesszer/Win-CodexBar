@@ -4,9 +4,10 @@ import type {
   ProviderDetail,
   RateWindowSnapshot,
 } from "../../../../types/bridge";
+import { InventoryItemRow } from "../../../../components/InventoryRows";
+import { ProviderDisplayRow } from "../../../../components/ProviderDisplayRow";
 import type { LocaleKey } from "../../../../i18n/keys";
 import { useFormattedResetTime } from "../../../../hooks/useFormattedResetTime";
-import { isUsageItemVisible } from "../../../../lib/usageItemVisibility";
 
 interface Props {
   provider: ProviderDetail;
@@ -27,28 +28,28 @@ interface BarSpec {
  */
 export function UsageSection({ provider, resetTimeRelative, t }: Props) {
   const bars: BarSpec[] = [];
-  if (provider.session && isUsageItemVisible(provider.hiddenUsageItemIds, "primary")) {
+  if (provider.session) {
     bars.push({
       key: "session",
       label: t("ProviderSessionLabel"),
       rate: provider.session,
     });
   }
-  if (provider.weekly && isUsageItemVisible(provider.hiddenUsageItemIds, "secondary")) {
+  if (provider.weekly) {
     bars.push({
       key: "weekly",
       label: t("ProviderWeeklyLabel"),
       rate: provider.weekly,
     });
   }
-  if (provider.modelSpecific && isUsageItemVisible(provider.hiddenUsageItemIds, "model-specific")) {
+  if (provider.modelSpecific) {
     bars.push({
       key: "modelSpecific",
       label: t("DetailWindowModelSpecific"),
       rate: provider.modelSpecific,
     });
   }
-  if (provider.tertiary && isUsageItemVisible(provider.hiddenUsageItemIds, "tertiary")) {
+  if (provider.tertiary) {
     bars.push({
       key: "tertiary",
       label: t("DetailWindowTertiary"),
@@ -56,9 +57,6 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
     });
   }
   for (const extra of provider.extraRateWindows ?? []) {
-    if (!isUsageItemVisible(provider.hiddenUsageItemIds, `extra-${extra.id}`)) {
-      continue;
-    }
     bars.push({
       key: extra.id,
       label: extra.title,
@@ -85,59 +83,23 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
         />
       ))}
       {inventory.map((item) => (
-        <InventoryRow
+        <InventoryItemRow
           key={item.id}
           item={item}
           resetTimeRelative={resetTimeRelative}
+          lineClassName="provider-usage-inventory"
         />
       ))}
-      {displayDetails.map((detail, index) => (
-        <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
+      {displayDetails.map((detail) => (
+        <ProviderDisplayRow
+          key={detail.id}
+          detail={detail}
+          lineClassName="provider-usage-inventory"
+          trackClassName="provider-usage-bar__track"
+          fillClassName="provider-usage-bar__fill"
+        />
       ))}
     </section>
-  );
-}
-
-function InventoryRow({
-  item,
-  resetTimeRelative,
-}: {
-  item: ProviderInventoryItem;
-  resetTimeRelative: boolean;
-}) {
-  const formattedExpiry = useFormattedResetTime(
-    item.nextExpiresAt,
-    null,
-    resetTimeRelative,
-    "expires",
-  );
-
-  return (
-    <div className="provider-usage-inventory">
-      <span>{item.title}: {item.availableCount} available</span>
-      {formattedExpiry && <span>{formattedExpiry}</span>}
-    </div>
-  );
-}
-
-function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
-  const progress = detail.progress;
-  const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
-    ? Math.max(0, Math.min(100, (progress.used / progress.total) * 100))
-    : null;
-
-  return (
-    <div className="provider-usage-detail">
-      <div className="provider-usage-inventory">
-        <span>{detail.title}: {detail.value}</span>
-        {detail.secondaryValue && <span>{detail.secondaryValue}</span>}
-      </div>
-      {progressPercent != null && (
-        <div className="provider-usage-bar__track" aria-label={`${detail.title} progress`}>
-          <div className="provider-usage-bar__fill" style={{ width: `${progressPercent}%` }} />
-        </div>
-      )}
-    </div>
   );
 }
 

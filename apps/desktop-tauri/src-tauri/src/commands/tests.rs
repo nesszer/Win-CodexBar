@@ -906,45 +906,6 @@ fn provider_detail_roundtrips_through_serde() {
 }
 
 #[test]
-fn usage_item_descriptors_keep_raw_ids_and_redact_titles() {
-    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
-        cost: None,
-        wayfinder_usage: None,
-        inventory: Vec::new(),
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-    };
-    let mut snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
-    snapshot.primary_label = Some("Account owner@example.com".to_string());
-    snapshot.extra_rate_windows = vec![NamedRateWindowSnapshot {
-        id: "credits".to_string(),
-        title: "Credits owner@example.com".to_string(),
-        window: snapshot.primary.clone(),
-    }];
-
-    let mut settings = Settings {
-        hide_personal_info: true,
-        ..Settings::default()
-    };
-    settings.set_hidden_usage_item_ids(ProviderId::Codex, vec!["metric:extra-missing".to_string()]);
-
-    let items = super::usage_item_descriptors(Some(&snapshot), &settings, ProviderId::Codex);
-
-    assert_eq!(items[0].id, "metric:primary");
-    assert_eq!(items[0].title, "Account Hidden");
-    assert_eq!(items[1].id, "metric:extra-credits");
-    assert_eq!(items[1].title, "Credits Hidden");
-    assert_eq!(items[2].id, "metric:extra-missing");
-    assert!(!items[2].available);
-}
-
-#[test]
 fn pace_stage_serializes_to_snake_case_string() {
     use codexbar::core::PaceStage;
     assert_eq!(
@@ -1035,8 +996,8 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
     })
     .with_display_detail(
         ProviderDisplayDetail::new("credits", "Used this cycle", "12")
-            .with_secondary_value("Monthly refill: 100")
-            .with_progress(12.0, 100.0),
+            .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
+            .and_then(|row| row.with_progress(12.0, 100.0)),
     );
     let metadata = instantiate_provider(ProviderId::Grok).metadata().clone();
     let snapshot =
@@ -1192,7 +1153,43 @@ fn superseded_refresh_generation_is_not_current() {
 }
 
 #[test]
+fn hiding_codex_spark_rows_preserves_other_extra_usage() {
+    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        cost: None,
+        wayfinder_usage: None,
+        inventory: Vec::new(),
+        display_details: Vec::new(),
+        source_label: "CLI".to_string(),
+        has_successful_claude_cli_quota: false,
+        pace_authoritative: true,
+        account_identity: None,
+    };
+    let mut snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+    snapshot.extra_rate_windows = vec![
+        NamedRateWindowSnapshot {
+            id: "codex-spark".to_string(),
+            title: "Codex Spark 5-hour".to_string(),
+            fallback_lane: false,
+            window: snapshot.primary.clone(),
+        },
+        NamedRateWindowSnapshot {
+            id: "credits".to_string(),
+            title: "Credits".to_string(),
+            fallback_lane: false,
+            window: snapshot.primary.clone(),
+        },
+    ];
 
+    super::filter_hidden_codex_spark_rows(&mut snapshot, false);
+
+    assert_eq!(snapshot.extra_rate_windows.len(), 1);
+    assert_eq!(snapshot.extra_rate_windows[0].id, "credits");
+}
+
+#[test]
 fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
     let result = ProviderFetchResult {

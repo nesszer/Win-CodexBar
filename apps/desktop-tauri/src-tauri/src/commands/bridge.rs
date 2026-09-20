@@ -212,130 +212,6 @@ pub struct ProviderDisplayDetailSnapshot {
     pub progress: Option<ProviderDisplayProgressSnapshot>,
 }
 
-/// Presentation descriptor for one quota metric or provider-emitted extra
-/// usage row. This intentionally excludes inventory and transient detail
-/// sections: Windows only exposes the metric rows already present in the
-/// provider snapshot for this visibility lane.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderUsageItemSnapshot {
-    pub id: String,
-    pub title: String,
-    pub available: bool,
-}
-
-pub(crate) fn usage_item_id(raw_id: &str) -> String {
-    format!("{}{}", codexbar::settings::USAGE_ITEM_METRIC_PREFIX, raw_id)
-}
-
-fn redacted_usage_item_title(title: &str, settings: &Settings) -> String {
-    codexbar::core::PersonalInfoRedactor::redact_emails_in_text(
-        Some(title),
-        settings.hide_personal_info,
-    )
-    .unwrap_or_default()
-}
-
-fn unavailable_usage_item_title(id: &str) -> String {
-    let raw = id
-        .strip_prefix(codexbar::settings::USAGE_ITEM_METRIC_PREFIX)
-        .unwrap_or(id);
-    let label = match raw {
-        "extra-codex-spark" => "Codex Spark".to_string(),
-        "extra-codex-spark-weekly" => "Codex Spark Weekly".to_string(),
-        "extra-claude-routines" => "Daily Routines".to_string(),
-        "primary" => "Session".to_string(),
-        "secondary" => "Weekly".to_string(),
-        "model-specific" => "Model-specific".to_string(),
-        "tertiary" => "Tertiary".to_string(),
-        _ => raw
-            .strip_prefix("extra-")
-            .unwrap_or(raw)
-            .split(['-', '_'])
-            .filter(|part| !part.is_empty())
-            .map(|part| {
-                let mut chars = part.chars();
-                match chars.next() {
-                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                    None => String::new(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
-    };
-    if label.is_empty() {
-        "Usage item".to_string()
-    } else {
-        format!("{label} (unavailable)")
-    }
-}
-
-/// Build visibility descriptors from the raw provider snapshot plus any
-/// persisted hidden IDs that the provider no longer emits. The latter are
-/// placeholders so a hidden legacy row can be restored without inventing a
-/// new provider detail section.
-pub(crate) fn usage_item_descriptors(
-    snapshot: Option<&ProviderUsageSnapshot>,
-    settings: &Settings,
-    provider_id: ProviderId,
-) -> Vec<ProviderUsageItemSnapshot> {
-    let hidden = settings.hidden_usage_item_ids(provider_id);
-    let mut seen = std::collections::HashSet::new();
-    let mut items = Vec::new();
-
-    let mut push = |raw_id: &str, title: &str, available: bool| {
-        let id = usage_item_id(raw_id);
-        if seen.insert(id.clone()) {
-            let item_title = if available {
-                redacted_usage_item_title(title, settings)
-            } else {
-                redacted_usage_item_title(&unavailable_usage_item_title(&id), settings)
-            };
-            items.push(ProviderUsageItemSnapshot {
-                id,
-                title: item_title,
-                available,
-            });
-        }
-    };
-
-    if let Some(snapshot) = snapshot {
-        push(
-            "primary",
-            snapshot.primary_label.as_deref().unwrap_or("Session"),
-            true,
-        );
-        if snapshot.secondary.is_some() {
-            push(
-                "secondary",
-                snapshot.secondary_label.as_deref().unwrap_or("Weekly"),
-                true,
-            );
-        }
-        if snapshot.model_specific.is_some() {
-            push("model-specific", "Model-specific", true);
-        }
-        if snapshot.tertiary.is_some() {
-            push(
-                "tertiary",
-                snapshot.tertiary_label.as_deref().unwrap_or("Tertiary"),
-                true,
-            );
-        }
-        for extra in &snapshot.extra_rate_windows {
-            push(&format!("extra-{}", extra.id), &extra.title, true);
-        }
-    }
-
-    for id in hidden {
-        let raw_id = id
-            .strip_prefix(codexbar::settings::USAGE_ITEM_METRIC_PREFIX)
-            .unwrap_or(id.as_str());
-        push(raw_id, "", false);
-    }
-
-    items
-}
 /// A frontend-friendly snapshot of one provider's usage data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -414,20 +290,26 @@ pub struct ProviderUsagePresentationSnapshot {
     #[serde(flatten)]
     pub snapshot: ProviderUsageSnapshot,
     pub selected_metric: RateWindowSnapshot,
-    pub hidden_usage_item_ids: Vec<String>,
 }
 
 impl ProviderUsagePresentationSnapshot {
     pub(crate) fn new(snapshot: ProviderUsageSnapshot, settings: &Settings) -> Self {
         let selected_metric = crate::usage_metric::selected_usage_window(&snapshot, settings);
-        let hidden_usage_item_ids = ProviderId::from_cli_name(&snapshot.provider_id)
-            .map(|id| settings.hidden_usage_item_ids(id))
-            .unwrap_or_default();
         Self {
             snapshot,
             selected_metric,
-            hidden_usage_item_ids,
         }
+    }
+}
+
+pub(crate) fn filter_hidden_codex_spark_rows(
+    snapshot: &mut ProviderUsageSnapshot,
+    spark_usage_visible: bool,
+) {
+    if snapshot.provider_id == "codex" && !spark_usage_visible {
+        snapshot
+            .extra_rate_windows
+            .retain(|extra| !matches!(extra.id.as_str(), "codex-spark" | "codex-spark-weekly"));
     }
 }
 
@@ -551,18 +433,9 @@ impl ProviderUsageSnapshot {
                     next_expires_at: item.next_expires_at.map(|date| date.to_rfc3339()),
                 })
                 .collect(),
-            inventory: result
-                .inventory
-                .iter()
-                .map(|item| ProviderInventoryItemSnapshot {
-                    id: item.id.clone(),
-                    title: item.title.clone(),
-                    available_count: item.available_count,
-                    next_expires_at: item.next_expires_at.map(|date| date.to_rfc3339()),
-                })
-                .collect(),
             display_details: result
                 .display_details()
+                .iter()
                 .map(|detail| ProviderDisplayDetailSnapshot {
                     id: detail.id().to_string(),
                     title: detail.title().to_string(),
@@ -824,7 +697,6 @@ pub struct SettingsSnapshot {
     disable_keychain_access: bool,
     wayfinder_gateway_url: String,
     provider_metrics: std::collections::HashMap<String, &'static str>,
-    provider_hidden_usage_item_ids: std::collections::HashMap<String, Vec<String>>,
     float_bar_enabled: bool,
     float_bar_opacity: u8,
     float_bar_scale: u8,
@@ -889,16 +761,6 @@ impl From<Settings> for SettingsSnapshot {
             .into_iter()
             .map(|(k, v)| (k, metric_preference_label(v)))
             .collect();
-        let provider_hidden_usage_item_ids = settings
-            .provider_configs
-            .iter()
-            .filter_map(|(id, config)| {
-                config
-                    .hidden_usage_item_ids
-                    .as_ref()
-                    .map(|ids| (id.cli_name().to_string(), ids.clone()))
-            })
-            .collect();
 
         Self {
             enabled_providers,
@@ -957,7 +819,6 @@ impl From<Settings> for SettingsSnapshot {
             disable_keychain_access: settings.disable_keychain_access,
             wayfinder_gateway_url,
             provider_metrics,
-            provider_hidden_usage_item_ids,
             float_bar_enabled: settings.float_bar_enabled,
             float_bar_opacity: settings.float_bar_opacity,
             float_bar_scale: settings.float_bar_scale,
