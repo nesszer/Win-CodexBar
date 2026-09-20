@@ -599,6 +599,10 @@ static CLAUDE_PRICING: LazyLock<HashMap<&'static str, ClaudePricing>> = LazyLock
 /// Cost usage pricing utilities
 pub struct CostUsagePricing;
 
+pub(crate) fn bundled_codex_long_context_threshold(model: &str) -> Option<u64> {
+    claude_pricing::bundled_codex_long_context_threshold(model)
+}
+
 impl CostUsagePricing {
     /// Sentinel model key for model-less Codex token events.
     ///
