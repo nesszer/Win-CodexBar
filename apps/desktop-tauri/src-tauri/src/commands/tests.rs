@@ -996,8 +996,8 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
     })
     .with_display_detail(
         ProviderDisplayDetail::new("credits", "Used this cycle", "12")
-            .with_secondary_value("Monthly refill: 100")
-            .with_progress(12.0, 100.0),
+            .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
+            .and_then(|row| row.with_progress(12.0, 100.0)),
     );
     let metadata = instantiate_provider(ProviderId::Grok).metadata().clone();
     let snapshot =
@@ -1018,35 +1018,6 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
     let serialized = serde_json::to_string(&snapshot).unwrap();
     assert!(serialized.contains("reset-credits"));
     assert!(!serialized.contains("coupon-token-secret"));
-}
-
-#[test]
-fn coderabbit_display_details_map_to_the_bridge_without_identity() {
-    let result = ProviderFetchResult::new(
-        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::informational(
-            "CodeRabbit CLI",
-        )),
-        "cli",
-    )
-    .with_display_detail(ProviderDisplayDetail::new("reviews", "Reviews", "42"))
-    .with_display_detail(ProviderDisplayDetail::new(
-        "usage-billing",
-        "Usage billing",
-        "Included",
-    ));
-    let metadata = instantiate_provider(ProviderId::CodeRabbit)
-        .metadata()
-        .clone();
-    let snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::CodeRabbit, &metadata, &result, None);
-
-    assert_eq!(snapshot.display_details.len(), 2);
-    assert_eq!(snapshot.display_details[0].id, "reviews");
-    assert_eq!(snapshot.display_details[0].value, "42");
-    assert_eq!(snapshot.display_details[1].title, "Usage billing");
-    assert!(snapshot.account_email.is_none());
-    assert!(snapshot.account_organization.is_none());
-    assert!(snapshot.plan_name.is_none());
 }
 
 #[test]

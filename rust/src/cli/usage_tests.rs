@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::core::{
-    CostSnapshot, ProviderAccountData, ProviderInventoryItem, RateWindow, TokenAccount,
-    TokenAccountSupport, UsageSnapshot,
+    CostSnapshot, ProviderAccountData, ProviderDisplayDetail, ProviderInventoryItem, RateWindow,
+    TokenAccount, TokenAccountSupport, UsageSnapshot,
 };
 use crate::providers::claude::claude_swap::ClaudeSwapAccount;
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel};
@@ -282,6 +282,22 @@ fn inventory_is_rendered_in_full_text_but_not_brief_text() {
     assert!(full.contains("Limit Reset Credits: 2 available"));
     assert!(full.contains("Next expires in"));
     assert!(!brief.contains("Limit Reset Credits"));
+}
+
+#[test]
+fn display_details_are_rendered_in_full_text_and_json() {
+    let result = fetch_result(UsageSnapshot::new(RateWindow::new(10.0))).with_display_detail(
+        ProviderDisplayDetail::new("credits", "Used this cycle", "12")
+            .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
+            .and_then(|row| row.with_progress(12.0, 100.0)),
+    );
+
+    let full = render_text_with_status(ProviderId::Grok, &result, None, false);
+    let json = render_json_result(ProviderId::Grok, result, None);
+
+    assert!(full.contains("Used this cycle: 12 (Monthly refill: 100) [12.00/100.00]"));
+    assert_eq!(json["details"][0]["title"], "Used this cycle");
+    assert_eq!(json["details"][0]["progress"]["total"], 100.0);
 }
 
 #[test]
