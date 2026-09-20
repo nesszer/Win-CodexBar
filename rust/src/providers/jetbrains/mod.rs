@@ -35,6 +35,7 @@ impl JetBrainsProvider {
                 is_primary: false,
                 dashboard_url: Some("https://www.jetbrains.com/ai/"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

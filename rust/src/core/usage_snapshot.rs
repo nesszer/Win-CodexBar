@@ -83,10 +83,34 @@ pub struct NamedRateWindow {
     /// In-memory presentation metadata only; external snapshot JSON stays stable.
     #[serde(default = "named_rate_window_usage_known_default", skip_serializing)]
     pub usage_known: bool,
+    /// Whether this lane is a fallback that only fills in when the provider
+    /// reports no real (non-informational) core quota window. In-memory
+    /// selection metadata only; external snapshot JSON stays stable.
+    #[serde(default = "named_rate_window_fallback_lane_default", skip_serializing)]
+    pub fallback_lane: bool,
+}
+
+/// One display-only item of provider-issued discrete inventory.
+///
+/// This is deliberately separate from [`RateWindow`]: inventory does not
+/// represent a percentage quota and must not participate in quota arithmetic,
+/// tray metric selection, pace, notifications, or auto-resume decisions.
+/// Provider-specific redemption identifiers stay private to the provider
+/// parser and never enter this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderInventoryItem {
+    pub id: String,
+    pub title: String,
+    pub available_count: u32,
+    pub next_expires_at: Option<DateTime<Utc>>,
 }
 
 fn named_rate_window_usage_known_default() -> bool {
     true
+}
+
+fn named_rate_window_fallback_lane_default() -> bool {
+    false
 }
 
 impl NamedRateWindow {
@@ -96,11 +120,17 @@ impl NamedRateWindow {
             title: title.into(),
             window,
             usage_known: true,
+            fallback_lane: false,
         }
     }
 
     pub fn with_usage_known(mut self, usage_known: bool) -> Self {
         self.usage_known = usage_known;
+        self
+    }
+
+    pub fn with_fallback_lane(mut self, fallback_lane: bool) -> Self {
+        self.fallback_lane = fallback_lane;
         self
     }
 }
@@ -585,6 +615,13 @@ pub struct ProviderFetchResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wayfinder_usage: Option<WayfinderUsageSnapshot>,
 
+    /// Transient non-quota inventory for provider-specific display.
+    ///
+    /// The field is intentionally skipped by serde: it belongs to the current
+    /// fetch and must not change persisted `ProviderFetchResult` JSON.
+    #[serde(skip)]
+    pub inventory: Vec<ProviderInventoryItem>,
+
     /// Label describing the data source (e.g., "oauth", "web", "cli")
     pub source_label: String,
 
@@ -613,6 +650,7 @@ impl ProviderFetchResult {
             usage,
             cost: None,
             wayfinder_usage: None,
+            inventory: Vec::new(),
             source_label: source_label.into(),
             has_successful_claude_cli_quota: false,
             pace_authoritative: true,
@@ -652,6 +690,12 @@ impl ProviderFetchResult {
         self.wayfinder_usage = Some(usage);
         self
     }
+
+    /// Attach one display-only inventory item without exposing redemption IDs.
+    pub fn with_inventory_item(mut self, item: ProviderInventoryItem) -> Self {
+        self.inventory.push(item);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -667,6 +711,27 @@ mod tests {
                 .with_non_authoritative_pace()
                 .pace_authoritative
         );
+    }
+
+    #[test]
+    fn fetch_result_inventory_is_transient_and_not_serialized() {
+        let usage = UsageSnapshot::new(RateWindow::new(25.0));
+        let expiry = DateTime::<Utc>::from_timestamp(1_900_000_000, 0).unwrap();
+        let result =
+            ProviderFetchResult::new(usage, "api").with_inventory_item(ProviderInventoryItem {
+                id: "reset-credits".to_string(),
+                title: "Limit Reset Credits".to_string(),
+                available_count: 2,
+                next_expires_at: Some(expiry),
+            });
+
+        assert_eq!(result.inventory.len(), 1);
+        let encoded = serde_json::to_value(&result).unwrap();
+        assert!(encoded.get("inventory").is_none());
+        assert!(encoded.get("reset-credits").is_none());
+
+        let decoded: ProviderFetchResult = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.inventory.is_empty());
     }
 
     #[test]

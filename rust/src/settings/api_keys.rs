@@ -15,6 +15,10 @@ pub struct ApiKeyEntry {
     /// Optional label for the key (e.g., "Personal", "Work")
     #[serde(default)]
     pub label: Option<String>,
+    /// Azure OpenAI API-version override kept alongside the credential.
+    /// `None` inherits `AZURE_OPENAI_API_VERSION` and the provider default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_version: Option<String>,
 }
 
 impl ApiKeys {
@@ -57,14 +61,37 @@ impl ApiKeys {
     /// Set API key for a provider
     pub fn set(&mut self, provider_id: &str, api_key: &str, label: Option<&str>) {
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M").to_string();
+        let api_version = self
+            .keys
+            .get(provider_id)
+            .and_then(|entry| entry.api_version.clone());
         self.keys.insert(
             provider_id.to_string(),
             ApiKeyEntry {
                 api_key: api_key.to_string(),
                 saved_at: now,
                 label: label.map(|s| s.to_string()),
+                api_version,
             },
         );
+    }
+
+    /// Get a provider-specific API-version override, if one is stored.
+    pub fn api_version(&self, provider_id: &str) -> Option<&str> {
+        self.keys
+            .get(provider_id)
+            .and_then(|entry| entry.api_version.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    /// Store or clear a provider-specific API-version override.
+    pub fn set_api_version(&mut self, provider_id: &str, api_version: Option<String>) {
+        if let Some(entry) = self.keys.get_mut(provider_id) {
+            entry.api_version = api_version
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+        }
     }
 
     /// Remove API key for a provider
@@ -578,4 +605,30 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://dev.meta.ai/docs"),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ApiKeys;
+
+    #[test]
+    fn api_version_survives_api_key_update() {
+        let mut keys = ApiKeys::default();
+        keys.set("azureopenai", "key", Some("work"));
+        keys.set_api_version("azureopenai", Some("v1".to_string()));
+        keys.set("azureopenai", "new-key", None);
+
+        assert_eq!(keys.get("azureopenai"), Some("new-key"));
+        assert_eq!(keys.api_version("azureopenai"), Some("v1"));
+    }
+
+    #[test]
+    fn clearing_api_version_removes_the_override() {
+        let mut keys = ApiKeys::default();
+        keys.set("azureopenai", "key", None);
+        keys.set_api_version("azureopenai", Some("2025-01-01".to_string()));
+        keys.set_api_version("azureopenai", None);
+
+        assert_eq!(keys.api_version("azureopenai"), None);
+    }
 }

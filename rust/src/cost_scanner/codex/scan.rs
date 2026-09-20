@@ -1,4 +1,87 @@
+use super::cache_days::days_from_codex_source_rows;
 use super::*;
+use crate::core::{
+    CodexSourceRowCache, CodexSourceUsageRow, read_source_rows, recover_rows, row_cache,
+    row_cache_matches, row_cache_needs_recovery,
+};
+
+/// A complete, non-forked file whose source rows may be (re)priced this pass.
+struct CodexSourceRowPlan {
+    metadata: fs::Metadata,
+    source_rows: Vec<CodexSourceUsageRow>,
+    recoverable_cache: Option<CodexSourceRowCache>,
+}
+
+/// Decide whether a completed file qualifies for source-row evidence, and
+/// whether its cached pricing needs recovery. `None` skips the file entirely:
+/// the pass was partial, the file keeps an unconsumed tail, or the usage is
+/// fork/parent-baseline shaped (whose source rows are not trusted here).
+fn codex_source_row_plan(
+    cache: &CostUsageCache,
+    path: &Path,
+    scan_range: &CostUsageDayRange,
+) -> Option<CodexSourceRowPlan> {
+    let usage_safe = cache
+        .files
+        .get(&path.to_string_lossy().to_string())
+        .is_some_and(|usage| {
+            usage.codex_forked_from_id.is_none()
+                && !usage.codex_lineage.uses_parent_baseline()
+                && !usage.codex_unresolved_fork_parent
+        });
+    if !usage_safe {
+        return None;
+    }
+    let metadata = fs::metadata(path).ok()?;
+    let source_rows = read_source_rows(path, scan_range).ok()?;
+    let recoverable_cache = cache
+        .codex_source_rows
+        .get(&path.to_string_lossy().to_string())
+        .filter(|cached| !cached.rows.is_empty() && row_cache_matches(path, &metadata, cached))
+        .cloned();
+    Some(CodexSourceRowPlan {
+        metadata,
+        source_rows,
+        recoverable_cache,
+    })
+}
+
+/// Apply a source-row plan: recover cached pricing when required, retain the
+/// resulting rows as evidence, and unprice the file's day map when recovery
+/// left appended rows unvalidated.
+fn apply_codex_source_row_plan(cache: &mut CostUsageCache, key: &str, plan: CodexSourceRowPlan) {
+    let CodexSourceRowPlan {
+        metadata,
+        source_rows,
+        recoverable_cache,
+    } = plan;
+    let requires_recovery = recoverable_cache
+        .as_ref()
+        .is_some_and(|cached| row_cache_needs_recovery(cached, &source_rows));
+    let rows = if requires_recovery {
+        let cached = recoverable_cache.expect("recovery cache checked above");
+        recover_rows(&cached.rows, &source_rows, cached.size)
+    } else {
+        source_rows
+    };
+    let Some(source_cache) = row_cache(&key_path(key), &metadata, rows) else {
+        return;
+    };
+    if requires_recovery && let Some(usage) = cache.files.get_mut(key) {
+        // Rebuild from recovered rows even when a new row is intentionally
+        // unresolved. Leaving the normal parser's model-priced days in place
+        // would silently price an appended row that has no validated
+        // historical evidence.
+        usage.days = days_from_codex_source_rows(&source_cache.rows);
+    }
+    cache
+        .codex_source_rows
+        .insert(key.to_string(), source_cache);
+}
+
+fn key_path(key: &str) -> PathBuf {
+    PathBuf::from(key)
+}
 
 pub(super) fn scan_codex_detailed_with_cache(
     scanner: &CostScanner,
@@ -31,11 +114,12 @@ pub(super) fn scan_codex_detailed_with_cache(
         CodexPendingScanDisposition::before_scan(&cache, scanner.options.is_app_driven()),
         CodexPendingScanDisposition::PreservePause
     ) {
-        return (
-            paused_codex_summary(&cache, start_date, today),
-            stats,
-            cache,
-        );
+        let mut summary = paused_codex_summary(&cache, start_date, today, &range);
+        append_pi_compatible_costs(scanner, &mut summary, cancel);
+        summary.history_coverage_established =
+            summary.history_coverage_established && !is_cancelled(cancel);
+        summary.known_zero = summary.history_coverage_established && summary.sessions_count == 0;
+        return (summary, stats, cache);
     }
     if scanner.options.is_app_driven() || pending_scan.is_incompatible {
         cache.codex_scan_pause_reason = None;
@@ -73,16 +157,7 @@ pub(super) fn scan_codex_detailed_with_cache(
 
         // Pi-compatible sessions are outside the Codex JSONL cache.
         // Skip when tests inject sessions roots — avoid scanning the real home tree.
-        if scanner.sessions_dirs_override.is_none() {
-            let mut seen_pi = HashSet::new();
-            crate::pi_session_cost::scan_pi_compatible_into(
-                &mut summary,
-                crate::pi_session_cost::PiMappedProvider::Codex,
-                scanner.days,
-                cancel,
-                &mut seen_pi,
-            );
-        }
+        append_pi_compatible_costs(scanner, &mut summary, cancel);
         summary.history_coverage_established =
             cached_history_coverage_established && !is_cancelled(cancel);
         // Upstream 0.50.1 #2932: debounce cache hit with coverage
@@ -94,7 +169,7 @@ pub(super) fn scan_codex_detailed_with_cache(
     let established_report_before_scan = (!cache.codex_scan_incomplete
         && cache.previous_report.is_none()
         && (cache.scan_since_key.is_some() || !cache.days.is_empty() || !cache.files.is_empty()))
-    .then(|| JsonlScanner::cached_cost_report_from_days(&cache));
+    .then(|| JsonlScanner::cached_cost_report_for_range(&cache, &range));
 
     // Persist the source-bound work range before doing bounded work.
     cache.codex_pending_scan_since_key = Some(scan_range.scan_since_key.clone());
@@ -196,6 +271,8 @@ pub(super) fn scan_codex_detailed_with_cache(
         if !outcome.is_complete || has_unconsumed_tail {
             incomplete_processed.push(key);
             stats.files_deferred = stats.files_deferred.saturating_add(1);
+        } else if let Some(plan) = codex_source_row_plan(&cache, &candidate.path, scan_range) {
+            apply_codex_source_row_plan(&mut cache, &key, plan);
         }
     }
     pending_next.extend(incomplete_processed);
@@ -258,10 +335,10 @@ pub(super) fn scan_codex_detailed_with_cache(
     cache.last_scan_unix_ms = now_ms;
     if cache.codex_scan_incomplete {
         if pending_disposition.keeps_live_rows() {
-            // Preserve the live, verified daily rows while the unresolved
-            // fork remains queued. Its missing parent affects only that
-            // file, so an old global report would hide healthy new days.
-            cache.previous_report = None;
+            // Preserve live rows only when there is no validated report to
+            // protect. v0.60.5 keeps the prior report for unresolved current
+            // work; the current window is not authoritative until the fork
+            // dependency is resolved.
             // The healthy files in this range are now validated. Keep the
             // incomplete flag as the coverage marker while acknowledging
             // the range so unchanged files stay on the cache fast path.
@@ -326,7 +403,15 @@ pub(super) fn scan_codex_detailed_with_cache(
     let preserving_previous_report = cache.codex_scan_incomplete
         && cache.previous_report.is_some()
         && !cancelled_with_missing_cache_rows;
-    summary = if preserving_previous_report {
+    let current_window_report = (cache.codex_scan_incomplete && !is_cancelled(cancel))
+        .then(|| codex_current_window_report(&cache, &range))
+        .flatten();
+    let published_current_window = current_window_report.is_some();
+    summary = if let Some(report) = current_window_report {
+        let mut summary = summary_from_cached_report(&report, start_date, today);
+        summary.history_coverage_established = true;
+        summary
+    } else if preserving_previous_report {
         cache
             .previous_report
             .as_ref()
@@ -339,30 +424,40 @@ pub(super) fn scan_codex_detailed_with_cache(
     // OMP / pi-compatible agent sessions (upstream #2269). Dedup by entry id.
     // Skip when tests inject sessions roots — avoid scanning the real home tree.
     // A16 --provider-native-only: skip pi/OMP mirrors when disabled.
-    if !preserving_previous_report
-        && scanner.sessions_dirs_override.is_none()
-        && scanner.options.include_pi_sessions
-    {
-        let mut seen_pi = HashSet::new();
-        crate::pi_session_cost::scan_pi_compatible_into(
-            &mut summary,
-            crate::pi_session_cost::PiMappedProvider::Codex,
-            scanner.days,
-            cancel,
-            &mut seen_pi,
-        );
-    }
+    append_pi_compatible_costs(scanner, &mut summary, cancel);
 
     // v0.56.1 #3279: only publish authoritative coverage after all
     // cancellable scan work, including Pi/OMP, has completed. Persistence
     // pruning may retain `previous_report`, but that must not make a
     // completed in-memory scan stale or make a cancelled partial scan look
     // complete.
-    summary.history_coverage_established = !is_cancelled(cancel) && !cache.codex_scan_incomplete;
+    summary.history_coverage_established =
+        !is_cancelled(cancel) && (!cache.codex_scan_incomplete || published_current_window);
     // Upstream 0.50.1 #2932: a completed scan with zero results is a
-    // *known* zero. Only set when coverage is established; an incomplete
-    // scan must NOT fabricate a zero.
-    summary.known_zero = summary.history_coverage_established && summary.sessions_count == 0;
+    // *known* zero. An incomplete scan may publish only a non-empty validated
+    // current window; it must not infer zero from historical metadata alone.
+    summary.known_zero = summary.history_coverage_established
+        && summary.sessions_count == 0
+        && (!cache.codex_scan_incomplete || published_current_window);
 
     (summary, stats, cache)
+}
+
+fn append_pi_compatible_costs(
+    scanner: &CostScanner,
+    summary: &mut CostSummary,
+    cancel: Option<&AtomicBool>,
+) {
+    if !scanner.options.include_pi_sessions || scanner.sessions_dirs_override.is_some() {
+        return;
+    }
+
+    let mut seen_pi = HashSet::new();
+    crate::pi_session_cost::scan_pi_compatible_into(
+        summary,
+        crate::pi_session_cost::PiMappedProvider::Codex,
+        scanner.days,
+        cancel,
+        &mut seen_pi,
+    );
 }

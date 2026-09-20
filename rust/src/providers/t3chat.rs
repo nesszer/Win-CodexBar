@@ -64,6 +64,7 @@ impl T3ChatProvider {
                 is_primary: false,
                 dashboard_url: Some("https://t3.chat/settings/customization"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

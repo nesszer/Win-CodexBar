@@ -60,6 +60,8 @@ struct SpendValues {
 pub struct UsageSpendSummary {
     pub rows: Vec<UsageSpendRow>,
     pub contract: SpendContract,
+    pub reporting_day: String,
+    pub dashboard_timezone: String,
 }
 
 #[derive(Debug, Clone)]
@@ -611,7 +613,25 @@ fn build_usage_spend_summary(
         settings.hide_personal_info,
         selected_summary,
     );
-    UsageSpendSummary { rows, contract }
+    let reporting_day = last_included_reporting_day(&contract);
+    let dashboard_timezone = codexbar::core::local_timezone_name();
+    UsageSpendSummary {
+        rows,
+        contract,
+        reporting_day,
+        dashboard_timezone,
+    }
+}
+
+fn last_included_reporting_day(contract: &SpendContract) -> String {
+    contract
+        .daily
+        .iter()
+        .filter_map(|point| chrono::NaiveDate::parse_from_str(&point.day, "%Y-%m-%d").ok())
+        .max()
+        .unwrap_or_else(|| chrono::Local::now().date_naive())
+        .format("%Y-%m-%d")
+        .to_string()
 }
 
 fn total_token_mix(mix: &codexbar::spend_contract::SpendTokenMix) -> Option<u64> {

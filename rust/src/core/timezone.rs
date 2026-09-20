@@ -31,7 +31,7 @@ static GLOBALIZATION_PINNED: LazyLock<bool> = LazyLock::new(pin_globalization_dl
 
 /// Returns the IANA name of the system timezone, or `"UTC"` if it cannot be
 /// determined safely.
-pub(crate) fn local_timezone_name() -> String {
+pub fn local_timezone_name() -> String {
     #[cfg(windows)]
     {
         // Deref runs the load+pin to completion on one thread while all

@@ -62,6 +62,7 @@ impl KiroProvider {
                 is_primary: false,
                 dashboard_url: Some("https://kiro.dev/account"),
                 status_page_url: Some("https://health.aws.amazon.com"),
+                tertiary_label_key: None,
             },
         }
     }
