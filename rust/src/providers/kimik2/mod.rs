@@ -159,6 +159,7 @@ impl KimiK2Provider {
                 is_primary: false,
                 dashboard_url: Some("https://platform.moonshot.ai/console/account"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

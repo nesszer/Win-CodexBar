@@ -135,7 +135,18 @@ Upstream also documents `api` extensively; treat per-provider support as defined
 
 ## Hooks
 
-Upstream documents a rich `hooks` block in JSON config. This port exposes `codexbar hooks` for list/enable/disable/test. Configure trusted local executables only; never point hooks at untrusted paths. Prefer reading `codexbar hooks --help` and Settings UI for the supported surface on the version you run.
+The shared `hooks.json` rules can match `usage_updated` in addition to the
+quota and provider-status events. The desktop refresh path emits it after a
+successful, current provider publication; `codexbar hooks watch` emits it after
+`provider.fetch_usage` succeeds without publishing a provider snapshot. Its
+payload can include primary and secondary usage fractions, window durations,
+and reset timestamps. A failed or superseded refresh does not produce a
+successful-update event.
+
+Repeated `usage_updated` events are limited to one per provider account per ten
+minutes in memory. The account discriminator used for that private limit is
+never serialized or passed to the hook process. Configure trusted local
+executables only; never point hooks at untrusted paths.
 
 ## Start at login (Windows)
 

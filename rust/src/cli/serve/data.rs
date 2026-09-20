@@ -27,6 +27,7 @@ pub async fn usage_response(provider: Option<&str>) -> String {
         manual_cookie_header: None,
         api_key: None,
         workspace_id: None,
+        seat_credit_entitlement: None,
         api_region: None,
         gateway_url: None,
         auto_prefer_web: false,

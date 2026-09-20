@@ -121,6 +121,7 @@ impl AntigravityProvider {
                 is_primary: false,
                 dashboard_url: None,
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }
@@ -701,19 +702,25 @@ impl AntigravityProvider {
 
         #[cfg(windows)]
         if allow_managed_runtime {
-            match self.fetch_with_managed_agy().await {
-                Ok(ManagedAgyOutcome::Reused(result)) => return Ok(result),
-                Ok(ManagedAgyOutcome::Fetched(mut result)) => {
-                    result.source_label = "cli".to_string();
-                    return Ok(result);
-                }
-                Ok(ManagedAgyOutcome::Missing) => {}
-                Err(error) => {
-                    if matches!(error, ProviderError::AuthRequired) {
-                        return Err(error);
+            if cli_fallback::managed_spawn_is_csrf_gated(Self::locate_agy_binary()).await {
+                tracing::debug!(
+                    "skipping managed agy readiness wait because the local server requires CSRF"
+                );
+            } else {
+                match self.fetch_with_managed_agy().await {
+                    Ok(ManagedAgyOutcome::Reused(result)) => return Ok(result),
+                    Ok(ManagedAgyOutcome::Fetched(mut result)) => {
+                        result.source_label = "cli".to_string();
+                        return Ok(result);
                     }
-                    tracing::debug!(%error, "managed Antigravity CLI probe failed");
-                    failure = Some(error);
+                    Ok(ManagedAgyOutcome::Missing) => {}
+                    Err(error) => {
+                        if matches!(error, ProviderError::AuthRequired) {
+                            return Err(error);
+                        }
+                        tracing::debug!(%error, "managed Antigravity CLI probe failed");
+                        failure = Some(error);
+                    }
                 }
             }
         }

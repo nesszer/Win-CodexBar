@@ -89,6 +89,7 @@ describe("Language type", () => {
       resetTimeRelative: true,
       showResetWhenExhausted: false,
       menuBarDisplayMode: "compact",
+      overviewLayout: "detailed",
       windowScalePercent: 125,
       trayScalePercent: 100,
       trayPanelAlwaysOnTop: false,

@@ -81,6 +81,7 @@ impl QwenCloudProvider {
                 is_primary: false,
                 dashboard_url: Some(DASHBOARD_URL),
                 status_page_url: Some(STATUS_PAGE_URL),
+                tertiary_label_key: None,
             },
         }
     }
