@@ -2,20 +2,15 @@
 
 ## [Windows] 0.61.0 - Unreleased
 
-Windows port aligned to upstream CodexBar **0.61.0**, including the provider,
-usage-detail, account, and CLI changes represented by the open Windows port PRs.
-
-### Highlights
-
-- **Nous Portal support:** track monthly subscription credits and purchased balances through the existing Hermes login.
-- **More complete allowances:** show Mistral API and Vibe Code allowances, Venice subscription credits, Grok reset coupons, and Hugging Face billing details.
-- **Richer spending details:** show DeepSeek spend per model, OpenRouter Activity, Replicate monthly spend, and provider history in CLI output.
-- **Clearer account switching:** refresh Codex cards while menus remain open and distinguish Claude switching from refresh reconciliation.
-- **Steadier menu-bar layout:** preserve provider positions and align multiword labels in crowded switchers.
+Windows port of upstream CodexBar **0.60.3 → 0.61.0**: new subscription and
+spend providers (Nous Portal, Replicate, CodeRabbit, Muse Code), richer
+allowances and per-model spending, clearer account switching, and steadier
+menu-bar layout.
 
 ### Added
 
 - Azure OpenAI: expose OpenAI-compatible v1 selection in Settings and the CLI ([#558](https://github.com/nesszer/Win-CodexBar/pull/558)).
+- Grok: Settings and tray **Add account** flow matching Codex/Claude — isolated `grok login --oauth`, save current CLI login, switch, and remove without logging out the active session ([#538](https://github.com/nesszer/Win-CodexBar/pull/538)).
 - CodeRabbit: report bounded CLI review counts and billing state without inventing quotas ([#566](https://github.com/nesszer/Win-CodexBar/pull/566)).
 - DeepSeek: report per-model spend with its billing currency and period ([#556](https://github.com/nesszer/Win-CodexBar/pull/556)).
 - Grok: show usage-limit reset coupons and expiry dates from the billing account ([#562](https://github.com/nesszer/Win-CodexBar/pull/562)).
