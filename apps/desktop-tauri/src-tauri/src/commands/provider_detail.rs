@@ -30,6 +30,7 @@ pub struct ProviderDetail {
     pub tertiary_label_key: Option<&'static str>,
     pub extra_rate_windows: Vec<NamedRateWindowSnapshot>,
     pub inventory: Vec<ProviderInventoryItemSnapshot>,
+    pub display_details: Vec<ProviderDisplayDetailSnapshot>,
 
     // Cost / pace.
     pub cost: Option<CostSnapshotBridge>,
@@ -97,6 +98,7 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         tertiary_label_key: metadata.tertiary_label_key,
         extra_rate_windows: Vec::new(),
         inventory: Vec::new(),
+        display_details: Vec::new(),
         cost: None,
         pace: None,
         last_error: None,
@@ -161,6 +163,7 @@ pub fn get_provider_detail(
             detail.tertiary = snapshot.tertiary.clone();
             detail.extra_rate_windows = snapshot.extra_rate_windows.clone();
             detail.inventory = snapshot.inventory.clone();
+            detail.display_details = snapshot.display_details.clone();
             detail.cost = snapshot.cost.clone();
             detail.pace = snapshot.pace.clone();
         }

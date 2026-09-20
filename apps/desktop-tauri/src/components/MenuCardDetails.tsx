@@ -2,6 +2,7 @@ import { useState } from "react";
 import type {
   CostSummaryDisplayStyle,
   DailyCostPoint,
+  ProviderDisplayDetail,
   PaceSnapshot,
   ProviderInventoryItem,
   ProviderChartData,
@@ -21,6 +22,7 @@ import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
 import { InventoryItemRow } from "./InventoryRows";
+import { ProviderDisplayRow } from "./ProviderDisplayRow";
 import { getPaceBudget, type PaceBudget } from "../lib/paceBudget";
 import PaceDetailsChart from "./PaceDetailsChart";
 
@@ -418,6 +420,7 @@ function MetricRow({
 export interface MenuCardPresence {
   hasMetrics: boolean;
   hasInventory: boolean;
+  hasDisplayDetails: boolean;
   hasCost: boolean;
   hasPace: boolean;
   hasCharts: boolean;
@@ -463,6 +466,7 @@ export function describeCard(
   const wayfinderUsage = isWayfinder ? provider.wayfinderUsage : null;
   const hasMetrics = visibleMetrics.length > 0;
   const hasInventory = !provider.error && (provider.inventory?.length ?? 0) > 0;
+  const hasDisplayDetails = !provider.error && (provider.displayDetails?.length ?? 0) > 0;
   const hasCost =
     !!provider.cost &&
     (costSummaryDisplayStyle !== "hidden" || provider.cost.alwaysVisible === true);
@@ -474,6 +478,7 @@ export function describeCard(
     !provider.error &&
     (hasMetrics ||
       hasInventory ||
+      hasDisplayDetails ||
       hasCost ||
       hasPace ||
       hasCharts ||
@@ -486,6 +491,7 @@ export function describeCard(
   return {
     hasMetrics,
     hasInventory,
+    hasDisplayDetails,
     hasCost,
     hasPace,
     hasCharts,
@@ -525,6 +531,7 @@ export default function MenuCardDetails({
   const {
     hasMetrics,
     hasInventory,
+    hasDisplayDetails,
     hasCost,
     hasPace,
     hasCharts,
@@ -573,6 +580,22 @@ export default function MenuCardDetails({
           ))}
         </section>
       )}
+
+      {!provider.error && hasDisplayDetails && (
+        <section className="menu-card__group menu-card__provider-details">
+          {provider.displayDetails?.map((detail) => (
+            <ProviderDisplayRow
+              key={detail.id}
+              detail={detail}
+              lineClassName="menu-card__cost-line"
+              secondaryClassName="menu-card__cost-line--muted"
+              trackClassName="menu-metric__bar"
+              fillClassName="menu-metric__bar-fill"
+            />
+          ))}
+        </section>
+      )}
+
       {wayfinderUsage && !compactOverview && <WayfinderUsageBlock usage={wayfinderUsage} />}
 
       {!compactOverview && hasMetrics && hasCost && <div className="menu-card__divider" />}

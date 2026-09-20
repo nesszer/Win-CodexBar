@@ -7,8 +7,8 @@ use chrono::Utc;
 
 use super::UsageOutput;
 use crate::core::{
-    CostSnapshot, ProviderFetchResult, ProviderId, ProviderInventoryItem, RateWindow, UsagePace,
-    UsageSnapshot, instantiate_provider,
+    CostSnapshot, ProviderDisplayDetail, ProviderFetchResult, ProviderId, ProviderInventoryItem,
+    RateWindow, UsagePace, UsageSnapshot, instantiate_provider,
 };
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel};
 
@@ -64,6 +64,29 @@ pub fn render_json_result(
                         "title": &item.title,
                         "availableCount": item.available_count,
                         "nextExpiresAt": item.next_expires_at.map(|date| date.to_rfc3339()),
+                    })
+                })
+                .collect(),
+        );
+    }
+
+    if !result.display_details().is_empty() {
+        json_result["details"] = serde_json::Value::Array(
+            result
+                .display_details()
+                .iter()
+                .map(|detail| {
+                    serde_json::json!({
+                        "id": detail.id(),
+                        "title": detail.title(),
+                        "value": detail.value(),
+                        "secondaryValue": detail.secondary_value(),
+                        "progress": detail.progress().map(|progress| {
+                            serde_json::json!({
+                                "used": progress.used(),
+                                "total": progress.total(),
+                            })
+                        }),
                     })
                 })
                 .collect(),
@@ -135,6 +158,7 @@ pub fn render_text_with_status(
     append_account_lines(&mut lines, &result.usage);
     append_usage_window_lines(&mut lines, &result.usage, &metadata, use_color);
     append_inventory_lines(&mut lines, &result.inventory);
+    append_display_detail_lines(&mut lines, result.display_details());
     append_cost_line(&mut lines, result.cost.as_ref());
 
     lines.join("\n")
@@ -270,6 +294,26 @@ fn append_inventory_lines(lines: &mut Vec<String>, inventory: &[ProviderInventor
                 crate::core::format_countdown_until(expires_at, now)
             ));
         }
+    }
+}
+
+fn append_display_detail_lines(lines: &mut Vec<String>, details: &[ProviderDisplayDetail]) {
+    for detail in details {
+        let secondary = detail
+            .secondary_value()
+            .map(|value| format!(" ({value})"))
+            .unwrap_or_default();
+        let progress = detail
+            .progress()
+            .map(|value| format!(" [{:.2}/{:.2}]", value.used(), value.total()))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  {}: {}{}{}",
+            detail.title(),
+            detail.value(),
+            secondary,
+            progress
+        ));
     }
 }
 

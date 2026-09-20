@@ -193,6 +193,25 @@ pub struct ProviderInventoryItemSnapshot {
     pub next_expires_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDisplayProgressSnapshot {
+    pub used: f64,
+    pub total: f64,
+}
+
+/// Display-only provider detail row. It never participates in quota math or
+/// core persistence and contains values validated by the provider carrier.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDisplayDetailSnapshot {
+    pub id: String,
+    pub title: String,
+    pub value: String,
+    pub secondary_value: Option<String>,
+    pub progress: Option<ProviderDisplayProgressSnapshot>,
+}
+
 /// A frontend-friendly snapshot of one provider's usage data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -217,6 +236,8 @@ pub struct ProviderUsageSnapshot {
     pub extra_rate_windows: Vec<NamedRateWindowSnapshot>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inventory: Vec<ProviderInventoryItemSnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub display_details: Vec<ProviderDisplayDetailSnapshot>,
     #[serde(default)]
     pub cost: Option<CostSnapshotBridge>,
     #[serde(default)]
@@ -412,6 +433,22 @@ impl ProviderUsageSnapshot {
                     next_expires_at: item.next_expires_at.map(|date| date.to_rfc3339()),
                 })
                 .collect(),
+            display_details: result
+                .display_details()
+                .iter()
+                .map(|detail| ProviderDisplayDetailSnapshot {
+                    id: detail.id().to_string(),
+                    title: detail.title().to_string(),
+                    value: detail.value().to_string(),
+                    secondary_value: detail.secondary_value().map(ToOwned::to_owned),
+                    progress: detail
+                        .progress()
+                        .map(|progress| ProviderDisplayProgressSnapshot {
+                            used: progress.used(),
+                            total: progress.total(),
+                        }),
+                })
+                .collect(),
             cost: result.cost.as_ref().map(|c| CostSnapshotBridge {
                 used: c.used,
                 limit: c.limit,
@@ -490,6 +527,7 @@ impl ProviderUsageSnapshot {
             tertiary_label: None,
             extra_rate_windows: Vec::new(),
             inventory: Vec::new(),
+            display_details: Vec::new(),
             cost: None,
             plan_name: None,
             account_email: None,

@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::RateWindow;
+use crate::core::ProviderDisplayDetail;
 
 /// Subscription dates explicitly reported by an authenticated provider
 /// dashboard or subscription endpoint.
@@ -622,6 +623,12 @@ pub struct ProviderFetchResult {
     #[serde(skip)]
     pub inventory: Vec<ProviderInventoryItem>,
 
+    /// Transient provider-specific detail rows for display only. They are not
+    /// serialized by the core result; use [`Self::display_details`] for an
+    /// explicit surface projection.
+    #[serde(skip)]
+    pub display_details: Vec<ProviderDisplayDetail>,
+
     /// Label describing the data source (e.g., "oauth", "web", "cli")
     pub source_label: String,
 
@@ -651,6 +658,7 @@ impl ProviderFetchResult {
             cost: None,
             wayfinder_usage: None,
             inventory: Vec::new(),
+            display_details: Vec::new(),
             source_label: source_label.into(),
             has_successful_claude_cli_quota: false,
             pace_authoritative: true,
@@ -732,6 +740,44 @@ mod tests {
 
         let decoded: ProviderFetchResult = serde_json::from_value(encoded).unwrap();
         assert!(decoded.inventory.is_empty());
+    }
+
+    #[test]
+    fn fetch_result_display_details_are_transient_and_validate_progress() {
+        let usage = UsageSnapshot::new(RateWindow::new(25.0));
+        let result = ProviderFetchResult::new(usage, "web").with_display_detail(
+            ProviderDisplayDetail::new("credits", "Used this cycle", "12")
+                .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
+                .and_then(|row| row.with_progress(12.0, 100.0)),
+        );
+
+        let details = result.display_details();
+        assert_eq!(details.len(), 1);
+        assert!(details[0].progress().is_some());
+        assert!(
+            ProviderDisplayDetail::new("invalid", "Invalid", "value")
+                .and_then(|row| row.with_progress(f64::NAN, 1.0))
+                .is_none()
+        );
+        let encoded = serde_json::to_value(&result).unwrap();
+        assert!(encoded.get("display_details").is_none());
+    }
+
+    #[test]
+    fn display_details_reject_invalid_shapes_and_duplicate_ids() {
+        let usage = UsageSnapshot::new(RateWindow::new(25.0));
+        let result = ProviderFetchResult::new(usage, "web")
+            .with_display_detail(ProviderDisplayDetail::new("credits", "Credits", "12"))
+            .with_display_detail(ProviderDisplayDetail::new(
+                "credits",
+                "Credits duplicate",
+                "13",
+            ))
+            .with_display_detail(ProviderDisplayDetail::new("", "", ""));
+
+        let details = result.display_details();
+        assert_eq!(details.len(), 1);
+        assert_eq!(details[0].value(), "12");
     }
 
     #[test]
