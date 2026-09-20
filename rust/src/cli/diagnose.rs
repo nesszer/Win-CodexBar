@@ -175,6 +175,7 @@ async fn collect_provider_diagnostic(
         workspace_id: settings
             .provider_config(provider_id)
             .and_then(|config| config.workspace_id.clone()),
+        seat_credit_entitlement: settings.seat_credit_entitlement(provider_id),
         api_region: settings
             .provider_config(provider_id)
             .and_then(|config| config.api_region.clone()),

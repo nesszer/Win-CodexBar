@@ -25,9 +25,15 @@ pub struct ProviderDetail {
     pub weekly: Option<RateWindowSnapshot>,
     pub model_specific: Option<RateWindowSnapshot>,
     pub tertiary: Option<RateWindowSnapshot>,
+    /// Locale key naming the tertiary lane when it carries a semantic label
+    /// beyond "Tertiary" (upstream F5). Drives the settings metric picker.
+    pub tertiary_label_key: Option<&'static str>,
     pub extra_rate_windows: Vec<NamedRateWindowSnapshot>,
     pub inventory: Vec<ProviderInventoryItemSnapshot>,
+<<<<<<< HEAD
     pub display_details: Vec<ProviderDisplayDetailSnapshot>,
+=======
+>>>>>>> origin/main
 
     // Cost / pace.
     pub cost: Option<CostSnapshotBridge>,
@@ -92,9 +98,13 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         weekly: None,
         model_specific: None,
         tertiary: None,
+        tertiary_label_key: metadata.tertiary_label_key,
         extra_rate_windows: Vec::new(),
         inventory: Vec::new(),
+<<<<<<< HEAD
         display_details: Vec::new(),
+=======
+>>>>>>> origin/main
         cost: None,
         pace: None,
         last_error: None,
@@ -159,7 +169,10 @@ pub fn get_provider_detail(
             detail.tertiary = snapshot.tertiary.clone();
             detail.extra_rate_windows = snapshot.extra_rate_windows.clone();
             detail.inventory = snapshot.inventory.clone();
+<<<<<<< HEAD
             detail.display_details = snapshot.display_details.clone();
+=======
+>>>>>>> origin/main
             detail.cost = snapshot.cost.clone();
             detail.pace = snapshot.pace.clone();
         }

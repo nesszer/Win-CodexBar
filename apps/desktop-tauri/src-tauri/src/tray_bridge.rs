@@ -1128,6 +1128,7 @@ mod tests {
         crate::commands::NamedRateWindowSnapshot {
             id: "additional_budget".to_string(),
             title: "Additional Budget".to_string(),
+            fallback_lane: false,
             window: crate::commands::RateWindowSnapshot {
                 used_percent: percent,
                 remaining_percent: 100.0 - percent,

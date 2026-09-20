@@ -9,10 +9,10 @@
 )]
 
 use crate::core::{CostUsagePricing, ProviderId};
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 #[cfg(test)]
-use chrono::{DateTime, Local};
+use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -231,10 +231,56 @@ pub struct CostUsageCache {
     /// refresh clears it before starting the next pass.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_scan_pause_reason: Option<CodexScanPauseReason>,
+    /// Cached request rows retained as source evidence for Codex recovery.
+    ///
+    /// This is separate from `files` because the Windows cache currently
+    /// persists aggregate day/model totals rather than the native request-row
+    /// representation used by upstream.  The map is optional on disk so old
+    /// caches remain valid and can be upgraded lazily.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub codex_source_rows: HashMap<String, CodexSourceRowCache>,
     /// Content stamp of the decoded on-disk baseline. This is process-local
     /// and omitted from JSON so a stale reader cannot replace a newer cache.
     #[serde(skip)]
     pub(crate) loaded_stamp: Option<Option<CacheStamp>>,
+}
+
+/// Pricing evidence attached to one cached Codex request row.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexSourcePricingEvidence {
+    pub pricing_model: Option<String>,
+    pub pricing_mode: Option<String>,
+}
+
+/// A request row recovered from a complete Codex JSONL source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexSourceUsageRow {
+    pub day_key: String,
+    pub model: String,
+    pub input: i64,
+    pub cached: i64,
+    pub output: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<i64>,
+    /// End offset of the source JSONL line that produced this row.
+    /// Zero means the row came from a legacy cache and cannot be replayed
+    /// safely across an append boundary.
+    #[serde(default)]
+    pub source_end_offset: i64,
+    #[serde(default)]
+    pub pricing: CodexSourcePricingEvidence,
+}
+
+/// Source identity and rows retained for a cached Codex file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexSourceRowCache {
+    /// Platform file identity of the source at cache time. A cache entry is
+    /// only built when identity succeeds, so the field is always usable.
+    pub file_identity: String,
+    pub size: i64,
+    pub mtime_unix_ms: i64,
+    pub prefix_hash: u64,
+    pub rows: Vec<CodexSourceUsageRow>,
 }
 
 /// Per-file usage tracking
@@ -359,8 +405,9 @@ pub struct CachedCostReport {
 /// Result of parsing a Codex file
 #[derive(Debug)]
 pub struct CodexParseResult {
-    /// Individual token-count deltas used for per-request pricing.
-    pub records: Vec<CodexUsageRecord>,
+    /// Individual token-count deltas used for per-request pricing, paired
+    /// with the end offset of the source JSONL line that produced each.
+    pub records: Vec<(CodexUsageRecord, i64)>,
     /// Bytes parsed
     pub parsed_bytes: i64,
     /// Stable logical target reached by this parse. This may be behind the
@@ -432,7 +479,10 @@ impl CostUsageDayRange {
 
 /// JSONL Scanner for cost/usage logs
 pub struct JsonlScanner;
-mod codex;
+pub(crate) mod codex;
+pub(crate) use codex::source_rows::{
+    read_source_rows, recover_rows, row_cache, row_cache_matches, row_cache_needs_recovery,
+};
 
 impl JsonlScanner {
     /// Whether a cached scan should be reused under `options` (issue #2089).
@@ -526,6 +576,31 @@ impl JsonlScanner {
         }
     }
     pub(crate) fn cached_cost_report_from_days(cache: &CostUsageCache) -> CachedCostReport {
+        Self::cached_cost_report_from_days_filtered(cache, None)
+    }
+
+    /// Build a retained report for one requested reporting window.
+    ///
+    /// Codex catch-up can retain days outside the active dashboard window while
+    /// it processes historical files. A retained report must therefore use the
+    /// requested days rather than summing every day that happens to remain in
+    /// the cache. The cache scan timestamp is the measurement time for the
+    /// report; this keeps a stale report honest while a later bounded pass is
+    /// still pending.
+    pub(crate) fn cached_cost_report_for_range(
+        cache: &CostUsageCache,
+        range: &CostUsageDayRange,
+    ) -> CachedCostReport {
+        Self::cached_cost_report_from_days_filtered(
+            cache,
+            Some((&range.since_key, &range.until_key)),
+        )
+    }
+
+    fn cached_cost_report_from_days_filtered(
+        cache: &CostUsageCache,
+        range: Option<(&str, &str)>,
+    ) -> CachedCostReport {
         let mut total_cost_usd = 0.0;
         let mut input_tokens = 0_i64;
         let mut cached_tokens = 0_i64;
@@ -534,7 +609,14 @@ impl JsonlScanner {
         let mut reasoning_known = true;
         let mut partial = false;
 
+        let day_is_included = |day_key: &str| {
+            range.is_none_or(|(since, until)| CostUsageDayRange::is_in_range(day_key, since, until))
+        };
+
         for (day_key, models) in &cache.days {
+            if !day_is_included(day_key) {
+                continue;
+            }
             let pricing_day = NaiveDate::parse_from_str(day_key, "%Y-%m-%d").ok();
             for (model, values) in models {
                 let input = values.first().copied().unwrap_or(0).max(0);
@@ -589,10 +671,16 @@ impl JsonlScanner {
             cache
                 .files
                 .values()
-                .filter(|usage| !usage.days.is_empty())
+                .filter(|usage| usage.days.keys().any(|day| day_is_included(day)))
                 .count(),
         )
         .unwrap_or(i32::MAX);
+        let measured_at = if cache.last_scan_unix_ms > 0 {
+            DateTime::<Utc>::from_timestamp_millis(cache.last_scan_unix_ms)
+                .map(|timestamp| timestamp.to_rfc3339())
+        } else {
+            None
+        };
         CachedCostReport {
             total_cost_usd,
             input_tokens,
@@ -600,7 +688,7 @@ impl JsonlScanner {
             output_tokens,
             reasoning_tokens: reasoning_known.then_some(reasoning_tokens),
             sessions_count,
-            updated_at: Some(Utc::now().to_rfc3339()),
+            updated_at: Some(measured_at.unwrap_or_else(|| Utc::now().to_rfc3339())),
             partial,
         }
     }

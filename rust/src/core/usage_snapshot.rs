@@ -83,6 +83,26 @@ pub struct NamedRateWindow {
     /// In-memory presentation metadata only; external snapshot JSON stays stable.
     #[serde(default = "named_rate_window_usage_known_default", skip_serializing)]
     pub usage_known: bool,
+    /// Whether this lane is a fallback that only fills in when the provider
+    /// reports no real (non-informational) core quota window. In-memory
+    /// selection metadata only; external snapshot JSON stays stable.
+    #[serde(default = "named_rate_window_fallback_lane_default", skip_serializing)]
+    pub fallback_lane: bool,
+}
+
+/// One display-only item of provider-issued discrete inventory.
+///
+/// This is deliberately separate from [`RateWindow`]: inventory does not
+/// represent a percentage quota and must not participate in quota arithmetic,
+/// tray metric selection, pace, notifications, or auto-resume decisions.
+/// Provider-specific redemption identifiers stay private to the provider
+/// parser and never enter this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderInventoryItem {
+    pub id: String,
+    pub title: String,
+    pub available_count: u32,
+    pub next_expires_at: Option<DateTime<Utc>>,
 }
 
 /// One display-only item of provider-issued discrete inventory.
@@ -219,6 +239,10 @@ fn named_rate_window_usage_known_default() -> bool {
     true
 }
 
+fn named_rate_window_fallback_lane_default() -> bool {
+    false
+}
+
 impl NamedRateWindow {
     pub fn new(id: impl Into<String>, title: impl Into<String>, window: RateWindow) -> Self {
         Self {
@@ -226,11 +250,17 @@ impl NamedRateWindow {
             title: title.into(),
             window,
             usage_known: true,
+            fallback_lane: false,
         }
     }
 
     pub fn with_usage_known(mut self, usage_known: bool) -> Self {
         self.usage_known = usage_known;
+        self
+    }
+
+    pub fn with_fallback_lane(mut self, fallback_lane: bool) -> Self {
+        self.fallback_lane = fallback_lane;
         self
     }
 }
@@ -727,7 +757,6 @@ pub struct ProviderFetchResult {
     /// explicit surface projection.
     #[serde(skip)]
     pub display_details: Vec<ProviderDisplayDetail>,
-
     /// Label describing the data source (e.g., "oauth", "web", "cli")
     pub source_label: String,
 

@@ -9,16 +9,24 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
 
+mod subscription;
 mod token_math;
 
+use subscription::{SubscriptionBudget, SubscriptionBudgets};
+
 use crate::core::{
-    CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    CostSnapshot, FetchContext, NamedRateWindow, Provider, ProviderError, ProviderFetchResult,
+    ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
 const BASE_URL: &str = "https://admin.mistral.ai";
 const COOKIE_DOMAINS: [&str; 3] = ["admin.mistral.ai", "mistral.ai", "auth.mistral.ai"];
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const CLIENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Optional subscription-page enrichment joins on a fast deadline so a slow
+/// `/subscription` render can never stall the refresh; degraded enrichment is
+/// logged and skipped, never fatal.
+const SUBSCRIPTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 
 #[derive(Debug, Deserialize)]
 struct BillingResponse {
@@ -166,9 +174,10 @@ impl MistralProvider {
                 is_primary: false,
                 dashboard_url: Some("https://admin.mistral.ai/organization/usage"),
                 status_page_url: Some("https://status.mistral.ai"),
+                tertiary_label_key: None,
             },
             client: crate::core::credentialed_http_client_builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(CLIENT_TIMEOUT)
                 .build()
                 .unwrap_or_else(|_| Client::new()),
         }
@@ -224,7 +233,48 @@ impl MistralProvider {
             .map_err(|e| ProviderError::Parse(format!("Failed to parse Mistral usage: {e}")))?;
 
         let summary = Self::summarize_billing(billing)?;
-        Ok(Self::build_result(summary))
+        let budgets = match self.fetch_subscription_budgets(cookie_header).await {
+            Ok(budgets) => Some(budgets),
+            Err(error) => {
+                tracing::debug!(error = %error, "Mistral subscription allowance enrichment unavailable");
+                None
+            }
+        };
+        Ok(Self::build_result(summary, budgets))
+    }
+
+    async fn fetch_subscription_budgets(
+        &self,
+        cookie_header: &str,
+    ) -> Result<SubscriptionBudgets, ProviderError> {
+        let response = self
+            .client
+            .get(format!("{BASE_URL}/subscription"))
+            .timeout(SUBSCRIPTION_TIMEOUT)
+            .header("Accept", "text/html")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Cookie", cookie_header)
+            .header("Referer", format!("{BASE_URL}/subscription"))
+            .header("User-Agent", USER_AGENT)
+            .send()
+            .await?;
+        let status = response.status();
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            return Err(ProviderError::AuthRequired);
+        }
+        if !status.is_success() {
+            return Err(ProviderError::Other(format!(
+                "Mistral subscription API returned {status}"
+            )));
+        }
+        let final_url = response.url();
+        if final_url.scheme() != "https" || final_url.host_str() != Some("admin.mistral.ai") {
+            return Err(ProviderError::Parse(
+                "Mistral subscription response came from an unexpected host".into(),
+            ));
+        }
+        let body = response.text().await?;
+        subscription::parse(&body).map_err(ProviderError::Parse)
     }
 
     fn summarize_billing(billing: BillingResponse) -> Result<MistralUsageSummary, ProviderError> {
@@ -305,7 +355,10 @@ impl MistralProvider {
         })
     }
 
-    fn build_result(summary: MistralUsageSummary) -> ProviderFetchResult {
+    fn build_result(
+        summary: MistralUsageSummary,
+        budgets: Option<SubscriptionBudgets>,
+    ) -> ProviderFetchResult {
         let reset_date = summary.end_date.map(|dt| dt + chrono::Duration::seconds(1));
         let cost_description = if summary.total_cost > 0.0 {
             format!(
@@ -338,7 +391,37 @@ impl MistralProvider {
             token_detail
         ));
 
+        if let Some(budgets) = budgets {
+            if let Some(api) = budgets.api {
+                usage.primary = Self::budget_window(&api);
+                usage.primary_label = Some("Included API".to_string());
+            }
+            if let Some(vibe) = budgets.vibe {
+                usage.extra_rate_windows.push(NamedRateWindow::new(
+                    "mistral-monthly-plan",
+                    "Monthly Plan",
+                    Self::budget_window(&vibe),
+                ));
+            }
+        }
+
         ProviderFetchResult::new(usage, "web").with_cost(cost)
+    }
+
+    fn budget_window(budget: &SubscriptionBudget) -> RateWindow {
+        let used = budget.used_amount();
+        let remaining = budget.remaining_amount();
+        let description = format!(
+            "{used:.2} {currency} / {limit:.2} {currency} · {remaining:.2} {currency} remaining",
+            currency = budget.currency,
+            limit = budget.limit,
+        );
+        RateWindow::with_details(
+            budget.used_percent,
+            None,
+            budget.resets_at,
+            Some(description),
+        )
     }
 
     fn build_price_index(prices: Vec<MistralPrice>) -> HashMap<String, f64> {
@@ -502,7 +585,7 @@ mod tests {
         assert!((summary.total_cost - 0.005).abs() < 0.000001);
         assert_eq!(summary.model_count, 1);
 
-        let result = MistralProvider::build_result(summary);
+        let result = MistralProvider::build_result(summary, None);
         assert_eq!(
             result.cost.as_ref().map(|c| c.currency_code.as_str()),
             Some("EUR")
@@ -516,6 +599,46 @@ mod tests {
                 .unwrap_or_default()
                 .contains("1000 input / 500 output")
         );
+    }
+
+    #[test]
+    fn attaches_subscription_allowances_without_replacing_billing_cost() {
+        let summary = MistralUsageSummary {
+            total_cost: 12.5,
+            currency: "EUR".to_string(),
+            currency_symbol: "€".to_string(),
+            total_input_tokens: 100,
+            total_output_tokens: 50,
+            total_cached_tokens: 0,
+            model_count: 1,
+            end_date: None,
+        };
+        let result = MistralProvider::build_result(
+            summary,
+            Some(SubscriptionBudgets {
+                api: Some(SubscriptionBudget {
+                    used_percent: 25.0,
+                    limit: 100.0,
+                    currency: "USD".to_string(),
+                    resets_at: None,
+                }),
+                vibe: Some(SubscriptionBudget {
+                    used_percent: 50.0,
+                    limit: 20.0,
+                    currency: "EUR".to_string(),
+                    resets_at: None,
+                }),
+            }),
+        );
+
+        assert_eq!(result.usage.primary.used_percent, 25.0);
+        assert_eq!(result.usage.primary_label.as_deref(), Some("Included API"));
+        assert_eq!(result.usage.extra_rate_windows.len(), 1);
+        assert_eq!(
+            result.usage.extra_rate_windows[0].id,
+            "mistral-monthly-plan"
+        );
+        assert_eq!(result.cost.as_ref().map(|cost| cost.used), Some(12.5));
     }
 
     #[test]
