@@ -202,13 +202,9 @@ function renderTrayPanel(
   providers: ProviderUsageSnapshot[],
   settingsOverrides: Partial<SettingsSnapshot> = {},
   catalog: ProviderCatalogEntry[] = [],
-  omitOverviewLayout = false,
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
   const snapshot = settings(settingsOverrides);
-  if (omitOverviewLayout) {
-    delete snapshot.overviewLayout;
-  }
   tauriMocks.getSettingsSnapshot.mockResolvedValue(snapshot);
   return render(
     <LocaleProvider>
@@ -567,21 +563,6 @@ describe("TrayPanel provider grid", () => {
         (node) => node.textContent,
       ),
     ).toEqual(["Codex", "Claude", "Cursor", "Factory", "Gemini"]);
-  });
-
-  it("preserves compact legacy Overview rows when overviewLayout is missing", async () => {
-    const { container } = renderTrayPanel(
-      [providerWithThreeQuotaWindows("codex", "Codex")],
-      {},
-      [],
-      true,
-    );
-
-    await waitFor(() => {
-      expect(container.querySelector(".menu-stack__item")).not.toBeNull();
-    });
-
-    expect(container.querySelectorAll(".menu-metric")).toHaveLength(2);
   });
 
   it("keeps compact Overview limited to two quota rows when explicitly selected", async () => {

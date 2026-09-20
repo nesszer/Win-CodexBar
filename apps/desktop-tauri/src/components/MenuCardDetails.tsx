@@ -446,6 +446,7 @@ export function describeCard(
   visibleMetrics: MetricEntry[],
   costSummaryDisplayStyle: CostSummaryDisplayStyle = "detailed",
   showPace = true,
+  compactOverview = false,
 ): MenuCardPresence {
   const hasCostHistory =
     chartData !== null && chartData.costHistory.some((point) => point.value != null);
@@ -467,7 +468,14 @@ export function describeCard(
     !!provider.pace;
   const hasDetails =
     !provider.error &&
-    (hasMetrics || hasCost || hasPace || hasCharts || !!localUsage || !!wayfinderUsage);
+    (hasMetrics || hasCost || hasPace || hasCharts || !!localUsage || !!wayfinderUsage) &&
+    // Compact Overview suppresses supplemental sections entirely; a card
+    // whose only content would be suppressed renders header-only so no empty
+    // divider or details container appears.
+    (!compactOverview ||
+      hasMetrics ||
+      !!wayfinderUsage ||
+      hasPace);
   return {
     hasMetrics,
     hasCost,
@@ -496,7 +504,7 @@ export default function MenuCardDetails({
     display.showPace !== false &&
     providerAllowsPace(provider.providerId, provider.sourceLabel);
   const metricDisplay = paceEnabled ? display : { ...display, showPace: false };
-  const compactWithMetrics = display.compactOverview === true && presence.hasMetrics;
+  const compactOverview = display.compactOverview === true;
   const [expandedPaceWindow, setExpandedPaceWindow] = useState<string | null>(null);
   const formattedCostReset = useFormattedResetTime(
     provider.cost?.resetsAt ?? null,
@@ -543,11 +551,11 @@ export default function MenuCardDetails({
         </section>
       )}
 
-      {wayfinderUsage && !compactWithMetrics && <WayfinderUsageBlock usage={wayfinderUsage} />}
+      {wayfinderUsage && !compactOverview && <WayfinderUsageBlock usage={wayfinderUsage} />}
 
-      {!compactWithMetrics && hasMetrics && hasCost && <div className="menu-card__divider" />}
+      {!compactOverview && hasMetrics && hasCost && <div className="menu-card__divider" />}
 
-      {!compactWithMetrics && hasCost && provider.cost && (
+      {!compactOverview && hasCost && provider.cost && (
         <section className="menu-card__group menu-card__cost">
           <div className="menu-card__group-title">
             {provider.cost.alwaysVisible === true && (provider.cost.limit ?? 0) <= 0
@@ -621,7 +629,7 @@ export default function MenuCardDetails({
         </section>
       )}
 
-      {!compactWithMetrics && (localUsage || hasPace || hasCharts) && (
+      {!compactOverview && (localUsage || hasPace || hasCharts) && (
         <details className="menu-card__more" onToggle={onLayoutChange}>
           <summary>{t("PanelUsageDetails")}</summary>
           <div className="menu-card__more-content">

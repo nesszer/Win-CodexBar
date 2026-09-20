@@ -134,8 +134,6 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
             showResetWhenExhausted: settings.showResetWhenExhausted,
             showPace: settings.showPace ?? true,
             showAsUsed: settings.showAsUsed,
-            compactMetrics:
-              selectedProviderId === null && settings.overviewLayout !== "detailed",
             compactOverview:
               selectedProviderId === null && settings.overviewLayout !== "detailed",
             costSummaryDisplayStyle: settings.costSummaryDisplayStyle,

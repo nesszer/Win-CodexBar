@@ -224,9 +224,11 @@ impl SettingsUpdate {
             settings.menu_bar_display_mode = v;
         }
         if let Some(v) = self.overview_layout.as_deref()
-            && matches!(v, "detailed" | "compact")
+            && !v.trim().is_empty()
         {
-            settings.overview_layout = v.to_string();
+            // Shared normalizer: trims/case-folds known values, falls back to
+            // "compact" for anything unknown (same tolerance as settings load).
+            settings.overview_layout = codexbar::settings::normalize_overview_layout(v);
         }
         if let Some(v) = self.window_scale_percent {
             settings.window_scale_percent = codexbar::settings::clamp_window_scale_percent(v);

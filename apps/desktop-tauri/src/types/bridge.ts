@@ -199,8 +199,7 @@ export interface SettingsSnapshot {
   resetTimeRelative: boolean;
   showResetWhenExhausted: boolean;
   menuBarDisplayMode: MenuBarDisplayMode;
-  /** Missing in older bootstrap payloads; the UI preserves the legacy compact Overview. */
-  overviewLayout?: OverviewLayout;
+  overviewLayout: OverviewLayout;
   hidePersonalInfo: boolean;
   updateChannel: UpdateChannel;
   autoDownloadUpdates: boolean;

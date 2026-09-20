@@ -186,7 +186,7 @@ export default function DisplayTab({
             description={t("OverviewLayoutHelper")}
           >
             <Select
-              value={settings.overviewLayout ?? "compact"}
+              value={settings.overviewLayout}
               disabled={saving}
               options={[
                 { value: "detailed", label: t("OverviewLayoutDetailed") },

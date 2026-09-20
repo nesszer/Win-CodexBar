@@ -578,7 +578,7 @@ fn default_overview_layout() -> String {
     "compact".to_string()
 }
 
-pub(crate) fn normalize_overview_layout(value: &str) -> String {
+pub fn normalize_overview_layout(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "compact" => "compact".to_string(),
         "detailed" => "detailed".to_string(),

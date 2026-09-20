@@ -87,7 +87,6 @@ function renderCard(
     showAsUsed?: boolean;
     showResetWhenExhausted?: boolean;
     showPace?: boolean;
-    compactMetrics?: boolean;
     compactOverview?: boolean;
     onLayoutChange?: () => void;
     costSummaryDisplayStyle?: "compact" | "detailed" | "hidden";
@@ -104,7 +103,6 @@ function renderCard(
           showResetWhenExhausted: opts.showResetWhenExhausted,
           showPace: opts.showPace,
           compactOverview: opts.compactOverview,
-          compactMetrics: opts.compactMetrics,
           costSummaryDisplayStyle: opts.costSummaryDisplayStyle,
         }}
         onLayoutChange={opts.onLayoutChange}
@@ -303,7 +301,7 @@ describe("MenuCard", () => {
     snapshot.tertiary = rateWindow(63, { windowMinutes: 30 * 24 * 60 });
     snapshot.tertiaryLabel = "Monthly";
 
-    renderCard(snapshot, { compactMetrics: true, compactOverview: true });
+    renderCard(snapshot, { compactOverview: true });
 
     expect(await screen.findByText("Session")).toBeInTheDocument();
     expect(screen.getByText("ProviderWeeklyLabel")).toBeInTheDocument();

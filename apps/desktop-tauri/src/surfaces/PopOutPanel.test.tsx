@@ -215,13 +215,9 @@ function renderPopOut(
   providerId?: string,
   catalog: ProviderCatalogEntry[] = [],
   settingsOverride: Partial<SettingsSnapshot> = {},
-  omitOverviewLayout = false,
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
   const snapshot = { ...settings(), ...settingsOverride };
-  if (omitOverviewLayout) {
-    delete snapshot.overviewLayout;
-  }
   tauriMocks.getSettingsSnapshot.mockResolvedValue(snapshot);
   return render(
     <LocaleProvider>
@@ -386,22 +382,6 @@ describe("PopOutPanel", () => {
         (node) => node.textContent,
       ),
     ).toEqual(["Codex", "Claude", "Cursor"]);
-  });
-
-  it("preserves compact legacy Overview rows when overviewLayout is missing", async () => {
-    const { container } = renderPopOut(
-      [providerWithThreeQuotaWindows("codex", "Codex")],
-      undefined,
-      [],
-      {},
-      true,
-    );
-
-    await waitFor(() => {
-      expect(container.querySelector(".menu-stack__item")).not.toBeNull();
-    });
-
-    expect(container.querySelectorAll(".menu-metric")).toHaveLength(2);
   });
 
   it("keeps compact Overview limited to two quota rows when explicitly selected", async () => {
