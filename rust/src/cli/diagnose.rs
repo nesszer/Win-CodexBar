@@ -370,7 +370,7 @@ fn cost_present(cost: Option<&CostSnapshot>) -> bool {
 
 fn final_strategy_id(provider_id: ProviderId, source_label: Option<&str>) -> Option<String> {
     (provider_id == ProviderId::Antigravity)
-        .then(|| source_label)
+        .then_some(source_label)
         .flatten()
         .and_then(crate::providers::antigravity::strategy_from_source_label)
         .map(|strategy| strategy.as_str().to_owned())
