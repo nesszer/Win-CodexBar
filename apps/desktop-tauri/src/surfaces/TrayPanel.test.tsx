@@ -104,6 +104,18 @@ function provider(id: string, displayName: string, used = 20): ProviderUsageSnap
   };
 }
 
+function providerWithThreeQuotaWindows(
+  id: string,
+  displayName: string,
+): ProviderUsageSnapshot {
+  const snapshot = provider(id, displayName);
+  snapshot.secondary = rateWindow(35);
+  snapshot.secondaryLabel = "Weekly";
+  snapshot.tertiary = rateWindow(50);
+  snapshot.tertiaryLabel = "Monthly";
+  return snapshot;
+}
+
 function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
   return {
     enabledProviders: ["codex", "claude"],
@@ -190,12 +202,22 @@ function renderTrayPanel(
   providers: ProviderUsageSnapshot[],
   settingsOverrides: Partial<SettingsSnapshot> = {},
   catalog: ProviderCatalogEntry[] = [],
+  omitOverviewLayout = false,
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
-  tauriMocks.getSettingsSnapshot.mockResolvedValue(settings(settingsOverrides));
+  const snapshot = settings(settingsOverrides);
+  if (omitOverviewLayout) {
+    delete snapshot.overviewLayout;
+  }
+  tauriMocks.getSettingsSnapshot.mockResolvedValue(snapshot);
   return render(
     <LocaleProvider>
-      <TrayPanel state={bootstrap(settingsOverrides, catalog)} />
+      <TrayPanel
+        state={{
+          ...bootstrap(settingsOverrides, catalog),
+          settings: snapshot,
+        }}
+      />
     </LocaleProvider>,
   );
 }
@@ -545,6 +567,34 @@ describe("TrayPanel provider grid", () => {
         (node) => node.textContent,
       ),
     ).toEqual(["Codex", "Claude", "Cursor", "Factory", "Gemini"]);
+  });
+
+  it("preserves compact legacy Overview rows when overviewLayout is missing", async () => {
+    const { container } = renderTrayPanel(
+      [providerWithThreeQuotaWindows("codex", "Codex")],
+      {},
+      [],
+      true,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".menu-stack__item")).not.toBeNull();
+    });
+
+    expect(container.querySelectorAll(".menu-metric")).toHaveLength(2);
+  });
+
+  it("keeps compact Overview limited to two quota rows when explicitly selected", async () => {
+    const { container } = renderTrayPanel(
+      [providerWithThreeQuotaWindows("codex", "Codex")],
+      { overviewLayout: "compact" },
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".menu-stack__item")).not.toBeNull();
+    });
+
+    expect(container.querySelectorAll(".menu-metric")).toHaveLength(2);
   });
 
   it("uses independent columns for a wide user-sized overview", async () => {

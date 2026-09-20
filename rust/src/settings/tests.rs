@@ -21,7 +21,7 @@ fn test_settings_default() {
     assert!(!settings.predictive_pace_warning_enabled);
     assert!(!settings.float_bar_show_cost);
     assert!(!settings.tray_panel_always_on_top);
-    assert_eq!(settings.overview_layout, "detailed");
+    assert_eq!(settings.overview_layout, "compact");
     assert!(settings.promote_tray_icon);
     assert!(settings.claude_daily_routines_usage_visible);
     assert!(!settings.claude_allow_reading_claude_code_credentials);
@@ -32,10 +32,10 @@ fn test_settings_default() {
 }
 
 #[test]
-fn overview_layout_defaults_to_detailed_and_round_trips() {
+fn overview_layout_defaults_to_compact_and_round_trips() {
     let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing overview layout defaults to detailed");
-    assert_eq!(defaulted.overview_layout, "detailed");
+        .expect("missing overview layout defaults to compact");
+    assert_eq!(defaulted.overview_layout, "compact");
 
     let compact = Settings {
         overview_layout: "compact".to_string(),
@@ -48,7 +48,7 @@ fn overview_layout_defaults_to_detailed_and_round_trips() {
     let unknown: Settings =
         serde_json::from_str(r#"{ "enabled_providers": [], "overview_layout": "unsupported" }"#)
             .expect("unknown overview layout is accepted and normalized");
-    assert_eq!(unknown.overview_layout, "detailed");
+    assert_eq!(unknown.overview_layout, "compact");
 }
 
 #[test]

@@ -87,6 +87,7 @@ function renderCard(
     showAsUsed?: boolean;
     showResetWhenExhausted?: boolean;
     showPace?: boolean;
+    compactMetrics?: boolean;
     compactOverview?: boolean;
     onLayoutChange?: () => void;
     costSummaryDisplayStyle?: "compact" | "detailed" | "hidden";
@@ -103,6 +104,7 @@ function renderCard(
           showResetWhenExhausted: opts.showResetWhenExhausted,
           showPace: opts.showPace,
           compactOverview: opts.compactOverview,
+          compactMetrics: opts.compactMetrics,
           costSummaryDisplayStyle: opts.costSummaryDisplayStyle,
         }}
         onLayoutChange={opts.onLayoutChange}
@@ -294,19 +296,19 @@ describe("MenuCard", () => {
     expect(screen.getByText("58% left")).toBeInTheDocument();
   });
 
-  it("keeps every quota bar while suppressing supplemental content in compact Overview", async () => {
+  it("limits quota rows and suppresses supplemental content in compact Overview", async () => {
     const snapshot = provider(null, 20, { resetDescription: "Resets in 2h" });
     snapshot.secondary = rateWindow(42, { windowMinutes: 7 * 24 * 60 });
     snapshot.secondaryLabel = "Weekly";
     snapshot.tertiary = rateWindow(63, { windowMinutes: 30 * 24 * 60 });
     snapshot.tertiaryLabel = "Monthly";
 
-    renderCard(snapshot, { compactOverview: true });
+    renderCard(snapshot, { compactMetrics: true, compactOverview: true });
 
     expect(await screen.findByText("Session")).toBeInTheDocument();
     expect(screen.getByText("ProviderWeeklyLabel")).toBeInTheDocument();
-    expect(screen.getByText("ProviderMonthly")).toBeInTheDocument();
-    expect(document.querySelectorAll(".menu-metric")).toHaveLength(3);
+    expect(screen.queryByText("ProviderMonthly")).not.toBeInTheDocument();
+    expect(document.querySelectorAll(".menu-metric")).toHaveLength(2);
     expect(document.querySelector(".menu-metric__reset")).toBeNull();
     expect(document.querySelector(".menu-card__more")).toBeNull();
   });

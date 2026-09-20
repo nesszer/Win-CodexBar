@@ -259,8 +259,10 @@ export default function PopOutPanel({
                   showResetWhenExhausted: settings.showResetWhenExhausted,
                   showPace: settings.showPace ?? true,
                   showAsUsed: settings.showAsUsed,
+                  compactMetrics:
+                    selectedProviderId === null && settings.overviewLayout !== "detailed",
                   compactOverview:
-                    selectedProviderId === null && settings.overviewLayout === "compact",
+                    selectedProviderId === null && settings.overviewLayout !== "detailed",
                   costSummaryDisplayStyle: settings.costSummaryDisplayStyle,
                 }}
                 accentColor={settings.providerAccentColors[p.providerId]}

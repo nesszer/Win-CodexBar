@@ -575,7 +575,7 @@ impl Default for Settings {
 }
 
 fn default_overview_layout() -> String {
-    "detailed".to_string()
+    "compact".to_string()
 }
 
 pub(crate) fn normalize_overview_layout(value: &str) -> String {

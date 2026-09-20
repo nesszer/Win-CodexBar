@@ -117,6 +117,18 @@ function provider(id: string, displayName: string, used = 20): ProviderUsageSnap
   };
 }
 
+function providerWithThreeQuotaWindows(
+  id: string,
+  displayName: string,
+): ProviderUsageSnapshot {
+  const snapshot = provider(id, displayName);
+  snapshot.secondary = rateWindow(35);
+  snapshot.secondaryLabel = "Weekly";
+  snapshot.tertiary = rateWindow(50);
+  snapshot.tertiaryLabel = "Monthly";
+  return snapshot;
+}
+
 function settings(): SettingsSnapshot {
   return {
     enabledProviders: ["codex", "claude"],
@@ -203,16 +215,18 @@ function renderPopOut(
   providerId?: string,
   catalog: ProviderCatalogEntry[] = [],
   settingsOverride: Partial<SettingsSnapshot> = {},
+  omitOverviewLayout = false,
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
-  tauriMocks.getSettingsSnapshot.mockResolvedValue({
-    ...settings(),
-    ...settingsOverride,
-  });
+  const snapshot = { ...settings(), ...settingsOverride };
+  if (omitOverviewLayout) {
+    delete snapshot.overviewLayout;
+  }
+  tauriMocks.getSettingsSnapshot.mockResolvedValue(snapshot);
   return render(
     <LocaleProvider>
       <PopOutPanel
-        state={bootstrap(catalog, settingsOverride)}
+        state={{ ...bootstrap(catalog, settingsOverride), settings: snapshot }}
         providerId={providerId}
       />
     </LocaleProvider>,
@@ -372,6 +386,37 @@ describe("PopOutPanel", () => {
         (node) => node.textContent,
       ),
     ).toEqual(["Codex", "Claude", "Cursor"]);
+  });
+
+  it("preserves compact legacy Overview rows when overviewLayout is missing", async () => {
+    const { container } = renderPopOut(
+      [providerWithThreeQuotaWindows("codex", "Codex")],
+      undefined,
+      [],
+      {},
+      true,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".menu-stack__item")).not.toBeNull();
+    });
+
+    expect(container.querySelectorAll(".menu-metric")).toHaveLength(2);
+  });
+
+  it("keeps compact Overview limited to two quota rows when explicitly selected", async () => {
+    const { container } = renderPopOut(
+      [providerWithThreeQuotaWindows("codex", "Codex")],
+      undefined,
+      [],
+      { overviewLayout: "compact" },
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".menu-stack__item")).not.toBeNull();
+    });
+
+    expect(container.querySelectorAll(".menu-metric")).toHaveLength(2);
   });
 
   it("keeps the popout overview focused until the provider grid expands", async () => {
