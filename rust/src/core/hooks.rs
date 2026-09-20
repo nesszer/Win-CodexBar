@@ -80,9 +80,6 @@ pub struct HookEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     pub timestamp: String,
-    /// Private account bucket used only for in-memory rate limiting.
-    #[serde(skip)]
-    rate_limit_key: Option<String>,
 }
 
 impl HookEvent {
@@ -101,7 +98,6 @@ impl HookEvent {
             secondary_reset_at: None,
             status: None,
             timestamp: utc_now_iso(),
-            rate_limit_key: None,
         }
     }
 
@@ -163,13 +159,6 @@ impl HookEvent {
 
     pub fn with_secondary_reset_at(mut self, reset_at: Option<String>) -> Self {
         self.secondary_reset_at = reset_at;
-        self
-    }
-
-    /// Set the private identity used to keep repeated usage events account-scoped.
-    /// This value is never serialized or forwarded to hook processes.
-    pub fn with_rate_limit_key(mut self, key: Option<String>) -> Self {
-        self.rate_limit_key = key;
         self
     }
 
@@ -399,12 +388,17 @@ pub struct HookRunner;
 
 impl HookRunner {
     /// Dispatch matching rules for `event`. Failures are logged, never returned.
-    pub fn dispatch(event: &HookEvent, config: &HooksConfig, rate_limiter: &HookRateLimiter) {
+    pub fn dispatch(
+        event: &HookEvent,
+        config: &HooksConfig,
+        rate_limiter: &HookRateLimiter,
+        rate_limit_scope: Option<&str>,
+    ) {
         let rules = config.matching_rules(event);
         if rules.is_empty() {
             return;
         }
-        if event.event.is_rate_limited() && !rate_limiter.allow(event) {
+        if event.event.is_rate_limited() && !rate_limiter.allow(event, rate_limit_scope) {
             tracing::debug!(
                 event = event.event.as_str(),
                 provider = %event.provider,
@@ -432,7 +426,11 @@ impl HookRunner {
     }
 
     /// Best-effort load + dispatch when settings allow hooks.
-    pub fn dispatch_if_enabled(event: HookEvent, hooks_enabled: bool) {
+    pub fn dispatch_if_enabled(
+        event: HookEvent,
+        hooks_enabled: bool,
+        rate_limit_scope: Option<&str>,
+    ) {
         if !hooks_enabled {
             return;
         }
@@ -441,7 +439,7 @@ impl HookRunner {
             return;
         }
         HOOK_RATE_LIMITER.with(|limiter| {
-            Self::dispatch(&event, &config, limiter);
+            Self::dispatch(&event, &config, limiter, rate_limit_scope);
         });
     }
 
@@ -521,8 +519,12 @@ impl HookRateLimiter {
         }
     }
 
-    pub fn allow(&self, event: &HookEvent) -> bool {
-        let key = rate_limit_key(event);
+    /// `scope` keys the suppression window (e.g. a private account
+    /// discriminator for `usage_updated`); `None` falls back to public event
+    /// identity (event/provider/account/window). The scope value is never
+    /// serialized or forwarded to hook processes.
+    pub fn allow(&self, event: &HookEvent, scope: Option<&str>) -> bool {
+        let key = rate_limit_key(event, scope);
         let Ok(mut map) = self.last_fired.lock() else {
             return true;
         };
@@ -543,9 +545,17 @@ impl Default for HookRateLimiter {
     }
 }
 
-fn rate_limit_key(event: &HookEvent) -> String {
-    if let Some(key) = &event.rate_limit_key {
-        return format!("{}\u{1f}{}", event.event.as_str(), key);
+/// Private limiter keys are provider-qualified so two providers sharing an
+/// account identity never suppress each other; the event name separates this
+/// from the event-identity branch.
+fn rate_limit_key(event: &HookEvent, scope: Option<&str>) -> String {
+    if let Some(scope) = scope.filter(|scope| !scope.is_empty()) {
+        return format!(
+            "{}\u{1f}{}\u{1f}{}",
+            event.event.as_str(),
+            event.provider,
+            scope
+        );
     }
     format!(
         "{}\u{1f}{}\u{1f}{}\u{1f}{}",
@@ -695,10 +705,25 @@ pub fn emit_quota_threshold_hooks(
                 if !account.is_empty() {
                     event = event.with_account(account.clone());
                 }
-                HookRunner::dispatch_if_enabled(event, true);
+                HookRunner::dispatch_if_enabled(event, true, None);
             }
         })
         .ok();
+}
+
+/// Fire-and-forget background dispatch of one hook event.
+pub(super) fn spawn_hook_dispatch(
+    event: HookEvent,
+    hooks_enabled: bool,
+    rate_limit_scope: Option<String>,
+) {
+    if !hooks_enabled {
+        return;
+    }
+    std::thread::Builder::new()
+        .name("codexbar-hook".into())
+        .spawn(move || HookRunner::dispatch_if_enabled(event, true, rate_limit_scope.as_deref()))
+        .expect("spawn codexbar-hook thread");
 }
 
 #[cfg(test)]
@@ -754,7 +779,7 @@ mod tests {
             .with_secondary_usage_fraction(0.4)
             .with_secondary_window_minutes(Some(10080))
             .with_secondary_reset_at(Some("2026-09-27T12:00:00Z".into()))
-            .with_rate_limit_key(Some("private-account-key".into()));
+            .with_account("user@example.com");
 
         let env = event.environment_variables();
         assert_eq!(
@@ -770,14 +795,33 @@ mod tests {
                 .map(String::as_str),
             Some("0.4")
         );
-        assert!(!env.values().any(|value| value == "private-account-key"));
+        assert_eq!(
+            env.get("CODEXBAR_ACCOUNT").map(String::as_str),
+            Some("user@example.com")
+        );
 
         let payload = event.json_payload().unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
         assert_eq!(parsed["event"], "usage_updated");
         assert_eq!(parsed["window_minutes"], 300);
         assert_eq!(parsed["secondary_window_minutes"], 10080);
+        // The payload stays public: no private limiter scope can ride along.
         assert!(parsed.get("rate_limit_key").is_none());
+        assert!(parsed.get("rate_limit_scope").is_none());
+    }
+
+    #[test]
+    fn rate_limit_scope_keys_private_suppression_per_provider() {
+        let limiter = HookRateLimiter::new(Duration::from_secs(600));
+        let event = HookEvent::new(HookEventType::UsageUpdated, "codex").with_used_percent(10.0);
+        assert!(limiter.allow(&event, Some("provider-account:user@example.com")));
+        assert!(!limiter.allow(&event, Some("provider-account:user@example.com")));
+        // Same account identity on another provider must not be suppressed.
+        let other = HookEvent::new(HookEventType::UsageUpdated, "claude").with_used_percent(10.0);
+        assert!(limiter.allow(&other, Some("provider-account:user@example.com")));
+        // Empty scope falls back to public event-identity keys.
+        assert!(limiter.allow(&event, None));
+        assert!(!limiter.allow(&event, Some("")));
     }
 
     #[test]
@@ -807,10 +851,10 @@ mod tests {
     fn rate_limiter_suppresses_repeat_within_window() {
         let limiter = HookRateLimiter::new(Duration::from_secs(600));
         let event = HookEvent::new(HookEventType::RefreshFailed, "cursor");
-        assert!(limiter.allow(&event));
-        assert!(!limiter.allow(&event));
+        assert!(limiter.allow(&event, None));
+        assert!(!limiter.allow(&event, None));
         let other = HookEvent::new(HookEventType::RefreshFailed, "claude");
-        assert!(limiter.allow(&other));
+        assert!(limiter.allow(&other, None));
     }
 
     #[test]
@@ -886,7 +930,7 @@ mod tests {
         let b = HookEvent::new(HookEventType::ProviderUnavailable, "warp")
             .with_window("session")
             .with_account("a");
-        assert_eq!(rate_limit_key(&a), rate_limit_key(&b));
+        assert_eq!(rate_limit_key(&a, None), rate_limit_key(&b, None));
         let _ = Arc::new(a);
     }
 }

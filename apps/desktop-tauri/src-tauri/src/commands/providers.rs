@@ -1,6 +1,6 @@
 use super::*;
 use chrono::{Local, Utc};
-use codexbar::core::{HookEvent, HookEventType, HookRunner};
+use codexbar::core::HookUsageWindow;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -534,12 +534,21 @@ fn spawn_provider_refreshes(
             .get(&id)
             .and_then(ProviderAccountData::active_account)
             .map(|account| account.id);
+        let hooks_enabled = inputs.settings.hooks_enabled;
 
         handles.push(tokio::spawn(async move {
             let Ok(_permit) = fetch_permits.acquire_owned().await else {
                 return;
             };
-            refresh_provider(app_handle, id, ctx, generation, token_account_id).await;
+            refresh_provider(
+                app_handle,
+                id,
+                ctx,
+                generation,
+                token_account_id,
+                hooks_enabled,
+            )
+            .await;
         }));
     }
 
@@ -570,6 +579,7 @@ async fn refresh_provider(
     ctx: FetchContext,
     generation: u64,
     token_account_id: Option<uuid::Uuid>,
+    hooks_enabled: bool,
 ) {
     let (snapshot, account_identity, failure_policy) =
         fetch_provider_snapshot(id, ctx, token_account_id).await;
@@ -617,6 +627,7 @@ async fn refresh_provider(
         events::emit_provider_updated(&app, &snapshot);
         if fresh_snapshot {
             dispatch_usage_updated_hook(
+                hooks_enabled,
                 id,
                 &snapshot,
                 account_identity.as_deref(),
@@ -638,16 +649,16 @@ async fn refresh_provider(
 /// carries both quota windows in one payload and is rate-limited per provider
 /// account so periodic refreshes cannot create a hook storm.
 fn dispatch_usage_updated_hook(
+    hooks_enabled: bool,
     provider: ProviderId,
     snapshot: &ProviderUsageSnapshot,
     account_identity: Option<&str>,
     token_account_id: Option<uuid::Uuid>,
 ) {
-    let settings = Settings::load();
-    if !settings.hooks_enabled {
+    if !hooks_enabled {
         return;
     }
-
+    let settings = Settings::load();
     let account = if settings.hide_personal_info {
         None
     } else {
@@ -655,35 +666,32 @@ fn dispatch_usage_updated_hook(
             .map(str::trim)
             .filter(|identity| !identity.is_empty())
     };
-    let private_identity = quota_notification_account_identity(snapshot, token_account_id);
-    let mut event = HookEvent::new(HookEventType::UsageUpdated, provider.cli_name());
-
-    if !snapshot.primary.is_informational {
-        event = event
-            .with_used_percent(snapshot.primary.used_percent)
-            .with_window_minutes(snapshot.primary.window_minutes)
-            .with_reset_at(snapshot.primary.resets_at.clone());
-    }
-    if let Some(secondary) = snapshot
-        .secondary
-        .as_ref()
-        .filter(|window| !window.is_informational)
-    {
-        event = event
-            .with_secondary_usage_fraction(secondary.used_percent / 100.0)
-            .with_secondary_window_minutes(secondary.window_minutes)
-            .with_secondary_reset_at(secondary.resets_at.clone());
-    }
-    if let Some(account) = account {
-        event = event.with_account(account.to_string());
-    }
-    if !private_identity.is_empty() {
-        event = event.with_rate_limit_key(Some(format!("provider-account:{private_identity}")));
-    }
-
-    let _ = std::thread::Builder::new()
-        .name("codexbar-usage-hook".into())
-        .spawn(move || HookRunner::dispatch_if_enabled(event, true));
+    let rate_limit_scope = quota_notification_account_identity(snapshot, token_account_id);
+    let rate_limit_scope = if rate_limit_scope.is_empty() {
+        None
+    } else {
+        Some(format!("provider-account:{rate_limit_scope}"))
+    };
+    let primary = HookUsageWindow {
+        used_percent: snapshot.primary.used_percent,
+        window_minutes: snapshot.primary.window_minutes,
+        resets_at: snapshot.primary.resets_at.clone(),
+        is_informational: snapshot.primary.is_informational,
+    };
+    let secondary = snapshot.secondary.as_ref().map(|window| HookUsageWindow {
+        used_percent: window.used_percent,
+        window_minutes: window.window_minutes,
+        resets_at: window.resets_at.clone(),
+        is_informational: window.is_informational,
+    });
+    codexbar::core::dispatch_usage_updated_hook(
+        hooks_enabled,
+        provider.cli_name(),
+        &primary,
+        secondary.as_ref(),
+        account,
+        rate_limit_scope,
+    );
 }
 
 /// F6 (upstream 0.48.0 UsageStore+CodexResetBackfill): backfill missing

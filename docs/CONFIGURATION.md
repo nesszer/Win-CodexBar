@@ -136,11 +136,12 @@ Upstream also documents `api` extensively; treat per-provider support as defined
 ## Hooks
 
 The shared `hooks.json` rules can match `usage_updated` in addition to the
-quota and provider-status events. `usage_updated` is emitted after a
-successful, current provider publication by both the desktop refresh path and
-`codexbar hooks watch`. Its payload can include primary and secondary usage
-fractions, window durations, and reset timestamps. A failed or superseded
-refresh does not produce a successful-update event.
+quota and provider-status events. The desktop refresh path emits it after a
+successful, current provider publication; `codexbar hooks watch` emits it after
+`provider.fetch_usage` succeeds without publishing a provider snapshot. Its
+payload can include primary and secondary usage fractions, window durations,
+and reset timestamps. A failed or superseded refresh does not produce a
+successful-update event.
 
 Repeated `usage_updated` events are limited to one per provider account per ten
 minutes in memory. The account discriminator used for that private limit is

@@ -122,9 +122,12 @@ codexbar hooks watch --provider codex --json
 The opt-in `usage_updated` event is emitted after a successful refresh and
 contains the primary and secondary quota usage, window durations, and reset
 timestamps when available. Failed or superseded refreshes do not emit it.
-Repeated events for the same provider account are limited to one per ten
-minutes; the private account discriminator used for that limit is never sent
-to the hook payload or environment.
+The desktop refresh path emits it after publishing a current provider
+snapshot; `hooks watch` emits it directly after `provider.fetch_usage`
+succeeds, without publishing a snapshot. Repeated events for the same
+provider account are limited to one per ten minutes; the private account
+discriminator used for that limit is never sent to the hook payload or
+environment.
 
 ### Sessions
 

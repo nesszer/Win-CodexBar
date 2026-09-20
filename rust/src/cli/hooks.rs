@@ -215,7 +215,12 @@ async fn run_watch(args: HooksWatchArgs) -> anyhow::Result<()> {
                     },
                     None => hooks.clone(),
                 };
-                HookRunner::dispatch(&dispatch.event, &dispatch_config, &rate_limiter);
+                HookRunner::dispatch(
+                    &dispatch.event,
+                    &dispatch_config,
+                    &rate_limiter,
+                    dispatch.rate_limit_scope.as_deref(),
+                );
             }
         }
 
