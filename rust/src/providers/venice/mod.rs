@@ -41,7 +41,7 @@ struct VeniceBalances {
 
 #[derive(Debug, Deserialize)]
 struct VeniceSessionResponse {
-    token: Option<String>,
+    token: String,
 }
 
 pub struct VeniceProvider {
@@ -73,7 +73,7 @@ impl VeniceProvider {
     }
 
     fn api_key(api_key: Option<&str>) -> Result<String, ProviderError> {
-        resolve_api_key(api_key, VENICE_CREDENTIAL_TARGET, &["VENICE_API_KEY"])
+        crate::providers::resolve_api_key(api_key, VENICE_CREDENTIAL_TARGET, &["VENICE_API_KEY"])
     }
 
     async fn fetch_api(&self, api_key: &str) -> Result<UsageSnapshot, ProviderError> {
@@ -138,19 +138,13 @@ impl VeniceProvider {
         let session: VeniceSessionResponse = response.json().await.map_err(|e| {
             ProviderError::Parse(format!("Failed to parse Venice web session: {e}"))
         })?;
-        let token = session
-            .token
-            .as_deref()
-            .filter(|token| !token.trim().is_empty())
-            .ok_or(ProviderError::AuthRequired)?;
+        if session.token.trim().is_empty() {
+            return Err(ProviderError::AuthRequired);
+        }
+        let token = session.token.as_str();
         let claims = crate::codex_accounts::api::jwt_payload(token)
             .ok_or_else(|| ProviderError::Parse("Venice session token is not a JWT".into()))?;
-        let (usage, details) = snapshot_from_web_claims(&claims, Utc::now())?;
-        let mut result = ProviderFetchResult::new(usage, "web").with_non_authoritative_pace();
-        for detail in details {
-            result = result.with_display_detail(detail);
-        }
-        Ok(result)
+        snapshot_from_web_claims(&claims, Utc::now())
     }
 }
 
@@ -284,25 +278,23 @@ fn session_cookie_header(raw: &str) -> Option<String> {
     if let Some(value) = exact {
         return Some(format!("{VENICE_SESSION_COOKIE}={value}"));
     }
-    if chunks.is_empty() || !chunks.keys().next().is_some_and(|index| *index == 0) {
+    if chunks.is_empty() || chunks.keys().max() != Some(&(chunks.len() - 1)) {
+        // Chunked cookies are contiguous 0..len-1 by construction; a gap or a
+        // tail that starts above 0 means a partial or forged set, so the
+        // session token cannot be reassembled safely.
         return None;
     }
 
-    let mut values = Vec::with_capacity(chunks.len());
-    for index in 0..chunks.len() {
-        values.push(chunks.get(&index)?.as_str());
-    }
+    let values: Vec<String> = chunks.into_values().collect();
     Some(format!("{VENICE_SESSION_COOKIE}={}", values.concat()))
 }
 
 fn snapshot_from_web_claims(
     claims: &serde_json::Map<String, Value>,
     now: DateTime<Utc>,
-) -> Result<(UsageSnapshot, Vec<ProviderDisplayDetail>), ProviderError> {
-    let expiration = finite_non_negative(claims.get("exp"))
-        .filter(|value| (1_000_000_000.0..=4_000_000_000.0).contains(value))
-        .and_then(unix_seconds_to_datetime)
-        .ok_or_else(|| ProviderError::AuthRequired)?;
+) -> Result<ProviderFetchResult, ProviderError> {
+    let expiration =
+        epoch_value_to_datetime(claims.get("exp")).ok_or_else(|| ProviderError::AuthRequired)?;
     if expiration < now - chrono::Duration::seconds(VENICE_EXPIRATION_SKEW_SECS) {
         return Err(ProviderError::AuthRequired);
     }
@@ -331,7 +323,7 @@ fn snapshot_from_web_claims(
         .or_else(|| finite_non_negative(claims.get("bundledCredits")));
     let venice_credits = finite_non_negative(claims.get("veniceCredits"));
     let tier_cap = finite_non_negative(usage.get("tierCap"));
-    let next_refill_at = epoch_to_datetime(usage.get("nextRefillAt"));
+    let next_refill_at = epoch_value_to_datetime(usage.get("nextRefillAt"));
 
     let mut details = Vec::new();
     if let Some(available) = available_credits {
@@ -381,10 +373,15 @@ fn snapshot_from_web_claims(
         }
     }
 
-    Ok((
+    let mut result = ProviderFetchResult::new(
         UsageSnapshot::new(RateWindow::informational("Venice web credits")),
-        details,
-    ))
+        "web",
+    )
+    .with_non_authoritative_pace();
+    for detail in details {
+        result = result.with_display_detail(detail);
+    }
+    Ok(result)
 }
 
 fn finite_non_negative(value: Option<&Value>) -> Option<f64> {
@@ -401,20 +398,16 @@ fn finite_non_negative(value: Option<&Value>) -> Option<f64> {
     }
 }
 
-fn epoch_to_datetime(value: Option<&Value>) -> Option<DateTime<Utc>> {
+/// Convert one epoch-valued JSON field (seconds or milliseconds) into a UTC
+/// timestamp. Accepts only values in the sane 2001-2096 second range, which
+/// also bounds the i64 cast below.
+fn epoch_value_to_datetime(value: Option<&Value>) -> Option<DateTime<Utc>> {
     let value = finite_non_negative(value)?;
     let seconds = if value > 4_000_000_000.0 {
         value / 1000.0
     } else {
         value
     };
-    if !(1_000_000_000.0..=4_000_000_000.0).contains(&seconds) {
-        return None;
-    }
-    unix_seconds_to_datetime(seconds)
-}
-
-fn unix_seconds_to_datetime(seconds: f64) -> Option<DateTime<Utc>> {
     if !(1_000_000_000.0..=4_000_000_000.0).contains(&seconds) {
         return None;
     }
@@ -429,11 +422,12 @@ fn unix_seconds_to_datetime(seconds: f64) -> Option<DateTime<Utc>> {
     DateTime::<Utc>::from_timestamp(seconds, 0)
 }
 
+/// Venice documents `userType: "anonymous"` for logged-out sessions; the
+/// claim is compared case-insensitively because the API treats the enum as a
+/// free-form string. Other spellings are not guessed here: an unknown value
+/// is treated as an authenticated user type.
 fn is_anonymous_user_type(value: &str) -> bool {
-    matches!(
-        value.to_ascii_lowercase().as_str(),
-        "anonymous" | "anon" | "guest" | "unauthenticated" | "logged_out"
-    )
+    value.eq_ignore_ascii_case("anonymous")
 }
 
 fn format_credits(value: f64) -> String {
@@ -442,35 +436,6 @@ fn format_credits(value: f64) -> String {
     } else {
         format!("{value:.2}")
     }
-}
-
-fn resolve_api_key(
-    explicit: Option<&str>,
-    credential_target: &str,
-    env_names: &[&str],
-) -> Result<String, ProviderError> {
-    if let Some(key) = explicit
-        && !key.trim().is_empty()
-    {
-        return Ok(key.trim().to_string());
-    }
-    if let Ok(entry) = keyring::Entry::new(credential_target, "api_key")
-        && let Ok(key) = entry.get_password()
-        && !key.trim().is_empty()
-    {
-        return Ok(key);
-    }
-    for env in env_names {
-        if let Ok(key) = std::env::var(env)
-            && !key.trim().is_empty()
-        {
-            return Ok(key);
-        }
-    }
-    Err(ProviderError::NotInstalled(format!(
-        "API key not found. Set {} in Preferences or environment.",
-        env_names.join(" / ")
-    )))
 }
 
 #[cfg(test)]
@@ -551,18 +516,39 @@ mod tests {
 
     #[test]
     fn web_claims_produce_display_details_without_quota_math() {
-        let (snapshot, details) = snapshot_from_web_claims(
+        let result = snapshot_from_web_claims(
             &web_claims(),
             DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap(),
         )
         .unwrap();
 
-        assert!(snapshot.primary.is_informational);
+        assert!(result.usage.primary.is_informational);
+        let details: Vec<_> = result.display_details().collect();
         assert_eq!(details.len(), 6);
         assert_eq!(details[0].value(), "88");
         assert_eq!(
             details[2].progress().map(|progress| progress.total()),
             Some(100.0)
+        );
+    }
+
+    #[test]
+    fn epoch_value_accepts_seconds_milliseconds_and_rejects_outliers() {
+        let seconds = serde_json::json!(1_900_000_000u64);
+        let millis = serde_json::json!(1_900_000_000_000i64);
+        assert_eq!(
+            epoch_value_to_datetime(Some(&seconds)),
+            DateTime::<Utc>::from_timestamp(1_900_000_000, 0)
+        );
+        assert_eq!(
+            epoch_value_to_datetime(Some(&millis)),
+            DateTime::<Utc>::from_timestamp(1_900_000_000, 0)
+        );
+        assert_eq!(epoch_value_to_datetime(None), None);
+        assert_eq!(epoch_value_to_datetime(Some(&serde_json::json!(42))), None);
+        assert_eq!(
+            epoch_value_to_datetime(Some(&serde_json::json!("1900000000"))),
+            DateTime::<Utc>::from_timestamp(1_900_000_000, 0)
         );
     }
 
@@ -577,7 +563,7 @@ mod tests {
         ));
 
         let mut anonymous = web_claims();
-        anonymous.insert("userType".into(), Value::from("guest"));
+        anonymous.insert("userType".into(), Value::from("anonymous"));
         assert!(matches!(
             snapshot_from_web_claims(&anonymous, now),
             Err(ProviderError::AuthRequired)
