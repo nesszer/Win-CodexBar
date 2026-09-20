@@ -297,7 +297,7 @@ fn save_cache(root: &Path, sessions: &Path, since: &str, until: &str, mut cache:
     }
 }
 
-fn discover(root: &Path, state: &mut ScanState, since: &str, until: &str) -> (Vec<PathBuf>, bool) {
+fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
     let mut files = Vec::new();
     let mut complete = true;
     let years = match fs::read_dir(root) {
@@ -361,10 +361,6 @@ fn discover(root: &Path, state: &mut ScanState, since: &str, until: &str) -> (Ve
                     continue;
                 };
                 if day_name.len() != 2 || !(1..=31).contains(&day_number) {
-                    continue;
-                }
-                let date_key = format!("{year_name}-{month_name}-{day_name}");
-                if date_key.as_str() < since || date_key.as_str() > until {
                     continue;
                 }
                 let sessions = match fs::read_dir(day.path()) {
@@ -559,6 +555,8 @@ fn parse_file(
     path: &Path,
     stamp: &FileStamp,
     state: &mut ScanState,
+    since: &str,
+    until: &str,
 ) -> (Vec<Event>, bool, Option<String>) {
     if stamp.length > MAX_FILE_BYTES || !state.charge_file(stamp.length) {
         return (Vec::new(), false, None);
@@ -570,6 +568,8 @@ fn parse_file(
     let mut events = Vec::new();
     let mut hasher = Sha256::new();
     let mut complete = true;
+    let mut saw_in_window_event = false;
+    let mut saw_invalid_line = false;
     loop {
         let line = match read_bounded_line(&mut reader, MAX_LINE_BYTES) {
             Ok(Some(line)) => line,
@@ -583,17 +583,24 @@ fn parse_file(
         hasher.update(&line);
         match parse_line(&line) {
             Ok(Some(event)) => {
+                if event.day.as_str() < since || event.day.as_str() > until {
+                    continue;
+                }
+                saw_in_window_event = true;
                 if !state.charge_event(&event) {
                     return (events, false, None);
                 }
                 events.push(event);
             }
             Ok(None) => {}
-            Err(drift) => complete &= !drift,
+            Err(drift) => saw_invalid_line |= drift,
         }
         if state.check() {
             return (events, false, None);
         }
+    }
+    if saw_invalid_line && saw_in_window_event {
+        complete = false;
     }
     let stable = complete && file_stamp(path).as_ref() == Some(stamp);
     let digest = stable.then(|| format!("{:x}", hasher.finalize()));
@@ -641,7 +648,7 @@ pub fn scan_in(
         cancelled: cancel.map(|flag| flag as *const _),
     };
     let mut cache_data = load_cache(cache_root, root, since, until);
-    let (paths, discovery_complete) = discover(root, &mut state, since, until);
+    let (paths, discovery_complete) = discover(root, &mut state);
     let paths_discovered = paths.len();
     let mut seen = HashMap::<String, Event>::new();
     let mut days = BTreeMap::<String, DailyUsage>::new();
@@ -665,7 +672,7 @@ pub fn scan_in(
         });
         let (events, file_complete, digest) = cached
             .map(|entry| (entry.events, true, Some(entry.digest)))
-            .unwrap_or_else(|| parse_file(&path, &stamp, &mut state));
+            .unwrap_or_else(|| parse_file(&path, &stamp, &mut state, since, until));
         cache_data.files.insert(
             key,
             CachedFile {
@@ -970,7 +977,7 @@ mod tests {
     }
 
     #[test]
-    fn out_of_window_tree_does_not_downgrade_coverage() {
+    fn old_malformed_history_does_not_downgrade_current_window() {
         let root = tempdir().unwrap();
         let old_session = root.path().join("2020/01/01/old");
         fs::create_dir_all(&old_session).unwrap();
@@ -983,7 +990,37 @@ mod tests {
             "2026-08-31",
             None,
         );
-        assert_eq!(report.coverage, LocalHistoryCoverage::Unavailable);
+        assert_eq!(report.coverage, LocalHistoryCoverage::Complete);
+        assert_eq!(report.total_tokens, Some(0));
+    }
+
+    #[test]
+    fn continuing_session_in_old_directory_contributes_current_event() {
+        let root = tempdir().unwrap();
+        let old_session = root.path().join("2020/01/01/old");
+        fs::create_dir_all(&old_session).unwrap();
+        fs::write(
+            old_session.join("session.jsonl"),
+            record(
+                "current",
+                1_788_177_600_000_000,
+                "model_completed",
+                r#"{"input_tokens":10,"output_tokens":2}"#,
+                "muse-1",
+            ),
+        )
+        .unwrap();
+
+        let report = scan_in(
+            root.path(),
+            tempdir().unwrap().path(),
+            "2026-08-31",
+            "2026-08-31",
+            None,
+        );
+        assert_eq!(report.coverage, LocalHistoryCoverage::Complete);
+        assert_eq!(report.total_tokens, Some(12));
+        assert_eq!(report.session_count, 1);
     }
 
     #[test]
