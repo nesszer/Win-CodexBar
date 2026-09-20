@@ -402,6 +402,16 @@ impl ProviderUsageSnapshot {
                     fallback_lane: extra.fallback_lane,
                 })
                 .collect(),
+            inventory: result
+                .inventory
+                .iter()
+                .map(|item| ProviderInventoryItemSnapshot {
+                    id: item.id.clone(),
+                    title: item.title.clone(),
+                    available_count: item.available_count,
+                    next_expires_at: item.next_expires_at.map(|date| date.to_rfc3339()),
+                })
+                .collect(),
             cost: result.cost.as_ref().map(|c| CostSnapshotBridge {
                 used: c.used,
                 limit: c.limit,
