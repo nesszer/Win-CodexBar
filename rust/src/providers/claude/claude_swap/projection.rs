@@ -366,6 +366,11 @@ mod tests {
     #[test]
     fn hiding_personal_info_collapses_to_ordinals() {
         let projected = project_accounts(&list_fixture(), true);
+        let ids = projected
+            .iter()
+            .map(|account| account.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), projected.len());
         for account in &projected {
             assert_eq!(account.label, format!("Account {}", account.slot));
             assert!(account.email.is_none());

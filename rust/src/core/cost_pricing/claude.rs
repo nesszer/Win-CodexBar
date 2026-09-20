@@ -1,11 +1,25 @@
 use super::super::{claude_routed_pricing, models_dev_pricing};
-use super::{CLAUDE_PRICING, ClaudePricing, CostUsagePricing};
+use super::{CLAUDE_PRICING, CODEX_PRICING, ClaudePricing, CostUsagePricing};
+
+const CODEX_LONG_CONTEXT_THRESHOLD_FOR_CLAUDE: u64 = 272_000;
+
+pub(crate) fn bundled_codex_long_context_threshold(model: &str) -> Option<u64> {
+    let key = CostUsagePricing::normalize_codex_model(model);
+    CODEX_PRICING.get(key.as_str()).and_then(|pricing| {
+        pricing
+            .long_context
+            .map(|_| CODEX_LONG_CONTEXT_THRESHOLD_FOR_CLAUDE)
+    })
+}
 
 /// Resolved Claude pricing source used by the local scanner's invocation memo.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ClaudePricingResolution {
     BuiltIn(ClaudePricing),
-    ModelsDev(models_dev_pricing::DynamicModelPricing),
+    ModelsDev {
+        pricing: models_dev_pricing::DynamicModelPricing,
+        threshold_tokens: Option<u64>,
+    },
 }
 
 impl CostUsagePricing {
@@ -57,7 +71,12 @@ impl CostUsagePricing {
             .and_then(|snapshot| {
                 claude_routed_pricing::resolve_with_snapshot(model, normalized, snapshot)
             })
-            .map(ClaudePricingResolution::ModelsDev)
+            .map(
+                |(pricing, threshold_tokens)| ClaudePricingResolution::ModelsDev {
+                    pricing,
+                    threshold_tokens,
+                },
+            )
     }
 
     /// Calculate cost from a previously resolved Claude pricing source.
@@ -109,15 +128,17 @@ impl CostUsagePricing {
                     pricing.threshold_tokens,
                 )
             }
-            ClaudePricingResolution::ModelsDev(pricing) => {
-                claude_routed_pricing::cost_usd_from_pricing(
-                    pricing,
-                    input_tokens,
-                    cache_read_input_tokens,
-                    cache_creation_input_tokens,
-                    output_tokens,
-                )
-            }
+            ClaudePricingResolution::ModelsDev {
+                pricing,
+                threshold_tokens,
+            } => claude_routed_pricing::cost_usd_from_pricing_with_threshold(
+                pricing,
+                threshold_tokens,
+                input_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
+                output_tokens,
+            ),
         }
     }
 
@@ -126,7 +147,7 @@ impl CostUsagePricing {
     ) -> f64 {
         match resolution {
             ClaudePricingResolution::BuiltIn(pricing) => pricing.input_cost_per_token,
-            ClaudePricingResolution::ModelsDev(pricing) => pricing.input_cost_per_token,
+            ClaudePricingResolution::ModelsDev { pricing, .. } => pricing.input_cost_per_token,
         }
     }
 

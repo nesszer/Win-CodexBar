@@ -15,13 +15,13 @@ impl RemoteSessionFetcher {
         let valid = Self::sanitized_hosts(hosts);
         let valid_keys = valid
             .iter()
-            .map(|host| host.to_ascii_lowercase())
+            .map(|host| Self::host_dedup_key(host))
             .collect::<HashSet<_>>();
         let mut invalid = hosts
             .iter()
             .filter(|host| {
                 Self::validate_host(host).is_err()
-                    && !valid_keys.contains(&host.trim().to_ascii_lowercase())
+                    && !valid_keys.contains(&Self::host_dedup_key(host.trim()))
             })
             .map(|_| {
                 AgentSessionHostResult::failed(
@@ -175,7 +175,7 @@ impl RemoteSessionFetcher {
                 continue;
             };
 
-            let key = host.to_ascii_lowercase();
+            let key = Self::host_dedup_key(&host);
             if seen.insert(key) {
                 sanitized.push(host);
             }
@@ -186,6 +186,19 @@ impl RemoteSessionFetcher {
 
     pub fn merge_hosts(manual: &[String], automatic: &[String]) -> Vec<String> {
         Self::sanitized_hosts(&manual.iter().chain(automatic).cloned().collect::<Vec<_>>())
+    }
+
+    /// Deduplicate host names case-insensitively while preserving SSH username
+    /// case. SSH may treat `Alice@host` and `alice@host` as different users,
+    /// whereas the host component remains case-insensitive for this input.
+    fn host_dedup_key(host: &str) -> String {
+        let host = host.trim();
+        if let Some(separator) = host.rfind('@') {
+            let (prefix, hostname) = host.split_at(separator + 1);
+            format!("{prefix}{}", hostname.to_ascii_lowercase())
+        } else {
+            host.to_ascii_lowercase()
+        }
     }
 
     pub fn validate_host(host: &str) -> Result<String, String> {
