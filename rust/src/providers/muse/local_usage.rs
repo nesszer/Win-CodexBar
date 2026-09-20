@@ -292,17 +292,12 @@ fn save_cache(root: &Path, sessions: &Path, since: &str, until: &str, mut cache:
     if fs::create_dir_all(parent).is_err() {
         return;
     }
-    let temp = path.with_extension("json.tmp");
-    if let Err(error) = fs::write(&temp, bytes) {
+    if let Err(error) = crate::atomic_file::write_atomic(&path, &bytes) {
         tracing::debug!(?error, "failed to write Muse usage cache");
-        return;
-    }
-    if let Err(error) = fs::rename(temp, path) {
-        tracing::debug!(?error, "failed to replace Muse usage cache");
     }
 }
 
-fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
+fn discover(root: &Path, state: &mut ScanState, since: &str, until: &str) -> (Vec<PathBuf>, bool) {
     let mut files = Vec::new();
     let mut complete = true;
     let years = match fs::read_dir(root) {
@@ -317,6 +312,13 @@ fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
                 continue;
             }
         };
+        if state.check() {
+            return (files, false);
+        }
+        let year_name = year.file_name().to_string_lossy().into_owned();
+        if year_name.len() != 4 || year_name.parse::<u32>().is_err() {
+            continue;
+        }
         let months = match fs::read_dir(year.path()) {
             Ok(entries) => entries,
             Err(_) => {
@@ -332,6 +334,13 @@ fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
                     continue;
                 }
             };
+            let month_name = month.file_name().to_string_lossy().into_owned();
+            let Ok(month_number) = month_name.parse::<u32>() else {
+                continue;
+            };
+            if month_name.len() != 2 || !(1..=12).contains(&month_number) {
+                continue;
+            }
             let days = match fs::read_dir(month.path()) {
                 Ok(entries) => entries,
                 Err(_) => {
@@ -347,6 +356,17 @@ fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
                         continue;
                     }
                 };
+                let day_name = day.file_name().to_string_lossy().into_owned();
+                let Ok(day_number) = day_name.parse::<u32>() else {
+                    continue;
+                };
+                if day_name.len() != 2 || !(1..=31).contains(&day_number) {
+                    continue;
+                }
+                let date_key = format!("{year_name}-{month_name}-{day_name}");
+                if date_key.as_str() < since || date_key.as_str() > until {
+                    continue;
+                }
                 let sessions = match fs::read_dir(day.path()) {
                     Ok(entries) => entries,
                     Err(_) => {
@@ -501,6 +521,40 @@ fn parse_line(line: &[u8]) -> Result<Option<Event>, bool> {
     }))
 }
 
+fn read_bounded_line<R: BufRead>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> std::io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::new();
+    let mut saw_input = false;
+    let mut discarding = false;
+    loop {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
+            return Ok(saw_input.then_some(if discarding { Vec::new() } else { line }));
+        }
+        let newline = chunk.iter().position(|byte| *byte == b'\n');
+        let segment_len = newline.unwrap_or(chunk.len());
+        let consumed_len = segment_len + usize::from(newline.is_some());
+        saw_input = true;
+        if !discarding {
+            if line.len().saturating_add(consumed_len) <= max_bytes {
+                line.extend_from_slice(&chunk[..segment_len]);
+                if newline.is_some() {
+                    line.push(b'\n');
+                }
+            } else {
+                line.clear();
+                discarding = true;
+            }
+        }
+        reader.consume(consumed_len);
+        if newline.is_some() {
+            return Ok(Some(if discarding { Vec::new() } else { line }));
+        }
+    }
+}
+
 fn parse_file(
     path: &Path,
     stamp: &FileStamp,
@@ -513,23 +567,20 @@ fn parse_file(
         return (Vec::new(), false, None);
     };
     let mut reader = BufReader::new(file);
-    let mut line = Vec::new();
     let mut events = Vec::new();
     let mut hasher = Sha256::new();
     let mut complete = true;
     loop {
-        line.clear();
-        let Ok(read) = reader.read_until(b'\n', &mut line) else {
-            return (events, false, None);
+        let line = match read_bounded_line(&mut reader, MAX_LINE_BYTES) {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            Err(_) => return (events, false, None),
         };
-        if read == 0 {
+        if line.is_empty() {
+            complete = false;
             break;
         }
         hasher.update(&line);
-        if line.len() > MAX_LINE_BYTES {
-            complete = false;
-            continue;
-        }
         match parse_line(&line) {
             Ok(Some(event)) => {
                 if !state.charge_event(&event) {
@@ -590,7 +641,7 @@ pub fn scan_in(
         cancelled: cancel.map(|flag| flag as *const _),
     };
     let mut cache_data = load_cache(cache_root, root, since, until);
-    let (paths, discovery_complete) = discover(root, &mut state);
+    let (paths, discovery_complete) = discover(root, &mut state, since, until);
     let paths_discovered = paths.len();
     let mut seen = HashMap::<String, Event>::new();
     let mut days = BTreeMap::<String, DailyUsage>::new();
@@ -630,13 +681,13 @@ pub fn scan_in(
             .into_iter()
             .filter(|event| event.day.as_str() >= since && event.day.as_str() <= until)
         {
-            file_had_usage = true;
             if let Some(previous) = seen.get(&event.id) {
                 if previous != &event {
                     complete = false;
                 }
                 continue;
             }
+            file_had_usage = true;
             seen.insert(event.id.clone(), event.clone());
             let day = days.entry(event.day.clone()).or_insert_with(|| DailyUsage {
                 day: event.day.clone(),
@@ -814,6 +865,13 @@ mod tests {
             format!("{first}\n{second}\n{first}\n"),
         )
         .unwrap();
+        let duplicate_session = root.path().join("2026/08/31/b");
+        fs::create_dir_all(&duplicate_session).unwrap();
+        fs::write(
+            duplicate_session.join("session.jsonl"),
+            format!("{first}\n"),
+        )
+        .unwrap();
         let cache = tempdir().unwrap();
         let cold = scan_in(root.path(), cache.path(), "2026-08-31", "2026-08-31", None);
         let warm = scan_in(root.path(), cache.path(), "2026-08-31", "2026-08-31", None);
@@ -909,6 +967,43 @@ mod tests {
         );
         assert!(!report.is_complete());
         assert_eq!(report.coverage, LocalHistoryCoverage::Partial);
+    }
+
+    #[test]
+    fn out_of_window_tree_does_not_downgrade_coverage() {
+        let root = tempdir().unwrap();
+        let old_session = root.path().join("2020/01/01/old");
+        fs::create_dir_all(&old_session).unwrap();
+        fs::write(old_session.join("session.jsonl"), b"not-json\n").unwrap();
+
+        let report = scan_in(
+            root.path(),
+            tempdir().unwrap().path(),
+            "2026-08-31",
+            "2026-08-31",
+            None,
+        );
+        assert_eq!(report.coverage, LocalHistoryCoverage::Unavailable);
+    }
+
+    #[test]
+    fn oversized_line_is_discarded_without_consuming_the_next_record() {
+        let mut input = vec![b'x'; MAX_LINE_BYTES + 1];
+        input.push(b'\n');
+        input.extend_from_slice(b"{}\n");
+        let mut reader = BufReader::new(std::io::Cursor::new(input));
+        assert!(
+            read_bounded_line(&mut reader, MAX_LINE_BYTES)
+                .unwrap()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            read_bounded_line(&mut reader, MAX_LINE_BYTES)
+                .unwrap()
+                .unwrap(),
+            b"{}\n"
+        );
     }
 
     #[test]
