@@ -117,7 +117,7 @@ export default function CodexAccountsMenu({
       )}
       <ul className="codex-menu-accounts__list">
         {accounts.map((account) => {
-          const label = accountDisplayNames[account.id] ?? "Workspace";
+          const label = accountDisplayNames[account.id];
           return (
             <CodexAccountRow
               key={account.id}

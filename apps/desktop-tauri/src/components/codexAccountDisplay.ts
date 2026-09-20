@@ -37,33 +37,28 @@ export function buildCodexAccountDisplayNames(
 }
 
 /**
- * Build the labels rendered by account rows in the tray and Settings.
- * Privacy mode redacts only the ambient/System account; managed account
- * labels continue to use the canonical display-name projection.
+ * Project the labels rendered by account rows in the tray and Settings.
+ * The redaction rule mirrors `CodexAccount::privacy_safe_display_name` in the
+ * Rust model: privacy mode redacts only the ambient/System account; managed
+ * account labels keep the canonical display-name projection. Client-side
+ * projection keeps the relabel reactive when the setting toggles without a
+ * refetch.
  */
 export function buildCodexAccountSurfaceLabels(
   accounts: readonly CodexAccount[],
-  canonical: Readonly<Record<string, string>> = {},
-  accountOrdinals: Readonly<Record<string, number>> = {},
-  hidePersonalInfo = false,
-  accountWord = "Account",
+  canonical: Readonly<Record<string, string>>,
+  accountOrdinals: Readonly<Record<string, number>>,
+  hidePersonalInfo: boolean,
+  accountWord: string,
 ): Record<string, string> {
   const displayNames = buildCodexAccountDisplayNames(accounts, canonical);
-  const stableOrdinals = new Map(
-    [...accounts]
-      .map((account) => account.id)
-      .sort()
-      .map((id, index) => [id, index + 1] as const),
-  );
-  const generic = accountWord.trim() || "Account";
 
   return Object.fromEntries(
     accounts.map((account) => {
       if (hidePersonalInfo && account.source === "ambient") {
-        const ordinal = accountOrdinals[account.id] ?? stableOrdinals.get(account.id) ?? 1;
-        return [account.id, `${generic} ${ordinal}`];
+        return [account.id, `${accountWord.trim()} ${accountOrdinals[account.id]}`];
       }
-      return [account.id, displayNames[account.id] ?? "Workspace"];
+      return [account.id, displayNames[account.id]];
     }),
   );
 }

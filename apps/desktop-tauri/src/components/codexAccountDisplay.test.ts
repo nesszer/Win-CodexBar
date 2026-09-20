@@ -98,6 +98,7 @@ describe("Codex account display labels", () => {
       {},
       { [system.id]: 1, [managed.id]: 2 },
       true,
+      "Account",
     );
     expect(hidden[system.id]).toBe("Account 1");
     expect(hidden[system.id]).not.toContain("@");
@@ -107,8 +108,9 @@ describe("Codex account display labels", () => {
     const reordered = buildCodexAccountSurfaceLabels(
       [accounts[1], accounts[0]],
       {},
-      {},
+      { [system.id]: 1, [managed.id]: 2 },
       true,
+      "Account",
     );
     expect(reordered[system.id]).toBe("Account 1");
 
@@ -117,6 +119,7 @@ describe("Codex account display labels", () => {
       {},
       { [system.id]: 1, [managed.id]: 2 },
       false,
+      "Account",
     );
     expect(visible[system.id]).toBe("same@example.com — Private System Name");
     expect(visible[managed.id]).toBe("same@example.com — Work");
