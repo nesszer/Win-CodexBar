@@ -25,6 +25,9 @@ pub struct ProviderDetail {
     pub weekly: Option<RateWindowSnapshot>,
     pub model_specific: Option<RateWindowSnapshot>,
     pub tertiary: Option<RateWindowSnapshot>,
+    /// Locale key naming the tertiary lane when it carries a semantic label
+    /// beyond "Tertiary" (upstream F5). Drives the settings metric picker.
+    pub tertiary_label_key: Option<&'static str>,
     pub extra_rate_windows: Vec<NamedRateWindowSnapshot>,
 
     // Cost / pace.
@@ -90,6 +93,7 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         weekly: None,
         model_specific: None,
         tertiary: None,
+        tertiary_label_key: metadata.tertiary_label_key,
         extra_rate_windows: Vec::new(),
         cost: None,
         pace: None,

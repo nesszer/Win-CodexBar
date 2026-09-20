@@ -252,10 +252,11 @@ fn codex_account_menu_label(
     hide_personal_info: bool,
     ordinal: usize,
 ) -> String {
-    if hide_personal_info {
-        return format!("{} {ordinal}", locale::get_text(lang, LocaleKey::Account));
-    }
-    account.display_name()
+    account.privacy_safe_display_name(
+        hide_personal_info,
+        ordinal,
+        &locale::get_text(lang, LocaleKey::Account),
+    )
 }
 
 fn claude_accounts_menu(
@@ -444,6 +445,7 @@ mod tests {
         let empty = codex_accounts_menu(&[], None, Language::English, false);
         assert!(menu_contains(&empty.children, "add_codex_account"));
         let mut email_account = second;
+        email_account.source = CodexAccountSource::Ambient;
         email_account.nickname = None;
         email_account.email_hint = Some("private@example.com".into());
         let private = codex_accounts_menu(&[email_account.clone()], None, Language::English, true);
@@ -470,16 +472,18 @@ mod tests {
                 None,
             )
         };
-        let with_nickname = make(
+        let mut with_nickname = make(
             "00000000-0000-0000-0000-000000000002",
             Some("Work"),
             "user@example.com",
         );
-        let without_nickname = make(
+        let mut without_nickname = make(
             "00000000-0000-0000-0000-000000000001",
             None,
             "personal@example.com",
         );
+        with_nickname.source = CodexAccountSource::ManagedByApp;
+        without_nickname.source = CodexAccountSource::Ambient;
 
         let accounts = [with_nickname.clone(), without_nickname.clone()];
         let ordinals = ordinals_by_id(&accounts);
@@ -492,7 +496,7 @@ mod tests {
                 true,
                 ordinals[&with_nickname.id],
             ),
-            "Account 2"
+            "user@example.com — Work"
         );
         assert_eq!(
             codex_account_menu_label(
@@ -504,14 +508,22 @@ mod tests {
             "Account 1"
         );
 
-        let hidden = codex_accounts_menu(&accounts, None, Language::English, true);
-        assert_eq!(hidden.children[0].label, "Account 2");
+        let hidden =
+            codex_accounts_menu(&accounts, Some(&without_nickname), Language::English, true);
+        assert_eq!(hidden.children[0].label, "user@example.com — Work");
         assert_eq!(hidden.children[1].label, "Account 1");
-        for entry in hidden.children.iter().take(2) {
-            assert!(!entry.label.contains('@'));
-            assert!(!entry.label.contains("example.com"));
-            assert!(!entry.label.contains("Work"));
-        }
+        assert_eq!(hidden.children[0].checked, Some(false));
+        assert!(!hidden.children[0].disabled);
+        assert_eq!(hidden.children[1].checked, Some(true));
+        assert!(hidden.children[1].disabled);
+        assert_eq!(
+            hidden.children[1].id.as_deref(),
+            Some(format!("switch_codex_account:{}", without_nickname.id).as_str())
+        );
+        assert!(hidden.children[0].label.contains("Work"));
+        assert!(!hidden.children[1].label.contains('@'));
+        assert!(!hidden.children[1].label.contains("example.com"));
+        assert!(!hidden.children[1].label.contains("personal"));
 
         let reversed = codex_accounts_menu(
             &[without_nickname.clone(), with_nickname.clone()],
@@ -520,7 +532,7 @@ mod tests {
             true,
         );
         assert_eq!(reversed.children[0].label, "Account 1");
-        assert_eq!(reversed.children[1].label, "Account 2");
+        assert_eq!(reversed.children[1].label, "user@example.com — Work");
 
         let visible = codex_accounts_menu(&[with_nickname], None, Language::English, false);
         assert_eq!(visible.children[0].label, "user@example.com — Work");

@@ -39,6 +39,7 @@ impl VertexAIProvider {
                 is_primary: false,
                 dashboard_url: Some("https://console.cloud.google.com/vertex-ai"),
                 status_page_url: Some("https://status.cloud.google.com"),
+                tertiary_label_key: None,
             },
         }
     }

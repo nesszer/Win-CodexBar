@@ -7,38 +7,12 @@ import type {
 } from "../types/bridge";
 import { useLocale } from "../hooks/useLocale";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
-import { buildCodexAccountDisplayNames } from "./codexAccountDisplay";
+import { buildCodexAccountSurfaceLabels } from "./codexAccountDisplay";
 import {
   codexAccountSwitch,
   getCodexAccountsState,
   refreshProviders,
 } from "../lib/tauri";
-
-interface PrivateCodexAccountLabel {
-  label: string;
-  tooltip: string;
-}
-
-/**
- * Project a tray account label while keeping the privacy setting scoped to
- * this switcher surface. The shared display-name builder remains unchanged so
- * settings and other account-facing surfaces keep their existing behavior.
- */
-function buildPrivateCodexAccountLabel(
-  account: CodexAccount,
-  displayName: string,
-  ordinal: number,
-  hidePersonalInfo: boolean,
-  accountWord: string,
-): PrivateCodexAccountLabel {
-  if (hidePersonalInfo) {
-    const label = `${accountWord} ${ordinal}`;
-    return { label, tooltip: label };
-  }
-
-  const label = displayName || account.nickname || "Workspace";
-  return { label, tooltip: label };
-}
 
 /**
  * Multi-account lane surface for the Codex tray menu card (ADR 0003,
@@ -122,9 +96,12 @@ export default function CodexAccountsMenu({
     return null;
   }
 
-  const accountDisplayNames = buildCodexAccountDisplayNames(
+  const accountDisplayNames = buildCodexAccountSurfaceLabels(
     accounts,
     displayNames,
+    accountOrdinals,
+    hideEmail,
+    t("Account"),
   );
 
   return (
@@ -140,20 +117,14 @@ export default function CodexAccountsMenu({
       )}
       <ul className="codex-menu-accounts__list">
         {accounts.map((account) => {
-          const privateLabel = buildPrivateCodexAccountLabel(
-            account,
-            accountDisplayNames[account.id] ?? "",
-            accountOrdinals[account.id],
-            hideEmail,
-            t("Account"),
-          );
+          const label = accountDisplayNames[account.id];
           return (
             <CodexAccountRow
               key={account.id}
               account={account}
               snapshot={snapshots[account.id]}
-              displayName={privateLabel.label}
-              tooltip={privateLabel.tooltip}
+              displayName={label}
+              tooltip={label}
               resetTimeRelative={resetTimeRelative}
               busy={busy}
               onSwitch={handleSwitch}
