@@ -247,6 +247,7 @@ NextExpiresInDaysHours = 下一張將在 { "{}" } 天 { "{}" } 小時後過期
 NextExpiresInHoursMinutes = 下一張將在 { "{}" } 小時 { "{}" } 分鐘後過期
 NextExpiresInMinutes = 下一張將在 { "{}" } 分鐘後過期
 NextExpiresDueNow = 即將過期
+InventoryAvailableCount = { "{}" } available
 FloatBarShowCost = 顯示本機費用
 FloatBarShowCostDescription = 在浮動列中顯示本機使用量的估算費用。
 TrayDisplayTitle = 系統匣顯示

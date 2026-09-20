@@ -50,7 +50,7 @@ pub use redactor::*;
 pub use session_equivalent_forecast::*;
 pub use session_quota::*;
 pub use sqlite::*;
-pub(crate) use timezone::local_timezone_name;
+pub use timezone::local_timezone_name;
 pub use token_accounts::*;
 pub use usage_pace::*;
 pub use usage_snapshot::*;

@@ -85,6 +85,7 @@ fn artifacts(collection: SnapshotCollection) -> SnapshotArtifacts<MetricsSnapsho
         collection,
         identity: DashboardIdentity::Full,
         version: Some("0.56.8".to_string()),
+        usage_bars_show_used: None,
     };
     SnapshotArtifacts {
         dashboard: build_snapshot(&input),

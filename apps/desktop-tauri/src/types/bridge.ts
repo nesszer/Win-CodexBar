@@ -371,7 +371,7 @@ export interface UsageSpendRow {
   thirtyDayTokens?: number | null;
   currency: string;
   source: string;
-  includedInOverview?: boolean;
+  includedInOverview: boolean;
   daily?: UsageSpendDailyPoint[];
   /** F8: true when served from stale cache while a re-scan is in progress. */
   refreshing?: boolean;
@@ -382,6 +382,8 @@ export interface UsageSpendRow {
 export interface UsageSpendSummary {
   rows: UsageSpendRow[];
   contract: SpendContract;
+  reportingDay: string;
+  dashboardTimezone: string;
 }
 
 export type CostProvenance = "listPriceEstimate" | "vendorMetered" | "mixed" | "unknown";
@@ -595,6 +597,13 @@ export interface SubscriptionMetadataSnapshot {
   renewsAt: string | null;
 }
 
+export interface ProviderInventoryItem {
+  id: string;
+  title: string;
+  availableCount: number;
+  nextExpiresAt: string | null;
+}
+
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
   | "ready"
@@ -621,6 +630,8 @@ export interface ProviderUsageSnapshot {
     title: string;
     window: RateWindowSnapshot;
   }>;
+  /** Display-only discrete provider inventory; never used as quota math. */
+  inventory?: ProviderInventoryItem[];
   cost: CostSnapshotBridge | null;
   planName: string | null;
   accountEmail: string | null;
@@ -890,11 +901,15 @@ export interface ProviderDetail {
   weekly: RateWindowSnapshot | null;
   modelSpecific: RateWindowSnapshot | null;
   tertiary: RateWindowSnapshot | null;
+  /** Locale key for the tertiary metric lane when it carries a semantic label (upstream F5). */
+  tertiaryLabelKey?: string | null;
   extraRateWindows: Array<{
     id: string;
     title: string;
     window: RateWindowSnapshot;
   }>;
+  /** Display-only discrete provider inventory; never used as quota math. */
+  inventory?: ProviderInventoryItem[];
 
   cost: CostSnapshotBridge | null;
   pace: PaceSnapshot | null;

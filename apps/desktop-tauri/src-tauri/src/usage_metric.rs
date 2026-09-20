@@ -296,6 +296,7 @@ mod tests {
             tertiary: None,
             tertiary_label: None,
             extra_rate_windows: Vec::new(),
+            inventory: Vec::new(),
             cost: None,
             plan_name: None,
             account_email: None,

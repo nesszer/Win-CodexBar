@@ -271,6 +271,7 @@ export const ALL_LOCALE_KEYS = [
   "NextExpiresInHoursMinutes",
   "NextExpiresInMinutes",
   "NextExpiresDueNow",
+  "InventoryAvailableCount",
   "TrayDisplayTitle",
   "ShowInTray",
   "CreditsLabel",

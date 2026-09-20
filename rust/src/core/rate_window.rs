@@ -209,26 +209,7 @@ impl RateWindow {
 
     /// Format the reset time as a countdown string
     pub fn format_countdown(&self) -> Option<String> {
-        let resets_at = self.resets_at?;
-        let now = Utc::now();
-
-        if resets_at <= now {
-            return Some("now".to_string());
-        }
-
-        let duration = resets_at - now;
-        let hours = duration.num_hours();
-        let total_minutes = ((duration.num_seconds() + 59) / 60).max(1);
-        let minutes = total_minutes % 60;
-
-        if hours > 24 {
-            let days = hours / 24;
-            Some(format!("{}d {}h", days, hours % 24))
-        } else if hours > 0 {
-            Some(format!("{}h {}m", hours, minutes))
-        } else {
-            Some(format!("{}m", minutes))
-        }
+        Some(format_countdown_until(self.resets_at?, Utc::now()))
     }
 
     fn finite_percent(value: f64) -> f64 {
@@ -272,6 +253,32 @@ fn days_in_month(year: i32, month: u32) -> u32 {
 impl Default for RateWindow {
     fn default() -> Self {
         Self::new(0.0)
+    }
+}
+
+/// Canonical countdown formatting for any future deadline (`{d}d {h}h`,
+/// `{h}h {m}m`, `{m}m`, or `"now"` once elapsed).
+///
+/// [`RateWindow::format_countdown`] delegates here so every surface (tray,
+/// CLI, inventory rows) renders one countdown dialect; the 24-hour boundary
+/// is intentionally `> 24` (exactly 24h renders `"24h 0m"`).
+pub fn format_countdown_until(until: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    if until <= now {
+        return "now".to_string();
+    }
+
+    let duration = until - now;
+    let hours = duration.num_hours();
+    let total_minutes = ((duration.num_seconds() + 59) / 60).max(1);
+    let minutes = total_minutes % 60;
+
+    if hours > 24 {
+        let days = hours / 24;
+        format!("{}d {}h", days, hours % 24)
+    } else if hours > 0 {
+        format!("{}h {}m", hours, minutes)
+    } else {
+        format!("{}m", minutes)
     }
 }
 
@@ -426,5 +433,21 @@ mod tests {
         assert_eq!(RateWindowCadence::Weekly.label_key(), "weekly");
         assert_eq!(RateWindowCadence::Monthly.label_key(), "monthly");
         assert_eq!(RateWindowCadence::Unknown.label_key(), "unknown");
+    }
+
+    #[test]
+    fn countdown_exactly_24h_renders_hours_not_days() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 20, 12, 0, 0).unwrap();
+        let until = now + chrono::Duration::hours(24);
+
+        assert_eq!(format_countdown_until(until, now), "24h 0m");
+    }
+
+    #[test]
+    fn countdown_elapsed_deadline_renders_now() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 20, 12, 0, 0).unwrap();
+        let until = now - chrono::Duration::seconds(5);
+
+        assert_eq!(format_countdown_until(until, now), "now");
     }
 }

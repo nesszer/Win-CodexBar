@@ -247,6 +247,7 @@ NextExpiresInDaysHours = 下一张将在 { "{}" } 天 { "{}" } 小时后过期
 NextExpiresInHoursMinutes = 下一张将在 { "{}" } 小时 { "{}" } 分钟后过期
 NextExpiresInMinutes = 下一张将在 { "{}" } 分钟后过期
 NextExpiresDueNow = 即将过期
+InventoryAvailableCount = { "{}" } available
 FloatBarShowCost = 显示本地费用
 FloatBarShowCostDescription = 在浮动栏中显示本地使用量的估算费用。
 TrayDisplayTitle = 托盘显示

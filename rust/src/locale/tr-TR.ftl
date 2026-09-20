@@ -253,6 +253,7 @@ NextExpiresInDaysHours = Sonraki süre bitimine { "{}" } g { "{}" } sa
 NextExpiresInHoursMinutes = Sonraki süre bitimine { "{}" } sa { "{}" } dk
 NextExpiresInMinutes = Sonraki süre bitimine { "{}" } dk
 NextExpiresDueNow = Süresi şimdi doluyor
+InventoryAvailableCount = { "{}" } available
 FloatBarShowCost = Yerel Maliyeti Göster
 FloatBarShowCostDescription = Yüzen çubukta tahmini yerel kullanım maliyetini gösterir.
 TrayDisplayTitle = Tepsi Görünümü

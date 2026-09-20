@@ -34,6 +34,7 @@ impl GeminiProvider {
                 is_primary: false,
                 dashboard_url: Some("https://aistudio.google.com"),
                 status_page_url: Some("https://status.cloud.google.com"),
+                tertiary_label_key: None,
             },
             api: GeminiApi::new(),
         }

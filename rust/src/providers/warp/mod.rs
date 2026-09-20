@@ -134,6 +134,7 @@ impl WarpProvider {
                 is_primary: false,
                 dashboard_url: Some("https://docs.warp.dev/reference/cli/api-keys"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

@@ -247,6 +247,7 @@ NextExpiresInDaysHours = Próximo vence en { "{}" }d { "{}" }h
 NextExpiresInHoursMinutes = Próximo vence en { "{}" }h { "{}" }m
 NextExpiresInMinutes = Próximo vence en { "{}" }m
 NextExpiresDueNow = Vence ahora
+InventoryAvailableCount = { "{}" } available
 FloatBarShowCost = Mostrar costo local
 FloatBarShowCostDescription = Muestra el costo estimado del uso local en la barra flotante.
 TrayDisplayTitle = Pantalla de bandeja

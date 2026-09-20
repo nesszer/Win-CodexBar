@@ -231,6 +231,7 @@ NextExpiresInDaysHours = Срок действия следующего исте
 NextExpiresInHoursMinutes = Срок действия следующего истекает через { "{}" }h { "{}" }m
 NextExpiresInMinutes = Срок действия следующего истекает через { "{}" }m
 NextExpiresDueNow = Срок действия истекает сейчас
+InventoryAvailableCount = { "{}" } available
 FloatBarShowCost = Показать местную стоимость
 FloatBarShowCostDescription = Показывает расчетную стоимость местного использования на плавающей полосе.
 TrayDisplayTitle = Дисплей лотка

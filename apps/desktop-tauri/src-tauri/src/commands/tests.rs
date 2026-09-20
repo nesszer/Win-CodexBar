@@ -8,8 +8,8 @@ use crate::state::AppState;
 use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
 use codexbar::core::{
-    FetchContext, ProviderAccountData, ProviderError, ProviderFetchResult, ProviderId, SourceMode,
-    TokenAccount, instantiate_provider,
+    FetchContext, ProviderAccountData, ProviderError, ProviderFetchResult, ProviderId,
+    ProviderInventoryItem, SourceMode, TokenAccount, instantiate_provider,
 };
 use codexbar::host::session::launch_block_reason;
 use codexbar::settings::{ApiKeys, Language, ManualCookies, Settings};
@@ -982,6 +982,34 @@ fn local_opencodego_estimates_keep_quota_windows_but_drop_derived_pace() {
 }
 
 #[test]
+fn provider_inventory_maps_to_the_bridge_without_token_ids() {
+    let expiry = chrono::DateTime::<chrono::Utc>::from_timestamp(1_900_000_000, 0).unwrap();
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(12.0)),
+        "web",
+    )
+    .with_inventory_item(ProviderInventoryItem {
+        id: "reset-credits".to_string(),
+        title: "Limit Reset Credits".to_string(),
+        available_count: 2,
+        next_expires_at: Some(expiry),
+    });
+    let metadata = instantiate_provider(ProviderId::Grok).metadata().clone();
+    let snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Grok, &metadata, &result, None);
+
+    assert_eq!(snapshot.inventory.len(), 1);
+    assert_eq!(snapshot.inventory[0].available_count, 2);
+    assert_eq!(
+        snapshot.inventory[0].next_expires_at.as_deref(),
+        Some("2030-03-17T17:46:40+00:00")
+    );
+    let serialized = serde_json::to_string(&snapshot).unwrap();
+    assert!(serialized.contains("reset-credits"));
+    assert!(!serialized.contains("coupon-token-secret"));
+}
+
+#[test]
 fn provider_cache_is_fresh_inside_stale_window() {
     assert!(super::is_provider_cache_fresh(
         Some(std::time::Instant::now()),
@@ -1057,6 +1085,7 @@ fn provider_cache_upsert_replaces_existing_provider() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "CLI".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1083,6 +1112,7 @@ fn provider_cache_prunes_disabled_providers() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "CLI".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1116,6 +1146,7 @@ fn hiding_codex_spark_rows_preserves_other_extra_usage() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "CLI".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1149,6 +1180,7 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1184,6 +1216,7 @@ fn codex_transient_transport_failure_helper_uses_typed_policy() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1218,6 +1251,7 @@ fn claude_repeated_auth_failure_surfaces_error() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1259,6 +1293,7 @@ fn claude_cloudflare_challenge_retains_prior_usage_while_surfaceing_guidance() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1311,6 +1346,7 @@ fn claude_cloudflare_challenge_keeps_prior_usage_when_guidance_surfaces() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "Web".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1360,6 +1396,7 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "CLI".to_string(),
         has_successful_claude_cli_quota: true,
         pace_authoritative: true,
@@ -1405,6 +1442,7 @@ fn claude_hard_credentials_missing_does_not_preserve_stale() {
         usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1575,6 +1613,7 @@ fn japanese_provider_snapshot_localizes_weekly_label() {
         usage,
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,
@@ -1607,6 +1646,7 @@ fn japanese_provider_snapshot_localizes_pace_reserve_description() {
         usage,
         cost: None,
         wayfinder_usage: None,
+        inventory: Vec::new(),
         source_label: "OAuth".to_string(),
         has_successful_claude_cli_quota: false,
         pace_authoritative: true,

@@ -19,6 +19,7 @@ import { formatEta } from "../lib/formatEta";
 import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
+import { InventoryItemRow } from "./InventoryRows";
 import { getPaceBudget, type PaceBudget } from "../lib/paceBudget";
 import PaceDetailsChart from "./PaceDetailsChart";
 
@@ -415,6 +416,7 @@ function MetricRow({
 
 export interface MenuCardPresence {
   hasMetrics: boolean;
+  hasInventory: boolean;
   hasCost: boolean;
   hasPace: boolean;
   hasCharts: boolean;
@@ -459,6 +461,7 @@ export function describeCard(
   const localUsage = provider.error ? null : chartData?.localUsage ?? null;
   const wayfinderUsage = isWayfinder ? provider.wayfinderUsage : null;
   const hasMetrics = visibleMetrics.length > 0;
+  const hasInventory = !provider.error && (provider.inventory?.length ?? 0) > 0;
   const hasCost =
     !!provider.cost &&
     (costSummaryDisplayStyle !== "hidden" || provider.cost.alwaysVisible === true);
@@ -468,16 +471,20 @@ export function describeCard(
     !!provider.pace;
   const hasDetails =
     !provider.error &&
-    (hasMetrics || hasCost || hasPace || hasCharts || !!localUsage || !!wayfinderUsage) &&
+    (hasMetrics ||
+      hasInventory ||
+      hasCost ||
+      hasPace ||
+      hasCharts ||
+      !!localUsage ||
+      !!wayfinderUsage) &&
     // Compact Overview suppresses supplemental sections entirely; a card
     // whose only content would be suppressed renders header-only so no empty
     // divider or details container appears.
-    (!compactOverview ||
-      hasMetrics ||
-      !!wayfinderUsage ||
-      hasPace);
+    (!compactOverview || hasMetrics || !!wayfinderUsage || hasPace);
   return {
     hasMetrics,
+    hasInventory,
     hasCost,
     hasPace,
     hasCharts,
@@ -516,6 +523,7 @@ export default function MenuCardDetails({
 
   const {
     hasMetrics,
+    hasInventory,
     hasCost,
     hasPace,
     hasCharts,
@@ -546,6 +554,20 @@ export default function MenuCardDetails({
                 );
                 requestAnimationFrame(() => onLayoutChange?.());
               }}
+            />
+          ))}
+        </section>
+      )}
+
+      {!provider.error && hasInventory && (
+        <section className="menu-card__group menu-card__inventory">
+          {provider.inventory?.map((item) => (
+            <InventoryItemRow
+              key={item.id}
+              item={item}
+              resetTimeRelative={display.resetTimeRelative}
+              lineClassName="menu-card__cost-line"
+              expiryClassName="menu-card__cost-line--muted"
             />
           ))}
         </section>
@@ -723,3 +745,4 @@ export default function MenuCardDetails({
     </div>
   );
 }
+

@@ -178,6 +178,17 @@ pub struct SubscriptionMetadataSnapshot {
     pub renews_at: Option<String>,
 }
 
+/// Display-only provider inventory. Redemption identifiers never cross the
+/// bridge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInventoryItemSnapshot {
+    pub id: String,
+    pub title: String,
+    pub available_count: u32,
+    pub next_expires_at: Option<String>,
+}
+
 /// A frontend-friendly snapshot of one provider's usage data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -200,6 +211,8 @@ pub struct ProviderUsageSnapshot {
     pub tertiary: Option<RateWindowSnapshot>,
     #[serde(default)]
     pub extra_rate_windows: Vec<NamedRateWindowSnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inventory: Vec<ProviderInventoryItemSnapshot>,
     #[serde(default)]
     pub cost: Option<CostSnapshotBridge>,
     #[serde(default)]
@@ -384,6 +397,16 @@ impl ProviderUsageSnapshot {
                     window: RateWindowSnapshot::from_rate_window(&extra.window),
                 })
                 .collect(),
+            inventory: result
+                .inventory
+                .iter()
+                .map(|item| ProviderInventoryItemSnapshot {
+                    id: item.id.clone(),
+                    title: item.title.clone(),
+                    available_count: item.available_count,
+                    next_expires_at: item.next_expires_at.map(|date| date.to_rfc3339()),
+                })
+                .collect(),
             cost: result.cost.as_ref().map(|c| CostSnapshotBridge {
                 used: c.used,
                 limit: c.limit,
@@ -461,6 +484,7 @@ impl ProviderUsageSnapshot {
             tertiary: None,
             tertiary_label: None,
             extra_rate_windows: Vec::new(),
+            inventory: Vec::new(),
             cost: None,
             plan_name: None,
             account_email: None,

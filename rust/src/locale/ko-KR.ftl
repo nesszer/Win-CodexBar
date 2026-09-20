@@ -247,6 +247,7 @@ NextExpiresInDaysHours = 다음 만료까지 { "{}" }일 { "{}" }시간
 NextExpiresInHoursMinutes = 다음 만료까지 { "{}" }시간 { "{}" }분
 NextExpiresInMinutes = 다음 만료까지 { "{}" }분
 NextExpiresDueNow = 곧 만료
+InventoryAvailableCount = { "{}" } available
 FloatBarShowCost = 로컬 비용 표시
 FloatBarShowCostDescription = 플로팅 바에 로컬 사용량의 예상 비용을 표시합니다.
 TrayDisplayTitle = 트레이 표시
