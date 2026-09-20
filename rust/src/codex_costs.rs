@@ -1,219 +1,38 @@
 //! Codex local-log cost aggregation helpers.
+//!
+//! The SSH wire contract lives in [`summary_contract`]; this module owns the
+//! local-scan aggregation and pricing logic.
 
-use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
-use serde::{Deserialize, Serialize};
+mod host_costs;
+mod summary_contract;
+
+pub(crate) use host_costs::{CodexHostCostsArgs, HostOutputFormat, run_codex_host_costs};
+pub(crate) use summary_contract::{
+    CodexCostSummary, CodexHostCostReport, CodexHostCostWindow, CodexHostOutcome,
+    MAX_REMOTE_CODEX_COST_BYTES, REMOTE_CODEX_COST_INVALID, REMOTE_CODEX_COST_UNAVAILABLE,
+    decode_remote_codex_summary,
+};
+
+use chrono::{Duration, Local, NaiveDate, Utc};
 use std::collections::HashSet;
 use std::path::Path;
 
 use crate::core::{
-    CodexUsageRecord, CostUsageDayRange, CostUsagePricing, JsonlScanner, ProviderId,
+    CodexUsageRecord, CostUsageCache, CostUsageDayRange, CostUsagePricing, JsonlScanner,
     is_unpriced_codex_routing_model,
 };
 use crate::cost_scanner::{CostSummary, ModelPricingCompleteness, ModelTokenCounts};
-use crate::spend_contract::{CostCoverageCounts, CostProvenance};
+use crate::spend_contract::CostCoverageCounts;
 
-pub(crate) const CODEX_COST_SUMMARY_SCHEMA_VERSION: u32 = 1;
-pub(crate) const MAX_REMOTE_CODEX_COST_BYTES: usize = 16 * 1024;
-pub(crate) const REMOTE_CODEX_COST_UNAVAILABLE: &str = "Could not read remote Codex costs. Check SSH and that the remote CodexBar CLI supports --summary-only.";
-pub(crate) const REMOTE_CODEX_COST_INVALID: &str = "The remote CLI returned an unsupported or invalid cost summary. Update CodexBar on the remote host.";
-
-/// A path-free, host-local cost window used by the SSH comparison transport.
-///
-/// The local scanner does not expose per-request incomplete counts, so the
-/// count remains zero while `history_coverage_established` carries the
-/// scanner's authoritative complete/partial distinction.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CodexHostCostWindow {
-    pub total_tokens: Option<u64>,
-    #[serde(rename = "costUSD")]
-    pub cost_usd: Option<f64>,
-    pub incomplete_request_count: u32,
-    pub coverage: CostCoverageCounts,
-    pub provenance: CostProvenance,
-}
-
-impl CodexHostCostWindow {
-    fn from_summary(summary: &CostSummary) -> Self {
-        let coverage = coverage_from_summary(summary);
-        let provenance = if coverage.estimated > 0 {
-            CostProvenance::ListPriceEstimate
-        } else {
-            CostProvenance::Unknown
-        };
-        let complete = summary.history_coverage_established;
-        let total_tokens =
-            complete.then_some(summary.input_tokens.saturating_add(summary.output_tokens));
-        let cost_usd = complete
-            .then_some(summary.total_cost_usd)
-            .filter(|cost| cost.is_finite() && *cost >= 0.0);
-
-        Self {
-            total_tokens,
-            cost_usd,
-            incomplete_request_count: 0,
-            coverage,
-            provenance,
-        }
-    }
-
-    fn validate(&self) -> Result<(), String> {
-        if self
-            .cost_usd
-            .is_some_and(|cost| !cost.is_finite() || cost < 0.0)
-            || self.incomplete_request_count > i32::MAX as u32
-        {
-            return Err(REMOTE_CODEX_COST_INVALID.to_string());
-        }
-
-        let mut total = 0_u32;
-        for value in [
-            self.coverage.priced,
-            self.coverage.unpriced,
-            self.coverage.unmetered,
-            self.coverage.estimated,
-        ] {
-            total = total
-                .checked_add(value)
-                .ok_or_else(|| REMOTE_CODEX_COST_INVALID.to_string())?;
-        }
-        let _ = total;
-        Ok(())
-    }
-}
-
-/// Versioned, path-free Codex cost summary exchanged over SSH.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CodexCostSummary {
-    pub schema_version: u32,
-    pub provider: String,
-    pub updated_at: DateTime<Utc>,
-    pub bucket_time_zone: String,
-    pub currency_code: String,
-    pub history_days: u32,
-    pub history_coverage_is_established: bool,
-    pub today: CodexHostCostWindow,
-    pub history: CodexHostCostWindow,
-}
-
-impl CodexCostSummary {
-    pub(crate) fn from_summaries_at(
-        history: &CostSummary,
-        today: &CostSummary,
-        history_days: u32,
-        updated_at: DateTime<Utc>,
-        bucket_time_zone: impl Into<String>,
-    ) -> Self {
-        Self {
-            schema_version: CODEX_COST_SUMMARY_SCHEMA_VERSION,
-            provider: "codex".to_string(),
-            updated_at,
-            bucket_time_zone: bucket_time_zone.into(),
-            currency_code: "USD".to_string(),
-            history_days,
-            history_coverage_is_established: history.history_coverage_established,
-            today: CodexHostCostWindow::from_summary(today),
-            history: CodexHostCostWindow::from_summary(history),
-        }
-    }
-
-    pub(crate) fn validate(&self, expected_history_days: u32) -> Result<(), String> {
-        if self.schema_version != CODEX_COST_SUMMARY_SCHEMA_VERSION
-            || self.provider != "codex"
-            || !(1..=365).contains(&expected_history_days)
-            || self.history_days != expected_history_days
-            || self.currency_code != "USD"
-            || self.bucket_time_zone.parse::<chrono_tz::Tz>().is_err()
-            || !(0..=253_402_300_799).contains(&self.updated_at.timestamp())
-        {
-            return Err(REMOTE_CODEX_COST_INVALID.to_string());
-        }
-        if !self.history_coverage_is_established
-            && ([self.today.total_tokens, self.history.total_tokens]
-                .into_iter()
-                .any(|value| value.is_some())
-                || [self.today.cost_usd, self.history.cost_usd]
-                    .into_iter()
-                    .any(|value| value.is_some()))
-        {
-            return Err(REMOTE_CODEX_COST_INVALID.to_string());
-        }
-        self.today.validate()?;
-        self.history.validate()?;
-        Ok(())
-    }
-}
-
-/// One host's report in the comparison output. The error row preserves a
-/// successful local report when the SSH host is unavailable.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CodexHostCostReport {
-    pub host: String,
-    pub source: String,
-    pub summary: Option<CodexCostSummary>,
-    pub error: Option<String>,
-}
-
-impl CodexHostCostReport {
-    pub(crate) fn success(
-        host: impl Into<String>,
-        source: impl Into<String>,
-        summary: CodexCostSummary,
-    ) -> Self {
-        Self {
-            host: host.into(),
-            source: source.into(),
-            summary: Some(summary),
-            error: None,
-        }
-    }
-
-    pub(crate) fn failure(
-        host: impl Into<String>,
-        source: impl Into<String>,
-        error: impl Into<String>,
-    ) -> Self {
-        Self {
-            host: host.into(),
-            source: source.into(),
-            summary: None,
-            error: Some(error.into()),
-        }
-    }
-}
-
-pub(crate) fn decode_remote_codex_summary(
-    output: &str,
-    history_days: u32,
-) -> Result<CodexCostSummary, String> {
-    if output.len() > MAX_REMOTE_CODEX_COST_BYTES {
-        return Err(REMOTE_CODEX_COST_INVALID.to_string());
-    }
-
-    let reports = serde_json::from_str::<Vec<CodexCostSummary>>(output)
-        .map_err(|_| REMOTE_CODEX_COST_INVALID.to_string())?;
-    if reports.len() != 1 {
-        return Err(REMOTE_CODEX_COST_INVALID.to_string());
-    }
-
-    let report = reports
-        .into_iter()
-        .next()
-        .ok_or_else(|| REMOTE_CODEX_COST_INVALID.to_string())?;
-    report.validate(history_days)?;
-    Ok(report)
-}
-
-/// Build the host summary after one native Codex scan. The persisted cache is
-/// already the exact decoded view used by the scan, so today's bucket can be
-/// folded without a second filesystem walk.
+/// Build the host summary from one native Codex scan. `today_cache` is the
+/// decoded cache the scan itself used, so today's bucket folds without a
+/// second filesystem walk or a second cache decode.
 pub(crate) fn build_codex_cost_summary(
     history: CostSummary,
+    today_cache: &CostUsageCache,
     history_days: u32,
 ) -> CodexCostSummary {
-    let today = codex_today_summary_from_cache(&history);
+    let today = codex_today_summary(&history, today_cache);
     CodexCostSummary::from_summaries_at(
         &history,
         &today,
@@ -223,10 +42,9 @@ pub(crate) fn build_codex_cost_summary(
     )
 }
 
-fn codex_today_summary_from_cache(history: &CostSummary) -> CostSummary {
+fn codex_today_summary(history: &CostSummary, cache: &CostUsageCache) -> CostSummary {
     let today = Local::now().date_naive();
     let range = CostUsageDayRange::new(today, today);
-    let cache = JsonlScanner::load_cache(ProviderId::Codex, None);
     let mut summary = CostSummary {
         period_start: Some(today),
         period_end: Some(today),
@@ -703,6 +521,7 @@ fn codex_cost_usd_fallback(model: &str, input: u64, cached: u64, output: u64) ->
 mod tests {
     use super::*;
     use crate::core::CodexUsageRecord;
+    use chrono::DateTime;
 
     #[test]
     fn test_codex_pricing() {
