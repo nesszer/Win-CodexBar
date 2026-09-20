@@ -22,6 +22,11 @@ use crate::core::{
 const BASE_URL: &str = "https://admin.mistral.ai";
 const COOKIE_DOMAINS: [&str; 3] = ["admin.mistral.ai", "mistral.ai", "auth.mistral.ai"];
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const CLIENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Optional subscription-page enrichment joins on a fast deadline so a slow
+/// `/subscription` render can never stall the refresh; degraded enrichment is
+/// logged and skipped, never fatal.
+const SUBSCRIPTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 
 #[derive(Debug, Deserialize)]
 struct BillingResponse {
@@ -171,7 +176,7 @@ impl MistralProvider {
                 status_page_url: Some("https://status.mistral.ai"),
             },
             client: crate::core::credentialed_http_client_builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(CLIENT_TIMEOUT)
                 .build()
                 .unwrap_or_else(|_| Client::new()),
         }
@@ -244,7 +249,7 @@ impl MistralProvider {
         let response = self
             .client
             .get(format!("{BASE_URL}/subscription"))
-            .timeout(std::time::Duration::from_secs(4))
+            .timeout(SUBSCRIPTION_TIMEOUT)
             .header("Accept", "text/html")
             .header("Accept-Language", "en-US,en;q=0.9")
             .header("Cookie", cookie_header)
@@ -406,10 +411,8 @@ impl MistralProvider {
         let used = budget.used_amount();
         let remaining = budget.remaining_amount();
         let description = format!(
-            "{used:.2} {} / {limit:.2} {} · {remaining:.2} {} remaining",
-            budget.currency,
-            budget.currency,
-            budget.currency,
+            "{used:.2} {currency} / {limit:.2} {currency} · {remaining:.2} {currency} remaining",
+            currency = budget.currency,
             limit = budget.limit,
         );
         RateWindow::with_details(

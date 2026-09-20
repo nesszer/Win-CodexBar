@@ -1,8 +1,10 @@
 //! Parser for the authenticated Mistral subscription page.
 //!
-//! The page embeds a small React Flight stream.  Keep the parser local to the
-//! Mistral provider so a change in that page format cannot affect other
-//! providers or the shared snapshot contract.
+//! The page embeds a small React Flight stream: `self.__next_f.push` calls
+//! whose second element is a chunk of the Flight text. This parser scans the
+//! markers, joins the chunks, and reads the `0:<hex>:<JSON>` lines. Keep it
+//! local to the Mistral provider so a change in that page format cannot
+//! affect other providers or the shared snapshot contract.
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -38,9 +40,9 @@ pub(super) fn parse(html: &str) -> Result<SubscriptionBudgets, String> {
         collect_budgets(value, &mut matches);
     })?;
 
-    match matches.len() {
-        0 => Err("Mistral subscription budgets were not found".into()),
-        1 => Ok(matches.remove(0)),
+    match matches.as_slice() {
+        [] => Err("Mistral subscription budgets were not found".into()),
+        [budgets] => Ok(budgets.clone()),
         _ => Err("Mistral subscription budgets were ambiguous".into()),
     }
 }
@@ -57,7 +59,7 @@ fn flight_chunks(html: &str) -> Vec<String> {
         };
         let marker_start = cursor + offset;
         let mut start = marker_start + marker.len();
-        while start < bytes.len() && is_whitespace(bytes[start]) {
+        while start < bytes.len() && bytes[start].is_ascii_whitespace() {
             start += 1;
         }
         if start >= bytes.len() || bytes[start] != b'[' {
@@ -81,6 +83,8 @@ fn flight_chunks(html: &str) -> Vec<String> {
 }
 
 fn collect_models(data: &[u8], body: &mut impl FnMut(Value)) -> Result<(), String> {
+    // Advance past a scanned line, stopping at the final newlineless tail.
+    let advance = |line_end: usize| line_end.min(data.len().saturating_sub(1) + 1) + 1;
     let mut cursor = 0;
     while cursor < data.len() {
         let line_end = data[cursor..]
@@ -88,56 +92,23 @@ fn collect_models(data: &[u8], body: &mut impl FnMut(Value)) -> Result<(), Strin
             .position(|byte| *byte == b'\n')
             .map_or(data.len(), |offset| cursor + offset);
         let line = &data[cursor..line_end];
-        let Some(colon) = line.iter().position(|byte| *byte == b':') else {
-            cursor = if line_end < data.len() {
-                line_end + 1
-            } else {
-                line_end
-            };
+        let colon = line
+            .iter()
+            .position(|byte| *byte == b':')
+            .filter(|colon| *colon != 0 && line[..*colon].iter().all(u8::is_ascii_hexdigit));
+        let Some(colon) = colon else {
+            cursor = advance(line_end);
             continue;
         };
-        if colon == 0 || !line[..colon].iter().all(|byte| is_hex_digit(*byte)) {
-            cursor = if line_end < data.len() {
-                line_end + 1
-            } else {
-                line_end
-            };
-            continue;
-        }
 
         let start = cursor + colon + 1;
-        if start < line_end && is_length_delimited_tag(data[start]) {
-            let Some(comma_offset) = data[start..line_end].iter().position(|byte| *byte == b',')
-            else {
-                return Err("Mistral subscription Flight length record is malformed".into());
-            };
-            let length_bytes = &data[start + 1..start + comma_offset];
-            let Ok(length_text) = std::str::from_utf8(length_bytes) else {
-                return Err("Mistral subscription Flight length is not UTF-8".into());
-            };
-            let Ok(length) = usize::from_str_radix(length_text, 16) else {
-                return Err("Mistral subscription Flight length is invalid".into());
-            };
-            let payload_start = start + comma_offset + 1;
-            let payload_end = payload_start.saturating_add(length);
-            if payload_end > data.len() {
-                return Err("Mistral subscription Flight length exceeds the response".into());
-            }
-            cursor = payload_end;
-            continue;
-        }
-
         let payload = data[start..line_end].trim_ascii();
         if matches!(payload.first(), Some(b'[' | b'{'))
             && let Ok(value) = serde_json::from_slice::<Value>(payload)
         {
             body(value);
         }
-        cursor = if line_end < data.len() {
-            line_end + 1
-        } else {
-            line_end
-        };
+        cursor = advance(line_end);
     }
     Ok(())
 }
@@ -150,9 +121,7 @@ fn collect_budgets(value: Value, matches: &mut Vec<SubscriptionBudgets>) {
                     api: budget.get("api_budget").and_then(parse_budget),
                     vibe: budget.get("vibe_budget").and_then(parse_budget),
                 };
-                if (candidate.api.is_some() || candidate.vibe.is_some())
-                    && !matches.contains(&candidate)
-                {
+                if candidate.api.is_some() || candidate.vibe.is_some() {
                     matches.push(candidate);
                 }
             }
@@ -248,33 +217,6 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
-}
-
-fn is_hex_digit(byte: u8) -> bool {
-    byte.is_ascii_hexdigit()
-}
-
-fn is_length_delimited_tag(byte: u8) -> bool {
-    matches!(
-        byte,
-        b'T' | b'A'
-            | b'O'
-            | b'o'
-            | b'U'
-            | b'S'
-            | b's'
-            | b'L'
-            | b'l'
-            | b'G'
-            | b'g'
-            | b'M'
-            | b'm'
-            | b'V'
-    )
-}
-
-fn is_whitespace(byte: u8) -> bool {
-    matches!(byte, b'\t' | b'\n' | b'\r' | b' ')
 }
 
 #[cfg(test)]
