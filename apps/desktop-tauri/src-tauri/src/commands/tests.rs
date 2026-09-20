@@ -10,8 +10,6 @@ use crate::surface_target::SurfaceTarget;
 use codexbar::core::{
     FetchContext, ProviderAccountData, ProviderDisplayDetail, ProviderError, ProviderFetchResult,
     ProviderId, ProviderInventoryItem, SourceMode, TokenAccount, instantiate_provider,
-    FetchContext, ProviderAccountData, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderInventoryItem, SourceMode, TokenAccount, instantiate_provider,
 };
 use codexbar::host::session::launch_block_reason;
 use codexbar::settings::{ApiKeys, Language, ManualCookies, Settings};
@@ -1031,7 +1029,6 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
             .with_secondary_value("Monthly refill: 100")
             .with_progress(12.0, 100.0),
     );
-    });
     let metadata = instantiate_provider(ProviderId::Grok).metadata().clone();
     let snapshot =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Grok, &metadata, &result, None);
