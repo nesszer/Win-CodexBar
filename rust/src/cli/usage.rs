@@ -1,6 +1,5 @@
 //! Usage command implementation
 
-use chrono::{DateTime, Utc};
 use clap::Args;
 use serde::Serialize;
 
