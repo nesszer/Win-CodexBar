@@ -83,10 +83,19 @@ pub struct NamedRateWindow {
     /// In-memory presentation metadata only; external snapshot JSON stays stable.
     #[serde(default = "named_rate_window_usage_known_default", skip_serializing)]
     pub usage_known: bool,
+    /// Whether this lane is a fallback that only fills in when the provider
+    /// reports no real (non-informational) core quota window. In-memory
+    /// selection metadata only; external snapshot JSON stays stable.
+    #[serde(default = "named_rate_window_fallback_lane_default", skip_serializing)]
+    pub fallback_lane: bool,
 }
 
 fn named_rate_window_usage_known_default() -> bool {
     true
+}
+
+fn named_rate_window_fallback_lane_default() -> bool {
+    false
 }
 
 impl NamedRateWindow {
@@ -96,11 +105,17 @@ impl NamedRateWindow {
             title: title.into(),
             window,
             usage_known: true,
+            fallback_lane: false,
         }
     }
 
     pub fn with_usage_known(mut self, usage_known: bool) -> Self {
         self.usage_known = usage_known;
+        self
+    }
+
+    pub fn with_fallback_lane(mut self, fallback_lane: bool) -> Self {
+        self.fallback_lane = fallback_lane;
         self
     }
 }

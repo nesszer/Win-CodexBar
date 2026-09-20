@@ -17,6 +17,12 @@ const DEFAULT_GITHUB_HOST: &str = "github.com";
 const COPILOT_USAGE_PATH: &str = "/copilot_internal/user";
 const GITHUB_USER_PATH: &str = "/user";
 
+/// Stable id of the Automatic-only seat-credit fallback lane minted by
+/// `append_seat_credit_window`. Shell selection code consumes this constant;
+/// renaming the id must fail loudly instead of silently disabling the
+/// fallback.
+pub const SEAT_CREDIT_WINDOW_ID: &str = "copilot-seat-credits";
+
 // Credential Manager targets to try
 const CREDENTIAL_TARGETS: &[&str] = &[
     "codexbar-copilot",       // Our own storage
@@ -48,61 +54,11 @@ impl CopilotApi {
         Self { client }
     }
 
-    /// Fetch usage information from the default GitHub host.
-    pub async fn fetch_usage(&self, api_key: Option<&str>) -> Result<UsageSnapshot, ProviderError> {
-        self.fetch_usage_for_host(api_key, None).await
-    }
-
-    /// Fetch usage with the optional user-entered seat-credit denominator.
-    /// GitHub supplies the absolute counter but not an included-credit ceiling.
-    pub async fn fetch_usage_with_seat_entitlement(
-        &self,
-        api_key: Option<&str>,
-        seat_credit_entitlement: Option<f64>,
-    ) -> Result<UsageSnapshot, ProviderError> {
-        self.fetch_usage_for_host_with_seat_entitlement(api_key, None, seat_credit_entitlement)
-            .await
-    }
-
-    /// Fetch usage information from Copilot API, optionally targeting an
-    /// enterprise GitHub host. `github.com` maps to `api.github.com`; an
-    /// enterprise host maps to `api.<host>` unless it already starts with
-    /// `api.`.
-    pub async fn fetch_usage_for_host(
-        &self,
-        api_key: Option<&str>,
-        github_host: Option<&str>,
-    ) -> Result<UsageSnapshot, ProviderError> {
-        self.fetch_usage_for_host_with_seat_entitlement(api_key, github_host, None)
-            .await
-    }
-
-    async fn fetch_usage_for_host_with_seat_entitlement(
-        &self,
-        api_key: Option<&str>,
-        github_host: Option<&str>,
-        seat_credit_entitlement: Option<f64>,
-    ) -> Result<UsageSnapshot, ProviderError> {
-        let token = self.load_token(api_key, github_host)?;
-        self.fetch_usage_with_token_and_seat_entitlement(
-            &token,
-            github_host,
-            seat_credit_entitlement,
-        )
-        .await
-    }
-
-    /// Fetch usage with an already-resolved OAuth token.
+    /// Fetch usage information from Copilot API with an already-resolved
+    /// OAuth token, optionally targeting an enterprise GitHub host.
+    /// `github.com` maps to `api.github.com`; an enterprise host maps to
+    /// `api.<host>` unless it already starts with `api.`.
     pub async fn fetch_usage_with_token(
-        &self,
-        token: &str,
-        github_host: Option<&str>,
-    ) -> Result<UsageSnapshot, ProviderError> {
-        self.fetch_usage_with_token_and_seat_entitlement(token, github_host, None)
-            .await
-    }
-
-    async fn fetch_usage_with_token_and_seat_entitlement(
         &self,
         token: &str,
         github_host: Option<&str>,
@@ -176,7 +132,9 @@ impl CopilotApi {
             .map_err(|e| ProviderError::Parse(e.to_string()))
     }
 
-    fn load_token(
+    /// Resolve the Copilot OAuth token from settings/legacy API key, GitHub
+    /// CLI auth, or the Windows Credential Manager fallback chain.
+    pub fn load_token(
         &self,
         api_key: Option<&str>,
         github_host: Option<&str>,
@@ -332,10 +290,6 @@ struct QuotaSnapshot {
 
 // --- Snapshot building ---
 
-fn snapshot_from_response(response: CopilotUsageResponse) -> Result<UsageSnapshot, ProviderError> {
-    snapshot_from_response_with_seat_entitlement(response, None)
-}
-
 fn snapshot_from_response_with_seat_entitlement(
     response: CopilotUsageResponse,
     seat_credit_entitlement: Option<f64>,
@@ -422,24 +376,24 @@ fn append_seat_credit_window(
     seat_credit_entitlement: Option<f64>,
     reset: Option<DateTime<Utc>>,
 ) {
-    let Some(entitlement) =
-        seat_credit_entitlement.filter(|value| value.is_finite() && *value > 0.0)
-    else {
+    // The settings getter already rejects non-positive/invalid persisted
+    // values; only the division can still overflow (e.g. 1e308 / 1e-308).
+    let Some(entitlement) = seat_credit_entitlement.filter(|value| *value > 0.0) else {
         return;
     };
-    if !credits_used.is_finite() || credits_used < 0.0 {
-        return;
-    }
     let used_percent = (credits_used / entitlement) * 100.0;
     if !used_percent.is_finite() {
         return;
     }
 
-    usage.extra_rate_windows.push(NamedRateWindow::new(
-        "copilot-seat-credits",
-        "Credits used",
-        RateWindow::with_details(used_percent, None, reset, None),
-    ));
+    usage.extra_rate_windows.push(
+        NamedRateWindow::new(
+            SEAT_CREDIT_WINDOW_ID,
+            "Credits used",
+            RateWindow::with_details(used_percent, None, reset, None),
+        )
+        .with_fallback_lane(true),
+    );
 }
 
 /// Render the absolute credits counter (whole numbers without decimals).
@@ -856,12 +810,12 @@ mod tests {
 
     fn parse_snapshot(json: &str) -> UsageSnapshot {
         let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
-        snapshot_from_response(response).unwrap()
+        snapshot_from_response_with_seat_entitlement(response, None).unwrap()
     }
 
     fn parse_snapshot_result(json: &str) -> Result<UsageSnapshot, ProviderError> {
         let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
-        snapshot_from_response(response)
+        snapshot_from_response_with_seat_entitlement(response, None)
     }
 
     #[test]
@@ -1164,7 +1118,7 @@ mod tests {
         let seat = usage
             .extra_rate_windows
             .iter()
-            .find(|window| window.id == "copilot-seat-credits")
+            .find(|window| window.id == SEAT_CREDIT_WINDOW_ID)
             .expect("configured seat-credit window");
         assert!((seat.window.used_percent - 25.0).abs() < 0.001);
         assert!(!seat.window.is_informational);
@@ -1191,7 +1145,7 @@ mod tests {
             usage
                 .extra_rate_windows
                 .iter()
-                .any(|window| window.id == "copilot-seat-credits")
+                .any(|window| window.id == SEAT_CREDIT_WINDOW_ID)
         );
     }
 
@@ -1214,7 +1168,7 @@ mod tests {
             usage
                 .extra_rate_windows
                 .iter()
-                .all(|window| window.id != "copilot-seat-credits")
+                .all(|window| window.id != SEAT_CREDIT_WINDOW_ID)
         );
     }
 
@@ -1241,7 +1195,7 @@ mod tests {
             usage
                 .extra_rate_windows
                 .iter()
-                .all(|window| window.id != "copilot-seat-credits")
+                .all(|window| window.id != SEAT_CREDIT_WINDOW_ID)
         );
     }
 

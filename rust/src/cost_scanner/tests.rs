@@ -808,9 +808,9 @@ fn reasoning_survives_scan_rebuild_and_cache_reload() {
         .join(today.format("%m").to_string())
         .join(today.format("%d").to_string());
     std::fs::create_dir_all(&day_dir).unwrap();
-    let timestamp = (Utc::now() - Duration::hours(1))
-        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-        .to_string();
+    // Bucket by local time like the scanner does; a UTC timestamp minus an
+    // hour can cross local midnight and land outside the "today" directory.
+    let timestamp = Local::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let reasoning_line = serde_json::json!({
         "timestamp": timestamp,
         "type": "event_msg",

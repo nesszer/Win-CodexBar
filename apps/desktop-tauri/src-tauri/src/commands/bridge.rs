@@ -139,6 +139,10 @@ pub struct NamedRateWindowSnapshot {
     pub id: String,
     pub title: String,
     pub window: RateWindowSnapshot,
+    /// Whether this lane is a provider-declared fallback that only fills in
+    /// when the provider reports no real core quota window.
+    #[serde(default)]
+    pub fallback_lane: bool,
 }
 
 /// Pace prediction snapshot for tray/bridge display.
@@ -382,6 +386,7 @@ impl ProviderUsageSnapshot {
                     id: extra.id.clone(),
                     title: extra.title.clone(),
                     window: RateWindowSnapshot::from_rate_window(&extra.window),
+                    fallback_lane: extra.fallback_lane,
                 })
                 .collect(),
             cost: result.cost.as_ref().map(|c| CostSnapshotBridge {

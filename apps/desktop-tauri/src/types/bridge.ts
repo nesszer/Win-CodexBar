@@ -261,7 +261,10 @@ export interface SettingsSnapshot {
   claudeAllowReadingClaudeCodeCredentials: boolean;
   /** Alibaba Token Plan region: cn | intl | cn-personal | intl-personal. */
   alibabaTokenPlanRegion: string;
-  /** Optional user-entered Copilot seat AI-credit allowance. */
+  /**
+   * Optional user-entered Copilot seat AI-credit allowance.
+   * Snapshot-side null and absent are equivalent.
+   */
   copilotSeatCreditEntitlement?: number | null;
   /** Optional work-week length [2,6] for session-equivalent weekly forecast. */
   weeklyProgressWorkDays?: number | null;
@@ -621,6 +624,8 @@ export interface ProviderUsageSnapshot {
     id: string;
     title: string;
     window: RateWindowSnapshot;
+    /** Provider-declared fallback lane; only fills in without a core quota window. */
+    fallbackLane?: boolean;
   }>;
   cost: CostSnapshotBridge | null;
   planName: string | null;
@@ -895,6 +900,8 @@ export interface ProviderDetail {
     id: string;
     title: string;
     window: RateWindowSnapshot;
+    /** Provider-declared fallback lane; only fills in without a core quota window. */
+    fallbackLane?: boolean;
   }>;
 
   cost: CostSnapshotBridge | null;

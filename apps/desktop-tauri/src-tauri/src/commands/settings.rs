@@ -290,7 +290,7 @@ impl SettingsUpdate {
         Ok(self)
     }
 
-    fn apply_advanced_settings(self, settings: &mut Settings) -> Result<Self, String> {
+    fn apply_advanced_settings(self, settings: &mut Settings) -> Self {
         if let Some(v) = self.enable_animations {
             settings.enable_animations = v;
         }
@@ -369,17 +369,6 @@ impl SettingsUpdate {
                 region.as_str(),
             );
         }
-        if let Some(value) = self.copilot_seat_credit_entitlement {
-            if let Some(value) = value
-                && (!value.is_finite() || value <= 0.0)
-            {
-                return Err(
-                    "Copilot seat AI-credit allowance must be a finite number greater than zero"
-                        .to_string(),
-                );
-            }
-            settings.set_seat_credit_entitlement(codexbar::core::ProviderId::Copilot, value);
-        }
         if let Some(v) = self.weekly_progress_work_days {
             settings.weekly_progress_work_days = if (2..=6).contains(&v) { Some(v) } else { None };
         }
@@ -390,7 +379,7 @@ impl SettingsUpdate {
         {
             settings.cost_summary_display_style = v;
         }
-        Ok(self)
+        self
     }
 
     fn float_bar_patch(&self) -> crate::floatbar::SettingsPatch {
@@ -414,12 +403,15 @@ impl SettingsUpdate {
         {
             return Err(format!("Invalid low power mode preference: {value}"));
         }
+        if let Some(value) = self.copilot_seat_credit_entitlement {
+            settings.set_seat_credit_entitlement(codexbar::core::ProviderId::Copilot, value)?;
+        }
         let float_bar_patch = self.float_bar_patch();
         self.apply_provider_settings(settings)
             .apply_general_settings(settings)?
             .apply_display_settings(settings)
             .apply_notification_settings(settings)?
-            .apply_advanced_settings(settings)?;
+            .apply_advanced_settings(settings);
         float_bar_patch.apply(settings);
         Ok(float_bar_patch)
     }
@@ -590,16 +582,14 @@ mod tests {
             claude_allow_reading_claude_code_credentials: Some(true),
             ..Default::default()
         }
-        .apply_advanced_settings(&mut settings)
-        .unwrap();
+        .apply_advanced_settings(&mut settings);
         assert!(settings.claude_allow_reading_claude_code_credentials);
 
         SettingsUpdate {
             claude_allow_reading_claude_code_credentials: Some(false),
             ..Default::default()
         }
-        .apply_advanced_settings(&mut settings)
-        .unwrap();
+        .apply_advanced_settings(&mut settings);
         assert!(!settings.claude_allow_reading_claude_code_credentials);
     }
 
@@ -615,6 +605,22 @@ mod tests {
         let value: SettingsUpdate =
             serde_json::from_str(r#"{"copilotSeatCreditEntitlement":300}"#).unwrap();
         assert_eq!(value.copilot_seat_credit_entitlement, Some(Some(300.0)));
+    }
+
+    #[test]
+    fn invalid_copilot_seat_credit_update_is_rejected_by_the_settings_setter() {
+        let mut settings = Settings::default();
+
+        let update: SettingsUpdate =
+            serde_json::from_str(r#"{"copilotSeatCreditEntitlement":-5}"#).unwrap();
+        let error = update
+            .apply_to(&mut settings)
+            .expect_err("invalid allowance must be rejected");
+        assert_eq!(
+            error,
+            "Copilot seat AI-credit allowance must be a finite number greater than zero"
+        );
+        assert_eq!(settings.seat_credit_entitlement(ProviderId::Copilot), None);
     }
 
     #[test]

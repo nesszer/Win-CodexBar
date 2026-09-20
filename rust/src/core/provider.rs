@@ -786,6 +786,23 @@ pub trait Provider: Send + Sync {
         true
     }
 
+    /// Whether an explicit (non-Automatic) metric preference whose lane is
+    /// unavailable should still fall through to Automatic selection. Providers
+    /// with Automatic-only fallback lanes (seat credits) override this to
+    /// `false` so an explicit choice is never silently replaced by fallback
+    /// progress.
+    fn explicit_preference_falls_through_to_automatic(&self) -> bool {
+        true
+    }
+
+    /// Whether Automatic metric selection is a dead end when the primary lane
+    /// is informational and no secondary lane exists. Providers with
+    /// Automatic-only fallback lanes (seat credits) override this to `false`
+    /// so the fallback lane can still fill in.
+    fn automatic_metric_missing_core_is_terminal(&self) -> bool {
+        true
+    }
+
     /// Whether browser-cookie discovery/recovery is owned by the provider.
     fn owns_browser_cookie_resolution(&self) -> bool {
         false
