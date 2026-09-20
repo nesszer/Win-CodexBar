@@ -151,6 +151,7 @@ function settings(): SettingsSnapshot {
     resetTimeRelative: true,
     showResetWhenExhausted: false,
     menuBarDisplayMode: "detailed",
+    overviewLayout: "detailed",
     hidePersonalInfo: false,
     updateChannel: "stable",
     autoDownloadUpdates: false,

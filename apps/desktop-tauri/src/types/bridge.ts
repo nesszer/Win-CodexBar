@@ -69,6 +69,7 @@ export type UpdateChannel = "stable" | "beta";
 export type ThemePreference = "auto" | "light" | "dark";
 
 export type MenuBarDisplayMode = "minimal" | "compact" | "detailed";
+export type OverviewLayout = "detailed" | "compact";
 
 /** How cost is rendered on provider MenuCards (#2976). */
 export type CostSummaryDisplayStyle = "compact" | "detailed" | "hidden";
@@ -198,6 +199,7 @@ export interface SettingsSnapshot {
   resetTimeRelative: boolean;
   showResetWhenExhausted: boolean;
   menuBarDisplayMode: MenuBarDisplayMode;
+  overviewLayout: OverviewLayout;
   hidePersonalInfo: boolean;
   updateChannel: UpdateChannel;
   autoDownloadUpdates: boolean;
@@ -301,6 +303,7 @@ export interface SettingsUpdate {
   resetTimeRelative?: boolean;
   showResetWhenExhausted?: boolean;
   menuBarDisplayMode?: MenuBarDisplayMode;
+  overviewLayout?: OverviewLayout;
   hidePersonalInfo?: boolean;
   updateChannel?: UpdateChannel;
   autoDownloadUpdates?: boolean;

@@ -164,6 +164,10 @@ pub struct Settings {
     /// Menu bar display mode: "minimal", "compact", or "detailed"
     pub menu_bar_display_mode: String,
 
+    /// Overview card layout: "detailed" or "compact".
+    #[serde(default = "default_overview_layout")]
+    pub overview_layout: String,
+
     /// Show all token accounts in provider menus instead of collapsing behind switchers
     #[serde(default)]
     pub show_all_token_accounts_in_menu: bool,
@@ -522,6 +526,7 @@ impl Default for Settings {
             predictive_pace_warning_enabled: false,
             show_pace: true,
             menu_bar_display_mode: "detailed".to_string(), // Detailed mode by default
+            overview_layout: default_overview_layout(),
             show_all_token_accounts_in_menu: false,
             provider_configs: HashMap::new(),
             disable_keychain_access: false,
@@ -566,6 +571,18 @@ impl Default for Settings {
             open_codex_usage_logs_enabled: false,
             hide_native_codex_cost_when_open_codex_present: false,
         }
+    }
+}
+
+fn default_overview_layout() -> String {
+    "detailed".to_string()
+}
+
+pub(crate) fn normalize_overview_layout(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "compact" => "compact".to_string(),
+        "detailed" => "detailed".to_string(),
+        _ => default_overview_layout(),
     }
 }
 
