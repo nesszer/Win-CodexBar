@@ -539,7 +539,8 @@ mod tests {
         let result = fetch_result(&usage);
         let detail_ids = result
             .display_details()
-            .map(ProviderDisplayDetail::id)
+            .iter()
+            .map(|detail| detail.id().to_string())
             .collect::<Vec<_>>();
         assert_eq!(
             detail_ids,
