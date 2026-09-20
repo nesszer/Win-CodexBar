@@ -102,15 +102,49 @@ impl AzureOpenAIProvider {
 
     fn resolve_config(ctx: &FetchContext) -> Result<AzureOpenAIConfig, ProviderError> {
         if let Some(raw) = ctx.api_key.as_deref().and_then(clean_string) {
-            return Self::parse_saved_config(&raw);
+            let config = Self::parse_saved_config(&raw)?;
+            return Ok(Self::apply_saved_api_version(
+                config,
+                &raw,
+                ApiKeys::load().api_version("azureopenai"),
+            ));
         }
         if let Some(config) = Self::config_from_env()? {
             return Ok(config);
         }
         if let Some(raw) = ApiKeys::load().get("azureopenai") {
-            return Self::parse_saved_config(raw);
+            let config = Self::parse_saved_config(raw)?;
+            return Ok(Self::apply_saved_api_version(
+                config,
+                raw,
+                ApiKeys::load().api_version("azureopenai"),
+            ));
         }
         Err(ProviderError::AuthRequired)
+    }
+
+    fn apply_saved_api_version(
+        mut config: AzureOpenAIConfig,
+        raw: &str,
+        stored_api_version: Option<&str>,
+    ) -> AzureOpenAIConfig {
+        if !Self::has_explicit_api_version(raw)
+            && let Some(api_version) = stored_api_version.and_then(clean_string)
+        {
+            config.api_version = api_version;
+        }
+        config
+    }
+
+    fn has_explicit_api_version(raw: &str) -> bool {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+            return value
+                .get("api_version")
+                .and_then(serde_json::Value::as_str)
+                .and_then(clean_string)
+                .is_some();
+        }
+        raw.split('|').nth(3).and_then(clean_string).is_some()
     }
 
     fn config_from_env() -> Result<Option<AzureOpenAIConfig>, ProviderError> {
@@ -355,6 +389,27 @@ mod tests {
         );
         assert_eq!(config.deployment, "chat-prod");
         assert_eq!(config.api_version, "v1");
+    }
+
+    #[test]
+    fn stored_api_version_overrides_missing_composite_version() {
+        let config =
+            AzureOpenAIProvider::parse_saved_config("key|example.openai.azure.com|chat-prod")
+                .unwrap();
+        let config = AzureOpenAIProvider::apply_saved_api_version(
+            config,
+            "key|example.openai.azure.com|chat-prod",
+            Some("v1"),
+        );
+        assert_eq!(config.api_version, "v1");
+    }
+
+    #[test]
+    fn explicit_saved_api_version_wins_over_picker_value() {
+        let raw = r#"{"api_key":"key","endpoint":"example.openai.azure.com","deployment":"chat-prod","api_version":"2024-10-21"}"#;
+        let config = AzureOpenAIProvider::parse_saved_config(raw).unwrap();
+        let config = AzureOpenAIProvider::apply_saved_api_version(config, raw, Some("v1"));
+        assert_eq!(config.api_version, "2024-10-21");
     }
 
     #[test]
