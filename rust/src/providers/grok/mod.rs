@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde_json::Value;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -69,6 +69,11 @@ impl GrokProvider {
         dirs::home_dir().map(|home| home.join(".grok").join("auth.json"))
     }
 
+    #[cfg(test)]
+    fn client_for_tests(&self) -> Client {
+        self.client.clone()
+    }
+
     fn load_credentials(kind: GrokAuthKind) -> Result<GrokCredentials, ProviderError> {
         let path = Self::auth_file_path()
             .ok_or_else(|| ProviderError::NotInstalled("Grok auth path not found".to_string()))?;
@@ -103,15 +108,19 @@ impl GrokProvider {
         kind: GrokAuthKind,
         ctx: &FetchContext,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let reset_task =
-            self.spawn_remaining_resets(ctx, Some(credentials.access_token.clone()), None);
+        let reset_lookup = GrokProvider::spawn_remaining_resets(
+            ctx,
+            Some(credentials.access_token.clone()),
+            None,
+            self.client.clone(),
+        );
         let billing = match self
             .fetch_billing(Some(format!("Bearer {}", credentials.access_token)), None)
             .await
         {
             Ok(billing) => billing,
             Err(error) => {
-                abort_remaining_resets(reset_task);
+                reset_lookup.abort();
                 return Err(error);
             }
         };
@@ -121,8 +130,9 @@ impl GrokProvider {
             None
         }
         .or_else(|| credentials.login_method());
-        let reset_credits =
-            join_remaining_resets(reset_task, ctx.requires_optional_usage_completeness).await;
+        let reset_credits = reset_lookup
+            .join(ctx.requires_optional_usage_completeness)
+            .await;
         let result = result_from_billing(
             billing,
             if kind == GrokAuthKind::Cli {
@@ -171,19 +181,25 @@ impl GrokProvider {
         cookie_header: &str,
         ctx: &FetchContext,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let reset_task = self.spawn_remaining_resets(ctx, None, Some(cookie_header.to_string()));
+        let reset_lookup = GrokProvider::spawn_remaining_resets(
+            ctx,
+            None,
+            Some(cookie_header.to_string()),
+            self.client.clone(),
+        );
         let billing = match self
             .fetch_billing(None, Some(cookie_header.to_string()))
             .await
         {
             Ok(billing) => billing,
             Err(error) => {
-                abort_remaining_resets(reset_task);
+                reset_lookup.abort();
                 return Err(error);
             }
         };
-        let reset_credits =
-            join_remaining_resets(reset_task, ctx.requires_optional_usage_completeness).await;
+        let reset_credits = reset_lookup
+            .join(ctx.requires_optional_usage_completeness)
+            .await;
         // v0.56.0: a browser session is its own principal. Never enrich a
         // successful cookie billing result from ambient auth.json metadata,
         // which may belong to a different account or change during the fetch.
@@ -323,25 +339,24 @@ impl GrokProvider {
     }
 
     fn spawn_remaining_resets(
-        &self,
         ctx: &FetchContext,
         access_token: Option<String>,
         cookie_header: Option<String>,
-    ) -> Option<(
-        tokio::task::JoinHandle<Option<ProviderInventoryItem>>,
-        Instant,
-    )> {
+        client: Client,
+    ) -> ResetLookup {
         if !ctx.include_credits {
-            return None;
+            return ResetLookup::idle();
         }
-
-        let client = self.client.clone();
-        let started_at = Instant::now();
-        let task = tokio::spawn(async move {
-            Self::fetch_remaining_resets(client, access_token.as_deref(), cookie_header.as_deref())
+        ResetLookup {
+            task: Some(tokio::spawn(async move {
+                Self::fetch_remaining_resets(
+                    client,
+                    access_token.as_deref(),
+                    cookie_header.as_deref(),
+                )
                 .await
-        });
-        Some((task, started_at))
+            })),
+        }
     }
 
     /// Fetch optional SuperGrok reset-credit inventory using the same principal
@@ -427,35 +442,43 @@ impl GrokProvider {
     }
 }
 
-fn abort_remaining_resets(
-    task: Option<(
-        tokio::task::JoinHandle<Option<ProviderInventoryItem>>,
-        Instant,
-    )>,
-) {
-    if let Some((task, _started_at)) = task {
-        task.abort();
-    }
+/// Best-effort reset-credit lookup running alongside the billing request.
+/// `abort` and `join` own the handle state; `JoinHandle::abort` is already
+/// idempotent on finished tasks.
+struct ResetLookup {
+    task: Option<tokio::task::JoinHandle<Option<ProviderInventoryItem>>>,
 }
 
-async fn join_remaining_resets(
-    task: Option<(
-        tokio::task::JoinHandle<Option<ProviderInventoryItem>>,
-        Instant,
-    )>,
-    requires_optional_usage_completeness: bool,
-) -> Option<ProviderInventoryItem> {
-    let (mut task, started_at) = task?;
-    let budget = if requires_optional_usage_completeness {
-        RESET_CREDITS_TIMEOUT.saturating_sub(started_at.elapsed())
-    } else {
-        RESET_CREDITS_JOIN_GRACE
-    };
-    match tokio::time::timeout(budget, &mut task).await {
-        Ok(Ok(inventory)) => inventory,
-        Ok(Err(_)) | Err(_) => {
+impl ResetLookup {
+    fn idle() -> Self {
+        Self { task: None }
+    }
+
+    fn abort(self) {
+        if let Some(task) = self.task {
             task.abort();
-            None
+        }
+    }
+
+    /// Wait for the lookup with the policy budget: under
+    /// `requires_optional_usage_completeness` the full timeout remains;
+    /// otherwise a short grace joins the already-running request.
+    async fn join(
+        self,
+        requires_optional_usage_completeness: bool,
+    ) -> Option<ProviderInventoryItem> {
+        let mut task = self.task?;
+        let budget = if requires_optional_usage_completeness {
+            RESET_CREDITS_TIMEOUT
+        } else {
+            RESET_CREDITS_JOIN_GRACE
+        };
+        match tokio::time::timeout(budget, &mut task).await {
+            Ok(Ok(inventory)) => inventory,
+            Ok(Err(_)) | Err(_) => {
+                task.abort();
+                None
+            }
         }
     }
 }

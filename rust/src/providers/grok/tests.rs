@@ -123,13 +123,18 @@ fn is_cookie_auth_failure_only_auth_required() {
 
 #[test]
 fn include_credits_false_does_not_start_reset_lookup() {
-    let provider = GrokProvider::new();
     let ctx = FetchContext {
         include_credits: false,
         ..FetchContext::default()
     };
 
-    assert!(provider.spawn_remaining_resets(&ctx, None, None).is_none());
+    let lookup = GrokProvider::spawn_remaining_resets(
+        &ctx,
+        None,
+        None,
+        crate::providers::grok::GrokProvider::new().client_for_tests(),
+    );
+    assert!(lookup.task.is_none());
 }
 
 #[test]

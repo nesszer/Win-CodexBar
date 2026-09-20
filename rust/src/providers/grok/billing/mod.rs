@@ -3,6 +3,10 @@ use reqwest::header::HeaderMap;
 
 use crate::core::ProviderError;
 
+mod reset_coupons;
+
+pub(super) use reset_coupons::parse_grpc_web_reset_coupons;
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct GrokBillingSnapshot {
     pub(super) used_percent: Option<f64>,
@@ -12,15 +16,6 @@ pub(super) struct GrokBillingSnapshot {
     pub(super) window_minutes: Option<u32>,
 }
 
-/// One unused SuperGrok usage-limit reset coupon. The token ID is retained only
-/// while parsing and is never attached to a public or persisted snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct GrokResetCoupon {
-    pub(super) token_id: String,
-    pub(super) granted_at: Option<DateTime<Utc>>,
-    pub(super) expires_at: DateTime<Utc>,
-}
-
 pub(super) fn validate_grpc_headers(headers: &HeaderMap) -> Result<(), ProviderError> {
     if let Some(status) = headers
         .get("grpc-status")
@@ -28,12 +23,7 @@ pub(super) fn validate_grpc_headers(headers: &HeaderMap) -> Result<(), ProviderE
         .and_then(|value| value.parse::<u16>().ok())
         && status != 0
     {
-        if status == 16 {
-            return Err(ProviderError::AuthRequired);
-        }
-        return Err(ProviderError::Other(format!(
-            "Grok RPC failed with status {status}"
-        )));
+        return map_grpc_status(status, "Grok RPC");
     }
     Ok(())
 }
@@ -42,295 +32,86 @@ pub(super) fn parse_grpc_web_response(data: &[u8]) -> Result<GrokBillingSnapshot
     parse_grpc_web_response_at(data, Utc::now())
 }
 
-/// Parse the GetRemainingResets gRPC-web response used by SuperGrok.
-///
-/// The response contains repeated field 10 records. Each record contains a
-/// token id at field 10, an optional timestamp message at field 20, and the
-/// required expiry timestamp message at field 30. Unknown fields are skipped,
-/// while malformed framing or protobuf makes the whole optional lookup fail
-/// closed so a partial inventory is never published.
-pub(super) fn parse_grpc_web_reset_coupons(
-    data: &[u8],
-    now: DateTime<Utc>,
-) -> Result<Vec<GrokResetCoupon>, ProviderError> {
-    let payloads = grpc_web_reset_payloads(data)?;
-
-    let mut coupons = Vec::new();
-    for payload in payloads {
-        parse_reset_coupon_container(&payload, now, &mut coupons)?;
-    }
-    coupons.sort_by_key(|coupon| coupon.expires_at);
-    Ok(coupons)
-}
-
-fn grpc_web_reset_payloads(data: &[u8]) -> Result<Vec<Vec<u8>>, ProviderError> {
-    if data.is_empty() || data == [0, 0, 0, 0, 0] {
-        return Ok(Vec::new());
-    }
-
-    // A raw protobuf payload is retained as a compatibility fallback for the
-    // captured endpoint fixtures. Valid protobuf keys cannot begin with a
-    // gRPC-web data/trailer flag, so a leading 0/0x80 unambiguously selects
-    // framed parsing and makes truncated frames fail closed.
-    let is_framed = data.first().is_some_and(|flag| *flag == 0 || *flag == 0x80);
-    if !is_framed {
-        return looks_like_protobuf_payload(data)
-            .then(|| vec![data.to_vec()])
-            .ok_or_else(|| {
-                ProviderError::Parse("Grok reset-credit response had no payload".to_string())
-            });
-    }
-
-    let mut payloads = Vec::new();
-    let mut index = 0;
-    while index < data.len() {
-        if index + 5 > data.len() {
-            return Err(ProviderError::Parse(
-                "Grok reset-credit gRPC-web frame is truncated".to_string(),
-            ));
-        }
-        let flags = data[index];
-        let len = u32::from_be_bytes([
-            data[index + 1],
-            data[index + 2],
-            data[index + 3],
-            data[index + 4],
-        ]) as usize;
-        let start = index + 5;
-        let end = start.checked_add(len).ok_or_else(|| {
-            ProviderError::Parse("Grok reset-credit gRPC-web frame is too large".to_string())
-        })?;
-        if end > data.len() {
-            return Err(ProviderError::Parse(
-                "Grok reset-credit gRPC-web frame is truncated".to_string(),
-            ));
-        }
-        let payload = &data[start..end];
-        if flags & 0x80 != 0 {
-            validate_grpc_web_reset_trailer(payload)?;
-        } else {
-            payloads.push(payload.to_vec());
-        }
-        index = end;
-    }
-    Ok(payloads)
-}
-
-fn validate_grpc_web_reset_trailer(payload: &[u8]) -> Result<(), ProviderError> {
-    let text = std::str::from_utf8(payload).map_err(|_| {
-        ProviderError::Parse("Grok reset-credit gRPC-web trailer is not UTF-8".to_string())
-    })?;
-    let mut grpc_status = None;
-    for line in text
-        .split(['\r', '\n'])
-        .filter(|line| !line.trim().is_empty())
-    {
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        if name.trim().eq_ignore_ascii_case("grpc-status") {
-            let status = value.trim().parse::<u16>().map_err(|_| {
-                ProviderError::Parse("Grok reset-credit gRPC status is malformed".to_string())
-            })?;
-            if grpc_status.is_some_and(|previous| previous != status) {
-                return Err(ProviderError::Parse(
-                    "Grok reset-credit gRPC status is conflicting".to_string(),
-                ));
-            }
-            grpc_status = Some(status);
-        }
-    }
-    let status = grpc_status.ok_or_else(|| {
-        ProviderError::Parse("Grok reset-credit gRPC status is missing".to_string())
-    })?;
+/// Map a gRPC status code onto the provider error policy shared by the
+/// billing and reset-credit endpoints.
+pub(super) fn map_grpc_status(status: u16, context: &str) -> Result<(), ProviderError> {
     if status != 0 {
         if status == 16 {
             return Err(ProviderError::AuthRequired);
         }
         return Err(ProviderError::Other(format!(
-            "Grok reset-credit RPC failed with status {status}"
+            "{context} failed with status {status}"
         )));
     }
     Ok(())
 }
 
-fn parse_reset_coupon_container(
+/// Decode a length-prefixed field body: `read_varint -> try_from ->
+/// checked_add -> bounds-check` in one place.
+pub(super) fn read_length_field(
     data: &[u8],
-    now: DateTime<Utc>,
-    coupons: &mut Vec<GrokResetCoupon>,
-) -> Result<(), ProviderError> {
-    let mut index = 0;
-    while index < data.len() {
-        let (field, wire, next) = read_key(data, index).ok_or_else(|| {
-            ProviderError::Parse("Grok reset-credit protobuf is malformed".to_string())
-        })?;
-        index = next;
-        if field == 10 {
-            if wire != 2 {
-                return Err(ProviderError::Parse(
-                    "Grok reset-credit record has an invalid wire type".to_string(),
-                ));
-            }
-            let (len, payload_start) = read_varint(data, index).ok_or_else(|| {
-                ProviderError::Parse("Grok reset-credit record length is malformed".to_string())
-            })?;
-            let len = usize::try_from(len).map_err(|_| {
-                ProviderError::Parse("Grok reset-credit record is too large".to_string())
-            })?;
-            let payload_end = payload_start.checked_add(len).ok_or_else(|| {
-                ProviderError::Parse("Grok reset-credit record length overflowed".to_string())
-            })?;
-            if payload_end > data.len() {
-                return Err(ProviderError::Parse(
-                    "Grok reset-credit record is truncated".to_string(),
-                ));
-            }
-            if let Some(coupon) = parse_reset_coupon(&data[payload_start..payload_end], now)? {
-                coupons.push(coupon);
-            }
-            index = payload_end;
-        } else {
-            index = skip_field(data, index, wire).ok_or_else(|| {
-                ProviderError::Parse("Grok reset-credit protobuf is malformed".to_string())
-            })?;
-        }
+    index: usize,
+    what: &str,
+) -> Result<(usize, usize), ProviderError> {
+    let (len, start) = read_varint(data, index)
+        .ok_or_else(|| ProviderError::Parse(format!("Grok {what} is malformed")))?;
+    let len = usize::try_from(len)
+        .map_err(|_| ProviderError::Parse(format!("Grok {what} is too large")))?;
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| ProviderError::Parse(format!("Grok {what} length overflowed")))?;
+    if end > data.len() {
+        return Err(ProviderError::Parse(format!("Grok {what} is truncated")));
     }
-    Ok(())
+    Ok((start, end))
 }
 
-fn parse_reset_coupon(
-    data: &[u8],
-    now: DateTime<Utc>,
-) -> Result<Option<GrokResetCoupon>, ProviderError> {
-    let mut index = 0;
-    let mut token_id = None;
-    let mut granted_at = None;
-    let mut expires_at = None;
-    while index < data.len() {
-        let (field, wire, next) = read_key(data, index).ok_or_else(|| {
-            ProviderError::Parse("Grok reset-credit record is malformed".to_string())
-        })?;
-        index = next;
-        match field {
-            10 => {
-                if wire != 2 {
-                    return Err(ProviderError::Parse(
-                        "Grok reset-credit token id has an invalid wire type".to_string(),
-                    ));
-                }
-                let (len, start) = read_varint(data, index).ok_or_else(|| {
-                    ProviderError::Parse("Grok reset-credit token id is malformed".to_string())
-                })?;
-                let len = usize::try_from(len).map_err(|_| {
-                    ProviderError::Parse("Grok reset-credit token id is too large".to_string())
-                })?;
-                let end = start.checked_add(len).ok_or_else(|| {
-                    ProviderError::Parse("Grok reset-credit token id length overflowed".to_string())
-                })?;
-                if end > data.len() {
-                    return Err(ProviderError::Parse(
-                        "Grok reset-credit token id is truncated".to_string(),
-                    ));
-                }
-                token_id = Some(
-                    std::str::from_utf8(&data[start..end])
-                        .map_err(|_| {
-                            ProviderError::Parse(
-                                "Grok reset-credit token id is not UTF-8".to_string(),
-                            )
-                        })?
-                        .to_string(),
-                );
-                index = end;
-            }
-            20 | 30 => {
-                if wire != 2 {
-                    return Err(ProviderError::Parse(
-                        "Grok reset-credit timestamp has an invalid wire type".to_string(),
-                    ));
-                }
-                let (len, start) = read_varint(data, index).ok_or_else(|| {
-                    ProviderError::Parse("Grok reset-credit timestamp is malformed".to_string())
-                })?;
-                let len = usize::try_from(len).map_err(|_| {
-                    ProviderError::Parse("Grok reset-credit timestamp is too large".to_string())
-                })?;
-                let end = start.checked_add(len).ok_or_else(|| {
-                    ProviderError::Parse(
-                        "Grok reset-credit timestamp length overflowed".to_string(),
-                    )
-                })?;
-                if end > data.len() {
-                    return Err(ProviderError::Parse(
-                        "Grok reset-credit timestamp is truncated".to_string(),
-                    ));
-                }
-                let timestamp = parse_timestamp_message(&data[start..end])?;
-                if field == 20 {
-                    granted_at = timestamp;
-                } else {
-                    expires_at = timestamp;
-                }
-                index = end;
-            }
-            _ => {
-                index = skip_field(data, index, wire).ok_or_else(|| {
-                    ProviderError::Parse("Grok reset-credit record is malformed".to_string())
-                })?;
-            }
-        }
-    }
-
-    let Some(token_id) = token_id.filter(|id| !id.trim().is_empty()) else {
-        return Ok(None);
-    };
-    let Some(expires_at) = expires_at.filter(|expires_at| *expires_at > now) else {
-        return Ok(None);
-    };
-    Ok(Some(GrokResetCoupon {
-        token_id,
-        granted_at,
-        expires_at,
-    }))
-}
-
-fn parse_timestamp_message(data: &[u8]) -> Result<Option<DateTime<Utc>>, ProviderError> {
-    let mut index = 0;
-    let mut seconds = None;
-    while index < data.len() {
-        let (field, wire, next) = read_key(data, index).ok_or_else(|| {
-            ProviderError::Parse("Grok reset-credit timestamp is malformed".to_string())
-        })?;
-        index = next;
-        if field == 1 {
-            if wire != 0 {
-                return Err(ProviderError::Parse(
-                    "Grok reset-credit timestamp seconds has an invalid wire type".to_string(),
-                ));
-            }
-            let (value, next) = read_varint(data, index).ok_or_else(|| {
-                ProviderError::Parse("Grok reset-credit timestamp seconds is malformed".to_string())
-            })?;
-            seconds = Some(value);
-            index = next;
-        } else {
-            index = skip_field(data, index, wire).ok_or_else(|| {
-                ProviderError::Parse("Grok reset-credit timestamp is malformed".to_string())
-            })?;
-        }
-    }
-    let Some(seconds) = seconds else {
-        return Ok(None);
-    };
+/// Decode a varint Unix-seconds timestamp with the shared epoch bounding.
+pub(super) fn unix_seconds_timestamp(seconds: u64) -> Option<DateTime<Utc>> {
+    // Varint timestamps are Unix seconds inside the range checked below.
     #[allow(
         clippy::cast_possible_wrap,
-        reason = "provider timestamps are bounded to the Unix-seconds range"
+        reason = "varint timestamps are bounded to the Unix-seconds range checked below"
     )]
     let seconds = seconds as i64;
-    Ok((1_700_000_000..=2_100_000_000)
+    (1_700_000_000..=2_100_000_000)
         .contains(&seconds)
         .then(|| Utc.timestamp_opt(seconds, 0).single())
-        .flatten())
+        .flatten()
+}
+
+/// One parameterized gRPC-web frame walker. `on_malformed` decides the
+/// malformed-frame policy: billing swallows malformed frames, the optional
+/// reset lookup fails closed.
+///
+/// Yields `(flags, payload)` for every frame, data and trailer alike; callers
+/// split on the trailer flag.
+pub(super) fn grpc_web_frames(
+    data: &[u8],
+    on_malformed: fn(&str) -> Option<ProviderError>,
+) -> Result<Vec<(u8, &[u8])>, ProviderError> {
+    let mut frames = Vec::new();
+    let mut index = 0;
+    while index < data.len() {
+        if index + 5 > data.len() {
+            return on_malformed("truncated").map_or(Ok(frames), Err);
+        }
+        let flags = data[index];
+        let len = ((data[index + 1] as usize) << 24)
+            | ((data[index + 2] as usize) << 16)
+            | ((data[index + 3] as usize) << 8)
+            | (data[index + 4] as usize);
+        let start = index + 5;
+        let Some(end) = start.checked_add(len) else {
+            return on_malformed("frame is too large").map_or(Ok(frames), Err);
+        };
+        if end > data.len() {
+            return on_malformed("truncated").map_or(Ok(frames), Err);
+        }
+        frames.push((flags, &data[start..end]));
+        index = end;
+    }
+    Ok(frames)
 }
 
 fn skip_field(data: &[u8], index: usize, wire: u64) -> Option<usize> {
@@ -441,16 +222,7 @@ fn looks_like_protobuf_payload(data: &[u8]) -> bool {
 }
 
 fn varint_timestamp(field: &VarintField) -> Option<DateTime<Utc>> {
-    // Varint timestamps are Unix seconds inside the range checked below.
-    #[allow(
-        clippy::cast_possible_wrap,
-        reason = "varint timestamps are bounded to the Unix-seconds range checked below"
-    )]
-    let seconds = field.value as i64;
-    (1_700_000_000..=2_100_000_000)
-        .contains(&field.value)
-        .then(|| Utc.timestamp_opt(seconds, 0).single())
-        .flatten()
+    unix_seconds_timestamp(field.value)
 }
 
 fn current_period_window_minutes(scan: &ProtoScan, now: DateTime<Utc>) -> Option<u32> {
@@ -487,30 +259,12 @@ fn unique_varint_at_path(scan: &ProtoScan, path: &[u64]) -> Option<u64> {
 }
 
 fn grpc_web_data_frames(data: &[u8]) -> Vec<Vec<u8>> {
-    let mut frames = Vec::new();
-    let mut index = 0;
-    while index < data.len() {
-        if index + 5 > data.len() {
-            return Vec::new();
-        }
-        let flags = data[index];
-        let len = ((data[index + 1] as usize) << 24)
-            | ((data[index + 2] as usize) << 16)
-            | ((data[index + 3] as usize) << 8)
-            | (data[index + 4] as usize);
-        let start = index + 5;
-        let Some(end) = start.checked_add(len) else {
-            return Vec::new();
-        };
-        if end > data.len() {
-            return Vec::new();
-        }
-        if flags & 0x80 == 0 {
-            frames.push(data[start..end].to_vec());
-        }
-        index = end;
-    }
-    frames
+    grpc_web_frames(data, |_| None)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(flags, _)| flags & 0x80 == 0)
+        .map(|(_, payload)| payload.to_vec())
+        .collect()
 }
 
 struct ProtoScan {
