@@ -47,6 +47,8 @@ pub(super) struct RawSettings {
     #[serde(default = "default_true")]
     show_pace: bool,
     menu_bar_display_mode: String,
+    #[serde(default = "default_overview_layout")]
+    overview_layout: String,
     show_all_token_accounts_in_menu: bool,
 
     // ── New unified per-provider map ─────────────────────────────────
@@ -214,6 +216,7 @@ impl Default for RawSettings {
             predictive_pace_warning_enabled: s.predictive_pace_warning_enabled,
             show_pace: s.show_pace,
             menu_bar_display_mode: s.menu_bar_display_mode,
+            overview_layout: s.overview_layout,
             show_all_token_accounts_in_menu: s.show_all_token_accounts_in_menu,
             provider_configs: s.provider_configs,
             claude_usage_source: None,
@@ -540,6 +543,7 @@ impl From<RawSettings> for Settings {
             predictive_pace_warning_enabled: raw.predictive_pace_warning_enabled,
             show_pace: raw.show_pace,
             menu_bar_display_mode: raw.menu_bar_display_mode,
+            overview_layout: normalize_overview_layout(&raw.overview_layout),
             show_all_token_accounts_in_menu: raw.show_all_token_accounts_in_menu,
             provider_configs,
             disable_keychain_access: raw.disable_keychain_access,

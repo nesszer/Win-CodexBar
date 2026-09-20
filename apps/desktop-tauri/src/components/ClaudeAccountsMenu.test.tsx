@@ -134,12 +134,31 @@ describe("ClaudeAccountsMenu", () => {
     await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("settled"));
   });
 
-  it("masks emails, including tooltips, when hideEmail is enabled", async () => {
+  it("uses stable opaque account labels and redacts tooltips when hideEmail is enabled", async () => {
     mocks.claudeAccountsList.mockResolvedValue([first, { ...second, organization: `${second.email}'s Organization` }]);
     const { container } = render(<ClaudeAccountsMenu hideEmail />);
     await screen.findByText("ClaudeAccountsTitle");
+    const labels = container.querySelectorAll(".codex-menu-accounts__email");
+    expect(labels[0].firstChild?.textContent).toBe("Account 1");
+    expect(labels[0].getAttribute("title")).toBe("Account 1");
+    expect(labels[1].firstChild?.textContent).toBe("Account 2");
+    expect(labels[1].getAttribute("title")).toBe("Account 2");
     expect(container.textContent).not.toContain(first.email);
     expect(container.innerHTML).not.toContain(second.email);
+    expect(container.textContent).not.toContain("Personal");
+    expect(container.textContent).not.toContain("Organization");
+  });
+
+  it("keeps opaque labels stable when the source reorders accounts", async () => {
+    const { container } = render(<ClaudeAccountsMenu hideEmail />);
+    await screen.findByText("ClaudeAccountsTitle");
+    mocks.claudeAccountsList.mockResolvedValue([second, first]);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => {
+      const labels = container.querySelectorAll(".codex-menu-accounts__email");
+      expect(labels[0].firstChild?.textContent).toBe("Account 2");
+      expect(labels[1].firstChild?.textContent).toBe("Account 1");
+    });
   });
 
   it("shows switch failures and leaves the current account marked active", async () => {

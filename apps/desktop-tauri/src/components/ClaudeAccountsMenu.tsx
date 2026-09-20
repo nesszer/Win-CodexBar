@@ -3,7 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import type { ClaudeAccount } from "../types/bridge";
 import { claudeAccountsList, claudeAccountSwitch } from "../lib/tauri";
 import { useLocale } from "../hooks/useLocale";
-import { maskEmail } from "./MenuCard";
+import {
+  buildClaudeAccountOrdinals,
+  buildPrivateClaudeAccountLabel,
+} from "./claudeAccountDisplay";
 
 type ClaudeAccountPhase = "idle" | "activating" | "reconciling" | "settled";
 
@@ -55,6 +58,8 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
     onLayoutChange?.();
   }, [accounts.length, error, phase, switched, onLayoutChange]);
 
+  const accountOrdinals = buildClaudeAccountOrdinals(accounts);
+
   const switchAccount = async (id: string) => {
     setPhase("activating");
     setError(null);
@@ -90,13 +95,18 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
       {switched && <p role="status">{t("ClaudeAccountsSwitched")}</p>}
       <ul className="codex-menu-accounts__list">
         {accounts.map(account => {
-          const email = hideEmail ? maskEmail(account.email) : account.email;
+          const privateLabel = buildPrivateClaudeAccountLabel(
+            account,
+            accountOrdinals[account.id],
+            hideEmail,
+            t("Account"),
+          );
           return (
             <li key={account.id}>
               <div className={`codex-menu-accounts__row${account.isActive ? " codex-menu-accounts__row--active" : ""}`}>
                 <div className="codex-menu-accounts__meta">
-                  <span className="codex-menu-accounts__email" title={email}>
-                    {email}
+                  <span className="codex-menu-accounts__email" title={privateLabel.tooltip}>
+                    {privateLabel.label}
                     {account.isActive && <span className="codex-menu-accounts__badge">{t("TokenAccountActive")}</span>}
                   </span>
                   {!hideEmail && account.organization && !account.organization.includes(account.email) && (

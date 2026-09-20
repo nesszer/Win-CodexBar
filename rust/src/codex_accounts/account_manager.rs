@@ -15,7 +15,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use super::api::CodexApiError;
-use super::credentials::{AuthBackedIdentity, load_identity};
+use super::credentials::{AuthBackedIdentity, load_identity, parse_credentials_json};
 use super::file_locations::{
     ambient_codex_home, auth_backups_directory, codex_desktop_session_root,
     desktop_session_snapshot_path, ensure_directories, managed_homes_directory,
@@ -267,6 +267,11 @@ impl CodexAccountManager {
     }
 
     /// Copy the ambient account into an app-managed home.
+    ///
+    /// Reuses the managed home already holding this account's credentials when
+    /// one exists. Minting a fresh home on every call let repeated switches
+    /// accumulate one duplicate directory per switch, each holding a copy of
+    /// whatever `auth.json` happened to be ambient at the time.
     pub fn materialize_as_managed(
         &self,
         account: &CodexAccount,
@@ -280,9 +285,23 @@ impl CodexAccountManager {
             ));
         }
 
-        let destination_home = managed_homes_directory().join(Uuid::new_v4().to_string());
-        fs::create_dir_all(&destination_home)?;
-        fs::copy(&source_auth_path, destination_home.join("auth.json"))?;
+        let destination_home = match self.existing_managed_home_matching(account) {
+            Some(existing) => {
+                let existing_auth_path = existing.join("auth.json");
+                // Never let a stale ambient file overwrite newer managed
+                // credentials; that turns a working account into a dead one.
+                if credentials_are_at_least_as_fresh(&source_auth_path, &existing_auth_path) {
+                    fs::copy(&source_auth_path, &existing_auth_path)?;
+                }
+                existing
+            }
+            None => {
+                let fresh_home = managed_homes_directory().join(Uuid::new_v4().to_string());
+                fs::create_dir_all(&fresh_home)?;
+                fs::copy(&source_auth_path, fresh_home.join("auth.json"))?;
+                fresh_home
+            }
+        };
 
         let now = utc_now();
         let mut materialized = CodexAccount::new(
@@ -388,6 +407,49 @@ impl CodexAccountManager {
         let _written_payload = fs::write(path, format!("{encoded}\n"));
     }
 
+    /// Find app-managed homes holding credentials for `account`.
+    ///
+    /// Results are sorted by `managed_home_key` and deduplicated, so repeated
+    /// calls return the same order and the same first element regardless of
+    /// filesystem iteration order. The first entry is the canonical reuse
+    /// target for `materialize_as_managed`; all entries are removal targets
+    /// for `remove_managed_files_if_owned`. Returns `Err` when the
+    /// managed-homes directory is unreadable; `remove` surfaces the error and
+    /// `materialize` falls back to creating a fresh home.
+    fn managed_homes_matching(
+        &self,
+        account: &CodexAccount,
+    ) -> Result<Vec<PathBuf>, CodexAccountManagerError> {
+        let mut matches: Vec<(String, PathBuf)> = fs::read_dir(managed_homes_directory())?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|home_path| home_path.is_dir())
+            .filter(|home_path| {
+                self.discovered_managed_account(home_path, std::slice::from_ref(account))
+                    .is_some_and(|candidate| candidate.matches(account))
+            })
+            .map(|home_path| {
+                let resolved =
+                    std::path::absolute(&home_path).unwrap_or_else(|_| home_path.clone());
+                (managed_home_key(resolved.as_path()), resolved)
+            })
+            .collect();
+        matches.sort_by(|a, b| a.0.cmp(&b.0));
+        matches.dedup_by(|a, b| a.0 == b.0);
+        Ok(matches.into_iter().map(|(_, path)| path).collect())
+    }
+
+    /// Find an app-managed home that already holds credentials for `account`.
+    ///
+    /// Returns `None` when no managed home matches or the directory is
+    /// unreadable — callers then create a fresh home, matching the previous
+    /// behaviour.
+    fn existing_managed_home_matching(&self, account: &CodexAccount) -> Option<PathBuf> {
+        self.managed_homes_matching(account)
+            .ok()?
+            .into_iter()
+            .next()
+    }
+
     fn managed_home_paths_matching(
         &self,
         account: &CodexAccount,
@@ -405,35 +467,14 @@ impl CodexAccountManager {
             std::path::absolute(&account.codex_home_path)
                 .unwrap_or_else(|_| account.codex_home_path.clone()),
         ];
-        let mut seen_keys: std::collections::HashSet<String> =
-            [managed_home_key(targets[0].as_path())]
+        // The account's own home is always first; skip the walk's duplicate
+        // of it so removal never processes the same home twice.
+        let head_key = managed_home_key(targets[0].as_path());
+        targets.extend(
+            self.managed_homes_matching(account)?
                 .into_iter()
-                .collect();
-
-        for entry in fs::read_dir(managed_homes_directory())? {
-            let Ok(entry) = entry else {
-                continue;
-            };
-            let home_path = entry.path();
-            if !home_path.is_dir() {
-                continue;
-            }
-            let Some(candidate) =
-                self.discovered_managed_account(&home_path, std::slice::from_ref(account))
-            else {
-                continue;
-            };
-            if !candidate.matches(account) {
-                continue;
-            }
-            let resolved = std::path::absolute(&home_path).unwrap_or_else(|_| home_path.clone());
-            let key = managed_home_key(resolved.as_path());
-            if seen_keys.contains(&key) {
-                continue;
-            }
-            targets.push(resolved);
-            seen_keys.insert(key);
-        }
+                .filter(|home| managed_home_key(home.as_path()) != head_key),
+        );
         Ok(targets)
     }
 
@@ -594,8 +635,11 @@ fn build_discovered_account(
     identity: AuthBackedIdentity,
     home_path: PathBuf,
     source: CodexAccountSource,
-    discovered_at: DateTime<Utc>,
+    discovered_at: Option<DateTime<Utc>>,
 ) -> CodexAccount {
+    // No readable timestamp on a home we just found is a filesystem oddity;
+    // "now" is the only honest fallback for discovery ordering.
+    let discovered_at = discovered_at.unwrap_or_else(utc_now);
     let mut discovered = CodexAccount::new(
         matched
             .map(|account| account.id)
@@ -627,18 +671,39 @@ fn build_discovered_account(
     discovered
 }
 
-fn directory_timestamp(path: &Path) -> DateTime<Utc> {
+fn directory_timestamp(path: &Path) -> Option<DateTime<Utc>> {
     let auth_path = path.join("auth.json");
     if auth_path.exists()
         && let Ok(metadata) = fs::metadata(&auth_path)
         && let Ok(modified) = metadata.modified()
     {
-        return modified.into();
+        return Some(modified.into());
     }
     fs::metadata(path)
         .and_then(|metadata| metadata.modified())
         .map(Into::into)
-        .unwrap_or_else(|_| utc_now())
+        .ok()
+}
+
+/// Whether `candidate` holds credentials at least as recently refreshed as
+/// `incumbent`, so reusing a managed home cannot downgrade a live account to a
+/// stale token. When either side's freshness is unknown — unreadable JSON,
+/// missing `last_refresh`, or an unrecognized schema — this defaults to
+/// `false`: the incumbent is kept rather than clobbered. Clobbering on
+/// unknown freshness is how a stale ambient token kills a working account
+/// (the failure mode that motivated home reuse in the first place).
+fn credentials_are_at_least_as_fresh(candidate: &Path, incumbent: &Path) -> bool {
+    let last_refresh = |path: &Path| {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|json| parse_credentials_json(&json).ok())
+            .and_then(|credentials| credentials.last_refresh)
+    };
+    match (last_refresh(candidate), last_refresh(incumbent)) {
+        (Some(candidate), Some(incumbent)) => candidate >= incumbent,
+        // Unknown freshness must not destroy a possibly-live incumbent.
+        _ => false,
+    }
 }
 
 fn managed_home_key(path: &Path) -> String {
@@ -694,297 +759,4 @@ fn looks_like_uuid(value: &str) -> bool {
     Uuid::parse_str(value.trim()).is_ok()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use base64::Engine;
-
-    /// Write an auth.json carrying a JWT identity for the given account id.
-    fn write_auth(home_path: &Path, email: &str, account_id: &str) {
-        let payload = serde_json::json!({
-            "email": email,
-            "sub": format!("auth0|{account_id}"),
-            "https://api.openai.com/auth": {
-                "chatgpt_plan_type": "team",
-                "chatgpt_account_id": account_id,
-            },
-        });
-        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(serde_json::to_vec(&payload).unwrap());
-        let auth_payload = serde_json::json!({
-            "tokens": {
-                "access_token": format!("access-{account_id}"),
-                "refresh_token": format!("refresh-{account_id}"),
-                "id_token": format!("header.{encoded}.signature"),
-                "account_id": account_id,
-            },
-            "last_refresh": "2026-04-23T00:00:00Z",
-        });
-        std::fs::write(
-            home_path.join("auth.json"),
-            serde_json::to_vec_pretty(&auth_payload).unwrap(),
-        )
-        .unwrap();
-    }
-
-    fn make_account(home_path: PathBuf, email: &str, account_id: &str) -> CodexAccount {
-        CodexAccount::new(
-            Uuid::new_v4(),
-            None,
-            Some(email.to_string()),
-            Some(format!("auth0|{account_id}")),
-            Some(account_id.to_string()),
-            home_path,
-            CodexAccountSource::ManagedByApp,
-            utc_now(),
-            utc_now(),
-            Some(utc_now()),
-        )
-    }
-
-    #[test]
-    fn remove_managed_account_removes_duplicate_homes_for_same_provider() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        super::super::file_locations::with_app_support_directory(root.to_path_buf());
-
-        let account_id = "83c5ae92-f5ee-41f8-9528-199110d1d0f9";
-        let first_home = root.join("managed-homes").join("first");
-        let duplicate_home = root.join("managed-homes").join("duplicate");
-        let other_home = root.join("managed-homes").join("other");
-        for home in [&first_home, &duplicate_home, &other_home] {
-            std::fs::create_dir_all(home).unwrap();
-        }
-        write_auth(&first_home, "user@example.com", account_id);
-        write_auth(&duplicate_home, "user@example.com", account_id);
-        write_auth(&other_home, "user@example.com", "different-provider");
-
-        let account = make_account(first_home.clone(), "user@example.com", account_id);
-        let manager = CodexAccountManager::new();
-        manager.remove_managed_files_if_owned(&account).unwrap();
-
-        assert!(!first_home.exists());
-        assert!(!duplicate_home.exists());
-        assert!(other_home.exists());
-
-        super::super::file_locations::clear_app_support_directory_override();
-    }
-
-    #[test]
-    fn removing_stale_account_preserves_replacement_credentials() {
-        let dir = tempfile::tempdir().unwrap();
-        super::super::file_locations::with_app_support_directory(dir.path().to_path_buf());
-        let home = dir.path().join("managed-homes/replaced");
-        std::fs::create_dir_all(&home).unwrap();
-        let stale = make_account(home.clone(), "old@example.com", "old-id");
-        write_auth(&home, "new@example.com", "new-id");
-        let before = std::fs::read(home.join("auth.json")).unwrap();
-        assert!(
-            CodexAccountManager::new()
-                .remove_managed_files_if_owned(&stale)
-                .is_err()
-        );
-        assert_eq!(std::fs::read(home.join("auth.json")).unwrap(), before);
-        super::super::file_locations::clear_app_support_directory_override();
-    }
-
-    #[test]
-    fn same_identity_switch_preserves_auth_and_has_no_session_restore() {
-        let dir = tempfile::tempdir().unwrap();
-        let ambient = dir.path().join("ambient");
-        let saved = dir.path().join("managed-homes/saved");
-        let session = dir.path().join("session");
-        for path in [&ambient, &saved, &session] {
-            fs::create_dir_all(path).unwrap();
-        }
-        write_auth(&ambient, "same@example.com", "same-id");
-        write_auth(&saved, "same@example.com", "same-id");
-        fs::write(session.join("Preferences"), "current-session").unwrap();
-        let auth_before = fs::read(ambient.join("auth.json")).unwrap();
-        super::super::file_locations::with_app_support_directory(dir.path().to_path_buf());
-        super::super::file_locations::with_ambient_codex_home(ambient.clone());
-        super::super::file_locations::with_codex_desktop_session_root(session.clone());
-        for home in [ambient.clone(), saved] {
-            let target = make_account(home, "same@example.com", "same-id");
-            let result = CodexAccountManager::new()
-                .switch_active_account(&target, &[])
-                .unwrap();
-            assert!(result.backup_path.is_none());
-            assert!(result.materialized_account.is_none());
-            assert!(result.desktop_session_backup_path.is_none());
-            assert!(result.desktop_session_restore_path.is_none());
-            assert_eq!(fs::read(ambient.join("auth.json")).unwrap(), auth_before);
-            assert_eq!(
-                fs::read_to_string(session.join("Preferences")).unwrap(),
-                "current-session"
-            );
-        }
-        super::super::file_locations::clear_app_support_directory_override();
-        super::super::file_locations::clear_ambient_codex_home_override();
-        super::super::file_locations::clear_codex_desktop_session_root_override();
-    }
-
-    #[test]
-    fn switch_waits_for_credential_refresh_before_materializing_outgoing_auth() {
-        let dir = tempfile::tempdir().unwrap();
-        let ambient = dir.path().join("ambient");
-        let saved = dir.path().join("managed-homes/target");
-        fs::create_dir_all(&ambient).unwrap();
-        fs::create_dir_all(&saved).unwrap();
-        write_auth(&ambient, "old@example.com", "old-id");
-        write_auth(&saved, "new@example.com", "new-id");
-        let refresh_guard = super::super::CREDENTIAL_OPERATIONS.blocking_read();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let root = dir.path().to_path_buf();
-        let worker_ambient = ambient.clone();
-        let worker = std::thread::spawn(move || {
-            super::super::file_locations::with_app_support_directory(root.clone());
-            super::super::file_locations::with_ambient_codex_home(worker_ambient);
-            super::super::file_locations::with_codex_desktop_session_root(root.join("session"));
-            let target = make_account(saved, "new@example.com", "new-id");
-            ready_tx.send(()).unwrap();
-            let result = CodexAccountManager::new().switch_active_account(&target, &[]);
-            done_tx.send(result).unwrap();
-        });
-        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(matches!(
-            done_rx.recv_timeout(Duration::from_millis(100)),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-        ));
-        let mut refreshed: serde_json::Value =
-            serde_json::from_slice(&fs::read(ambient.join("auth.json")).unwrap()).unwrap();
-        refreshed["tokens"]["access_token"] = serde_json::json!("rotated-old-token");
-        fs::write(
-            ambient.join("auth.json"),
-            serde_json::to_vec(&refreshed).unwrap(),
-        )
-        .unwrap();
-        drop(refresh_guard);
-        let result = done_rx
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap()
-            .unwrap();
-        worker.join().unwrap();
-        let materialized = result.materialized_account.unwrap();
-        let outgoing: serde_json::Value = serde_json::from_slice(
-            &fs::read(materialized.codex_home_path.join("auth.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(outgoing["tokens"]["access_token"], "rotated-old-token");
-        assert_eq!(
-            load_identity(&ambient)
-                .unwrap()
-                .provider_account_id
-                .as_deref(),
-            Some("new-id")
-        );
-    }
-
-    #[test]
-    fn switch_active_account_updates_global_state_creator_id() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        super::super::file_locations::with_app_support_directory(root.to_path_buf());
-
-        let old_account_id = "1ea93d04-5c50-42e3-857b-3db850785967";
-        let new_account_id = "83c5ae92-f5ee-41f8-9528-199110d1d0f9";
-
-        let ambient_home = root.join(".codex");
-        let target_home = root.join("managed-homes").join("target");
-        let desktop_session_root = root.join("package-session");
-
-        std::fs::create_dir_all(&ambient_home).unwrap();
-        std::fs::create_dir_all(&target_home).unwrap();
-        std::fs::create_dir_all(&desktop_session_root).unwrap();
-
-        write_auth(&ambient_home, "old@example.com", old_account_id);
-        write_auth(&target_home, "new@example.com", new_account_id);
-        let target_session_dir = target_home.join("desktop-session").join("Network");
-        std::fs::create_dir_all(&target_session_dir).unwrap();
-        std::fs::write(target_session_dir.join("Cookies"), "cookie-data").unwrap();
-
-        let global_state = serde_json::json!({
-            "electron-persisted-atom-state": {
-                "environment": {
-                    "creator_id": format!("user-e9H3MsspGTF7UZJ8uaXuML55__{old_account_id}"),
-                }
-            }
-        });
-        for file_name in [".codex-global-state.json", ".codex-global-state.json.bak"] {
-            std::fs::write(
-                ambient_home.join(file_name),
-                serde_json::to_vec_pretty(&global_state).unwrap(),
-            )
-            .unwrap();
-        }
-
-        super::super::file_locations::with_ambient_codex_home(ambient_home.clone());
-        super::super::file_locations::with_codex_desktop_session_root(desktop_session_root.clone());
-
-        let manager = CodexAccountManager::new();
-        let target_account = make_account(target_home.clone(), "new@example.com", new_account_id);
-        let result = manager
-            .switch_active_account(&target_account, std::slice::from_ref(&target_account))
-            .unwrap();
-
-        let ambient_auth: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(ambient_home.join("auth.json")).unwrap())
-                .unwrap();
-        assert_eq!(ambient_auth["tokens"]["account_id"], new_account_id);
-        assert_eq!(
-            result
-                .ambient_account
-                .unwrap()
-                .provider_account_id
-                .as_deref(),
-            Some(new_account_id)
-        );
-        let materialized = result.materialized_account.unwrap();
-        assert_eq!(
-            materialized.provider_account_id.as_deref(),
-            Some(old_account_id)
-        );
-        assert_eq!(
-            result.desktop_session_backup_path.unwrap(),
-            materialized.codex_home_path.join("desktop-session")
-        );
-        assert_eq!(
-            result.desktop_session_restore_path.unwrap(),
-            target_home.join("desktop-session")
-        );
-        assert!(result.desktop_session_restore_exists);
-
-        let backup_files: Vec<PathBuf> = std::fs::read_dir(root.join("auth-backups"))
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| {
-                path.file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .starts_with("ambient-auth-")
-            })
-            .collect();
-        assert_eq!(backup_files.len(), 1);
-        let backup: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&backup_files[0]).unwrap()).unwrap();
-        assert_eq!(backup["tokens"]["account_id"], old_account_id);
-
-        for file_name in [".codex-global-state.json", ".codex-global-state.json.bak"] {
-            let payload: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(ambient_home.join(file_name)).unwrap())
-                    .unwrap();
-            let creator_id = payload["electron-persisted-atom-state"]["environment"]["creator_id"]
-                .as_str()
-                .unwrap();
-            assert_eq!(
-                creator_id,
-                format!("user-e9H3MsspGTF7UZJ8uaXuML55__{new_account_id}")
-            );
-        }
-
-        super::super::file_locations::clear_app_support_directory_override();
-        super::super::file_locations::clear_ambient_codex_home_override();
-        super::super::file_locations::clear_codex_desktop_session_root_override();
-    }
-}
+include!("account_manager/tests.rs");
