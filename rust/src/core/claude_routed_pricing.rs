@@ -79,10 +79,14 @@ pub fn resolve_with_snapshot(
     model: &str,
     normalized: &str,
     snapshot: &models_dev_pricing::ModelsDevPricingSnapshot,
-) -> Option<models_dev_pricing::DynamicModelPricing> {
+) -> Option<(models_dev_pricing::DynamicModelPricing, Option<u64>)> {
     models_dev_targets(model, normalized.to_string())
         .into_iter()
-        .find_map(|(provider, lookup_model)| snapshot.lookup(provider, &lookup_model))
+        .find_map(|(provider, lookup_model)| {
+            let pricing = snapshot.lookup(provider, &lookup_model)?;
+            let threshold = effective_threshold(provider, &lookup_model, pricing.threshold_tokens);
+            Some((pricing, threshold))
+        })
 }
 
 pub fn cost_usd(
@@ -93,16 +97,25 @@ pub fn cost_usd(
     cache_write: i32,
     output: i32,
 ) -> Option<f64> {
-    let pricing = models_dev_targets(model, normalized)
+    let (provider, lookup_model, pricing) = models_dev_targets(model, normalized)
         .into_iter()
-        .find_map(|(provider, lookup_model)| models_dev_pricing::lookup(provider, &lookup_model))?;
-    Some(cost_usd_from_pricing(
-        pricing,
-        input,
-        cache_read,
-        cache_write,
-        output,
-    ))
+        .find_map(|(provider, lookup_model)| {
+            let pricing = models_dev_pricing::lookup(provider, &lookup_model)?;
+            Some((provider, lookup_model, pricing))
+        })?;
+    let threshold = effective_threshold(provider, &lookup_model, pricing.threshold_tokens);
+    Some(if threshold == pricing.threshold_tokens {
+        cost_usd_from_pricing(pricing, input, cache_read, cache_write, output)
+    } else {
+        cost_usd_from_pricing_with_threshold(
+            pricing,
+            threshold,
+            input,
+            cache_read,
+            cache_write,
+            output,
+        )
+    })
 }
 
 /// Calculate routed cost after the models.dev resolution has already been memoized.
@@ -113,11 +126,32 @@ pub fn cost_usd_from_pricing(
     cache_write: i32,
     output: i32,
 ) -> f64 {
+    cost_usd_from_pricing_with_threshold(
+        pricing,
+        pricing.threshold_tokens,
+        input,
+        cache_read,
+        cache_write,
+        output,
+    )
+}
+
+/// Calculate routed cost while optionally replacing the catalog's context
+/// boundary. OpenAI GPT rows recorded by Claude Code use the bundled Codex
+/// boundary, but retain the catalog's per-token rates.
+pub fn cost_usd_from_pricing_with_threshold(
+    pricing: models_dev_pricing::DynamicModelPricing,
+    threshold_tokens: Option<u64>,
+    input: i32,
+    cache_read: i32,
+    cache_write: i32,
+    output: i32,
+) -> f64 {
     let input = input.max(0);
     let cache_read = cache_read.max(0);
     let cache_write = cache_write.max(0);
     let output = output.max(0);
-    let use_tier = pricing.threshold_tokens.is_some_and(|threshold| {
+    let use_tier = threshold_tokens.is_some_and(|threshold| {
         (input as u64) + (cache_read as u64) + (cache_write as u64) > threshold
     });
     let pick = |base: f64, above: Option<f64>| {
@@ -162,6 +196,13 @@ pub fn cost_usd_from_pricing(
         + (output as f64) * output_rate
 }
 
+fn effective_threshold(provider: &str, model: &str, catalog_threshold: Option<u64>) -> Option<u64> {
+    (provider == "openai")
+        .then(|| super::cost_pricing::bundled_codex_long_context_threshold(model))
+        .flatten()
+        .or(catalog_threshold)
+}
+
 pub fn input_cost_per_token(model: &str, normalized: String) -> Option<f64> {
     models_dev_targets(model, normalized)
         .into_iter()
@@ -196,5 +237,41 @@ mod tests {
             models_dev_targets("moonshot/k3[1m]", "moonshot/k3[1m]".to_string()),
             vec![("moonshot", "k3[1m]".to_string())]
         );
+    }
+
+    #[test]
+    fn gpt_proxy_uses_bundled_boundary_but_keeps_catalog_rates() {
+        let snapshot = models_dev_pricing::ModelsDevPricingSnapshot::from_catalog_json_for_tests(
+            r#"{
+                "openai": {"models": {"gpt-5.6-sol": {"id": "gpt-5.6-sol", "cost": {
+                    "input": 2, "output": 4, "cache_read": 0.25, "cache_write": 3,
+                    "context_over_200k": {"input": 7, "output": 11, "cache_read": 0.5, "cache_write": 9}
+                }}}},
+                "anthropic": {"models": {"threshold-fixture": {"id": "threshold-fixture", "cost": {
+                    "input": 2, "output": 4, "cache_read": 0.25, "cache_write": 3,
+                    "context_over_200k": {"input": 7, "output": 11, "cache_read": 0.5, "cache_write": 9}
+                }}}}
+            }"#,
+        )
+        .expect("pricing fixture");
+
+        let (pricing, threshold) = resolve_with_snapshot("gpt-5.6-sol", "gpt-5.6-sol", &snapshot)
+            .expect("OpenAI proxy pricing");
+        assert_eq!(threshold, Some(272_000));
+        assert_eq!(pricing.input_cost_per_token, 2e-6);
+
+        let short =
+            cost_usd_from_pricing_with_threshold(pricing, threshold, 262_000, 10_000, 0, 13);
+        let long = cost_usd_from_pricing_with_threshold(pricing, threshold, 262_001, 10_000, 0, 13);
+        assert!((short - 0.526552).abs() < 1e-12);
+        assert!((long - 1.83915).abs() < 1e-12);
+
+        let (_, anthropic_threshold) = resolve_with_snapshot(
+            "anthropic/threshold-fixture",
+            "anthropic/threshold-fixture",
+            &snapshot,
+        )
+        .expect("Anthropic pricing");
+        assert_eq!(anthropic_threshold, Some(200_000));
     }
 }

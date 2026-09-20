@@ -22,6 +22,14 @@ mod tests {
     }
 
     fn input(providers: Vec<ProviderFetchEnvelope>, identity: DashboardIdentity) -> SnapshotInput {
+        input_with_fill(providers, identity, None)
+    }
+
+    fn input_with_fill(
+        providers: Vec<ProviderFetchEnvelope>,
+        identity: DashboardIdentity,
+        usage_bars_show_used: Option<bool>,
+    ) -> SnapshotInput {
         SnapshotInput {
             collection: SnapshotCollection {
                 providers,
@@ -36,6 +44,7 @@ mod tests {
             },
             identity,
             version: Some("0.48.0-test".to_string()),
+            usage_bars_show_used,
         }
     }
 
@@ -55,6 +64,7 @@ mod tests {
         assert_eq!(json["staleAfterSeconds"], 180);
         assert_eq!(json["host"]["codexBarVersion"], "0.48.0-test");
         assert_eq!(json["host"]["refreshIntervalSeconds"], 60);
+        assert_eq!(json["host"]["usageBarsShowUsed"], false);
         let row = &json["providers"][0];
         assert_eq!(row["id"], "claude");
         assert_eq!(row["name"], "Claude");
@@ -81,6 +91,47 @@ mod tests {
             "accounts absent without input"
         );
         assert!(row.get("accountsError").is_none());
+    }
+
+    #[test]
+    fn usage_bar_preference_explicit_used_or_remaining_and_absent_defaults_remaining() {
+        for (preference, expected) in [(Some(true), true), (Some(false), false), (None, false)] {
+            let json = serde_json::to_value(build_snapshot(&input_with_fill(
+                vec![provider_envelope(Ok(fetch_result(25.0, None, None)))],
+                DashboardIdentity::Redacted,
+                preference,
+            )))
+            .unwrap();
+            assert_eq!(json["host"]["usageBarsShowUsed"], expected);
+        }
+    }
+
+    #[test]
+    fn window_boundaries_and_unknown_usage_remain_distinguishable() {
+        let mut usage = UsageSnapshot::new(RateWindow::new(0.0));
+        usage.secondary = Some(RateWindow::new(100.0));
+        usage.model_specific =
+            Some(RateWindow::with_details(0.0, None, None, None).with_usage_known(false));
+        let payload = build_snapshot(&input(
+            vec![provider_envelope(Ok(ProviderFetchResult::new(
+                usage, "test",
+            )))],
+            DashboardIdentity::Redacted,
+        ));
+        let windows = serde_json::to_value(payload).unwrap()["providers"][0]["windows"]
+            .as_array()
+            .unwrap()
+            .clone();
+
+        assert_eq!(windows[0]["usedPercent"], 0.0);
+        assert_eq!(windows[0]["remainingPercent"], 100.0);
+        assert!(windows[0].get("usageKnown").is_none());
+        assert_eq!(windows[1]["usedPercent"], 100.0);
+        assert_eq!(windows[1]["remainingPercent"], 0.0);
+        assert!(windows[1].get("usageKnown").is_none());
+        assert_eq!(windows[2]["usedPercent"], 0.0);
+        assert_eq!(windows[2]["remainingPercent"], 100.0);
+        assert_eq!(windows[2]["usageKnown"], false);
     }
 
     #[test]
