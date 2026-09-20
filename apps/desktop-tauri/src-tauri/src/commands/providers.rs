@@ -1,5 +1,6 @@
 use super::*;
 use chrono::{Local, Utc};
+use codexbar::core::{HookEvent, HookEventType, HookRunner};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -615,6 +616,12 @@ async fn refresh_provider(
     if let Some(snapshot) = published {
         events::emit_provider_updated(&app, &snapshot);
         if fresh_snapshot {
+            dispatch_usage_updated_hook(
+                id,
+                &snapshot,
+                account_identity.as_deref(),
+                token_account_id,
+            );
             crate::auto_resume::observe_fresh_snapshot(
                 &app,
                 id,
@@ -625,6 +632,58 @@ async fn refresh_provider(
             .await;
         }
     }
+}
+
+/// Publish the current successful snapshot to opt-in external hooks. The event
+/// carries both quota windows in one payload and is rate-limited per provider
+/// account so periodic refreshes cannot create a hook storm.
+fn dispatch_usage_updated_hook(
+    provider: ProviderId,
+    snapshot: &ProviderUsageSnapshot,
+    account_identity: Option<&str>,
+    token_account_id: Option<uuid::Uuid>,
+) {
+    let settings = Settings::load();
+    if !settings.hooks_enabled {
+        return;
+    }
+
+    let account = if settings.hide_personal_info {
+        None
+    } else {
+        account_identity
+            .map(str::trim)
+            .filter(|identity| !identity.is_empty())
+    };
+    let private_identity = quota_notification_account_identity(snapshot, token_account_id);
+    let mut event = HookEvent::new(HookEventType::UsageUpdated, provider.cli_name());
+
+    if !snapshot.primary.is_informational {
+        event = event
+            .with_used_percent(snapshot.primary.used_percent)
+            .with_window_minutes(snapshot.primary.window_minutes)
+            .with_reset_at(snapshot.primary.resets_at.clone());
+    }
+    if let Some(secondary) = snapshot
+        .secondary
+        .as_ref()
+        .filter(|window| !window.is_informational)
+    {
+        event = event
+            .with_secondary_usage_fraction(secondary.used_percent / 100.0)
+            .with_secondary_window_minutes(secondary.window_minutes)
+            .with_secondary_reset_at(secondary.resets_at.clone());
+    }
+    if let Some(account) = account {
+        event = event.with_account(account.to_string());
+    }
+    if !private_identity.is_empty() {
+        event = event.with_rate_limit_key(Some(format!("provider-account:{private_identity}")));
+    }
+
+    let _ = std::thread::Builder::new()
+        .name("codexbar-usage-hook".into())
+        .spawn(move || HookRunner::dispatch_if_enabled(event, true));
 }
 
 /// F6 (upstream 0.48.0 UsageStore+CodexResetBackfill): backfill missing

@@ -18,6 +18,8 @@ pub enum HookEventType {
     QuotaLow,
     QuotaReached,
     QuotaReset,
+    /// A successful provider refresh published a current usage snapshot.
+    UsageUpdated,
     ProviderUnavailable,
     ProviderRecovered,
     RefreshFailed,
@@ -29,6 +31,7 @@ impl HookEventType {
             Self::QuotaLow => "quota_low",
             Self::QuotaReached => "quota_reached",
             Self::QuotaReset => "quota_reset",
+            Self::UsageUpdated => "usage_updated",
             Self::ProviderUnavailable => "provider_unavailable",
             Self::ProviderRecovered => "provider_recovered",
             Self::RefreshFailed => "refresh_failed",
@@ -37,7 +40,10 @@ impl HookEventType {
 
     /// Events that can repeat every refresh while a condition persists.
     pub fn is_rate_limited(self) -> bool {
-        matches!(self, Self::ProviderUnavailable | Self::RefreshFailed)
+        matches!(
+            self,
+            Self::UsageUpdated | Self::ProviderUnavailable | Self::RefreshFailed
+        )
     }
 }
 
@@ -56,9 +62,27 @@ pub struct HookEvent {
     /// Used fraction 0..=1 (upstream-compatible env/payload).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_percent: Option<f64>,
+    /// Duration of the primary quota window, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_minutes: Option<u32>,
+    /// Primary quota reset timestamp, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<String>,
+    /// Used fraction for the secondary quota window, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary_usage_percent: Option<f64>,
+    /// Duration of the secondary quota window, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary_window_minutes: Option<u32>,
+    /// Secondary quota reset timestamp, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary_reset_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     pub timestamp: String,
+    /// Private account bucket used only for in-memory rate limiting.
+    #[serde(skip)]
+    rate_limit_key: Option<String>,
 }
 
 impl HookEvent {
@@ -70,8 +94,14 @@ impl HookEvent {
             window: None,
             remaining_percent: None,
             usage_percent: None,
+            window_minutes: None,
+            reset_at: None,
+            secondary_usage_percent: None,
+            secondary_window_minutes: None,
+            secondary_reset_at: None,
             status: None,
             timestamp: utc_now_iso(),
+            rate_limit_key: None,
         }
     }
 
@@ -110,6 +140,39 @@ impl HookEvent {
         self
     }
 
+    pub fn with_window_minutes(mut self, minutes: Option<u32>) -> Self {
+        self.window_minutes = minutes;
+        self
+    }
+
+    pub fn with_reset_at(mut self, reset_at: Option<String>) -> Self {
+        self.reset_at = reset_at;
+        self
+    }
+
+    pub fn with_secondary_usage_fraction(mut self, usage: f64) -> Self {
+        let usage = usage.clamp(0.0, 1.0);
+        self.secondary_usage_percent = Some(usage);
+        self
+    }
+
+    pub fn with_secondary_window_minutes(mut self, minutes: Option<u32>) -> Self {
+        self.secondary_window_minutes = minutes;
+        self
+    }
+
+    pub fn with_secondary_reset_at(mut self, reset_at: Option<String>) -> Self {
+        self.secondary_reset_at = reset_at;
+        self
+    }
+
+    /// Set the private identity used to keep repeated usage events account-scoped.
+    /// This value is never serialized or forwarded to hook processes.
+    pub fn with_rate_limit_key(mut self, key: Option<String>) -> Self {
+        self.rate_limit_key = key;
+        self
+    }
+
     pub fn with_timestamp(mut self, ts: chrono::DateTime<chrono::Utc>) -> Self {
         self.timestamp = format_unix_utc(ts.timestamp().max(0) as u64);
         self
@@ -129,6 +192,27 @@ impl HookEvent {
         }
         if let Some(usage) = self.usage_percent {
             env.insert("CODEXBAR_USAGE_PERCENT".into(), format_number(usage));
+        }
+        if let Some(minutes) = self.window_minutes {
+            env.insert("CODEXBAR_WINDOW_MINUTES".into(), minutes.to_string());
+        }
+        if let Some(reset_at) = &self.reset_at {
+            env.insert("CODEXBAR_RESET_AT".into(), reset_at.clone());
+        }
+        if let Some(usage) = self.secondary_usage_percent {
+            env.insert(
+                "CODEXBAR_SECONDARY_USAGE_PERCENT".into(),
+                format_number(usage),
+            );
+        }
+        if let Some(minutes) = self.secondary_window_minutes {
+            env.insert(
+                "CODEXBAR_SECONDARY_WINDOW_MINUTES".into(),
+                minutes.to_string(),
+            );
+        }
+        if let Some(reset_at) = &self.secondary_reset_at {
+            env.insert("CODEXBAR_SECONDARY_RESET_AT".into(), reset_at.clone());
         }
         if let Some(remaining) = self.remaining_percent {
             env.insert(
@@ -460,6 +544,9 @@ impl Default for HookRateLimiter {
 }
 
 fn rate_limit_key(event: &HookEvent) -> String {
+    if let Some(key) = &event.rate_limit_key {
+        return format!("{}\u{1f}{}", event.event.as_str(), key);
+    }
     format!(
         "{}\u{1f}{}\u{1f}{}\u{1f}{}",
         event.event.as_str(),
@@ -656,6 +743,41 @@ mod tests {
         assert_eq!(parsed["event"], "quota_low");
         assert_eq!(parsed["provider"], "claude");
         assert!((parsed["remaining_percent"].as_f64().unwrap() - 20.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn usage_updated_payload_carries_both_windows_without_private_rate_key() {
+        let event = HookEvent::new(HookEventType::UsageUpdated, "codex")
+            .with_used_percent(25.0)
+            .with_window_minutes(Some(300))
+            .with_reset_at(Some("2026-09-20T12:00:00Z".into()))
+            .with_secondary_usage_fraction(0.4)
+            .with_secondary_window_minutes(Some(10080))
+            .with_secondary_reset_at(Some("2026-09-27T12:00:00Z".into()))
+            .with_rate_limit_key(Some("private-account-key".into()));
+
+        let env = event.environment_variables();
+        assert_eq!(
+            env.get("CODEXBAR_EVENT").map(String::as_str),
+            Some("usage_updated")
+        );
+        assert_eq!(
+            env.get("CODEXBAR_WINDOW_MINUTES").map(String::as_str),
+            Some("300")
+        );
+        assert_eq!(
+            env.get("CODEXBAR_SECONDARY_USAGE_PERCENT")
+                .map(String::as_str),
+            Some("0.4")
+        );
+        assert!(!env.values().any(|value| value == "private-account-key"));
+
+        let payload = event.json_payload().unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(parsed["event"], "usage_updated");
+        assert_eq!(parsed["window_minutes"], 300);
+        assert_eq!(parsed["secondary_window_minutes"], 10080);
+        assert!(parsed.get("rate_limit_key").is_none());
     }
 
     #[test]

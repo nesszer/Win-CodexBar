@@ -38,6 +38,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::hooks::{HookEvent, HookEventType, HookRule, HooksConfig};
 use super::rate_window::RateWindow;
+use super::usage_snapshot::UsageSnapshot;
 
 /// Identifies one quota lane for hook transition tracking.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -143,6 +144,11 @@ pub struct HookProviderObservation {
     /// Coarse failure category when the refresh itself failed (never a raw error).
     pub refresh_failure_status: Option<String>,
     pub account_display_name: Option<String>,
+    /// Present only after a successful fetch. Failed observations never emit an
+    /// update and leave quota/status baselines unchanged.
+    pub successful_usage: Option<UsageSnapshot>,
+    /// Private account identity used only for usage-updated rate limiting.
+    pub account_discriminator: Option<String>,
 }
 
 impl HookProviderObservation {
@@ -153,6 +159,8 @@ impl HookProviderObservation {
             status: HookProviderStatus::Unknown,
             refresh_failure_status: None,
             account_display_name: None,
+            successful_usage: None,
+            account_discriminator: None,
         }
     }
 }
@@ -240,6 +248,18 @@ impl HookTransitionDetector {
         }
 
         let mut dispatches = self.status_events(observation, now);
+        if let Some(usage) = &observation.successful_usage {
+            dispatches.push(HookDispatch {
+                event: build_usage_updated_event(
+                    &observation.provider,
+                    usage,
+                    observation.account_display_name.as_deref(),
+                    observation.account_discriminator.as_deref(),
+                    now,
+                ),
+                rules: None,
+            });
+        }
 
         let observed_keys: HashSet<HookQuotaLaneKey> =
             observation.lanes.iter().map(|l| l.key.clone()).collect();
@@ -452,6 +472,37 @@ fn build_lane_event(
     event
 }
 
+fn build_usage_updated_event(
+    provider: &str,
+    usage: &UsageSnapshot,
+    account: Option<&str>,
+    account_discriminator: Option<&str>,
+    now: DateTime<Utc>,
+) -> HookEvent {
+    let mut event = HookEvent::new(HookEventType::UsageUpdated, provider).with_timestamp(now);
+
+    if !usage.primary.is_informational {
+        event = event
+            .with_used_percent(usage.primary.used_percent)
+            .with_window_minutes(usage.primary.window_minutes)
+            .with_reset_at(usage.primary.resets_at.map(|reset| reset.to_rfc3339()));
+    }
+    if let Some(secondary) = usage
+        .secondary
+        .as_ref()
+        .filter(|window| !window.is_informational)
+    {
+        event = event
+            .with_secondary_usage_fraction(secondary.used_percent / 100.0)
+            .with_secondary_window_minutes(secondary.window_minutes)
+            .with_secondary_reset_at(secondary.resets_at.map(|reset| reset.to_rfc3339()));
+    }
+    if let Some(account) = account {
+        event = event.with_account(account.to_string());
+    }
+    event.with_rate_limit_key(account_discriminator.map(str::to_string))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -512,6 +563,8 @@ mod tests {
             status,
             refresh_failure_status: refresh_failure.map(str::to_string),
             account_display_name: None,
+            successful_usage: None,
+            account_discriminator: None,
         }
     }
 
@@ -1105,6 +1158,7 @@ mod tests {
 
         // Quota events are not rate-limited by HookEventType::is_rate_limited.
         assert!(!HookEventType::QuotaLow.is_rate_limited());
+        assert!(HookEventType::UsageUpdated.is_rate_limited());
         assert!(HookEventType::RefreshFailed.is_rate_limited());
         assert!(HookEventType::ProviderUnavailable.is_rate_limited());
     }
