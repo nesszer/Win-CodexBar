@@ -222,6 +222,17 @@ impl ModelsDevPricingSnapshot {
             .as_ref()
             .and_then(|artifact| artifact.catalog.lookup(provider_id, model_id))
     }
+
+    #[cfg(test)]
+    pub(crate) fn from_catalog_json_for_tests(json: &str) -> Option<Self> {
+        let catalog = ModelsDevCatalog::decode(json)?;
+        Some(Self {
+            artifact: Some(Arc::new(ModelsDevCacheArtifact::new(
+                catalog,
+                SystemTime::now(),
+            ))),
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]

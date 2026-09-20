@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::core::{NamedRateWindow, UsageSnapshot};
 
-use super::window::{WindowPayload, make_window_with_idle};
+use super::window::{WindowPayload, make_window_with_idle, make_window_with_known};
 
 /// Project the provider-owned quota-summary layout into dashboard rows.
 ///
@@ -41,11 +41,12 @@ pub(super) fn quota_summary_windows(
         ));
     }
     windows.extend(usage.extra_rate_windows.iter().map(|extra| {
-        make_window_with_idle(
+        make_window_with_known(
             &extra.id,
             &extra.title,
             &extra.window,
             idle_ids.contains(&extra.id),
+            extra.usage_known && extra.window.usage_known(),
         )
     }));
     windows
