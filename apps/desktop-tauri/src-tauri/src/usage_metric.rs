@@ -529,4 +529,46 @@ mod tests {
             serde_json::json!(["metric:secondary"])
         );
     }
+
+    #[test]
+    fn claude_routines_hide_and_restore_preserve_raw_data_and_selected_metric() {
+        let mut raw = snapshot();
+        raw.provider_id = "claude".to_string();
+        raw.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: "claude-routines".to_string(),
+            title: "Daily Routines".to_string(),
+            window: window(95.0),
+        }];
+
+        let baseline = crate::commands::ProviderUsagePresentationSnapshot::new(
+            raw.clone(),
+            &Settings::default(),
+        );
+        assert_eq!(baseline.selected_metric.used_percent, 95.0);
+
+        let mut settings = Settings::default();
+        settings.set_hidden_usage_item_ids(
+            ProviderId::Claude,
+            vec![codexbar::settings::CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string()],
+        );
+        let hidden =
+            crate::commands::ProviderUsagePresentationSnapshot::new(raw.clone(), &settings);
+
+        assert_eq!(hidden.selected_metric.used_percent, 95.0);
+        assert_eq!(hidden.snapshot.extra_rate_windows[0].id, "claude-routines");
+        assert_eq!(
+            hidden.snapshot.extra_rate_windows[0].window.used_percent,
+            95.0
+        );
+
+        settings.set_hidden_usage_item_ids(ProviderId::Claude, Vec::new());
+        let restored = crate::commands::ProviderUsagePresentationSnapshot::new(raw, &settings);
+
+        assert_eq!(restored.selected_metric.used_percent, 95.0);
+        assert_eq!(
+            restored.snapshot.extra_rate_windows[0].id,
+            "claude-routines"
+        );
+        assert!(restored.hidden_usage_item_ids.is_empty());
+    }
 }

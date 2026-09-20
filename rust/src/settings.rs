@@ -1084,8 +1084,8 @@ impl Settings {
         hidden
     }
 
-    /// Persist an explicit usage-item visibility list and synchronize the
-    /// existing provider-specific compatibility flags.
+    /// Persist an explicit presentation-only usage-item visibility list and
+    /// synchronize the existing Codex-specific compatibility flag.
     pub fn set_hidden_usage_item_ids(&mut self, id: ProviderId, ids: Vec<String>) {
         let hidden = normalize_hidden_usage_item_ids(ids);
         self.provider_config_mut(id).hidden_usage_item_ids = Some(hidden.clone());
@@ -1095,11 +1095,6 @@ impl Settings {
                 .iter()
                 .all(|item| hidden.iter().any(|hidden_id| hidden_id == item));
             self.provider_config_mut(id).spark_usage_visible = Some(spark_visible);
-        }
-        if id == ProviderId::Claude {
-            self.claude_daily_routines_usage_visible = !hidden
-                .iter()
-                .any(|hidden_id| hidden_id == CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID);
         }
     }
 

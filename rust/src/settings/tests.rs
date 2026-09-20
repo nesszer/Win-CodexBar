@@ -1076,6 +1076,31 @@ fn hidden_usage_item_ids_keep_legacy_visibility_compatible() {
 }
 
 #[test]
+fn generic_claude_visibility_does_not_mutate_legacy_flag() {
+    let mut settings = Settings::default();
+
+    settings.set_hidden_usage_item_ids(
+        ProviderId::Claude,
+        vec![CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string()],
+    );
+
+    assert!(settings.claude_daily_routines_usage_visible);
+    assert_eq!(
+        settings.hidden_usage_item_ids(ProviderId::Claude),
+        vec![CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string()]
+    );
+
+    settings.set_hidden_usage_item_ids(ProviderId::Claude, Vec::new());
+
+    assert!(settings.claude_daily_routines_usage_visible);
+    assert!(
+        settings
+            .hidden_usage_item_ids(ProviderId::Claude)
+            .is_empty()
+    );
+}
+
+#[test]
 fn explicit_hidden_usage_item_ids_roundtrip_and_restore_defaults() {
     let mut settings = Settings::default();
     settings.set_hidden_usage_item_ids(

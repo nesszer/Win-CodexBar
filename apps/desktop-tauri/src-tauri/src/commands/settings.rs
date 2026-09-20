@@ -86,11 +86,6 @@ pub struct SettingsUpdate {
 impl SettingsUpdate {
     fn refreshes_provider_data(&self) -> bool {
         self.enabled_providers.is_some()
-            || self.claude_daily_routines_usage_visible.is_some()
-            || self
-                .provider_hidden_usage_item_ids
-                .as_ref()
-                .is_some_and(|values| values.keys().any(|id| id == "claude"))
             || self.claude_allow_reading_claude_code_credentials.is_some()
             || self.alibaba_token_plan_region.is_some()
             || self.weekly_progress_work_days.is_some()
@@ -578,9 +573,9 @@ mod tests {
             .refreshes_provider_data()
         );
         assert!(
-            SettingsUpdate {
+            !SettingsUpdate {
                 provider_hidden_usage_item_ids: Some(
-                    [("claude".to_string(), Vec::new())].into_iter().collect(),
+                    [("codex".to_string(), Vec::new())].into_iter().collect(),
                 ),
                 ..Default::default()
             }
@@ -588,9 +583,7 @@ mod tests {
         );
         assert!(
             !SettingsUpdate {
-                provider_hidden_usage_item_ids: Some(
-                    [("codex".to_string(), Vec::new())].into_iter().collect(),
-                ),
+                claude_daily_routines_usage_visible: Some(false),
                 ..Default::default()
             }
             .refreshes_provider_data()
