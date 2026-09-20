@@ -231,9 +231,6 @@ impl RemoteSessionFetcher {
             "LANG",
             "LC_ALL",
             "SSH_AUTH_SOCK",
-            "USERPROFILE",
-            "HOMEDRIVE",
-            "HOMEPATH",
         ];
 
         ALLOWED_ENVIRONMENT.iter().fold(
@@ -373,15 +370,34 @@ mod tests {
         assert!(
             options
                 .extra_args
-                .iter()
-                .any(|arg| { arg.contains("cost --provider codex --format json --summary-only") })
+                .contains(&"RemoteCommand=none".to_string())
         );
+        assert!(options.extra_args.contains(&"RequestTTY=no".to_string()));
         assert!(
             options
                 .extra_args
-                .iter()
-                .any(|arg| arg.contains("--days 30"))
+                .contains(&"ClearAllForwardings=yes".to_string())
         );
+        assert!(options.extra_args.contains(&"-T".to_string()));
+        assert!(options.extra_args.contains(&"-n".to_string()));
+
+        let separator = options
+            .extra_args
+            .iter()
+            .position(|arg| arg == "--")
+            .expect("SSH host separator is present");
+        assert_eq!(
+            &options.extra_args[separator..separator + 4],
+            ["--", "build-host", "sh", "-lc"]
+        );
+        let remote_command = options
+            .extra_args
+            .get(separator + 4)
+            .expect("SSH command is present");
+        assert!(remote_command.starts_with('\''));
+        assert!(remote_command.ends_with('\''));
+        assert!(remote_command.contains("cost --provider codex --format json --summary-only"));
+        assert!(remote_command.contains("--days 30"));
     }
 
     #[test]

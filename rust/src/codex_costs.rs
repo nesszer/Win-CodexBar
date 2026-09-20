@@ -129,6 +129,16 @@ impl CodexCostSummary {
         {
             return Err(REMOTE_CODEX_COST_INVALID.to_string());
         }
+        if !self.history_coverage_is_established
+            && ([self.today.total_tokens, self.history.total_tokens]
+                .into_iter()
+                .any(|value| value.is_some())
+                || [self.today.cost_usd, self.history.cost_usd]
+                    .into_iter()
+                    .any(|value| value.is_some()))
+        {
+            return Err(REMOTE_CODEX_COST_INVALID.to_string());
+        }
         self.today.validate()?;
         self.history.validate()?;
         Ok(())
@@ -1073,5 +1083,27 @@ mod tests {
         assert!(
             decode_remote_codex_summary(&"x".repeat(MAX_REMOTE_CODEX_COST_BYTES + 1), 30).is_err()
         );
+    }
+
+    #[test]
+    fn remote_summary_decoder_rejects_numeric_totals_with_incomplete_coverage() {
+        let source = CostSummary {
+            history_coverage_established: true,
+            known_zero: true,
+            ..Default::default()
+        };
+        let mut summary = CodexCostSummary::from_summaries_at(
+            &source,
+            &source,
+            30,
+            DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+        summary.history_coverage_is_established = false;
+        summary.history.total_tokens = Some(42);
+        summary.history.cost_usd = Some(1.25);
+
+        let wire = serde_json::to_string(&[summary]).unwrap();
+        assert!(decode_remote_codex_summary(&wire, 30).is_err());
     }
 }
