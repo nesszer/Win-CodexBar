@@ -882,16 +882,18 @@ fn reasoning_survives_scan_rebuild_and_cache_reload() {
     let root = tempfile::tempdir().unwrap();
     let sessions = root.path().join("sessions");
     let cache_root = root.path().join("cache");
-    let today = Local::now().date_naive();
+    // The event timestamp (now − 1h) decides the parsed day key, so derive the
+    // fixture day from that same instant: at local 00:00–01:00 now − 1h falls
+    // on the previous local day and the row would land there, not on today.
+    let event_time = Utc::now() - Duration::hours(1);
+    let today = event_time.with_timezone(&Local).date_naive();
     let day = today.format("%Y-%m-%d").to_string();
     let day_dir = sessions
         .join(today.format("%Y").to_string())
         .join(today.format("%m").to_string())
         .join(today.format("%d").to_string());
     std::fs::create_dir_all(&day_dir).unwrap();
-    let timestamp = (Utc::now() - Duration::hours(1))
-        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-        .to_string();
+    let timestamp = event_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let reasoning_line = serde_json::json!({
         "timestamp": timestamp,
         "type": "event_msg",
