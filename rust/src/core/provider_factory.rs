@@ -15,7 +15,7 @@ use crate::providers::{
     DoubaoProvider, ElevenLabsProvider, FactoryProvider, FireworksProvider, GeminiProvider,
     GrokProvider, GroqProvider, InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider,
     KimiProvider, KiroProvider, LLMProxyProvider, LiteLLMProvider, LongCatProvider, ManusProvider,
-    MetaProvider, MiMoProvider, MiniMaxProvider, MistralProvider, NanoGPTProvider,
+    MetaProvider, MiMoProvider, MiniMaxProvider, MistralProvider, MuseProvider, NanoGPTProvider,
     NeuralwattProvider, NotionProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider,
     OpenCodeProvider, OpenRouterProvider, PerplexityProvider, PoeProvider, QoderProvider,
     QwenCloudProvider, SakanaProvider, StepFunProvider, Sub2ApiProvider, T3ChatProvider,
@@ -101,6 +101,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Xai => Box::new(XaiProvider::new()),
         ProviderId::Fireworks => Box::new(FireworksProvider::new()),
         ProviderId::Meta => Box::new(MetaProvider::new()),
+        ProviderId::Muse => Box::new(MuseProvider::new()),
     }
 }
 
