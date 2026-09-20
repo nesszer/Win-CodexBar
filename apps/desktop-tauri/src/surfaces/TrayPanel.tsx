@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot, UsageSpendSummary } from "../types/bridge";
 import type { LocaleKey } from "../i18n/keys";
@@ -22,9 +22,8 @@ import ProviderGrid from "../components/ProviderGrid";
 import AgentSessions from "../components/AgentSessions";
 import { hasSuccessfulClaudeCliQuota } from "../lib/claudeAccountActions";
 import {
-  downloadUsageSpendSharePng,
   filterUsageSpendSummaryForOverview,
-  renderUsageSpendSharePng,
+  shareUsageSpendPng,
 } from "../lib/usageSpendSharing";
 
 /** Provider IDs that have a dashboard URL in the backend */
@@ -351,25 +350,18 @@ function OverviewSpendSummary({ providerIds, t }: { providerIds: string[]; t: (k
   // Overview consumes the same backend spend catalog as Usage & Spend. Do not
   // restrict accounting to whichever cards happen to be rendered in this tray.
   const overviewSummary = summary ? filterUsageSpendSummaryForOverview(summary) : null;
-  const onShare = useCallback(() => {
-    setShareError(null);
-    if (!overviewSummary) return;
-    try {
-      const dataUrl = renderUsageSpendSharePng(overviewSummary, t("OverviewSpendTitle"));
-      if (!dataUrl) {
-        setShareError(t("UsageSpendShareFailed"));
-        return;
-      }
-      downloadUsageSpendSharePng(
-        dataUrl,
-        `codexbar-overview-usage-${overviewSummary.reportingDay}.png`,
-      );
-    } catch {
-      setShareError(t("UsageSpendShareFailed"));
-    }
-  }, [overviewSummary, t]);
 
   if (!overviewSummary) return null;
+  const onShare = () => {
+    setShareError(null);
+    const error = shareUsageSpendPng(
+      overviewSummary,
+      t("OverviewSpendTitle"),
+      `codexbar-overview-usage-${overviewSummary.reportingDay}.png`,
+    );
+    if (error) setShareError(t(error as LocaleKey));
+  };
+
   const rows = overviewSummary.rows;
   const summable = rows.filter((row) => (row.currency || "USD") === "USD");
   const known = summable.filter((row) => row.thirtyDay != null && Number.isFinite(row.thirtyDay));

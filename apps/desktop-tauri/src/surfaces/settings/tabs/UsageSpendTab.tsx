@@ -9,47 +9,13 @@ import {
   writeUsageSpendExport,
 } from "../../../lib/tauri";
 import {
-  downloadUsageSpendSharePng,
-  renderUsageSpendSharePng,
+  formatSpendMetric,
+  formatUsd,
+  shareUsageSpendPng,
 } from "../../../lib/usageSpendSharing";
 import type { CostSummaryDisplayStyle, SettingsSnapshot, SpendContract, UsageSpendSummary } from "../../../types/bridge";
 import type { LocaleKey } from "../../../i18n/keys";
 import type { TabProps } from "../settingsTabs";
-
-const currencyFormatters = new Map<string, Intl.NumberFormat>();
-
-function formatUsd(value: number | null | undefined, currency: string): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  const code = currency || "USD";
-  try {
-    let formatter = currencyFormatters.get(code);
-    if (!formatter) {
-      formatter = new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: code,
-        maximumFractionDigits: 2,
-      });
-      currencyFormatters.set(code, formatter);
-    }
-    return formatter.format(value);
-  } catch {
-    return `$${value.toFixed(2)}`;
-  }
-}
-
-function formatSpendMetric(
-  cost: number | null | undefined,
-  tokens: number | null | undefined,
-  currency: string,
-  tokenLabel: string,
-): string {
-  const parts: string[] = [];
-  if (cost != null && Number.isFinite(cost)) parts.push(formatUsd(cost, currency));
-  if (tokens != null && Number.isFinite(tokens)) {
-    parts.push(`${Math.max(0, tokens).toLocaleString()} ${tokenLabel}`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : "—";
-}
 
 export default function UsageSpendTab(_props: TabProps) {
   const { t } = useLocale();
@@ -120,21 +86,12 @@ export default function UsageSpendTab(_props: TabProps) {
 
   const onShare = useCallback(() => {
     setShareError(null);
-    if (!summary) {
-      setShareError(t("UsageSpendShareEmpty"));
-      return;
-    }
-    try {
-      const dataUrl = renderUsageSpendSharePng(summary, t("UsageSpendTitle"));
-      if (!dataUrl) {
-        setShareError(t("UsageSpendShareFailed"));
-        return;
-      }
-      const stamp = summary.reportingDay;
-      downloadUsageSpendSharePng(dataUrl, `codexbar-usage-spend-${stamp}.png`);
-    } catch {
-      setShareError(t("UsageSpendShareFailed"));
-    }
+    const error = shareUsageSpendPng(
+      summary,
+      t("UsageSpendTitle"),
+      `codexbar-usage-spend-${summary?.reportingDay ?? "unknown"}.png`,
+    );
+    if (error) setShareError(t(error as LocaleKey));
   }, [summary, t]);
 
   const onCopyJson = useCallback(async () => {

@@ -6,13 +6,14 @@ interface CivilDate {
   day: number;
 }
 
-export interface UsageSpendShareSummary {
-  rows: readonly UsageSpendRow[];
-  reportingDay: string;
-  dashboardTimezone: string;
-}
-
-/** Keep Overview sharing aligned with the rows that Overview itself displays. */
+/**
+ * Keep Overview sharing aligned with the rows that Overview itself displays.
+ *
+ * The backend (`usage_spend.rs`) always emits `includedInOverview`, so
+ * absent is not a state the backend produces; treat it defensively as
+ * included so a payload gap can never silently drop rows from the shared
+ * snapshot that Overview displays.
+ */
 export function filterUsageSpendSummaryForOverview(summary: UsageSpendSummary): UsageSpendSummary {
   return {
     ...summary,
@@ -97,39 +98,58 @@ export function usageSpendSubscriptionCaption(count: number): string {
   return count === 1 ? "1 subscription" : `${count} subscriptions`;
 }
 
-export function usageSpendShareFooter(summary: UsageSpendShareSummary): string {
+export function usageSpendShareFooter(summary: UsageSpendSummary): string {
   return `Data through ${formatUsageSpendReportingDay(summary.reportingDay, summary.dashboardTimezone)} · ${usageSpendSubscriptionCaption(summary.rows.length)}`;
 }
 
-function formatShareUsd(value: number | null | undefined, currency: string): string {
+const currencyFormatters = new Map<string, Intl.NumberFormat>();
+
+/** Canonical USD-style formatter for spend tables and share renders. */
+export function formatUsd(value: number | null | undefined, currency: string): string {
   if (value == null || !Number.isFinite(value)) return "—";
+  const code = currency || "USD";
   try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: currency || "USD",
-      maximumFractionDigits: 2,
-    }).format(value);
+    let formatter = currencyFormatters.get(code);
+    if (!formatter) {
+      formatter = new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: code,
+        maximumFractionDigits: 2,
+      });
+      currencyFormatters.set(code, formatter);
+    }
+    return formatter.format(value);
   } catch {
     return `$${value.toFixed(2)}`;
   }
 }
 
-function formatShareMetric(
+/** Canonical "cost · tokens" cell for spend tables and share renders. */
+export function formatSpendMetric(
   cost: number | null | undefined,
   tokens: number | null | undefined,
   currency: string,
+  tokenLabel: string,
 ): string {
   const parts: string[] = [];
-  if (cost != null && Number.isFinite(cost)) parts.push(formatShareUsd(cost, currency));
+  if (cost != null && Number.isFinite(cost)) parts.push(formatUsd(cost, currency));
   if (tokens != null && Number.isFinite(tokens)) {
-    parts.push(`${Math.max(0, tokens).toLocaleString()} tokens`);
+    parts.push(`${Math.max(0, tokens).toLocaleString()} ${tokenLabel}`);
   }
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
-/** Render the same sanitized local PNG used by Settings → Usage & Spend. */
-export function renderUsageSpendSharePng(summary: UsageSpendShareSummary, title: string): string {
-  const rows = summary.rows ?? [];
+/**
+ * Render the sanitized share-card PNG.
+ *
+ * Redaction invariant (upstream #2112): the rendered image must never contain
+ * account emails or any provider-identity secrets. Only
+ * `displayName / metrics / currency / source` cells are drawn, and the footer
+ * states the guarantee. Keep it that way — do not add account fields to the
+ * drawn cells or the footer.
+ */
+export function renderUsageSpendSharePng(summary: UsageSpendSummary, title: string): string {
+  const rows = summary.rows;
   const pad = 24;
   const rowH = 28;
   const headerH = 48;
@@ -182,8 +202,8 @@ export function renderUsageSpendSharePng(summary: UsageSpendShareSummary, title:
       const y = y0 + (index + 1) * rowH;
       const cells = [
         row.displayName,
-        formatShareMetric(row.sevenDay, row.sevenDayTokens, row.currency),
-        formatShareMetric(row.thirtyDay, row.thirtyDayTokens, row.currency),
+        formatSpendMetric(row.sevenDay, row.sevenDayTokens, row.currency, "tokens"),
+        formatSpendMetric(row.thirtyDay, row.thirtyDayTokens, row.currency, "tokens"),
         row.currency || "USD",
         row.source,
       ];
@@ -211,7 +231,7 @@ export function renderUsageSpendSharePng(summary: UsageSpendShareSummary, title:
   return canvas.toDataURL("image/png");
 }
 
-export function downloadUsageSpendSharePng(dataUrl: string, filename: string): void {
+export function downloadPng(dataUrl: string, filename: string): void {
   const anchor = document.createElement("a");
   anchor.href = dataUrl;
   anchor.download = filename;
@@ -219,4 +239,25 @@ export function downloadUsageSpendSharePng(dataUrl: string, filename: string): v
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
+}
+
+/**
+ * One share funnel for every surface: render → validate → download, mapping
+ * all failure modes (no summary, renderer failure, exception) onto one error
+ * message. Returns the localized error string or `null` on success.
+ */
+export function shareUsageSpendPng(
+  summary: UsageSpendSummary | null,
+  title: string,
+  filename: string,
+): string | null {
+  if (!summary) return "UsageSpendShareEmpty";
+  try {
+    const dataUrl = renderUsageSpendSharePng(summary, title);
+    if (!dataUrl) return "UsageSpendShareFailed";
+    downloadPng(dataUrl, filename);
+    return null;
+  } catch {
+    return "UsageSpendShareFailed";
+  }
 }
