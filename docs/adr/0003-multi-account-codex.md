@@ -72,3 +72,14 @@ review; this series only prepares the ground.
 - Transitional duplication is accepted: two code paths compute "current Codex
   usage" until retirement. The `NOTICE` file carries the upstream
   ademisler/codexcontrol MIT attribution.
+- **Managed-home reuse over duplication** (added with the home-reuse fix):
+  `materialize_as_managed` reuses a managed home that already holds
+  credentials for the account instead of minting a fresh UUID home per
+  switch; the first match by `managed_home_key` is the stable reuse target
+  and all matches are removal targets. On reuse, the stored `auth.json` is
+  refreshed only when the ambient copy is *known* to be at least as recently
+  refreshed. Unknown freshness (unreadable JSON, missing `last_refresh`, or
+  an unrecognized schema) keeps the incumbent credentials rather than
+  clobbering them: copying on unknown freshness is exactly how a stale
+  ambient token turned working accounts into dead ones, which is the
+  duplicate-home failure mode this policy exists to prevent.

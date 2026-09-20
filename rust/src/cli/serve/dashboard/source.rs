@@ -135,6 +135,7 @@ impl SnapshotProducer {
                 collection,
                 identity,
                 version: Some(self.version.clone()),
+                usage_bars_show_used: Some(settings.show_as_used),
             }),
             sidecar: Some(metrics),
         })
@@ -157,6 +158,7 @@ async fn fetch_provider_envelope(
         manual_cookie_header: None,
         api_key: None,
         workspace_id: None,
+        seat_credit_entitlement: None,
         api_region: None,
         gateway_url: None,
         auto_prefer_web: false,
@@ -276,6 +278,7 @@ async fn collect_claude_accounts(claude_enabled: bool) -> Option<ClaudeAccountsI
                 manual_cookie_header: Some(header),
                 api_key: None,
                 workspace_id: None,
+                seat_credit_entitlement: None,
                 api_region: None,
                 gateway_url: None,
                 auto_prefer_web: false,

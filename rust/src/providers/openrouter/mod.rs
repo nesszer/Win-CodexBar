@@ -5,6 +5,10 @@
 
 mod activity;
 
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;
+
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;
@@ -34,12 +38,12 @@ const OPENROUTER_MANAGEMENT_ENV: &str = "OPENROUTER_MANAGEMENT_API_KEY";
 const OPENROUTER_CREDENTIAL_TARGET: &str = "codexbar-openrouter";
 
 /// OpenRouter /credits response
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct CreditsResponse {
     data: CreditsData,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct CreditsData {
     total_credits: f64,
     total_usage: f64,
@@ -57,15 +61,29 @@ impl CreditsData {
             0.0
         }
     }
+
+    fn validate(&self) -> Result<(), ProviderError> {
+        for (field, value) in [
+            ("total_credits", self.total_credits),
+            ("total_usage", self.total_usage),
+        ] {
+            if !value.is_finite() {
+                return Err(ProviderError::Parse(format!(
+                    "OpenRouter credits.{field} must be a finite number"
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// OpenRouter /key response
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct KeyResponse {
     data: KeyData,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct KeyData {
     limit: Option<f64>,
     /// Server-reported current-period remaining for the key limit
@@ -78,13 +96,27 @@ struct KeyData {
     usage_daily: Option<f64>,
     usage_weekly: Option<f64>,
     usage_monthly: Option<f64>,
-    rate_limit: Option<RateLimitInfo>,
+    is_management_key: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
-struct RateLimitInfo {
-    requests: Option<i64>,
-    interval: Option<String>,
+impl KeyData {
+    fn validate(&self) -> Result<(), ProviderError> {
+        for (field, value) in [
+            ("limit", self.limit),
+            ("limit_remaining", self.limit_remaining),
+            ("usage", self.usage),
+            ("usage_daily", self.usage_daily),
+            ("usage_weekly", self.usage_weekly),
+            ("usage_monthly", self.usage_monthly),
+        ] {
+            if value.is_some_and(|value| !value.is_finite()) {
+                return Err(ProviderError::Parse(format!(
+                    "OpenRouter key.{field} must be a finite number"
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// OpenRouter provider
@@ -124,6 +156,7 @@ impl OpenRouterProvider {
                 is_primary: false,
                 dashboard_url: Some("https://openrouter.ai/activity"),
                 status_page_url: Some("https://status.openrouter.ai"),
+                tertiary_label_key: None,
             },
         }
     }
@@ -153,6 +186,20 @@ impl OpenRouterProvider {
         }
     }
 
+    fn configured_management_key() -> Option<String> {
+        crate::settings::Settings::load()
+            .management_api_token(ProviderId::OpenRouter)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                std::env::var(OPENROUTER_MANAGEMENT_ENV)
+                    .ok()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+            })
+    }
+
     /// Fetch usage from OpenRouter API. Management Activity spend is optional
     /// enrichment: a missing/denied management key never discards credits/quota.
     async fn fetch_usage_api(
@@ -169,29 +216,45 @@ impl OpenRouterProvider {
             Self::fetch_credits(&client, &api_key),
             Self::fetch_key_data(&api_key),
         );
-        let usage = Self::resolve_usage(credits_result, key_data_result?)?;
+        if let Err(error) = &credits_result {
+            tracing::debug!(error = %error, "OpenRouter credits endpoint degraded");
+        }
+        let key_data = match key_data_result {
+            Ok(key_data) => Some(key_data),
+            Err(error) => {
+                tracing::debug!(
+                    error = %error,
+                    "OpenRouter key endpoint degraded; preserving independent credits data"
+                );
+                None
+            }
+        };
+        let fallback_cost =
+            Self::build_uncapped_cost(key_data.as_ref(), credits_result.as_ref().ok());
+        let usage = Self::resolve_usage(credits_result, key_data.clone())?;
 
-        let management_key = crate::settings::Settings::load()
-            .management_api_token(ProviderId::OpenRouter)
-            .map(str::to_string)
-            .or_else(|| {
-                std::env::var(OPENROUTER_MANAGEMENT_ENV)
-                    .ok()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-            });
-        let cost = match management_key.as_deref() {
+        let management_key = Self::configured_management_key();
+        let activity_key = management_key.as_deref().or_else(|| {
+            key_data
+                .as_ref()
+                .is_some_and(|key_data| key_data.is_management_key == Some(true))
+                .then_some(api_key.as_str())
+        });
+        let activity_cost = match activity_key {
             Some(key) => match Self::fetch_activity_cost(key).await {
                 Ok(cost) => Some(cost),
                 Err(error) => {
-                    tracing::debug!(%error, "OpenRouter management Activity degraded; preserving credits/quota");
+                    tracing::debug!(
+                        error = %error,
+                        "OpenRouter management Activity degraded; preserving credits/quota"
+                    );
                     None
                 }
             },
             None => None,
         };
 
-        Ok((usage, cost))
+        Ok((usage, activity_cost.or(fallback_cost)))
     }
 
     async fn fetch_activity_cost(management_key: &str) -> Result<CostSnapshot, ProviderError> {
@@ -200,9 +263,12 @@ impl OpenRouterProvider {
         let latest_completed = (now.date_naive() - chrono::Duration::days(1))
             .format("%Y-%m-%d")
             .to_string();
-        let history = Self::fetch_activity_payload(&client, management_key, None).await?;
-        let latest_completed_payload =
-            Self::fetch_activity_payload(&client, management_key, Some(&latest_completed)).await?;
+        let (history_result, latest_completed_result) = tokio::join!(
+            Self::fetch_activity_payload(&client, management_key, None),
+            Self::fetch_activity_payload(&client, management_key, Some(&latest_completed)),
+        );
+        let history = history_result?;
+        let latest_completed_payload = latest_completed_result?;
         activity::parse_activity_cost(&[history, latest_completed_payload], now)
     }
 
@@ -226,7 +292,7 @@ impl OpenRouterProvider {
         }
         if !response.status().is_success() {
             return Err(ProviderError::Other(format!(
-                "OpenRouter Activity returned status {}",
+                "OpenRouter Activity request returned HTTP {}",
                 response.status()
             )));
         }
@@ -260,14 +326,16 @@ impl OpenRouterProvider {
 
         if !resp.status().is_success() {
             return Err(ProviderError::Other(format!(
-                "OpenRouter API returned status {}",
+                "OpenRouter credits request returned HTTP {}",
                 resp.status()
             )));
         }
 
-        resp.json()
-            .await
-            .map_err(|e| ProviderError::Parse(format!("Failed to parse credits response: {}", e)))
+        let response = resp.json::<CreditsResponse>().await.map_err(|error| {
+            ProviderError::Parse(format!("OpenRouter credits response was invalid: {error}"))
+        })?;
+        response.data.validate()?;
+        Ok(response)
     }
 
     fn build_credits_usage(credits: &CreditsData) -> UsageSnapshot {
@@ -276,6 +344,38 @@ impl OpenRouterProvider {
         primary.reset_description = Some(format!("${:.2} remaining", balance));
 
         UsageSnapshot::new(primary).with_login_method(format!("${:.2} balance", balance))
+    }
+
+    fn build_uncapped_cost(
+        key_data: Option<&KeyData>,
+        credits: Option<&CreditsResponse>,
+    ) -> Option<CostSnapshot> {
+        if key_data.is_some_and(|key_data| key_data.is_management_key == Some(true)) {
+            return None;
+        }
+        if key_data
+            .and_then(|key_data| key_data.limit)
+            .is_some_and(|limit| limit > 0.0)
+        {
+            return None;
+        }
+
+        let monthly = key_data.and_then(|key_data| key_data.usage_monthly);
+        let key_usage = key_data.and_then(|key_data| key_data.usage);
+        let (used, period) = if let Some(monthly) = monthly {
+            (monthly, "This month (API key)")
+        } else if let Some(key_usage) = key_usage {
+            (key_usage, "Total key usage")
+        } else {
+            let credits = credits?;
+            (credits.data.total_usage, "Total account usage")
+        };
+
+        let mut cost = CostSnapshot::new(used.max(0.0), "USD", period);
+        if let Some(credits) = credits {
+            cost = cost.with_balance(credits.data.balance());
+        }
+        Some(cost)
     }
 
     fn resolve_usage(
@@ -313,35 +413,27 @@ impl OpenRouterProvider {
         Some(usage)
     }
 
-    async fn fetch_key_data(api_key: &str) -> Result<Option<KeyData>, ProviderError> {
+    async fn fetch_key_data(api_key: &str) -> Result<KeyData, ProviderError> {
         let key_client = Self::build_client(OPENROUTER_KEY_TIMEOUT)?;
-        let key_resp = match Self::send_key_request(&key_client, api_key).await {
-            Ok(resp) => resp,
-            // Upstream 0.49.0 #2778: make the degraded fast join explicit —
-            // core usage stays authoritative, only the optional key meter is
-            // dropped.
-            Err(err) => {
-                tracing::debug!(
-                    error = %err,
-                    "OpenRouter key-quota fast join degraded; continuing without key meter"
-                );
-                return Ok(None);
-            }
-        };
+        let key_resp = Self::send_key_request(&key_client, api_key).await?;
 
+        if key_resp.status() == reqwest::StatusCode::UNAUTHORIZED
+            || key_resp.status() == reqwest::StatusCode::FORBIDDEN
+        {
+            return Err(ProviderError::AuthRequired);
+        }
         if !key_resp.status().is_success() {
-            tracing::debug!(
-                status = %key_resp.status(),
-                "OpenRouter key-quota fast join degraded; continuing without key meter"
-            );
-            return Ok(None);
+            return Err(ProviderError::Other(format!(
+                "OpenRouter key request returned HTTP {}",
+                key_resp.status()
+            )));
         }
 
-        Ok(key_resp
-            .json::<KeyResponse>()
-            .await
-            .map(|key_response| key_response.data)
-            .ok())
+        let response = key_resp.json::<KeyResponse>().await.map_err(|error| {
+            ProviderError::Parse(format!("OpenRouter key response was invalid: {error}"))
+        })?;
+        response.data.validate()?;
+        Ok(response.data)
     }
 
     async fn send_key_request(
@@ -497,303 +589,5 @@ impl Provider for OpenRouterProvider {
 
     fn supports_cli(&self) -> bool {
         false
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Regression guard for the `/auth/credits` 404 bug: the base must be the
-    // bare `/api/v1` prefix. Credits and key live on DIFFERENT subpaths, so a
-    // base that bakes in `/auth` (or anything else) silently breaks one of them.
-    #[test]
-    fn api_base_is_bare_v1_prefix() {
-        assert_eq!(OPENROUTER_API_BASE, "https://openrouter.ai/api/v1");
-    }
-
-    // Credits endpoint: `/api/v1/credits` (verified HTTP 200 against live API).
-    // The old base `.../api/v1/auth` produced `/api/v1/auth/credits` -> 404.
-    #[test]
-    fn credits_url_resolves_to_canonical_path() {
-        let url = format!("{}/credits", OPENROUTER_API_BASE);
-        assert_eq!(url, "https://openrouter.ai/api/v1/credits");
-    }
-
-    // Key introspection endpoint: `/api/v1/key` (verified HTTP 200), matching
-    // upstream's `{base}/key` append. (OpenRouter also aliases `/auth/key`, but
-    // we mirror upstream's canonical path.)
-    #[test]
-    fn key_url_resolves_to_canonical_path() {
-        let url = format!("{}/key", OPENROUTER_API_BASE);
-        assert_eq!(url, "https://openrouter.ai/api/v1/key");
-    }
-
-    #[test]
-    fn usage_dashboard_opens_activity_history() {
-        assert_eq!(
-            OpenRouterProvider::new().metadata().dashboard_url,
-            Some("https://openrouter.ai/activity")
-        );
-    }
-
-    // ── F14: server-reported current-period remaining drives the key meter ──
-
-    fn key_data(
-        limit: Option<f64>,
-        remaining: Option<f64>,
-        reset: Option<&str>,
-        usage: Option<f64>,
-        daily: Option<f64>,
-        weekly: Option<f64>,
-        monthly: Option<f64>,
-    ) -> KeyData {
-        KeyData {
-            limit,
-            limit_remaining: remaining,
-            limit_reset: reset.map(str::to_string),
-            usage,
-            usage_daily: daily,
-            usage_weekly: weekly,
-            usage_monthly: monthly,
-            rate_limit: None,
-        }
-    }
-
-    fn key_quota_percent(key_data: KeyData) -> Option<f64> {
-        let mut usage = UsageSnapshot::new(RateWindow::new(0.0));
-        OpenRouterProvider::add_key_quota(&mut usage, &key_data);
-        usage.secondary.map(|window| window.used_percent)
-    }
-
-    #[test]
-    fn key_limit_copy_stays_distinct_from_account_balance() {
-        let provider = OpenRouterProvider::new();
-        assert_eq!(provider.metadata.weekly_label, "API key limit");
-
-        let credits = CreditsData {
-            total_credits: 5.0,
-            total_usage: 3.1,
-        };
-        let mut usage = OpenRouterProvider::build_credits_usage(&credits);
-        OpenRouterProvider::add_key_quota(
-            &mut usage,
-            &key_data(
-                Some(30.0),
-                Some(30.0),
-                Some("monthly"),
-                Some(0.0),
-                None,
-                None,
-                Some(0.0),
-            ),
-        );
-        assert_eq!(usage.login_method.as_deref(), Some("$1.90 balance"));
-        let key = usage.secondary.expect("key spending cap");
-        assert_eq!(key.used_percent, 0.0);
-        assert_eq!(
-            key.reset_description.as_deref(),
-            Some("$0.00/$30.00 spending cap · Spending cap, not balance")
-        );
-    }
-
-    #[test]
-    fn key_quota_can_stand_in_when_account_credits_are_unavailable() {
-        let usage = OpenRouterProvider::build_key_fallback_usage(&key_data(
-            Some(20.0),
-            None,
-            None,
-            Some(5.0),
-            None,
-            None,
-            None,
-        ))
-        .expect("usable key quota");
-
-        assert!(usage.primary.is_informational);
-        assert!(usage.primary_label.is_none());
-        assert!(usage.login_method.is_none());
-        let key_window = usage.secondary.expect("key spending cap");
-        assert_eq!(key_window.used_percent, 25.0);
-        assert_eq!(usage.secondary_label.as_deref(), Some("API key limit"));
-        assert_eq!(
-            key_window.reset_description.as_deref(),
-            Some("$5.00/$20.00 spending cap · Account balance unavailable")
-        );
-    }
-
-    #[test]
-    fn key_fallback_does_not_invent_usage_without_a_limit() {
-        assert!(
-            OpenRouterProvider::build_key_fallback_usage(&key_data(
-                None,
-                None,
-                None,
-                Some(5.0),
-                None,
-                None,
-                None,
-            ))
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn fallback_preserves_key_quota_lane_across_recovery() {
-        let credits = || {
-            Ok(CreditsResponse {
-                data: CreditsData {
-                    total_credits: 20.0,
-                    total_usage: 5.0,
-                },
-            })
-        };
-        let key = || key_data(Some(20.0), None, None, Some(5.0), None, None, None);
-
-        let normal = OpenRouterProvider::resolve_usage(credits(), Some(key()))
-            .expect("account credits should resolve");
-        let fallback = OpenRouterProvider::resolve_usage(
-            Err(ProviderError::Other("credits unavailable".to_string())),
-            Some(key()),
-        )
-        .expect("key quota should resolve when credits are unavailable");
-        let recovered = OpenRouterProvider::resolve_usage(credits(), Some(key()))
-            .expect("account credits should recover");
-
-        for usage in [&normal, &fallback, &recovered] {
-            assert_eq!(usage.secondary_label.as_deref(), Some("API key limit"));
-            assert_eq!(
-                usage.secondary.as_ref().map(|window| window.used_percent),
-                Some(25.0)
-            );
-        }
-        assert!(!normal.primary.is_informational);
-        assert!(fallback.primary.is_informational);
-        assert!(!recovered.primary.is_informational);
-        assert_eq!(normal.login_method.as_deref(), Some("$15.00 balance"));
-        assert!(fallback.login_method.is_none());
-        assert_eq!(recovered.login_method.as_deref(), Some("$15.00 balance"));
-    }
-
-    #[test]
-    fn server_remaining_replaces_lifetime_usage_for_meter() {
-        // limit 50, server says 12.50 left this period → 75% used, even though
-        // cumulative lifetime usage would imply a different ratio.
-        let pct = key_quota_percent(key_data(
-            Some(50.0),
-            Some(12.5),
-            None,
-            Some(40.0),
-            None,
-            None,
-            None,
-        ));
-        assert_eq!(pct, Some(75.0));
-    }
-
-    #[test]
-    fn negative_server_remaining_reads_exhausted() {
-        // Upstream: "treat negative remaining as exhausted quota".
-        let pct = key_quota_percent(key_data(
-            Some(50.0),
-            Some(-3.0),
-            None,
-            Some(10.0),
-            None,
-            None,
-            None,
-        ));
-        assert_eq!(pct, Some(100.0));
-    }
-
-    #[test]
-    fn above_limit_server_remaining_reads_zero() {
-        // Inclusive [0, keyLimit] clamp: a server remaining above the
-        // configured limit renders 0% used, not a suppressed meter.
-        let pct = key_quota_percent(key_data(
-            Some(50.0),
-            Some(75.0),
-            None,
-            Some(10.0),
-            None,
-            None,
-            None,
-        ));
-        assert_eq!(pct, Some(0.0));
-    }
-
-    #[test]
-    fn reset_window_usage_is_the_preferred_fallback() {
-        // No remaining: `limit_reset: "monthly"` picks usage_monthly (25/50).
-        let pct = key_quota_percent(key_data(
-            Some(50.0),
-            None,
-            Some("monthly"),
-            Some(40.0),
-            Some(1.0),
-            Some(2.0),
-            Some(25.0),
-        ));
-        assert_eq!(pct, Some(50.0));
-        // Case-insensitive reset label.
-        let pct = key_quota_percent(key_data(
-            Some(50.0),
-            None,
-            Some("WEEKLY"),
-            Some(40.0),
-            Some(1.0),
-            Some(2.0),
-            Some(25.0),
-        ));
-        assert_eq!(pct, Some(4.0));
-    }
-
-    #[test]
-    fn cumulative_usage_is_the_last_fallback() {
-        let pct = key_quota_percent(key_data(
-            Some(50.0),
-            None,
-            None,
-            Some(20.0),
-            Some(1.0),
-            None,
-            None,
-        ));
-        assert_eq!(pct, Some(40.0));
-    }
-
-    #[test]
-    fn no_usable_quota_source_hides_the_meter() {
-        assert_eq!(
-            key_quota_percent(key_data(Some(50.0), None, None, None, None, None, None)),
-            None
-        );
-        assert_eq!(
-            key_quota_percent(key_data(
-                Some(0.0),
-                Some(5.0),
-                None,
-                Some(1.0),
-                None,
-                None,
-                None
-            )),
-            None
-        );
-        assert_eq!(
-            key_quota_percent(key_data(None, Some(5.0), None, Some(1.0), None, None, None)),
-            None
-        );
-    }
-
-    #[test]
-    fn parsed_key_wire_fields_decode() {
-        let parsed: KeyResponse = serde_json::from_str(
-            r#"{"data":{"limit":50,"limit_remaining":12.5,"limit_reset":"monthly","usage":40,"usage_monthly":25}}"#,
-        )
-        .unwrap();
-        assert_eq!(parsed.data.limit, Some(50.0));
-        assert_eq!(parsed.data.limit_remaining, Some(12.5));
-        assert_eq!(parsed.data.limit_reset.as_deref(), Some("monthly"));
     }
 }

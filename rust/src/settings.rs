@@ -164,6 +164,10 @@ pub struct Settings {
     /// Menu bar display mode: "minimal", "compact", or "detailed"
     pub menu_bar_display_mode: String,
 
+    /// Overview card layout: "detailed" or "compact".
+    #[serde(default = "default_overview_layout")]
+    pub overview_layout: String,
+
     /// Show all token accounts in provider menus instead of collapsing behind switchers
     #[serde(default)]
     pub show_all_token_accounts_in_menu: bool,
@@ -522,6 +526,7 @@ impl Default for Settings {
             predictive_pace_warning_enabled: false,
             show_pace: true,
             menu_bar_display_mode: "detailed".to_string(), // Detailed mode by default
+            overview_layout: default_overview_layout(),
             show_all_token_accounts_in_menu: false,
             provider_configs: HashMap::new(),
             disable_keychain_access: false,
@@ -566,6 +571,18 @@ impl Default for Settings {
             open_codex_usage_logs_enabled: false,
             hide_native_codex_cost_when_open_codex_present: false,
         }
+    }
+}
+
+fn default_overview_layout() -> String {
+    "compact".to_string()
+}
+
+pub fn normalize_overview_layout(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "compact" => "compact".to_string(),
+        "detailed" => "detailed".to_string(),
+        _ => default_overview_layout(),
     }
 }
 
@@ -952,6 +969,39 @@ impl Settings {
 
     pub fn set_workspace_id(&mut self, id: ProviderId, value: impl Into<String>) {
         self.provider_config_mut(id).workspace_id = Some(value.into());
+    }
+
+    /// Optional user-entered allowance for Copilot seat AI credits.
+    ///
+    /// GitHub reports the absolute `credits_used` counter but does not expose
+    /// a documented included-credit ceiling, so callers must keep an absent
+    /// or non-positive value as unknown rather than inventing a denominator.
+    ///
+    /// This setter is the single owner of the positive-finite invariant:
+    /// invalid values are rejected instead of silently dropped, while the
+    /// getter keeps defensively filtering values persisted by older builds.
+    pub fn seat_credit_entitlement(&self, id: ProviderId) -> Option<f64> {
+        self.provider_configs
+            .get(&id)
+            .and_then(|config| config.seat_credit_entitlement)
+            .filter(|value| value.is_finite() && *value > 0.0)
+    }
+
+    pub fn set_seat_credit_entitlement(
+        &mut self,
+        id: ProviderId,
+        value: Option<f64>,
+    ) -> Result<(), String> {
+        if let Some(value) = value
+            && (!value.is_finite() || value <= 0.0)
+        {
+            return Err(
+                "Copilot seat AI-credit allowance must be a finite number greater than zero"
+                    .to_string(),
+            );
+        }
+        self.provider_config_mut(id).seat_credit_entitlement = value;
+        Ok(())
     }
 
     /// Wayfinder gateway URL, defaulting to the local loopback gateway.

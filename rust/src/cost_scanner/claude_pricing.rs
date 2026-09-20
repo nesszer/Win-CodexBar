@@ -73,6 +73,14 @@ pub(super) struct ClaudeScanPricingResolver {
 impl ClaudeScanPricingResolver {
     pub(super) const MEMO_ENTRY_LIMIT: usize = 1024;
 
+    #[cfg(test)]
+    pub(super) fn with_snapshot(snapshot: ModelsDevPricingSnapshot) -> Self {
+        Self {
+            snapshot: Some(snapshot),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn normalize(&mut self, model: &str) -> String {
         if let Some(normalized) = self.normalized_models.get(model) {
             return normalized.clone();

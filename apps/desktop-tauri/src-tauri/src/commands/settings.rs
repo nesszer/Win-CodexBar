@@ -35,6 +35,7 @@ pub struct SettingsUpdate {
     pub reset_time_relative: Option<bool>,
     pub show_reset_when_exhausted: Option<bool>,
     pub menu_bar_display_mode: Option<String>,
+    pub overview_layout: Option<String>,
     pub hide_personal_info: Option<bool>,
     pub update_channel: Option<String>,
     pub auto_download_updates: Option<bool>,
@@ -75,6 +76,9 @@ pub struct SettingsUpdate {
     pub promote_tray_icon: Option<bool>,
     pub claude_daily_routines_usage_visible: Option<bool>,
     pub alibaba_token_plan_region: Option<String>,
+    /// Optional user-entered Copilot seat AI-credit allowance; `null` clears it.
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub copilot_seat_credit_entitlement: Option<Option<f64>>,
     pub weekly_progress_work_days: Option<u8>,
     pub cost_summary_display_style: Option<String>,
     pub open_codex_usage_logs_enabled: Option<bool>,
@@ -87,6 +91,7 @@ impl SettingsUpdate {
             || self.claude_daily_routines_usage_visible.is_some()
             || self.claude_allow_reading_claude_code_credentials.is_some()
             || self.alibaba_token_plan_region.is_some()
+            || self.copilot_seat_credit_entitlement.is_some()
             || self.weekly_progress_work_days.is_some()
     }
 
@@ -121,8 +126,10 @@ impl SettingsUpdate {
             || self.show_as_used.is_some()
             || self.reset_time_relative.is_some()
             || self.menu_bar_display_mode.is_some()
+            || self.overview_layout.is_some()
             || self.provider_metrics.is_some()
             || self.codex_spark_usage_visible.is_some()
+            || self.copilot_seat_credit_entitlement.is_some()
             || self.enabled_providers.is_some()
             || self.ui_language.is_some()
     }
@@ -220,6 +227,13 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.menu_bar_display_mode.clone() {
             settings.menu_bar_display_mode = v;
+        }
+        if let Some(v) = self.overview_layout.as_deref()
+            && !v.trim().is_empty()
+        {
+            // Shared normalizer: trims/case-folds known values, falls back to
+            // "compact" for anything unknown (same tolerance as settings load).
+            settings.overview_layout = codexbar::settings::normalize_overview_layout(v);
         }
         if let Some(v) = self.window_scale_percent {
             settings.window_scale_percent = codexbar::settings::clamp_window_scale_percent(v);
@@ -398,6 +412,9 @@ impl SettingsUpdate {
         {
             return Err(format!("Invalid low power mode preference: {value}"));
         }
+        if let Some(value) = self.copilot_seat_credit_entitlement {
+            settings.set_seat_credit_entitlement(codexbar::core::ProviderId::Copilot, value)?;
+        }
         let float_bar_patch = self.float_bar_patch();
         self.apply_provider_settings(settings)
             .apply_general_settings(settings)?
@@ -407,6 +424,13 @@ impl SettingsUpdate {
         float_bar_patch.apply(settings);
         Ok(float_bar_patch)
     }
+}
+
+fn deserialize_double_option<'de, D>(deserializer: D) -> Result<Option<Option<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<f64>::deserialize(deserializer)?))
 }
 
 fn normalize_custom_sessions_dirs(dirs: Vec<String>) -> Vec<String> {
@@ -576,6 +600,36 @@ mod tests {
         }
         .apply_advanced_settings(&mut settings);
         assert!(!settings.claude_allow_reading_claude_code_credentials);
+    }
+
+    #[test]
+    fn copilot_seat_credit_update_distinguishes_missing_clear_and_value() {
+        let missing: SettingsUpdate = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.copilot_seat_credit_entitlement, None);
+
+        let clear: SettingsUpdate =
+            serde_json::from_str(r#"{"copilotSeatCreditEntitlement":null}"#).unwrap();
+        assert_eq!(clear.copilot_seat_credit_entitlement, Some(None));
+
+        let value: SettingsUpdate =
+            serde_json::from_str(r#"{"copilotSeatCreditEntitlement":300}"#).unwrap();
+        assert_eq!(value.copilot_seat_credit_entitlement, Some(Some(300.0)));
+    }
+
+    #[test]
+    fn invalid_copilot_seat_credit_update_is_rejected_by_the_settings_setter() {
+        let mut settings = Settings::default();
+
+        let update: SettingsUpdate =
+            serde_json::from_str(r#"{"copilotSeatCreditEntitlement":-5}"#).unwrap();
+        let error = update
+            .apply_to(&mut settings)
+            .expect_err("invalid allowance must be rejected");
+        assert_eq!(
+            error,
+            "Copilot seat AI-credit allowance must be a finite number greater than zero"
+        );
+        assert_eq!(settings.seat_credit_entitlement(ProviderId::Copilot), None);
     }
 
     #[test]

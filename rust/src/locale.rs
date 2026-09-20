@@ -505,6 +505,7 @@ locale_keys! {
     NextExpiresInHoursMinutes,
     NextExpiresInMinutes,
     NextExpiresDueNow,
+    InventoryAvailableCount,
 
     // Provider detail - Tray Display
     TrayDisplayTitle,
@@ -549,6 +550,9 @@ locale_keys! {
     ProviderClaudeAllowReadingClaudeCodeCredentialsHelp,
     ProviderCodexSparkUsage,
     ProviderCodexSparkUsageHelp,
+    CopilotSeatCreditTitle,
+    CopilotSeatCreditHelper,
+    CopilotSeatCreditInvalid,
     CodexAccountsTitle,
     ClaudeAccountsTitle,
     ClaudeAccountsHint,
@@ -823,6 +827,10 @@ locale_keys! {
     WindowClose,
     ShowAsUsedLabel,
     ShowAsUsedHelper,
+    OverviewLayoutLabel,
+    OverviewLayoutHelper,
+    OverviewLayoutDetailed,
+    OverviewLayoutCompact,
     ShowAllTokenAccountsLabel,
     ShowAllTokenAccountsHelper,
     EnableAnimationsLabel,

@@ -5,6 +5,7 @@
 mod api;
 mod app_auth;
 pub mod local_csv;
+mod team_budget;
 mod token_cost;
 
 use async_trait::async_trait;
@@ -37,6 +38,7 @@ impl CursorProvider {
                 is_primary: false,
                 dashboard_url: Some("https://cursor.com/dashboard/usage"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
             api: CursorApi::new(),
         }
