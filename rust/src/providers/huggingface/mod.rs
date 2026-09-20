@@ -7,6 +7,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, TimeZone, Utc};
+use futures::StreamExt;
 use reqwest::{Client, StatusCode, Url};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -21,17 +22,11 @@ const BILLING_URL: &str = "https://huggingface.co/api/settings/billing/usage-v2"
 const WHOAMI_URL: &str = "https://huggingface.co/api/whoami-v2";
 const ZEROGPU_URL: &str = "https://huggingface.co/api/spaces/zero-gpu/quota";
 const CREDENTIAL_TARGET: &str = "codexbar-huggingface";
-const ENV_KEYS: &[&str] = &[
-    "CODEXBAR_HUGGINGFACE_API_KEY",
-    "HF_TOKEN",
-    "HUGGING_FACE_HUB_TOKEN",
-];
 const USER_AGENT: &str = "CodexBar";
 const PRIMARY_TIMEOUT: Duration = Duration::from_secs(15);
 const OPTIONAL_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const NANO_UNITS_PER_DOLLAR: f64 = 1_000_000_000.0;
-const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone, PartialEq)]
 struct BillingSnapshot {
@@ -152,6 +147,7 @@ impl HuggingFaceProvider {
                 is_primary: false,
                 dashboard_url: Some("https://huggingface.co/settings/billing"),
                 status_page_url: Some("https://status.huggingface.co"),
+                tertiary_label_key: None,
             },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(PRIMARY_TIMEOUT)
@@ -191,6 +187,9 @@ impl HuggingFaceProvider {
         token: &str,
         timeout: Duration,
     ) -> Result<Value, ProviderError> {
+        // Wrapper timeout, not just the client's PRIMARY_TIMEOUT: the
+        // optional-fetch path (fetch_optional_json) overrides this with
+        // OPTIONAL_TIMEOUT (2s) so enrichment cannot stall the main fetch.
         tokio::time::timeout(timeout, async {
             let response = self
                 .client
@@ -205,13 +204,20 @@ impl HuggingFaceProvider {
                 return Err(classify_status(status));
             }
 
-            let body = response.bytes().await.map_err(|_| {
-                ProviderError::Parse("Hugging Face returned an unreadable JSON body.".to_string())
-            })?;
-            if body.len() > MAX_RESPONSE_BYTES {
-                return Err(ProviderError::Parse(
-                    "Hugging Face returned an oversized JSON body.".to_string(),
-                ));
+            let mut body = Vec::new();
+            let mut stream = response.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| {
+                    ProviderError::Parse(
+                        "Hugging Face returned an unreadable JSON body.".to_string(),
+                    )
+                })?;
+                body.extend_from_slice(&chunk);
+                if body.len() > MAX_RESPONSE_BYTES {
+                    return Err(ProviderError::Parse(
+                        "Hugging Face returned an oversized JSON body.".to_string(),
+                    ));
+                }
             }
             serde_json::from_slice(&body).map_err(|_| {
                 ProviderError::Parse("Hugging Face returned invalid JSON.".to_string())
@@ -316,7 +322,7 @@ fn billing_url(now: DateTime<Utc>) -> Result<Url, ProviderError> {
 fn month_start(now: DateTime<Utc>) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
         .single()
-        .expect("valid UTC calendar month start")
+        .unwrap_or_else(Utc::now)
 }
 
 fn parse_billing(value: Value) -> Result<BillingSnapshot, ProviderError> {
@@ -329,10 +335,7 @@ fn parse_billing(value: Value) -> Result<BillingSnapshot, ProviderError> {
     let limit_usd = optional_nonnegative_number(inference, "limitNanoUsd")
         .map(|value| value / NANO_UNITS_PER_DOLLAR)
         .filter(|value| *value > 0.0);
-    let requests = inference
-        .get("numRequests")
-        .and_then(Value::as_u64)
-        .filter(|value| *value <= MAX_SAFE_INTEGER);
+    let requests = inference.get("numRequests").and_then(Value::as_u64);
 
     let used_usd = used_nano / NANO_UNITS_PER_DOLLAR;
     let included_usd = included_nano / NANO_UNITS_PER_DOLLAR;
@@ -385,15 +388,8 @@ fn parse_zerogpu(value: &Value) -> Option<ZeroGpuSnapshot> {
 }
 
 fn parse_timestamp(value: &Value) -> Option<DateTime<Utc>> {
-    if let Some(seconds) = value
-        .as_i64()
-        .and_then(|seconds| Utc.timestamp_opt(seconds, 0).single())
-    {
-        return Some(seconds);
-    }
     value
-        .as_u64()
-        .and_then(|seconds| i64::try_from(seconds).ok())
+        .as_i64()
         .and_then(|seconds| Utc.timestamp_opt(seconds, 0).single())
         .or_else(|| {
             value
@@ -442,42 +438,54 @@ fn build_result(
         cost = cost.with_limit(limit);
     }
     result = result.with_cost(cost);
-    result = result
-        .with_display_detail(ProviderDisplayDetail::new(
+
+    let mut details: Vec<(&str, &str, String)> = vec![
+        (
             "billable-usage",
             "Billable inference usage",
             format_usd(billing.billable_usd),
-        ))
-        .with_display_detail(ProviderDisplayDetail::new(
+        ),
+        (
             "gross-inference-usage",
             "Gross inference usage",
             format_usd(billing.used_usd),
-        ))
-        .with_display_detail(ProviderDisplayDetail::new(
+        ),
+        (
             "included-inference-amount",
             "Included inference amount",
             format_usd(billing.included_usd),
-        ));
+        ),
+    ];
     if let Some(limit) = billing.limit_usd {
-        result = result.with_display_detail(ProviderDisplayDetail::new(
-            "spending-limit",
-            "Spending limit",
-            format_usd(limit),
-        ));
+        details.push(("spending-limit", "Spending limit", format_usd(limit)));
     }
     if let Some(requests) = billing.requests {
-        result = result.with_display_detail(ProviderDisplayDetail::new(
-            "inference-requests",
-            "Requests",
-            requests.to_string(),
-        ));
+        details.push(("inference-requests", "Requests", requests.to_string()));
     }
+
+    let mut rows: Vec<ProviderDisplayDetail> = details
+        .into_iter()
+        .map(|(id, title, value)| ProviderDisplayDetail::new(id, title, value))
+        .collect();
+
+    if let Some(identity_row) = identity {
+        if let Some(name) = identity_row.name {
+            rows.push(ProviderDisplayDetail::new("account-name", "Account", name));
+        }
+        if let Some(email) = identity_row.email {
+            rows.push(ProviderDisplayDetail::new("account-email", "Email", email));
+        }
+        if let Some(plan) = identity_row.plan {
+            rows.push(ProviderDisplayDetail::new("account-plan", "Plan", plan));
+        }
+    }
+
     if let Some(zerogpu) = zerogpu {
         let reset = zerogpu
             .resets_at
             .map(|date| format!(" · resets {}", date.to_rfc3339()))
             .unwrap_or_default();
-        result = result.with_display_detail(
+        rows.push(
             ProviderDisplayDetail::new(
                 "zerogpu-quota",
                 "ZeroGPU quota",
@@ -490,28 +498,9 @@ fn build_result(
             .with_progress(zerogpu.used_minutes, zerogpu.total_minutes),
         );
     }
-    if let Some(identity) = identity {
-        if let Some(name) = identity.name {
-            result = result.with_display_detail(ProviderDisplayDetail::new(
-                "account-name",
-                "Account",
-                name,
-            ));
-        }
-        if let Some(email) = identity.email {
-            result = result.with_display_detail(ProviderDisplayDetail::new(
-                "account-email",
-                "Email",
-                email,
-            ));
-        }
-        if let Some(plan) = identity.plan {
-            result = result.with_display_detail(ProviderDisplayDetail::new(
-                "account-plan",
-                "Plan",
-                plan,
-            ));
-        }
+
+    for row in rows {
+        result = result.with_display_detail(row);
     }
     result
 }
@@ -522,10 +511,7 @@ fn format_usd(value: f64) -> String {
 
 fn classify_status(status: StatusCode) -> ProviderError {
     match status {
-        StatusCode::UNAUTHORIZED => ProviderError::AuthRequired,
-        StatusCode::FORBIDDEN => ProviderError::Other(
-            "Hugging Face token cannot access billing data (HTTP 403).".to_string(),
-        ),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ProviderError::AuthRequired,
         StatusCode::TOO_MANY_REQUESTS => {
             ProviderError::Other("Hugging Face API rate limited (HTTP 429).".to_string())
         }
@@ -678,8 +664,7 @@ mod tests {
             "usage": {"inferenceProviders": {
                 "usedNanoUsd": 1_000_000_u64,
                 "includedNanoUsd": 0_u64,
-                "limitNanoUsd": "bad",
-                "numRequests": 9_007_199_254_740_992_u64
+                "limitNanoUsd": "bad"
             }}
         }))
         .unwrap();
@@ -739,6 +724,10 @@ mod tests {
         }
         assert!(matches!(
             classify_status(StatusCode::UNAUTHORIZED),
+            ProviderError::AuthRequired
+        ));
+        assert!(matches!(
+            classify_status(StatusCode::FORBIDDEN),
             ProviderError::AuthRequired
         ));
     }

@@ -518,12 +518,17 @@ impl std::fmt::Display for ProviderId {
 }
 
 /// Data source mode for fetching usage
+///
+/// Conventions for providers whose transport is not an OAuth flow: they
+/// reuse `OAuth` as the persisted token/API lane (an API key, hub token, or
+/// other credential), because the source enum is shared with the settings
+/// UI. `Auto` may dispatch to that lane as well.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SourceMode {
     /// Automatically choose the best available source
     #[default]
     Auto,
-    /// Use OAuth API
+    /// Use OAuth API; also the token/API lane for non-OAuth providers
     OAuth,
     /// Use web API with browser cookies
     Web,
