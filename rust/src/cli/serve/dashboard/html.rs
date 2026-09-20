@@ -64,6 +64,30 @@ mod tests {
     }
 
     #[test]
+    fn usage_bar_display_uses_one_selected_value_for_label_geometry_and_aria() {
+        let html = render_shell(60);
+        assert!(html.contains("function windowPercent(w, showUsed)"));
+        assert!(html.contains("w.remainingPercent ?? (100 - w.usedPercent)"));
+        assert!(html.contains("const pct = windowPercent(w, showUsed)"));
+        assert!(html.contains("pct.toFixed(0) + \"% \" + suffix"));
+        assert!(html.contains("const width = pct === null ? 0 : pct"));
+        assert!(html.contains("aria-valuenow"));
+        assert!(html.contains("aria-valuetext"));
+        assert!(html.contains("w.usageKnown === false"));
+        assert!(html.contains("pct === null ? \"unknown\""));
+    }
+
+    #[test]
+    fn legacy_snapshots_without_fill_preference_default_to_remaining() {
+        let html = render_shell(60);
+        assert!(html.contains(
+            "Boolean(state.snapshot && state.snapshot.host && state.snapshot.host.usageBarsShowUsed)"
+        ));
+        assert!(html.contains("const suffix = showUsed ? \"used\" : \"left\""));
+        assert!(html.contains("function windowPercent(w, showUsed)"));
+    }
+
+    #[test]
     fn daily_chart_gate_reads_upstream_total_cost_key() {
         let html = render_shell(60);
         // Gate: render only when some row has a positive totalCost.

@@ -69,6 +69,7 @@ export type UpdateChannel = "stable" | "beta";
 export type ThemePreference = "auto" | "light" | "dark";
 
 export type MenuBarDisplayMode = "minimal" | "compact" | "detailed";
+export type OverviewLayout = "detailed" | "compact";
 
 /** How cost is rendered on provider MenuCards (#2976). */
 export type CostSummaryDisplayStyle = "compact" | "detailed" | "hidden";
@@ -198,6 +199,7 @@ export interface SettingsSnapshot {
   resetTimeRelative: boolean;
   showResetWhenExhausted: boolean;
   menuBarDisplayMode: MenuBarDisplayMode;
+  overviewLayout: OverviewLayout;
   hidePersonalInfo: boolean;
   updateChannel: UpdateChannel;
   autoDownloadUpdates: boolean;
@@ -261,6 +263,11 @@ export interface SettingsSnapshot {
   claudeAllowReadingClaudeCodeCredentials: boolean;
   /** Alibaba Token Plan region: cn | intl | cn-personal | intl-personal. */
   alibabaTokenPlanRegion: string;
+  /**
+   * Optional user-entered Copilot seat AI-credit allowance.
+   * Snapshot-side null and absent are equivalent.
+   */
+  copilotSeatCreditEntitlement?: number | null;
   /** Optional work-week length [2,6] for session-equivalent weekly forecast. */
   weeklyProgressWorkDays?: number | null;
   /** How cost is rendered on provider cards (#2976). */
@@ -301,6 +308,7 @@ export interface SettingsUpdate {
   resetTimeRelative?: boolean;
   showResetWhenExhausted?: boolean;
   menuBarDisplayMode?: MenuBarDisplayMode;
+  overviewLayout?: OverviewLayout;
   hidePersonalInfo?: boolean;
   updateChannel?: UpdateChannel;
   autoDownloadUpdates?: boolean;
@@ -341,6 +349,8 @@ export interface SettingsUpdate {
   promoteTrayIcon?: boolean;
   claudeDailyRoutinesUsageVisible?: boolean;
   alibabaTokenPlanRegion?: string;
+  /** Optional user-entered Copilot seat AI-credit allowance; null clears it. */
+  copilotSeatCreditEntitlement?: number | null;
   weeklyProgressWorkDays?: number | null;
   costSummaryDisplayStyle?: CostSummaryDisplayStyle;
   openCodexUsageLogsEnabled?: boolean;
@@ -368,7 +378,7 @@ export interface UsageSpendRow {
   thirtyDayTokens?: number | null;
   currency: string;
   source: string;
-  includedInOverview?: boolean;
+  includedInOverview: boolean;
   daily?: UsageSpendDailyPoint[];
   /** F8: true when served from stale cache while a re-scan is in progress. */
   refreshing?: boolean;
@@ -379,6 +389,8 @@ export interface UsageSpendRow {
 export interface UsageSpendSummary {
   rows: UsageSpendRow[];
   contract: SpendContract;
+  reportingDay: string;
+  dashboardTimezone: string;
 }
 
 export type CostProvenance = "listPriceEstimate" | "vendorMetered" | "mixed" | "unknown";
@@ -638,6 +650,8 @@ export interface ProviderUsageSnapshot {
     id: string;
     title: string;
     window: RateWindowSnapshot;
+    /** Provider-declared fallback lane; only fills in without a core quota window. */
+    fallbackLane?: boolean;
   }>;
   /** Display-only discrete provider inventory; never used as quota math. */
   inventory?: ProviderInventoryItem[];
@@ -912,10 +926,14 @@ export interface ProviderDetail {
   weekly: RateWindowSnapshot | null;
   modelSpecific: RateWindowSnapshot | null;
   tertiary: RateWindowSnapshot | null;
+  /** Locale key for the tertiary metric lane when it carries a semantic label (upstream F5). */
+  tertiaryLabelKey?: string | null;
   extraRateWindows: Array<{
     id: string;
     title: string;
     window: RateWindowSnapshot;
+    /** Provider-declared fallback lane; only fills in without a core quota window. */
+    fallbackLane?: boolean;
   }>;
   /** Display-only discrete provider inventory; never used as quota math. */
   inventory?: ProviderInventoryItem[];

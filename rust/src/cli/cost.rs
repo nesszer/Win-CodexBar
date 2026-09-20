@@ -5,6 +5,9 @@
 use clap::Args;
 
 use super::usage::{OutputFormat, ProviderSelection};
+use crate::codex_costs::{
+    CodexHostCostReport, CodexHostCostsArgs, CodexHostOutcome, run_codex_host_costs,
+};
 use crate::core::{CostScanOptions, ProviderId};
 use crate::cost_scanner::{CostScanner, CostSummary};
 use crate::settings::Settings;
@@ -51,6 +54,14 @@ pub struct CostArgs {
     /// Group text output by Codex local conversation/session.
     #[arg(long = "group-by", value_parser = ["session"])]
     pub group_by: Option<String>,
+
+    /// Also report native Codex costs from one SSH host as a separate report.
+    #[arg(long)]
+    pub remote: Option<String>,
+
+    /// Emit the versioned native Codex summary contract as JSON.
+    #[arg(long = "summary-only")]
+    pub summary_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +90,24 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     let providers = ProviderSelection::from_arg(args.provider.as_deref())?;
     let group_by = CostGroupBy::from_arg(args.group_by.as_deref());
     let use_color = !args.no_color && is_terminal();
+
+    if args.remote.is_some() || args.summary_only {
+        return run_codex_host_costs(&CodexHostCostsArgs {
+            days: args.days,
+            remote: args.remote.clone(),
+            summary_only: args.summary_only,
+            pretty: args.pretty,
+            format: if format == OutputFormat::Json {
+                crate::codex_costs::HostOutputFormat::Json
+            } else {
+                crate::codex_costs::HostOutputFormat::Text
+            },
+            provider_is_codex_only: providers.as_list() == vec![ProviderId::Codex],
+            group_by_rejected: args.group_by.is_some(),
+        })
+        .await;
+    }
+
     let mut scan_options = CostScanOptions::app_driven();
     scan_options.include_pi_sessions = !args.provider_native_only;
     let scanner = CostScanner::new(args.days).with_options(scan_options);
@@ -149,6 +178,60 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn render_codex_host_report(report: &CodexHostCostReport) -> String {
+    let title = if report.source == "local" {
+        "This machine".to_string()
+    } else {
+        report.host.clone()
+    };
+    let summary = match &report.outcome {
+        CodexHostOutcome::Success(summary) => summary,
+        CodexHostOutcome::Failed(error) => {
+            return format!("{title}: {error}");
+        }
+    };
+
+    let window_line = |label: &str, window: &crate::codex_costs::CodexHostCostWindow| {
+        let cost = window
+            .cost_usd
+            .map(|value| format!("${value:.2}"))
+            .unwrap_or_else(|| "—".to_string());
+        let tokens = window
+            .total_tokens
+            .map(format_number)
+            .unwrap_or_else(|| "—".to_string());
+        let mut line = format!("{label}: {cost} · {tokens} tokens");
+        if window.coverage.unpriced > 0 || window.coverage.unmetered > 0 {
+            line.push_str(" (some usage has no known price)");
+        }
+        line
+    };
+
+    let history = if summary.history_days == 1 {
+        String::new()
+    } else {
+        format!(
+            "\n{}",
+            window_line(
+                &format!("Last {} days", summary.history_days),
+                &summary.history
+            )
+        )
+    };
+    let coverage = if summary.history_coverage_is_established {
+        String::new()
+    } else {
+        "\nPartial history; scan is incomplete.".to_string()
+    };
+    format!(
+        "{title} — Codex API-equivalent estimate (not billed)\n{}{}\nDay boundaries: {}{}",
+        window_line("Today", &summary.today),
+        history,
+        summary.bucket_time_zone,
+        coverage
+    )
 }
 
 /// Cost result for a provider
@@ -428,6 +511,7 @@ fn is_terminal() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codex_costs::CodexCostSummary;
 
     #[test]
     fn json_output_emits_a16_and_f18_fields() {
@@ -555,5 +639,56 @@ mod tests {
     fn short_session_id_is_privacy_conscious() {
         assert_eq!(short_session_id("abc"), "abc");
         assert_eq!(short_session_id("1234567890abcdef"), "1234...90abcdef");
+    }
+
+    #[test]
+    fn remote_failure_retains_local_report() {
+        let local_summary = CodexCostSummary::from_summaries_at(
+            &CostSummary {
+                history_coverage_established: true,
+                known_zero: true,
+                ..CostSummary::default()
+            },
+            &CostSummary {
+                history_coverage_established: true,
+                known_zero: true,
+                ..CostSummary::default()
+            },
+            30,
+            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+        let reports = [
+            CodexHostCostReport::success("local", "local", local_summary),
+            CodexHostCostReport::failure(
+                "build-host",
+                "ssh",
+                crate::codex_costs::REMOTE_CODEX_COST_UNAVAILABLE,
+            ),
+        ];
+
+        assert!(reports[0].summary().is_some());
+        assert!(reports[1].summary().is_none());
+        assert_eq!(
+            reports[1].outcome,
+            CodexHostOutcome::Failed(crate::codex_costs::REMOTE_CODEX_COST_UNAVAILABLE.to_string())
+        );
+    }
+
+    #[test]
+    fn host_text_preserves_unknown_values_and_separate_boundaries() {
+        let partial = CodexCostSummary::from_summaries_at(
+            &CostSummary::default(),
+            &CostSummary::default(),
+            30,
+            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+        let text =
+            render_codex_host_report(&CodexHostCostReport::success("local", "local", partial));
+        assert!(text.contains("Today: — · — tokens"));
+        assert!(text.contains("Last 30 days: — · — tokens"));
+        assert!(text.contains("Partial history"));
+        assert!(text.contains("Day boundaries: UTC"));
     }
 }

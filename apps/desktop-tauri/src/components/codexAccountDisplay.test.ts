@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { CodexAccount } from "../types/bridge";
-import { buildCodexAccountDisplayNames } from "./codexAccountDisplay";
+import {
+  buildCodexAccountDisplayNames,
+  buildCodexAccountSurfaceLabels,
+} from "./codexAccountDisplay";
 
 function account(id: string, providerAccountId: string): CodexAccount {
   return {
@@ -81,5 +84,44 @@ describe("Codex account display labels", () => {
     expect(label).not.toContain("secret-workspace");
     expect(label).not.toContain("secret-subject");
     expect(label).not.toContain("C:/private");
+  });
+
+  it("redacts only the ambient account while preserving managed labels", () => {
+    const system = account("11111111-1111-1111-1111-111111111111", "system");
+    const managed = account("22222222-2222-2222-2222-222222222222", "managed");
+    const accounts = [
+      { ...system, source: "ambient" as const, nickname: "Private System Name" },
+      { ...managed, nickname: "Work" },
+    ];
+    const hidden = buildCodexAccountSurfaceLabels(
+      accounts,
+      {},
+      { [system.id]: 1, [managed.id]: 2 },
+      true,
+      "Account",
+    );
+    expect(hidden[system.id]).toBe("Account 1");
+    expect(hidden[system.id]).not.toContain("@");
+    expect(hidden[system.id]).not.toContain("Private System Name");
+    expect(hidden[managed.id]).toBe("same@example.com — Work");
+
+    const reordered = buildCodexAccountSurfaceLabels(
+      [accounts[1], accounts[0]],
+      {},
+      { [system.id]: 1, [managed.id]: 2 },
+      true,
+      "Account",
+    );
+    expect(reordered[system.id]).toBe("Account 1");
+
+    const visible = buildCodexAccountSurfaceLabels(
+      accounts,
+      {},
+      { [system.id]: 1, [managed.id]: 2 },
+      false,
+      "Account",
+    );
+    expect(visible[system.id]).toBe("same@example.com — Private System Name");
+    expect(visible[managed.id]).toBe("same@example.com — Work");
   });
 });

@@ -446,6 +446,17 @@ export function setProviderGatewayUrl(
   return invoke<void>("set_provider_gateway_url", { providerId, gatewayUrl });
 }
 
+export function getProviderAzureApiVersion(providerId: string): Promise<string | null> {
+  return invoke<string | null>("get_provider_azure_api_version", { providerId });
+}
+
+export function setProviderAzureApiVersion(
+  providerId: string,
+  apiVersion: string,
+): Promise<void> {
+  return invoke<void>("set_provider_azure_api_version", { providerId, apiVersion });
+}
+
 // ── Phase 6d — credential detection ──────────────────────────────────
 
 export function openPath(path: string): Promise<void> {

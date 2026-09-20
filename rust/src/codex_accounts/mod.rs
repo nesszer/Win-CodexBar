@@ -18,6 +18,7 @@ pub(crate) mod credentials;
 mod extra_usage;
 mod fetch_coordination;
 pub mod file_locations;
+mod labels;
 pub mod login_runner;
 pub mod models;
 pub mod stores;
@@ -35,10 +36,11 @@ pub use codex_desktop::{
     encode_powershell_script, restart_codex_desktop,
 };
 pub use credentials::{AuthBackedIdentity, AuthCredentials, load_identity};
+pub use labels::{display_names_by_id, ordinals_by_id};
 pub use login_runner::{CodexLoginOutcome, CodexLoginResult, ManagedLoginProcess};
 pub use models::{
     AccountUsageSnapshot, CodexAccount, CodexAccountSource, CreditsBalanceSnapshot,
-    RemovedAccountIdentity, UsageWindowSnapshot, display_names_by_id, ordinals_by_id, utc_now,
+    RemovedAccountIdentity, UsageWindowSnapshot, utc_now,
 };
 pub use stores::{AccountStore, SnapshotStore};
 pub use switch_runtime::CodexAccountRuntime;
