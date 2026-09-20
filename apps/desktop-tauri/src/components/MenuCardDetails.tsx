@@ -482,11 +482,6 @@ export function describeCard(
       hasPace ||
       hasCharts ||
       !!localUsage ||
-      !!wayfinderUsage);
-  return {
-    hasMetrics,
-    hasInventory,
-    hasDisplayDetails,
       !!wayfinderUsage) &&
     // Compact Overview suppresses supplemental sections entirely; a card
     // whose only content would be suppressed renders header-only so no empty
@@ -495,6 +490,7 @@ export function describeCard(
   return {
     hasMetrics,
     hasInventory,
+    hasDisplayDetails,
     hasCost,
     hasPace,
     hasCharts,
@@ -591,8 +587,6 @@ export default function MenuCardDetails({
           ))}
         </section>
       )}
-
-      {wayfinderUsage && <WayfinderUsageBlock usage={wayfinderUsage} />}
 
       {wayfinderUsage && !compactOverview && <WayfinderUsageBlock usage={wayfinderUsage} />}
 

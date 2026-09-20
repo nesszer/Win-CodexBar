@@ -67,7 +67,6 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
   const inventory = provider.inventory ?? [];
   const displayDetails = provider.displayDetails ?? [];
   if (bars.length === 0 && inventory.length === 0 && displayDetails.length === 0) {
-  if (bars.length === 0 && inventory.length === 0) {
     return null;
   }
 
@@ -84,15 +83,6 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
         />
       ))}
       {inventory.map((item) => (
-        <InventoryRow
-          key={item.id}
-          item={item}
-          resetTimeRelative={resetTimeRelative}
-        />
-      ))}
-      {displayDetails.map((detail, index) => (
-        <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
-      ))}
         <InventoryItemRow
           key={item.id}
           item={item}
@@ -100,29 +90,10 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
           lineClassName="provider-usage-inventory"
         />
       ))}
+      {displayDetails.map((detail, index) => (
+        <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
+      ))}
     </section>
-  );
-}
-
-function InventoryRow({
-  item,
-  resetTimeRelative,
-}: {
-  item: ProviderInventoryItem;
-  resetTimeRelative: boolean;
-}) {
-  const formattedExpiry = useFormattedResetTime(
-    item.nextExpiresAt,
-    null,
-    resetTimeRelative,
-    "expires",
-  );
-
-  return (
-    <div className="provider-usage-inventory">
-      <span>{item.title}: {item.availableCount} available</span>
-      {formattedExpiry && <span>{formattedExpiry}</span>}
-    </div>
   );
 }
 
