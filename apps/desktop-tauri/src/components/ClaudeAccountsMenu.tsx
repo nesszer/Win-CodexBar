@@ -13,7 +13,6 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
 }) {
   const { t } = useLocale();
   const [accounts, setAccounts] = useState<ClaudeAccount[]>([]);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [switched, setSwitched] = useState(false);
   const [phase, setPhase] = useState<ClaudeAccountPhase>("idle");
@@ -39,11 +38,17 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
         setSwitched(false);
       }
     });
+    const unlistenReconciled = listen("claude-accounts-reconciled", () => {
+      if (mounted.current) {
+        setPhase("settled");
+      }
+    });
     return () => {
       mounted.current = false;
       window.removeEventListener("focus", reload);
       void unlisten.then(fn => fn()).catch(() => {});
       void unlistenReconciling.then(fn => fn()).catch(() => {});
+      void unlistenReconciled.then(fn => fn()).catch(() => {});
     };
   }, [load]);
   useEffect(() => {
@@ -51,24 +56,20 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
   }, [accounts.length, error, phase, switched, onLayoutChange]);
 
   const switchAccount = async (id: string) => {
-    setBusy(true);
     setPhase("activating");
     setError(null);
     setSwitched(false);
     try {
       await claudeAccountSwitch(id);
       await load();
-      if (mounted.current) {
-        setPhase("settled");
-        setSwitched(true);
-      }
+      // Settling is event-driven: the backend emits claude-accounts-reconciled
+      // after the awaited refresh. The promise resolving does not settle.
+      if (mounted.current) setSwitched(true);
     } catch (e) {
       if (mounted.current) {
         setPhase("idle");
         setError(String(e));
       }
-    } finally {
-      if (mounted.current) setBusy(false);
     }
   };
 
@@ -105,7 +106,7 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
                 <button
                   type="button"
                   className="codex-menu-accounts__switch"
-                  disabled={busy || phase === "activating" || phase === "reconciling" || account.isActive || !account.isSaved}
+                  disabled={phase === "activating" || phase === "reconciling" || account.isActive || !account.isSaved}
                   onClick={() => void switchAccount(account.id)}
                 >
                   {t("CodexAccountsSwitchButton")}

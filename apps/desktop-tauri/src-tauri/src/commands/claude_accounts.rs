@@ -99,6 +99,18 @@ fn account_row_for_slot(
         .ok_or_else(|| "claude-swap did not report that account slot.".to_string())
 }
 
+/// Emitted when a Claude account change needs a provider refresh before the
+/// settle. Event order is load-bearing for every listener:
+///
+/// 1. `claude-accounts-reconciling` — listeners show the reconciling phase.
+/// 2. the bounded provider refresh runs; superseded batches are detected below.
+/// 3. `claude-accounts-reconciled` — the terminal marker; settling must be
+///    event-driven, never inferred from a switch promise resolving.
+/// 4. `claude-accounts-updated` + tray rebuild — the settled reload.
+///
+/// Do not reorder these emits. A refresh that never started or was superseded
+/// mid-flight keeps the reconciling phase armed instead of settling, so no
+/// surface shows "settled" while a refresh is still in flight.
 async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String> {
     let pending = {
         let state = app.state::<Mutex<AppState>>();
@@ -108,8 +120,26 @@ async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String
     crate::events::emit_provider_updated(&app, &pending);
     let _emit = app.emit("claude-accounts-reconciling", ());
     let refresh_result = super::refresh_providers(app.clone()).await;
+    if !refresh_providers_ran(&app) {
+        // begin_provider_refresh skipped (another batch owns the refresh) or
+        // finish_provider_refresh dropped a superseded generation: a refresh
+        // is still in flight, so stay in the reconciling phase and let the
+        // owning batch's completion settle listeners.
+        return refresh_result;
+    }
+    let _reconciled = app.emit("claude-accounts-reconciled", ());
     changed(&app);
     refresh_result
+}
+
+/// Whether the completed refresh batch owned the generation it published
+/// under. A skipped or superseded batch must not settle account listeners.
+fn refresh_providers_ran(app: &tauri::AppHandle) -> bool {
+    let state = app.state::<Mutex<AppState>>();
+    state
+        .lock()
+        .map(|guard| !guard.is_refreshing)
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -75,8 +75,63 @@ describe("ClaudeAccountsMenu", () => {
     await act(async () => {
       resolveSwitch?.();
     });
+    // Settling is event-driven; the resolving switch promise alone stays in
+    // the reconciling phase until the backend emits the terminal event.
+    await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("reconciling"));
+    await act(async () => {
+      mocks.listeners.get("claude-accounts-reconciled")?.();
+    });
     await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("settled"));
     expect(details()).toHaveAttribute("aria-busy", "false");
+  });
+
+  it("settles from a reconciled event fired with no local switch in flight", async () => {
+    render(<ClaudeAccountsMenu hideEmail={false} />);
+    await screen.findByText(first.email);
+    const details = () => document.querySelector("details[data-claude-account-phase]") as HTMLDetailsElement;
+    const button = screen.getAllByText("CodexAccountsSwitchButton")[1];
+
+    await act(async () => {
+      mocks.listeners.get("claude-accounts-reconciling")?.();
+    });
+    expect(details().dataset.claudeAccountPhase).toBe("reconciling");
+    expect(details()).toHaveAttribute("aria-busy", "true");
+    expect(
+      (screen.getAllByText("CodexAccountsSwitchButton")[1] as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      mocks.listeners.get("claude-accounts-reconciled")?.();
+    });
+    expect(details().dataset.claudeAccountPhase).toBe("settled");
+    expect(details()).toHaveAttribute("aria-busy", "false");
+    expect(
+      (screen.getAllByText("CodexAccountsSwitchButton")[1] as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("waits for the reconciled event before settling a local switch", async () => {
+    let resolveSwitch: (() => void) | undefined;
+    mocks.claudeAccountSwitch.mockImplementation(() => new Promise<void>(resolve => {
+      resolveSwitch = resolve;
+    }));
+    render(<ClaudeAccountsMenu hideEmail={false} />);
+    await screen.findByText(first.email);
+    const details = () => document.querySelector("details[data-claude-account-phase]") as HTMLDetailsElement;
+
+    await act(async () => fireEvent.click(screen.getAllByText("CodexAccountsSwitchButton")[1]));
+    await act(async () => {
+      mocks.listeners.get("claude-accounts-reconciling")?.();
+    });
+    await act(async () => {
+      resolveSwitch?.();
+    });
+    // The switch promise resolving is not enough: settling is event-driven.
+    await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("reconciling"));
+    await act(async () => {
+      mocks.listeners.get("claude-accounts-reconciled")?.();
+    });
+    await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("settled"));
   });
 
   it("masks emails, including tooltips, when hideEmail is enabled", async () => {
