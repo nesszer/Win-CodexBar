@@ -34,6 +34,7 @@ impl CopilotProvider {
                 is_primary: false,
                 dashboard_url: Some("https://github.com/settings/copilot"),
                 status_page_url: Some("https://www.githubstatus.com/"),
+                tertiary_label_key: None,
             },
             api: CopilotApi::new(),
         }

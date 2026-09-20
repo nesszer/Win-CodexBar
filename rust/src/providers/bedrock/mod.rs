@@ -117,6 +117,7 @@ impl BedrockProvider {
                 is_primary: false,
                 dashboard_url: Some("https://console.aws.amazon.com/bedrock"),
                 status_page_url: Some("https://health.aws.amazon.com/health/status"),
+                tertiary_label_key: None,
             },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))

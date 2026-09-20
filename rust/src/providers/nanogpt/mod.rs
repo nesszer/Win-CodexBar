@@ -74,6 +74,7 @@ impl NanoGPTProvider {
                 is_primary: false,
                 dashboard_url: Some("https://nano-gpt.com/usage"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

@@ -196,6 +196,7 @@ impl MiniMaxProvider {
                     "https://platform.minimax.io/user-center/payment/coding-plan?cycle_type=3",
                 ),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

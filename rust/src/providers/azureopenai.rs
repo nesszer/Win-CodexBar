@@ -45,6 +45,7 @@ impl AzureOpenAIProvider {
                 is_primary: false,
                 dashboard_url: Some("https://ai.azure.com"),
                 status_page_url: Some("https://status.azure.com"),
+                tertiary_label_key: None,
             },
         }
     }

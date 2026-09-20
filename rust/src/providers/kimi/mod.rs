@@ -245,6 +245,7 @@ impl KimiProvider {
                 is_primary: false,
                 dashboard_url: Some("https://kimi.moonshot.cn"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

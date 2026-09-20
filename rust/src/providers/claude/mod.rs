@@ -138,6 +138,7 @@ impl ClaudeProvider {
                 is_primary: true,
                 dashboard_url: Some("https://claude.ai/settings/usage"),
                 status_page_url: Some("https://status.claude.com/"),
+                tertiary_label_key: None,
             },
             web_fetcher: ClaudeWebApiFetcher::new(),
             oauth_fetcher: ClaudeOAuthFetcher::new(),

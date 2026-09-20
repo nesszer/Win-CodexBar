@@ -121,6 +121,7 @@ impl AntigravityProvider {
                 is_primary: false,
                 dashboard_url: None,
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

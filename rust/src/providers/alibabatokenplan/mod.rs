@@ -74,6 +74,7 @@ impl AlibabaTokenPlanProvider {
                 is_primary: false,
                 dashboard_url: Some(DEFAULT_DASHBOARD_URL),
                 status_page_url: Some("https://status.aliyun.com"),
+                tertiary_label_key: None,
             },
         }
     }
