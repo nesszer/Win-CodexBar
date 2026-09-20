@@ -573,6 +573,8 @@ export default function MenuCardDetails({
               key={item.id}
               item={item}
               resetTimeRelative={display.resetTimeRelative}
+              lineClassName="menu-card__cost-line"
+              expiryClassName="menu-card__cost-line--muted"
             />
           ))}
         </section>
