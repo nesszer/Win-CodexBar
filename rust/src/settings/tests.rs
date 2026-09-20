@@ -1085,10 +1085,12 @@ fn codex_spark_usage_visibility_defaults_to_visible_and_roundtrips() {
 }
 
 #[test]
-fn hidden_usage_item_ids_keep_legacy_visibility_compatible() {
+fn migrate_legacy_visibility_flags_materializes_hidden_usage_item_ids() {
     let mut settings = Settings::default();
-    settings.set_codex_spark_usage_visible(false);
-    settings.set_claude_daily_routines_usage_visible(false);
+    settings.set_spark_usage_visible(ProviderId::Codex, false);
+    settings.claude_daily_routines_usage_visible = false;
+
+    settings.migrate_legacy_usage_item_flags();
 
     assert_eq!(
         settings.hidden_usage_item_ids(ProviderId::Codex),
@@ -1104,7 +1106,7 @@ fn hidden_usage_item_ids_keep_legacy_visibility_compatible() {
 }
 
 #[test]
-fn generic_claude_visibility_does_not_mutate_legacy_flag() {
+fn generic_claude_visibility_writes_only_the_usage_item_list() {
     let mut settings = Settings::default();
 
     settings.set_hidden_usage_item_ids(
@@ -1164,7 +1166,11 @@ fn legacy_visibility_setters_preserve_other_explicit_hidden_items() {
     let mut settings = Settings::default();
     settings.set_hidden_usage_item_ids(ProviderId::Claude, vec!["metric:secondary".to_string()]);
 
-    settings.set_claude_daily_routines_usage_visible(false);
+    settings.toggle_hidden_items(
+        ProviderId::Claude,
+        &[CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID],
+        false,
+    );
     assert_eq!(
         settings.hidden_usage_item_ids(ProviderId::Claude),
         vec![
@@ -1173,7 +1179,11 @@ fn legacy_visibility_setters_preserve_other_explicit_hidden_items() {
         ]
     );
 
-    settings.set_claude_daily_routines_usage_visible(true);
+    settings.toggle_hidden_items(
+        ProviderId::Claude,
+        &[CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID],
+        true,
+    );
     assert_eq!(
         settings.hidden_usage_item_ids(ProviderId::Claude),
         vec!["metric:secondary".to_string()]

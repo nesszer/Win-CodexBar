@@ -59,7 +59,9 @@ pub struct ProviderDetail {
     pub region: Option<String>,
 }
 
-pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail, String> {
+pub(crate) fn build_provider_detail(
+    provider_id: &str,
+) -> Result<(ProviderDetail, Settings, ProviderId), String> {
     let id = parse_provider_arg(provider_id)?;
 
     let settings = Settings::load();
@@ -81,7 +83,7 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         metadata.dashboard_url.map(|s| s.to_string())
     };
 
-    Ok(ProviderDetail {
+    let detail = ProviderDetail {
         id: id.cli_name().to_string(),
         display_name: id.display_name().to_string(),
         enabled,
@@ -120,7 +122,9 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         usage_source: provider_usage_source_lookup(&settings, id.cli_name()),
         cookie_source: provider_cookie_source_lookup(&settings, id.cli_name()),
         region: provider_region_lookup(&settings, id.cli_name()),
-    })
+    };
+
+    Ok((detail, settings, id))
 }
 
 /// Return whether the exact-session resume control can safely be offered for
@@ -136,10 +140,7 @@ pub fn get_provider_detail(
     app: tauri::AppHandle,
     provider_id: String,
 ) -> Result<ProviderDetail, String> {
-    let mut detail = build_provider_detail(&provider_id)?;
-    let settings = Settings::load();
-    let parsed_provider_id = parse_provider_arg(&provider_id)?;
-    detail.hidden_usage_item_ids = settings.hidden_usage_item_ids(parsed_provider_id);
+    let (mut detail, settings, parsed_provider_id) = build_provider_detail(&provider_id)?;
 
     // Merge the latest cached snapshot, if any.
     let state = app.state::<Mutex<AppState>>();

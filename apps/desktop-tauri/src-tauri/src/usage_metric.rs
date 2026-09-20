@@ -646,6 +646,7 @@ mod tests {
             id: "claude-routines".to_string(),
             title: "Daily Routines".to_string(),
             window: window(95.0),
+            fallback_lane: false,
         }];
 
         let baseline = crate::commands::ProviderUsagePresentationSnapshot::new(

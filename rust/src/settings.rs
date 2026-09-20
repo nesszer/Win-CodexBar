@@ -640,7 +640,38 @@ impl Settings {
             settings.apply_promote_tray_default_migration();
         }
 
+        // One-shot migration: materialize the persisted hidden usage-item list
+        // from the pre-0.62 per-provider visibility flags. After this the list
+        // is the sole source of truth and the flags stay untouched.
+        settings.migrate_legacy_usage_item_flags();
+
         settings
+    }
+
+    /// Materialize `hidden_usage_item_ids` from the pre-0.62 per-provider
+    /// visibility flags where the list was never persisted. Idempotent: a
+    /// provider with an explicit list is left alone.
+    fn migrate_legacy_usage_item_flags(&mut self) {
+        if self
+            .provider_config(ProviderId::Codex)
+            .and_then(|config| config.hidden_usage_item_ids.as_ref())
+            .is_none()
+            && !self.spark_usage_visible(ProviderId::Codex)
+        {
+            self.toggle_hidden_items(ProviderId::Codex, &CODEX_SPARK_USAGE_ITEM_IDS, false);
+        }
+        if self
+            .provider_config(ProviderId::Claude)
+            .and_then(|config| config.hidden_usage_item_ids.as_ref())
+            .is_none()
+            && !self.claude_daily_routines_usage_visible
+        {
+            self.toggle_hidden_items(
+                ProviderId::Claude,
+                &[CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID],
+                false,
+            );
+        }
     }
 
     /// Marker written after the one-shot "pin tray by default" migration (issue #237).
@@ -1081,96 +1112,42 @@ impl Settings {
 
     pub fn set_spark_usage_visible(&mut self, id: ProviderId, value: bool) {
         self.provider_config_mut(id).spark_usage_visible = Some(value);
-
-        // Keep the legacy Codex-specific control compatible after the generic
-        // visibility list has been introduced. Existing settings without an
-        // explicit list continue to use the legacy fallback above.
-        let has_explicit_usage_item_visibility = self
-            .provider_configs
-            .get(&id)
-            .and_then(|config| config.hidden_usage_item_ids.as_ref())
-            .is_some();
-        if has_explicit_usage_item_visibility && id == ProviderId::Codex {
-            let mut hidden = self
-                .provider_configs
-                .get(&id)
-                .and_then(|config| config.hidden_usage_item_ids.clone())
-                .unwrap_or_default();
-            hidden.retain(|item| !CODEX_SPARK_USAGE_ITEM_IDS.contains(&item.as_str()));
-            if !value {
-                hidden.extend(
-                    CODEX_SPARK_USAGE_ITEM_IDS
-                        .iter()
-                        .map(|item| (*item).to_string()),
-                );
-            }
-            self.provider_config_mut(id).hidden_usage_item_ids =
-                Some(normalize_hidden_usage_item_ids(hidden));
-        }
     }
 
-    /// Return the persisted hidden usage-item IDs, or derive the IDs from the
-    /// pre-0.62 provider-specific visibility flags for legacy settings.
+    /// Return the persisted hidden usage-item IDs for `id`.
     pub fn hidden_usage_item_ids(&self, id: ProviderId) -> Vec<String> {
-        if let Some(ids) = self
-            .provider_configs
+        self.provider_configs
             .get(&id)
             .and_then(|config| config.hidden_usage_item_ids.as_ref())
-        {
-            return normalize_hidden_usage_item_ids(ids.clone());
-        }
-
-        let mut hidden = Vec::new();
-        if id == ProviderId::Codex && !self.spark_usage_visible(id) {
-            hidden.extend(
-                CODEX_SPARK_USAGE_ITEM_IDS
-                    .iter()
-                    .map(|item| (*item).to_string()),
-            );
-        }
-        if id == ProviderId::Claude && !self.claude_daily_routines_usage_visible {
-            hidden.push(CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string());
-        }
-        hidden
+            .map_or_else(Vec::new, |ids| normalize_hidden_usage_item_ids(ids.clone()))
     }
 
-    /// Persist an explicit presentation-only usage-item visibility list and
-    /// synchronize the existing Codex-specific compatibility flag.
+    /// Persist an explicit presentation-only usage-item visibility list.
     pub fn set_hidden_usage_item_ids(&mut self, id: ProviderId, ids: Vec<String>) {
         let hidden = normalize_hidden_usage_item_ids(ids);
-        self.provider_config_mut(id).hidden_usage_item_ids = Some(hidden.clone());
-
-        if id == ProviderId::Codex {
-            let spark_visible = !CODEX_SPARK_USAGE_ITEM_IDS
-                .iter()
-                .all(|item| hidden.iter().any(|hidden_id| hidden_id == item));
-            self.provider_config_mut(id).spark_usage_visible = Some(spark_visible);
-        }
+        self.provider_config_mut(id).hidden_usage_item_ids = Some(hidden);
     }
 
-    /// Update the old Claude Daily Routines flag while preserving any other
-    /// explicit hidden usage-item choices.
+    /// Add or remove `items` from the provider's hidden usage-item list.
+    ///
+    /// `visible = false` hides the items; `visible = true` un-hides them. This
+    /// is the single write path for usage-item visibility; it only touches the
+    /// presentation list and never the legacy per-provider boolean flags.
+    pub fn toggle_hidden_items(&mut self, id: ProviderId, items: &[&str], visible: bool) {
+        let mut hidden = self.hidden_usage_item_ids(id);
+        if visible {
+            hidden.retain(|item| !items.contains(&item.as_str()));
+        } else {
+            hidden.extend(items.iter().map(|item| (*item).to_string()));
+        }
+        self.set_hidden_usage_item_ids(id, hidden);
+    }
+
+    /// Update the old Claude Daily Routines flag without touching the
+    /// usage-item list; the flag is presentation-only and kept for callers
+    /// that still read the boolean directly.
     pub fn set_claude_daily_routines_usage_visible(&mut self, value: bool) {
         self.claude_daily_routines_usage_visible = value;
-        let id = ProviderId::Claude;
-        let has_explicit_usage_item_visibility = self
-            .provider_configs
-            .get(&id)
-            .and_then(|config| config.hidden_usage_item_ids.as_ref())
-            .is_some();
-        if has_explicit_usage_item_visibility {
-            let mut hidden = self
-                .provider_configs
-                .get(&id)
-                .and_then(|config| config.hidden_usage_item_ids.clone())
-                .unwrap_or_default();
-            hidden.retain(|item| item != CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID);
-            if !value {
-                hidden.push(CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string());
-            }
-            self.provider_config_mut(id).hidden_usage_item_ids =
-                Some(normalize_hidden_usage_item_ids(hidden));
-        }
     }
 
     /// Per-provider historical-tracking toggle (currently codex-only).

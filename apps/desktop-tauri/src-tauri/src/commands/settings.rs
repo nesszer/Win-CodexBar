@@ -635,8 +635,7 @@ mod tests {
     }
 
     #[test]
-    #[test]
-    fn apply_provider_usage_item_visibility_persists_and_syncs_legacy_flags() {
+    fn apply_provider_usage_item_visibility_persists() {
         let mut settings = Settings::default();
         SettingsUpdate {
             provider_hidden_usage_item_ids: Some(
@@ -653,6 +652,7 @@ mod tests {
             vec!["metric:secondary".to_string()]
         );
         assert!(settings.codex_spark_usage_visible());
+    }
 
     #[test]
     fn copilot_seat_credit_update_distinguishes_missing_clear_and_value() {

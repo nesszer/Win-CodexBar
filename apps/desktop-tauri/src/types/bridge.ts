@@ -234,8 +234,6 @@ export interface SettingsSnapshot {
   disableKeychainAccess: boolean;
   wayfinderGatewayUrl?: string;
   providerMetrics: Record<string, MetricPreference>;
-  /** Explicitly persisted hidden usage-item IDs by provider CLI name. */
-  providerHiddenUsageItemIds?: Record<string, string[]>;
   floatBarEnabled: boolean;
   /** 30..=100 — clamped server-side. */
   floatBarOpacity: number;
@@ -338,7 +336,10 @@ export interface SettingsUpdate {
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */
   providerMetrics?: Record<string, MetricPreference>;
-  /** Map of provider CLI name → stable raw usage-item IDs hidden in the UI. */
+  /**
+   * Map of provider CLI name → full hidden usage-item ID list. Replaces the
+   * whole list for that provider; empty clears all hidden rows.
+   */
   providerHiddenUsageItemIds?: Record<string, string[]>;
   floatBarEnabled?: boolean;
   floatBarOpacity?: number;
