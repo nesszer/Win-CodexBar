@@ -77,6 +77,26 @@ fn claude_scan_pricing_resolver_preserves_tiered_and_cache_ttl_pricing() {
 }
 
 #[test]
+fn claude_scan_resolver_applies_gpt_proxy_long_context_boundary() {
+    let snapshot = crate::core::ModelsDevPricingSnapshot::from_catalog_json_for_tests(
+        r#"{
+            "openai": {"models": {"gpt-5.6-sol": {"id": "gpt-5.6-sol", "cost": {
+                "input": 2, "output": 4, "cache_read": 0.25, "cache_write": 3,
+                "context_over_200k": {"input": 7, "output": 11, "cache_read": 0.5, "cache_write": 9}
+            }}}}
+        }"#,
+    )
+    .expect("pricing fixture");
+    let mut resolver = ClaudeScanPricingResolver::with_snapshot(snapshot);
+
+    let short = resolver.cost_usd_with_cache_ttl("gpt-5.6-sol", 262_000, 0, 0, 10_000, 13);
+    let long = resolver.cost_usd_with_cache_ttl("gpt-5.6-sol", 262_001, 0, 0, 10_000, 13);
+
+    assert!((short - 0.526552).abs() < 1e-12);
+    assert!((long - 1.83915).abs() < 1e-12);
+}
+
+#[test]
 fn claude_scan_pricing_resolver_bounds_normalization_memo() {
     let mut resolver = ClaudeScanPricingResolver::default();
     for index in 0..(ClaudeScanPricingResolver::MEMO_ENTRY_LIMIT + 8) {
@@ -412,6 +432,67 @@ fn ignores_claude_events_without_countable_usage() {
     )
     .unwrap();
     assert!(claude_usage_record_from_event(&event).is_none());
+}
+
+#[test]
+fn excludes_preliminary_proxy_estimates_but_keeps_cache_aware_rows() {
+    let preliminary: ClaudeEvent = serde_json::from_str(
+        r#"{"type":"assistant","message":{"id":"msg_preliminary","model":"gpt-5.6-sol","stop_reason":null,"usage":{"input_tokens":1000}}}"#,
+    )
+    .unwrap();
+    assert!(claude_usage_record_from_event(&preliminary).is_none());
+
+    let completed: ClaudeEvent = serde_json::from_str(
+        r#"{"type":"assistant","message":{"id":"msg_completed","model":"gpt-5.6-sol","stop_reason":"end_turn","usage":{"input_tokens":1000}}}"#,
+    )
+    .unwrap();
+    assert!(claude_usage_record_from_event(&completed).is_some());
+
+    let cache_aware: ClaudeEvent = serde_json::from_str(
+        r#"{"type":"assistant","message":{"id":"msg_cache_aware","model":"gpt-5.6-sol","stop_reason":null,"usage":{"input_tokens":1000,"cache_read_input_tokens":1}}}"#,
+    )
+    .unwrap();
+    assert!(claude_usage_record_from_event(&cache_aware).is_some());
+}
+
+#[test]
+fn malformed_claude_history_stays_unknown_while_valid_empty_history_is_known_zero() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("transcript.jsonl");
+    let cutoff = Utc::now() - Duration::days(1);
+
+    std::fs::write(&path, b"\n").unwrap();
+    let mut empty_seen = HashSet::new();
+    let mut empty_pricing = ClaudeScanPricingResolver::default();
+    let empty_result = scan_claude_file_with_pricing(
+        &path,
+        &cutoff,
+        &mut empty_seen,
+        None,
+        &mut empty_pricing,
+        |_| {},
+    );
+    let mut empty_summary = CostSummary::default();
+    finalize_claude_summary(&mut empty_summary, true, empty_result, false);
+    assert!(empty_summary.history_coverage_established);
+    assert!(empty_summary.known_zero);
+
+    std::fs::write(&path, b"{malformed\n").unwrap();
+    let mut malformed_seen = HashSet::new();
+    let mut malformed_pricing = ClaudeScanPricingResolver::default();
+    let malformed_result = scan_claude_file_with_pricing(
+        &path,
+        &cutoff,
+        &mut malformed_seen,
+        None,
+        &mut malformed_pricing,
+        |_| {},
+    );
+    assert_eq!(malformed_result.malformed_lines, 1);
+    let mut malformed_summary = CostSummary::default();
+    finalize_claude_summary(&mut malformed_summary, true, malformed_result, false);
+    assert!(!malformed_summary.history_coverage_established);
+    assert!(!malformed_summary.known_zero);
 }
 
 #[test]

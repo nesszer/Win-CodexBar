@@ -1206,6 +1206,66 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
 }
 
 #[test]
+fn ranged_catch_up_snapshot_excludes_historical_days_and_keeps_measurement_time() {
+    let usage = |day: &str| CostUsageFileUsage {
+        mtime_unix_ms: 0,
+        size: 100,
+        codex_file_identity: None,
+        days: HashMap::from([(
+            day.to_string(),
+            HashMap::from([("gpt-5.6-sol".to_string(), vec![100, 25, 10, 4])]),
+        )]),
+        parsed_bytes: Some(100),
+        codex_scan_target_size: None,
+        last_model: Some("gpt-5.6-sol".to_string()),
+        last_totals: None,
+        codex_token_timestamps_monotonic: Some(true),
+        codex_last_token_timestamp: None,
+        codex_session_id: None,
+        codex_forked_from_id: None,
+        codex_lineage: CodexSessionLineage::Root,
+        codex_fork_timestamp: None,
+        codex_unresolved_fork_parent: false,
+    };
+    let mut cache = CostUsageCache {
+        last_scan_unix_ms: 1,
+        ..CostUsageCache::default()
+    };
+    cache
+        .files
+        .insert("current.jsonl".to_string(), usage("2026-09-19"));
+    cache
+        .files
+        .insert("historical.jsonl".to_string(), usage("2026-09-01"));
+    cache.days.insert(
+        "2026-09-19".to_string(),
+        HashMap::from([("gpt-5.6-sol".to_string(), vec![100, 25, 10, 4])]),
+    );
+    cache.days.insert(
+        "2026-09-01".to_string(),
+        HashMap::from([("gpt-5.6-sol".to_string(), vec![900, 225, 90, 36])]),
+    );
+
+    let range = CostUsageDayRange {
+        since_key: "2026-09-19".to_string(),
+        until_key: "2026-09-19".to_string(),
+        scan_since_key: "2026-09-18".to_string(),
+        scan_until_key: "2026-09-20".to_string(),
+    };
+    let report = JsonlScanner::cached_cost_report_for_range(&cache, &range);
+
+    assert_eq!(report.input_tokens, 100);
+    assert_eq!(report.cached_tokens, 25);
+    assert_eq!(report.output_tokens, 10);
+    assert_eq!(report.reasoning_tokens, Some(4));
+    assert_eq!(report.sessions_count, 1);
+    assert_eq!(
+        report.updated_at,
+        DateTime::<Utc>::from_timestamp_millis(1).map(|timestamp| timestamp.to_rfc3339())
+    );
+}
+
+#[test]
 fn codex_cache_round_trip_preserves_64_bit_counts_and_rebuilds_legacy_schema() {
     let root = tempfile::tempdir().unwrap();
     let cache_root = root.path();
