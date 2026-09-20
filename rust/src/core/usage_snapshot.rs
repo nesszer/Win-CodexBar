@@ -105,21 +105,6 @@ pub struct ProviderInventoryItem {
     pub next_expires_at: Option<DateTime<Utc>>,
 }
 
-/// One display-only item of provider-issued discrete inventory.
-///
-/// This is deliberately separate from [`RateWindow`]: inventory does not
-/// represent a percentage quota and must not participate in quota arithmetic,
-/// tray metric selection, pace, notifications, or auto-resume decisions.
-/// Provider-specific redemption identifiers stay private to the provider
-/// parser and never enter this type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderInventoryItem {
-    pub id: String,
-    pub title: String,
-    pub available_count: u32,
-    pub next_expires_at: Option<DateTime<Utc>>,
-}
-
 /// One transient provider detail row for display surfaces.
 ///
 /// These rows are intentionally separate from quota windows and inventory:
