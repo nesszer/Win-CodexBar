@@ -112,13 +112,6 @@ pub struct ProviderInventoryItem {
 /// tray metric selection, pace, notifications, or auto-resume decisions.
 /// Provider-specific redemption identifiers stay private to the provider
 /// parser and never enter this type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderInventoryItem {
-    pub id: String,
-    pub title: String,
-    pub available_count: u32,
-    pub next_expires_at: Option<DateTime<Utc>>,
-}
 
 /// One transient provider detail row for display surfaces.
 ///
