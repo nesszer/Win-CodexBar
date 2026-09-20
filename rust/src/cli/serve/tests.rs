@@ -629,6 +629,7 @@ fn stub_build(identity: DashboardIdMode, with_accounts: bool, delay: Duration) -
                 },
                 identity,
                 version: Some("test".to_string()),
+                usage_bars_show_used: None,
             }))
         })
     })
@@ -660,6 +661,7 @@ fn stub_state_ok() -> dashboard::DashboardState {
                     },
                     identity: DashboardIdMode::Redacted,
                     version: Some("test".to_string()),
+                    usage_bars_show_used: None,
                 };
                 Ok(SnapshotArtifacts {
                     dashboard: build_snapshot(&input),
