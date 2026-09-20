@@ -104,6 +104,18 @@ function provider(id: string, displayName: string, used = 20): ProviderUsageSnap
   };
 }
 
+function providerWithThreeQuotaWindows(
+  id: string,
+  displayName: string,
+): ProviderUsageSnapshot {
+  const snapshot = provider(id, displayName);
+  snapshot.secondary = rateWindow(35);
+  snapshot.secondaryLabel = "Weekly";
+  snapshot.tertiary = rateWindow(50);
+  snapshot.tertiaryLabel = "Monthly";
+  return snapshot;
+}
+
 function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
   return {
     enabledProviders: ["codex", "claude"],
@@ -138,6 +150,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     resetTimeRelative: true,
     showResetWhenExhausted: false,
     menuBarDisplayMode: "detailed",
+    overviewLayout: "detailed",
     hidePersonalInfo: false,
     updateChannel: "stable",
     autoDownloadUpdates: false,
@@ -191,10 +204,16 @@ function renderTrayPanel(
   catalog: ProviderCatalogEntry[] = [],
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
-  tauriMocks.getSettingsSnapshot.mockResolvedValue(settings(settingsOverrides));
+  const snapshot = settings(settingsOverrides);
+  tauriMocks.getSettingsSnapshot.mockResolvedValue(snapshot);
   return render(
     <LocaleProvider>
-      <TrayPanel state={bootstrap(settingsOverrides, catalog)} />
+      <TrayPanel
+        state={{
+          ...bootstrap(settingsOverrides, catalog),
+          settings: snapshot,
+        }}
+      />
     </LocaleProvider>,
   );
 }
@@ -294,6 +313,39 @@ describe("TrayPanel provider grid", () => {
     await waitFor(() => {
       expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
     });
+  });
+
+  it("offers an Overview share snapshot using only included spend rows", async () => {
+    tauriMocks.getUsageSpendSummary.mockResolvedValue({
+      contract: {},
+      reportingDay: "2026-09-19",
+      dashboardTimezone: "UTC",
+      rows: [
+        {
+          providerId: "codex",
+          displayName: "Codex",
+          sevenDay: 1,
+          thirtyDay: 2,
+          currency: "USD",
+          source: "local",
+          includedInOverview: true,
+        },
+        {
+          providerId: "claude",
+          displayName: "Claude",
+          sevenDay: 3,
+          thirtyDay: 4,
+          currency: "USD",
+          source: "hidden",
+          includedInOverview: false,
+        },
+      ],
+    });
+
+    renderTrayPanel([provider("codex", "Codex", 35)]);
+
+    expect(await screen.findByRole("button", { name: "UsageSpendShare" })).toBeInTheDocument();
+    expect(screen.getByText(/1 of 1 OverviewSpendProviderCoverage/)).toBeInTheDocument();
   });
 
   it("dismisses the tray panel on unmodified Escape", async () => {
@@ -544,6 +596,19 @@ describe("TrayPanel provider grid", () => {
         (node) => node.textContent,
       ),
     ).toEqual(["Codex", "Claude", "Cursor", "Factory", "Gemini"]);
+  });
+
+  it("keeps compact Overview limited to two quota rows when explicitly selected", async () => {
+    const { container } = renderTrayPanel(
+      [providerWithThreeQuotaWindows("codex", "Codex")],
+      { overviewLayout: "compact" },
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".menu-stack__item")).not.toBeNull();
+    });
+
+    expect(container.querySelectorAll(".menu-metric")).toHaveLength(2);
   });
 
   it("uses independent columns for a wide user-sized overview", async () => {

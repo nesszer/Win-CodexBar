@@ -1158,11 +1158,13 @@ fn hiding_codex_spark_rows_preserves_other_extra_usage() {
         NamedRateWindowSnapshot {
             id: "codex-spark".to_string(),
             title: "Codex Spark 5-hour".to_string(),
+            fallback_lane: false,
             window: snapshot.primary.clone(),
         },
         NamedRateWindowSnapshot {
             id: "credits".to_string(),
             title: "Credits".to_string(),
+            fallback_lane: false,
             window: snapshot.primary.clone(),
         },
     ];

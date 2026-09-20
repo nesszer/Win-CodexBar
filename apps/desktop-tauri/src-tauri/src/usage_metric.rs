@@ -16,9 +16,18 @@ pub(crate) fn selected_usage_window(
         .map(|id| settings.get_provider_metric(id))
         .unwrap_or_default();
 
-    preferred_window(snapshot, provider, preference)
-        .or_else(|| automatic_window(snapshot, provider))
-        .unwrap_or_else(|| snapshot.primary.clone())
+    if let Some(selected) = preferred_window(snapshot, provider, preference) {
+        return selected;
+    }
+    // Providers with Automatic-only fallback lanes (seat credits) keep an
+    // explicit metric choice authoritative when its corresponding lane is not
+    // available instead of silently replacing it with fallback progress.
+    if provider.is_some_and(|id| {
+        !codexbar::core::instantiate_provider(id).explicit_preference_falls_through_to_automatic()
+    }) {
+        return snapshot.primary.clone();
+    }
+    automatic_window(snapshot, provider).unwrap_or_else(|| snapshot.primary.clone())
 }
 
 /// Select the primary tray metric and, when there are multiple meaningful core
@@ -111,22 +120,40 @@ fn automatic_window(
                 return Some(weekly.clone());
             }
         }
-        if snapshot.primary.is_informational {
-            return weekly.cloned();
+        if snapshot.primary.is_informational
+            && let Some(weekly) = weekly
+        {
+            return Some(weekly.clone());
         }
     }
 
     let policy = automatic_metric_policy(provider);
+
+    if snapshot.primary.is_informational
+        && policy.missing_core_is_terminal
+        && snapshot.secondary.is_none()
+    {
+        return None;
+    }
+
     let mut windows = Vec::with_capacity(4 + snapshot.extra_rate_windows.len());
     windows.push(&snapshot.primary);
     windows.extend(snapshot.secondary.iter());
     windows.extend(snapshot.model_specific.iter());
     windows.extend(snapshot.tertiary.iter());
+    let has_core_window = std::iter::once(&snapshot.primary)
+        .chain(snapshot.secondary.iter())
+        .chain(snapshot.model_specific.iter())
+        .chain(snapshot.tertiary.iter())
+        .any(|window| !window.is_informational);
     if policy.uses_extra_windows {
         windows.extend(
             snapshot
                 .extra_rate_windows
                 .iter()
+                // Fallback lanes (e.g. a seat-credit allowance) only fill in
+                // when the provider reports no real core quota window.
+                .filter(|extra| !extra.fallback_lane || !has_core_window)
                 .map(|extra| &extra.window),
         );
     }
@@ -149,34 +176,46 @@ struct AutomaticMetricPolicy {
     prefers_available_window: bool,
     prioritizes_exhausted_window: bool,
     uses_extra_windows: bool,
+    /// Whether a snapshot with an informational primary and no secondary lane
+    /// is a dead end for Automatic selection. False for providers whose
+    /// fallback lanes (seat credits) should still be considered.
+    missing_core_is_terminal: bool,
 }
 
 fn automatic_metric_policy(provider: Option<ProviderId>) -> AutomaticMetricPolicy {
+    let prioritizes = |id: ProviderId| {
+        codexbar::core::instantiate_provider(id).automatic_metric_prioritizes_exhausted_window()
+    };
+    let missing_core_is_terminal = |id: ProviderId| {
+        codexbar::core::instantiate_provider(id).automatic_metric_missing_core_is_terminal()
+    };
     match provider {
         Some(ProviderId::Antigravity) => AutomaticMetricPolicy {
             prefers_available_window: true,
             prioritizes_exhausted_window: false,
             uses_extra_windows: false,
+            missing_core_is_terminal: true,
         },
         // Cursor's monthly Auto lane is the semantic weekly pace. Grok Bot is
         // a named extra allowance and must stay available through the explicit
         // ExtraUsage preference without changing the automatic bar.
         Some(ProviderId::Cursor) => AutomaticMetricPolicy {
             prefers_available_window: false,
-            prioritizes_exhausted_window: codexbar::core::instantiate_provider(ProviderId::Cursor)
-                .automatic_metric_prioritizes_exhausted_window(),
+            prioritizes_exhausted_window: prioritizes(ProviderId::Cursor),
             uses_extra_windows: false,
+            missing_core_is_terminal: true,
         },
         Some(id) => AutomaticMetricPolicy {
             prefers_available_window: false,
-            prioritizes_exhausted_window: codexbar::core::instantiate_provider(id)
-                .automatic_metric_prioritizes_exhausted_window(),
+            prioritizes_exhausted_window: prioritizes(id),
             uses_extra_windows: true,
+            missing_core_is_terminal: missing_core_is_terminal(id),
         },
         None => AutomaticMetricPolicy {
             prefers_available_window: false,
             prioritizes_exhausted_window: true,
             uses_extra_windows: true,
+            missing_core_is_terminal: false,
         },
     }
 }
@@ -279,6 +318,7 @@ fn automatic_window_is_exhausted(window: &RateWindowSnapshot) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codexbar::providers::copilot::SEAT_CREDIT_WINDOW_ID;
 
     fn window(used_percent: f64) -> RateWindowSnapshot {
         derived_window(used_percent, None)
@@ -352,6 +392,71 @@ mod tests {
     }
 
     #[test]
+    fn copilot_automatic_uses_seat_credit_progress_without_metered_quota() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "copilot".to_string();
+        snapshot.primary = RateWindowSnapshot {
+            is_informational: true,
+            ..window(0.0)
+        };
+        snapshot.secondary = None;
+        snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: SEAT_CREDIT_WINDOW_ID.to_string(),
+            title: "Credits used".to_string(),
+            window: window(35.0),
+            fallback_lane: true,
+        }];
+
+        assert_eq!(
+            selected_usage_window(&snapshot, &Settings::default()).used_percent,
+            35.0
+        );
+    }
+
+    #[test]
+    fn copilot_automatic_keeps_metered_quota_authoritative_over_seat_credits() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "copilot".to_string();
+        snapshot.primary = window(20.0);
+        snapshot.secondary = None;
+        snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: SEAT_CREDIT_WINDOW_ID.to_string(),
+            title: "Credits used".to_string(),
+            window: window(90.0),
+            fallback_lane: true,
+        }];
+
+        assert_eq!(
+            selected_usage_window(&snapshot, &Settings::default()).used_percent,
+            20.0
+        );
+    }
+
+    #[test]
+    fn copilot_explicit_session_does_not_fall_back_to_seat_credits() {
+        let mut snapshot = snapshot();
+        snapshot.provider_id = "copilot".to_string();
+        snapshot.primary = RateWindowSnapshot {
+            is_informational: true,
+            ..window(0.0)
+        };
+        snapshot.secondary = None;
+        snapshot.extra_rate_windows = vec![crate::commands::NamedRateWindowSnapshot {
+            id: SEAT_CREDIT_WINDOW_ID.to_string(),
+            title: "Credits used".to_string(),
+            window: window(35.0),
+            fallback_lane: true,
+        }];
+        let mut settings = Settings::default();
+        let provider = ProviderId::from_cli_name(&snapshot.provider_id).expect("copilot provider");
+        settings.set_provider_metric(provider, MetricPreference::Session);
+
+        let selected = selected_usage_window(&snapshot, &settings);
+        assert!(selected.is_informational);
+        assert_eq!(selected.used_percent, 0.0);
+    }
+
+    #[test]
     fn cursor_automatic_uses_semantic_monthly_lane_and_keeps_grok_bot_explicit() {
         let mut snapshot = snapshot();
         snapshot.provider_id = "cursor".to_string();
@@ -361,6 +466,7 @@ mod tests {
             id: "cursor-grok-bot".to_string(),
             title: "Grok Bot".to_string(),
             window: window(95.0),
+            fallback_lane: false,
         }];
 
         assert_eq!(
@@ -442,6 +548,7 @@ mod tests {
             id: "antigravity-quota-summary-3p-weekly".to_string(),
             title: "Claude/GPT weekly".to_string(),
             window: window(100.0),
+            fallback_lane: false,
         }];
 
         let selected = selected_usage_window(&snapshot, &Settings::default());
@@ -461,6 +568,7 @@ mod tests {
             id: "legacy-other".to_string(),
             title: "Other".to_string(),
             window: window(100.0),
+            fallback_lane: false,
         }];
 
         let selected = selected_usage_window(&snapshot, &Settings::default());

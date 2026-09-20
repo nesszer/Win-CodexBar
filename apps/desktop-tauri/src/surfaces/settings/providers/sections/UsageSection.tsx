@@ -1,8 +1,5 @@
-import type {
-  ProviderInventoryItem,
-  ProviderDetail,
-  RateWindowSnapshot,
-} from "../../../../types/bridge";
+import type { ProviderDetail, RateWindowSnapshot } from "../../../../types/bridge";
+import { InventoryItemRow } from "../../../../components/InventoryRows";
 import type { LocaleKey } from "../../../../i18n/keys";
 import { useFormattedResetTime } from "../../../../hooks/useFormattedResetTime";
 
@@ -79,35 +76,14 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
         />
       ))}
       {inventory.map((item) => (
-        <InventoryRow
+        <InventoryItemRow
           key={item.id}
           item={item}
           resetTimeRelative={resetTimeRelative}
+          lineClassName="provider-usage-inventory"
         />
       ))}
     </section>
-  );
-}
-
-function InventoryRow({
-  item,
-  resetTimeRelative,
-}: {
-  item: ProviderInventoryItem;
-  resetTimeRelative: boolean;
-}) {
-  const formattedExpiry = useFormattedResetTime(
-    item.nextExpiresAt,
-    null,
-    resetTimeRelative,
-    "expires",
-  );
-
-  return (
-    <div className="provider-usage-inventory">
-      <span>{item.title}: {item.availableCount} available</span>
-      {formattedExpiry && <span>{formattedExpiry}</span>}
-    </div>
   );
 }
 

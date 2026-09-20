@@ -693,6 +693,10 @@ pub struct FetchContext {
     /// Optional provider workspace/project scope from persisted settings.
     pub workspace_id: Option<String>,
 
+    /// Optional Copilot seat AI-credit allowance supplied by the app settings.
+    /// The provider keeps the credit counter unknown when this is absent.
+    pub seat_credit_entitlement: Option<f64>,
+
     /// Optional provider API/web region from persisted settings.
     pub api_region: Option<String>,
 
@@ -721,6 +725,7 @@ impl Default for FetchContext {
             manual_cookie_header: None,
             api_key: None,
             workspace_id: None,
+            seat_credit_entitlement: None,
             api_region: None,
             gateway_url: None,
             auto_prefer_web: false,
@@ -782,6 +787,23 @@ pub trait Provider: Send + Sync {
 
     /// Whether Automatic metric selection should prefer an exhausted quota lane.
     fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
+        true
+    }
+
+    /// Whether an explicit (non-Automatic) metric preference whose lane is
+    /// unavailable should still fall through to Automatic selection. Providers
+    /// with Automatic-only fallback lanes (seat credits) override this to
+    /// `false` so an explicit choice is never silently replaced by fallback
+    /// progress.
+    fn explicit_preference_falls_through_to_automatic(&self) -> bool {
+        true
+    }
+
+    /// Whether Automatic metric selection is a dead end when the primary lane
+    /// is informational and no secondary lane exists. Providers with
+    /// Automatic-only fallback lanes (seat credits) override this to `false`
+    /// so the fallback lane can still fill in.
+    fn automatic_metric_missing_core_is_terminal(&self) -> bool {
         true
     }
 

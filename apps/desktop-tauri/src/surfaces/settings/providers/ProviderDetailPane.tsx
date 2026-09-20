@@ -34,6 +34,7 @@ import { UsageSourceSection } from "./sections/UsageSourceSection";
 import { shouldShowCookieSource } from "./sections/usageSourcePolicy";
 import { RegionSection } from "./sections/RegionSection";
 import { CodexUsageOptions } from "./sections/credentials/CodexUsageOptions";
+import { CopilotSeatCreditOptions } from "./sections/credentials/CopilotSeatCreditOptions";
 import { CodexAccountsSection } from "./sections/credentials/CodexAccountsSection";
 import { ClaudeAccountsSection } from "./sections/credentials/ClaudeAccountsSection";
 import { GrokAccountsSection } from "./sections/credentials/GrokAccountsSection";
@@ -53,6 +54,7 @@ interface Props {
   cookieDomain?: string | null;
   resetTimeRelative: boolean;
   providerMetrics: SettingsSnapshot["providerMetrics"];
+  copilotSeatCreditEntitlement: SettingsSnapshot["copilotSeatCreditEntitlement"];
   /** Per-provider accent color overrides (CLI name → hex color). */
   providerAccentColors: SettingsSnapshot["providerAccentColors"];
   wayfinderGatewayUrl: string;
@@ -73,6 +75,7 @@ export function ProviderDetailPane({
   cookieDomain = null,
   resetTimeRelative,
   providerMetrics,
+  copilotSeatCreditEntitlement,
   providerAccentColors,
   wayfinderGatewayUrl,
   hidePersonalInfo,
@@ -362,6 +365,14 @@ export function ProviderDetailPane({
       )}
       <CredentialsDispatcher providerId={detail.id} t={t} />
       {detail.id === "codex" && <CodexUsageOptions t={t} />}
+      {detail.id === "copilot" && (
+        <CopilotSeatCreditOptions
+          value={copilotSeatCreditEntitlement}
+          disabled={settingsDisabled}
+          t={t}
+          onChange={onSettingsChange}
+        />
+      )}
       <CredentialStorageSection
         status={credentialStatus}
         busy={busy}

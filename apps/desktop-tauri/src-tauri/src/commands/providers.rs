@@ -1,5 +1,6 @@
 use super::*;
 use chrono::{Local, Utc};
+use codexbar::core::HookUsageWindow;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -208,6 +209,7 @@ pub(crate) fn build_fetch_context(
         manual_cookie_header: cookie_header,
         api_key,
         workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
+        seat_credit_entitlement: settings.seat_credit_entitlement(id),
         api_region: (!api_region.is_empty()).then_some(api_region),
         gateway_url,
         auto_prefer_web,
@@ -533,12 +535,21 @@ fn spawn_provider_refreshes(
             .get(&id)
             .and_then(ProviderAccountData::active_account)
             .map(|account| account.id);
+        let hooks_enabled = inputs.settings.hooks_enabled;
 
         handles.push(tokio::spawn(async move {
             let Ok(_permit) = fetch_permits.acquire_owned().await else {
                 return;
             };
-            refresh_provider(app_handle, id, ctx, generation, token_account_id).await;
+            refresh_provider(
+                app_handle,
+                id,
+                ctx,
+                generation,
+                token_account_id,
+                hooks_enabled,
+            )
+            .await;
         }));
     }
 
@@ -569,6 +580,7 @@ async fn refresh_provider(
     ctx: FetchContext,
     generation: u64,
     token_account_id: Option<uuid::Uuid>,
+    hooks_enabled: bool,
 ) {
     let (snapshot, account_identity, failure_policy) =
         fetch_provider_snapshot(id, ctx, token_account_id).await;
@@ -615,6 +627,13 @@ async fn refresh_provider(
     if let Some(snapshot) = published {
         events::emit_provider_updated(&app, &snapshot);
         if fresh_snapshot {
+            dispatch_usage_updated_hook(
+                hooks_enabled,
+                id,
+                &snapshot,
+                account_identity.as_deref(),
+                token_account_id,
+            );
             crate::auto_resume::observe_fresh_snapshot(
                 &app,
                 id,
@@ -625,6 +644,55 @@ async fn refresh_provider(
             .await;
         }
     }
+}
+
+/// Publish the current successful snapshot to opt-in external hooks. The event
+/// carries both quota windows in one payload and is rate-limited per provider
+/// account so periodic refreshes cannot create a hook storm.
+fn dispatch_usage_updated_hook(
+    hooks_enabled: bool,
+    provider: ProviderId,
+    snapshot: &ProviderUsageSnapshot,
+    account_identity: Option<&str>,
+    token_account_id: Option<uuid::Uuid>,
+) {
+    if !hooks_enabled {
+        return;
+    }
+    let settings = Settings::load();
+    let account = if settings.hide_personal_info {
+        None
+    } else {
+        account_identity
+            .map(str::trim)
+            .filter(|identity| !identity.is_empty())
+    };
+    let rate_limit_scope = quota_notification_account_identity(snapshot, token_account_id);
+    let rate_limit_scope = if rate_limit_scope.is_empty() {
+        None
+    } else {
+        Some(format!("provider-account:{rate_limit_scope}"))
+    };
+    let primary = HookUsageWindow {
+        used_percent: snapshot.primary.used_percent,
+        window_minutes: snapshot.primary.window_minutes,
+        resets_at: snapshot.primary.resets_at.clone(),
+        is_informational: snapshot.primary.is_informational,
+    };
+    let secondary = snapshot.secondary.as_ref().map(|window| HookUsageWindow {
+        used_percent: window.used_percent,
+        window_minutes: window.window_minutes,
+        resets_at: window.resets_at.clone(),
+        is_informational: window.is_informational,
+    });
+    codexbar::core::dispatch_usage_updated_hook(
+        hooks_enabled,
+        provider.cli_name(),
+        &primary,
+        secondary.as_ref(),
+        account,
+        rate_limit_scope,
+    );
 }
 
 /// F6 (upstream 0.48.0 UsageStore+CodexResetBackfill): backfill missing

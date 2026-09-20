@@ -12,7 +12,7 @@ use crate::core::{
     SourceMode,
 };
 
-pub use api::CopilotApi;
+pub use api::{CopilotApi, SEAT_CREDIT_WINDOW_ID};
 
 /// GitHub Copilot provider for fetching AI usage limits
 pub struct CopilotProvider {
@@ -53,6 +53,14 @@ impl Provider for CopilotProvider {
         false
     }
 
+    fn explicit_preference_falls_through_to_automatic(&self) -> bool {
+        false
+    }
+
+    fn automatic_metric_missing_core_is_terminal(&self) -> bool {
+        false
+    }
+
     fn id(&self) -> ProviderId {
         ProviderId::Copilot
     }
@@ -64,7 +72,12 @@ impl Provider for CopilotProvider {
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Fetching GitHub Copilot usage via GitHub OAuth");
 
-        match self.api.fetch_usage(ctx.api_key.as_deref()).await {
+        let token = self.api.load_token(ctx.api_key.as_deref(), None)?;
+        match self
+            .api
+            .fetch_usage_with_token(&token, None, ctx.seat_credit_entitlement)
+            .await
+        {
             Ok(usage) => Ok(ProviderFetchResult::new(usage, "oauth")),
             Err(e) => {
                 tracing::warn!("Copilot API fetch failed: {}", e);

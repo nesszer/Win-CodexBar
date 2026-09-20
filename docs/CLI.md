@@ -43,7 +43,7 @@ Top-level (from `codexbar --help`):
 | `autostart` | Manage Windows boot auto-start |
 | `account` | Token accounts for providers |
 | `config` | validate / dump / providers / enable / disable / set-api-key / path |
-| `hooks` | List, enable, disable, or test external hooks |
+| `hooks` | List, enable, disable, test, or watch external hooks |
 
 ### Usage
 
@@ -114,6 +114,24 @@ codexbar config validate
 ```
 
 `enable` / `disable` persist settings. `usage -p <id>` is a one-shot override and does not by itself toggle enabled state the same way.
+
+### Hooks
+
+```powershell
+codexbar hooks list --json
+codexbar hooks test usage_updated --provider codex --json
+codexbar hooks watch --provider codex --json
+```
+
+The opt-in `usage_updated` event is emitted after a successful refresh and
+contains the primary and secondary quota usage, window durations, and reset
+timestamps when available. Failed or superseded refreshes do not emit it.
+The desktop refresh path emits it after publishing a current provider
+snapshot; `hooks watch` emits it directly after `provider.fetch_usage`
+succeeds, without publishing a snapshot. Repeated events for the same
+provider account are limited to one per ten minutes; the private account
+discriminator used for that limit is never sent to the hook payload or
+environment.
 
 ### Sessions
 
