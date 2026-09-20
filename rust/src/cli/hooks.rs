@@ -57,7 +57,7 @@ pub struct HooksToggleArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct HooksTestArgs {
-    /// Event name (quota_low, quota_reached, quota_reset, provider_unavailable, provider_recovered, refresh_failed)
+    /// Event name (quota_low, quota_reached, quota_reset, usage_updated, provider_unavailable, provider_recovered, refresh_failed)
     pub event: String,
     /// Provider CLI name
     #[arg(long)]
@@ -215,7 +215,12 @@ async fn run_watch(args: HooksWatchArgs) -> anyhow::Result<()> {
                     },
                     None => hooks.clone(),
                 };
-                HookRunner::dispatch(&dispatch.event, &dispatch_config, &rate_limiter);
+                HookRunner::dispatch(
+                    &dispatch.event,
+                    &dispatch_config,
+                    &rate_limiter,
+                    dispatch.rate_limit_scope.as_deref(),
+                );
             }
         }
 
@@ -291,6 +296,7 @@ async fn hooks_watch_observation(
         manual_cookie_header: None,
         api_key: None,
         workspace_id: (!workspace.is_empty()).then(|| workspace.to_string()),
+        seat_credit_entitlement: settings.seat_credit_entitlement(provider_id),
         api_region: (!region.is_empty()).then(|| region.to_string()),
         gateway_url: (!gateway.is_empty()).then(|| gateway.to_string()),
         auto_prefer_web: false,
@@ -309,12 +315,19 @@ async fn hooks_watch_observation(
         Ok(result) => {
             let usage = &result.usage;
             let account = usage.account_email.clone();
+            let account_discriminator = result
+                .account_identity()
+                .map(str::trim)
+                .filter(|identity| !identity.is_empty())
+                .map(|identity| format!("provider-account:{}", identity.to_ascii_lowercase()));
             HookProviderObservation {
                 provider: provider_id.cli_name().to_string(),
                 lanes: hooks_watch_lanes(provider_id, usage, settings, account.as_deref()),
                 status,
                 refresh_failure_status: None,
                 account_display_name: account,
+                successful_usage: Some(usage.clone()),
+                account_discriminator,
             }
         }
         Err(err) => HookProviderObservation {
@@ -323,6 +336,8 @@ async fn hooks_watch_observation(
             status,
             refresh_failure_status: Some(hook_refresh_failure_status(&err)),
             account_display_name: None,
+            successful_usage: None,
+            account_discriminator: None,
         },
     }
 }
@@ -599,6 +614,13 @@ fn sample_event(event: HookEventType, provider: &str) -> HookEvent {
         HookEventType::QuotaLow => e = e.with_used_percent(85.0),
         HookEventType::QuotaReached => e = e.with_used_percent(100.0),
         HookEventType::QuotaReset => e = e.with_used_percent(5.0),
+        HookEventType::UsageUpdated => {
+            e = e
+                .with_used_percent(25.0)
+                .with_window_minutes(Some(300))
+                .with_secondary_usage_fraction(0.1)
+                .with_secondary_window_minutes(Some(10080));
+        }
         HookEventType::ProviderUnavailable => e = e.with_status("unavailable"),
         HookEventType::ProviderRecovered => e = e.with_status("ok"),
         HookEventType::RefreshFailed => e = e.with_status("refresh_failed"),
@@ -611,11 +633,12 @@ fn parse_event(raw: &str) -> anyhow::Result<HookEventType> {
         "quota_low" => Ok(HookEventType::QuotaLow),
         "quota_reached" => Ok(HookEventType::QuotaReached),
         "quota_reset" => Ok(HookEventType::QuotaReset),
+        "usage_updated" => Ok(HookEventType::UsageUpdated),
         "provider_unavailable" => Ok(HookEventType::ProviderUnavailable),
         "provider_recovered" => Ok(HookEventType::ProviderRecovered),
         "refresh_failed" => Ok(HookEventType::RefreshFailed),
         other => anyhow::bail!(
-            "Unknown event '{other}'. Use one of: quota_low, quota_reached, quota_reset, provider_unavailable, provider_recovered, refresh_failed."
+            "Unknown event '{other}'. Use one of: quota_low, quota_reached, quota_reset, usage_updated, provider_unavailable, provider_recovered, refresh_failed."
         ),
     }
 }

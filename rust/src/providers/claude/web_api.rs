@@ -826,7 +826,12 @@ fn append_web_extra_windows(
 
 #[cfg(test)]
 mod tests {
-    use super::{AccountResponse, ClaudeWebApiFetcher, UsageWindow, cookie_value};
+    use super::{
+        AccountResponse, ClaudeWebApiFetcher, UsageWindow, classify_web_http_error, cookie_value,
+        describe_json_body_shape, is_cookie_authentication_failure,
+    };
+    use crate::core::ProviderError;
+    use reqwest::StatusCode;
     use reqwest::header;
     use std::sync::{Mutex, OnceLock};
 
@@ -990,6 +995,45 @@ mod tests {
             Some("web_claude_ai")
         );
         assert!(headers.contains_key(header::USER_AGENT));
+    }
+
+    #[test]
+    fn stale_cookie_recovery_retries_only_after_authentication_failure() {
+        assert!(is_cookie_authentication_failure(
+            &ProviderError::AuthRequired
+        ));
+        assert!(!is_cookie_authentication_failure(&ProviderError::Timeout));
+        assert!(!is_cookie_authentication_failure(&ProviderError::Other(
+            "Failed to get organizations: 503 Service Unavailable".to_string(),
+        )));
+        assert!(!is_cookie_authentication_failure(&classify_web_http_error(
+            "organizations",
+            StatusCode::FORBIDDEN,
+            &header::HeaderMap::new(),
+            b"Just a moment...",
+        )));
+    }
+
+    #[test]
+    fn malformed_response_shape_does_not_echo_body_contents() {
+        let shape = describe_json_body_shape(
+            "sessionKey=secret-session-token",
+            Some("text/html; charset=utf-8"),
+        );
+
+        assert_eq!(
+            shape,
+            "content_type=text/html; charset=utf-8, body_len=31, body_kind=non-json"
+        );
+        assert!(!shape.contains("secret-session-token"));
+
+        let object_shape =
+            describe_json_body_shape(r#"{"z":"secret-value","a":true}"#, Some("application/json"));
+        assert_eq!(
+            object_shape,
+            "content_type=application/json, body_len=29, json_keys=[a, z]"
+        );
+        assert!(!object_shape.contains("secret-value"));
     }
 
     #[test]
