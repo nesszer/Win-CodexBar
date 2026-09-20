@@ -266,6 +266,12 @@ pub async fn claude_swap_accounts_list() -> Result<ClaudeSwapAccountsState, Stri
 
 #[tauri::command]
 pub async fn claude_swap_account_switch(app: tauri::AppHandle, slot: u32) -> Result<(), String> {
+    // MUTATION is held for the whole command body, including
+    // `finish_claude_swap_mutation`'s awaited provider refresh below. This is
+    // deliberate: it serializes account mutations across the full
+    // reconciliation, so other add/save/remove operations fail fast with
+    // "already in progress" instead of racing the swap. The refresh is bounded,
+    // so the lock window stays finite.
     let _mutation = MUTATION
         .try_lock()
         .map_err(|_| "A Claude account operation is already in progress.")?;

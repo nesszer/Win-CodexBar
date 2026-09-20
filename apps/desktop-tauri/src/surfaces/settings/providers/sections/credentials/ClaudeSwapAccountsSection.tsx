@@ -218,7 +218,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
         <input
           type="checkbox"
           checked={enabled}
-          disabled={busy}
+          disabled={busy || reconciling}
           onChange={(e) => void runSettings({ claudeSwapEnabled: e.target.checked })}
         />
         <span>
@@ -232,7 +232,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
           type="text"
           className="provider-detail-field__input"
           value={pathDraft}
-          disabled={busy}
+          disabled={busy || reconciling}
           placeholder={t("ClaudeSwapExecutablePathPlaceholder")}
           onChange={(e) => setPathDraft(e.target.value)}
           onBlur={() => void savePath()}
@@ -297,7 +297,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
                     <button
                       type="button"
                       className="credential-btn credential-btn--primary"
-                      disabled={busy}
+                      disabled={busy || reconciling}
                       onClick={() => void runAccountAction(account)}
                     >
                       {t(

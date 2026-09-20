@@ -102,7 +102,7 @@ export function ClaudeAccountsSection({
                   {!account.isActive && account.isSaved && (
                     <button
                       className="credential-btn credential-btn--primary"
-                      disabled={busy}
+                      disabled={busy || reconciling}
                       onClick={() => void run(() => claudeAccountSwitch(account.id), "ClaudeAccountsSwitched")}
                     >
                       {t("CodexAccountsSwitchButton")}
@@ -111,7 +111,7 @@ export function ClaudeAccountsSection({
                   {!account.isSaved && (
                     <button
                       className="credential-btn credential-btn--secondary"
-                      disabled={busy}
+                      disabled={busy || reconciling}
                       onClick={() => void run(claudeAccountSaveCurrent)}
                     >
                       {t("ClaudeAccountsSaveCurrent")}
@@ -120,7 +120,7 @@ export function ClaudeAccountsSection({
                   {account.isSaved && (
                     <button
                       className="credential-btn credential-btn--danger"
-                      disabled={busy}
+                      disabled={busy || reconciling}
                       onClick={() => void run(() => claudeAccountRemove(account.id))}
                     >
                       {t("CodexAccountsRemoveButton")}
@@ -133,7 +133,7 @@ export function ClaudeAccountsSection({
         </ul>
         <button
           className="credential-btn credential-btn--primary"
-          disabled={busy}
+          disabled={busy || reconciling}
           onClick={() => {
             setLoggingIn(true);
             void run(claudeAccountAdd, "ClaudeAccountsAdded");

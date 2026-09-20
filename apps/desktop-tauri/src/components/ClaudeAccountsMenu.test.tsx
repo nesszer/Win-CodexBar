@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClaudeAccount } from "../types/bridge";
 
@@ -61,7 +61,8 @@ describe("ClaudeAccountsMenu", () => {
     render(<ClaudeAccountsMenu hideEmail={false} />);
     await screen.findByText(first.email);
     const details = () => document.querySelector("details[data-claude-account-phase]") as HTMLDetailsElement;
-    const button = screen.getAllByText("CodexAccountsSwitchButton")[1];
+    const row = screen.getByText(second.email).closest("li") as HTMLElement;
+    const button = within(row).getByRole("button");
 
     await act(async () => fireEvent.click(button));
     expect(details().dataset.claudeAccountPhase).toBe("activating");
@@ -89,25 +90,22 @@ describe("ClaudeAccountsMenu", () => {
     render(<ClaudeAccountsMenu hideEmail={false} />);
     await screen.findByText(first.email);
     const details = () => document.querySelector("details[data-claude-account-phase]") as HTMLDetailsElement;
-    const button = screen.getAllByText("CodexAccountsSwitchButton")[1];
+    const row = screen.getByText(second.email).closest("li") as HTMLElement;
+    const button = within(row).getByRole("button");
 
     await act(async () => {
       mocks.listeners.get("claude-accounts-reconciling")?.();
     });
     expect(details().dataset.claudeAccountPhase).toBe("reconciling");
     expect(details()).toHaveAttribute("aria-busy", "true");
-    expect(
-      (screen.getAllByText("CodexAccountsSwitchButton")[1] as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(button).toBeDisabled();
 
     await act(async () => {
       mocks.listeners.get("claude-accounts-reconciled")?.();
     });
     expect(details().dataset.claudeAccountPhase).toBe("settled");
     expect(details()).toHaveAttribute("aria-busy", "false");
-    expect(
-      (screen.getAllByText("CodexAccountsSwitchButton")[1] as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect(button).not.toBeDisabled();
   });
 
   it("waits for the reconciled event before settling a local switch", async () => {
@@ -119,7 +117,9 @@ describe("ClaudeAccountsMenu", () => {
     await screen.findByText(first.email);
     const details = () => document.querySelector("details[data-claude-account-phase]") as HTMLDetailsElement;
 
-    await act(async () => fireEvent.click(screen.getAllByText("CodexAccountsSwitchButton")[1]));
+    const row = screen.getByText(second.email).closest("li") as HTMLElement;
+    const button = within(row).getByRole("button");
+    await act(async () => fireEvent.click(button));
     await act(async () => {
       mocks.listeners.get("claude-accounts-reconciling")?.();
     });
@@ -165,7 +165,8 @@ describe("ClaudeAccountsMenu", () => {
     mocks.claudeAccountSwitch.mockRejectedValue("Close Claude Code first.");
     render(<ClaudeAccountsMenu hideEmail={false} />);
     await screen.findByText(first.email);
-    await act(async () => fireEvent.click(screen.getAllByText("CodexAccountsSwitchButton")[1]));
+    const row = screen.getByText(second.email).closest("li") as HTMLElement;
+    await act(async () => fireEvent.click(within(row).getByRole("button")));
     expect(screen.getByRole("alert").textContent).toContain("Close Claude Code first.");
     expect(screen.queryByRole("status")).toBeNull();
     expect(mocks.refreshProviders).not.toHaveBeenCalled();
