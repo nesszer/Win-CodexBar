@@ -37,6 +37,7 @@ impl AmpProvider {
                 is_primary: false,
                 dashboard_url: Some("https://ampcode.com/settings/usage"),
                 status_page_url: Some("https://sourcegraphstatus.com"),
+                tertiary_label_key: None,
             },
         }
     }

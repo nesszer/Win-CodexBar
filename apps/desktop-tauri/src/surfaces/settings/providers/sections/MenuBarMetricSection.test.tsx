@@ -50,11 +50,12 @@ function rateWindow(usedPercent: number) {
 }
 
 describe("MenuBarMetricSection", () => {
-  it("offers Monthly for OpenCode Go before a tertiary window is observed", () => {
+  it("renders the provider-declared tertiary label key before observation", () => {
     const base = provider(false);
     base.id = "opencodego";
     base.displayName = "OpenCode Go";
     base.tertiary = null;
+    base.tertiaryLabelKey = "ProviderMonthly";
     const onChange = vi.fn();
     const { rerender } = render(
       <MenuBarMetricSection
@@ -85,6 +86,24 @@ describe("MenuBarMetricSection", () => {
 
     expect(screen.getByRole("option", { name: "ProviderMonthly" })).toBeInTheDocument();
   });
+
+  it("keeps the generic tertiary label when no provider key is declared", () => {
+    const base = provider(false);
+    base.tertiary = rateWindow(37);
+
+    render(
+      <MenuBarMetricSection
+        provider={base}
+        providerMetrics={{}}
+        disabled={false}
+        t={(key) => key}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("option", { name: "DetailWindowTertiary" })).toBeInTheDocument();
+  });
+
   it("offers extra usage when a provider has extra rate windows", () => {
     const onChange = vi.fn();
     render(

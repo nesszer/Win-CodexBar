@@ -124,6 +124,7 @@ impl OpenRouterProvider {
                 is_primary: false,
                 dashboard_url: Some("https://openrouter.ai/activity"),
                 status_page_url: Some("https://status.openrouter.ai"),
+                tertiary_label_key: None,
             },
         }
     }

@@ -44,6 +44,7 @@ impl AugmentProvider {
                 is_primary: false,
                 dashboard_url: Some("https://app.augmentcode.com/account"),
                 status_page_url: Some("https://status.augmentcode.com"),
+                tertiary_label_key: None,
             },
         }
     }
