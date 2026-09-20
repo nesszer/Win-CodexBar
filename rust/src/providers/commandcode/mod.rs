@@ -112,6 +112,7 @@ impl CommandCodeProvider {
                 is_primary: false,
                 dashboard_url: Some("https://commandcode.ai"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))

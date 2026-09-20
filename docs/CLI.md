@@ -43,7 +43,7 @@ Top-level (from `codexbar --help`):
 | `autostart` | Manage Windows boot auto-start |
 | `account` | Token accounts for providers |
 | `config` | validate / dump / providers / enable / disable / set-api-key / path |
-| `hooks` | List, enable, disable, or test external hooks |
+| `hooks` | List, enable, disable, test, or watch external hooks |
 
 ### Usage
 
@@ -62,9 +62,13 @@ Global-style flags (also on root help): `-p/--provider`, `-f/--format`, `--json`
 ```powershell
 codexbar cost
 codexbar cost -p codex -f json --pretty
+codexbar cost -p codex --remote user@mac-host
+codexbar cost -p codex --format json --summary-only --provider-native-only --days 30
 ```
 
 Claude/Codex costs come from local session logs. Antigravity exposes local **token history only** through `cost`; dollar cost remains unknown rather than becoming a false `$0`. Other providers may differ; do not assume upstream Cursor dashboard cost behavior unless implemented in this tree.
+
+`--remote` adds one separate native Codex report fetched through non-interactive SSH; overlapping local and remote histories are never combined. `--summary-only` emits the versioned, path-free JSON contract used by the remote comparison and accepts only `--provider codex --format json`. Both modes reject session grouping and other provider selections.
 
 Codex local-history scans use a 60-second scanner-side debounce for ordinary disk-cache reads. This is separate from the desktop provider refresh setting. With Adaptive refresh off, **Manual** (`refresh_interval_secs = 0`) disables the recurring desktop refresh timer, but it does not forbid startup/stale-aware reads, explicit refreshes, or pending Codex catch-up scans. Low Power Mode floors recurring automatic refreshes to 30 minutes; explicit/manual work remains immediate.
 
@@ -110,6 +114,24 @@ codexbar config validate
 ```
 
 `enable` / `disable` persist settings. `usage -p <id>` is a one-shot override and does not by itself toggle enabled state the same way.
+
+### Hooks
+
+```powershell
+codexbar hooks list --json
+codexbar hooks test usage_updated --provider codex --json
+codexbar hooks watch --provider codex --json
+```
+
+The opt-in `usage_updated` event is emitted after a successful refresh and
+contains the primary and secondary quota usage, window durations, and reset
+timestamps when available. Failed or superseded refreshes do not emit it.
+The desktop refresh path emits it after publishing a current provider
+snapshot; `hooks watch` emits it directly after `provider.fetch_usage`
+succeeds, without publishing a snapshot. Repeated events for the same
+provider account are limited to one per ten minutes; the private account
+discriminator used for that limit is never sent to the hook payload or
+environment.
 
 ### Sessions
 

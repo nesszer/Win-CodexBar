@@ -238,6 +238,8 @@ fn main() {
             commands::has_openrouter_management_api_key,
             commands::set_openrouter_management_api_key,
             commands::remove_openrouter_management_api_key,
+            commands::get_provider_azure_api_version,
+            commands::set_provider_azure_api_version,
             commands::get_provider_cookie_source_options,
             commands::set_provider_region,
             commands::get_provider_region_options,

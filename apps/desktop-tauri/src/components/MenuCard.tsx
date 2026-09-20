@@ -50,7 +50,11 @@ export interface MenuCardDisplayOptions {
   showResetWhenExhausted?: boolean;
   showPace?: boolean;
   showAsUsed?: boolean;
-  compactMetrics?: boolean;
+  /**
+   * Compact Overview layout: slice to the first two quota rows and omit
+   * supplemental content (wayfinder, cost, charts, extra texts).
+   */
+  compactOverview?: boolean;
   costSummaryDisplayStyle?: CostSummaryDisplayStyle;
 }
 
@@ -142,7 +146,7 @@ export default function MenuCard({
     showResetWhenExhausted = false,
     showPace = true,
     showAsUsed = false,
-    compactMetrics = false,
+    compactOverview = false,
     costSummaryDisplayStyle,
   } = display;
   const { t, language } = useLocale();
@@ -233,7 +237,7 @@ export default function MenuCard({
       resetFormatMode: extra.id === "reset-credits" ? "expires" : "reset",
     });
   }
-  const visibleMetrics = compactMetrics ? metrics.slice(0, 2) : metrics;
+  const visibleMetrics = compactOverview ? metrics.slice(0, 2) : metrics;
 
   const presence = describeCard(
     provider,
@@ -241,6 +245,7 @@ export default function MenuCard({
     visibleMetrics,
     costSummaryDisplayStyle,
     showPace,
+    compactOverview,
   );
   const { hasDetails } = presence;
   const cardClassName = [
@@ -312,6 +317,7 @@ export default function MenuCard({
             showResetWhenExhausted,
             showPace,
             showAsUsed,
+            compactOverview,
             costSummaryDisplayStyle,
           }}
           metrics={visibleMetrics}

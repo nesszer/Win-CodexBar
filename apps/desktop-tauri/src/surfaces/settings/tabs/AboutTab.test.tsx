@@ -70,6 +70,7 @@ const settings: SettingsSnapshot = {
   resetTimeRelative: true,
   showResetWhenExhausted: false,
   menuBarDisplayMode: "compact",
+  overviewLayout: "detailed",
   hidePersonalInfo: false,
   autoDownloadUpdates: false,
   installUpdatesOnQuit: false,

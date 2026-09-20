@@ -160,6 +160,44 @@ pub fn remove_openrouter_management_api_key() -> Result<(), String> {
     settings.save().map_err(|error| error.to_string())
 }
 
+// ── Azure OpenAI API version ─────────────────────────────────────────
+
+fn azure_openai_provider(provider_id: &str) -> Result<codexbar::core::ProviderId, String> {
+    let id = parse_provider_arg(provider_id)?;
+    if id != codexbar::core::ProviderId::AzureOpenAI {
+        return Err(format!(
+            "Provider '{provider_id}' does not expose an Azure OpenAI API-version picker"
+        ));
+    }
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn get_provider_azure_api_version(provider_id: String) -> Result<Option<String>, String> {
+    let id = azure_openai_provider(&provider_id)?;
+    Ok(ApiKeys::load()
+        .api_version(id.cli_name())
+        .map(ToOwned::to_owned))
+}
+
+#[tauri::command]
+pub fn set_provider_azure_api_version(
+    provider_id: String,
+    api_version: String,
+) -> Result<(), String> {
+    let id = azure_openai_provider(&provider_id)?;
+    let value = api_version.trim();
+    if value.len() > 128 || value.chars().any(char::is_control) {
+        return Err("Azure OpenAI API version is invalid".to_string());
+    }
+    let mut keys = ApiKeys::load();
+    keys.set_api_version(
+        id.cli_name(),
+        (!value.is_empty()).then_some(value.to_string()),
+    );
+    keys.save().map_err(|error| error.to_string())
+}
+
 // ── Per-provider cookie source + region ───────────────────────────────
 
 /// Map a CLI-name string to a `ProviderId` whose cookie source is exposed in

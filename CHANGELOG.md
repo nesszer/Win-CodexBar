@@ -6,6 +6,9 @@
 - Grok: Settings and tray **Add account** flow matching Codex/Claude — isolated `grok login --oauth`, save current CLI login, switch, and remove without logging out the active session.
 - Replicate: cookie-authenticated monthly spend and optional prepaid credit balance from the billing page, with user and organization account isolation.
 
+### Fixed
+- Claude: when Hide Personal Info is enabled, keep saved account rows distinguishable with stable localized `Account N` labels and matching redacted tooltips.
+
 ---
 
 ## [Windows] 0.60.3 - 2026-09-15
