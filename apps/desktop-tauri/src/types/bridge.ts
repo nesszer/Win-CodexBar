@@ -386,6 +386,8 @@ export interface UsageSpendRow {
 export interface UsageSpendSummary {
   rows: UsageSpendRow[];
   contract: SpendContract;
+  reportingDay: string;
+  dashboardTimezone: string;
 }
 
 export type CostProvenance = "listPriceEstimate" | "vendorMetered" | "mixed" | "unknown";
@@ -896,6 +898,8 @@ export interface ProviderDetail {
   weekly: RateWindowSnapshot | null;
   modelSpecific: RateWindowSnapshot | null;
   tertiary: RateWindowSnapshot | null;
+  /** Locale key for the tertiary metric lane when it carries a semantic label (upstream F5). */
+  tertiaryLabelKey?: string | null;
   extraRateWindows: Array<{
     id: string;
     title: string;

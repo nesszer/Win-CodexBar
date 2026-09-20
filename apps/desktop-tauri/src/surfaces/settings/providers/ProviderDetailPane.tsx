@@ -47,6 +47,7 @@ import { ProviderIssueNotice } from "./sections/ProviderIssueNotice";
 import { CredentialStorageSection } from "./sections/CredentialStorageSection";
 import { CredentialsDispatcher } from "./sections/CredentialsDispatcher";
 import { WayfinderGatewaySection } from "./sections/WayfinderGatewaySection";
+import { AzureApiVersionSection } from "./sections/AzureApiVersionSection";
 
 interface Props {
   providerId: string | null;
@@ -57,6 +58,7 @@ interface Props {
   /** Per-provider accent color overrides (CLI name → hex color). */
   providerAccentColors: SettingsSnapshot["providerAccentColors"];
   wayfinderGatewayUrl: string;
+  hidePersonalInfo: boolean;
   settingsDisabled: boolean;
   onSettingsChange: (patch: SettingsUpdate) => void;
 }
@@ -76,6 +78,7 @@ export function ProviderDetailPane({
   copilotSeatCreditEntitlement,
   providerAccentColors,
   wayfinderGatewayUrl,
+  hidePersonalInfo,
   settingsDisabled,
   onSettingsChange,
 }: Props) {
@@ -272,7 +275,9 @@ export function ProviderDetailPane({
     <div className="provider-detail">
       <IdentitySection provider={detail} subtitle={subtitle} t={t} />
 
-      {detail.id === "codex" && <CodexAccountsSection t={t} />}
+      {detail.id === "codex" && (
+        <CodexAccountsSection t={t} hidePersonalInfo={hidePersonalInfo} />
+      )}
       {detail.id === "claude" && <ClaudeAccountsSection t={t} language={language} />}
       {detail.id === "grok" && <GrokAccountsSection t={t} />}
 
@@ -351,6 +356,13 @@ export function ProviderDetailPane({
         t={t}
         onChanged={reload}
       />
+      {detail.id === "azureopenai" && (
+        <AzureApiVersionSection
+          providerId={detail.id}
+          disabled={settingsDisabled}
+          onChanged={reload}
+        />
+      )}
       <CredentialsDispatcher providerId={detail.id} t={t} />
       {detail.id === "codex" && <CodexUsageOptions t={t} />}
       {detail.id === "copilot" && (

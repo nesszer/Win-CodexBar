@@ -141,6 +141,7 @@ export default function ProvidersTab({
         copilotSeatCreditEntitlement={settings.copilotSeatCreditEntitlement}
         providerAccentColors={settings.providerAccentColors}
         wayfinderGatewayUrl={settings.wayfinderGatewayUrl ?? "http://127.0.0.1:8088"}
+        hidePersonalInfo={settings.hidePersonalInfo}
         settingsDisabled={saving}
         onSettingsChange={set}
       />

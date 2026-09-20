@@ -84,6 +84,59 @@ describe("CodexAccountsSection", () => {
     expect(screen.getAllByText("CodexAccountsReauthenticateButton")).toHaveLength(1);
   });
 
+  it("redacts the ambient row while preserving the managed row when privacy is on", async () => {
+    const ambient = account("ambient", {
+      source: "ambient",
+      nickname: "Private System Name",
+      emailHint: "system@example.com",
+    });
+    const managed = account("managed", {
+      nickname: "Work",
+      emailHint: "work@example.com",
+    });
+    tauriMocks.getCodexAccountsState.mockResolvedValue({
+      accounts: [ambient, managed],
+      accountOrdinals: { ambient: 1, managed: 2 },
+      displayNames: {
+        ambient: "system@example.com — Private System Name",
+        managed: "work@example.com — Work",
+      },
+      snapshots: {},
+    } as CodexAccountsStateBridge);
+
+    render(<CodexAccountsSection t={t} hidePersonalInfo />);
+    await screen.findByText("Account 1");
+    expect(screen.queryByText(/system@example\.com|Private System Name/)).toBeNull();
+    expect(screen.getByText("work@example.com — Work")).toBeDefined();
+    expect(screen.getByText("CodexAccountsSourceAmbient")).toBeDefined();
+    expect(screen.getByText("CodexAccountsSourceManaged")).toBeDefined();
+  });
+
+  it("preserves both current display names when privacy is off", async () => {
+    const ambient = account("ambient", {
+      source: "ambient",
+      nickname: "Private System Name",
+      emailHint: "system@example.com",
+    });
+    const managed = account("managed", {
+      nickname: "Work",
+      emailHint: "work@example.com",
+    });
+    tauriMocks.getCodexAccountsState.mockResolvedValue({
+      accounts: [ambient, managed],
+      accountOrdinals: { ambient: 1, managed: 2 },
+      displayNames: {
+        ambient: "system@example.com — Private System Name",
+        managed: "work@example.com — Work",
+      },
+      snapshots: {},
+    } as CodexAccountsStateBridge);
+
+    render(<CodexAccountsSection t={t} hidePersonalInfo={false} />);
+    await screen.findByText("system@example.com — Private System Name");
+    expect(screen.getByText("work@example.com — Work")).toBeDefined();
+  });
+
   it("shows the usage pill and blocked state from a snapshot", async () => {
     tauriMocks.getCodexAccountsState.mockResolvedValue(
       {

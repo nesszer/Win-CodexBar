@@ -285,6 +285,28 @@ impl ClaudeMessage {
     }
 }
 
+/// Claude Code proxies can emit a cache-unaware `message_start` estimate
+/// before the final assistant response. It has a null stop reason, input
+/// tokens, no output, and no cache breakdown; pricing that row would count a
+/// preliminary estimate alongside the eventual final usage.
+fn is_preliminary_claude_usage(event: &ClaudeEvent) -> bool {
+    if event.event_type.as_deref() != Some("assistant") {
+        return false;
+    }
+    let Some(message) = event.message.as_ref() else {
+        return false;
+    };
+    let Some(usage) = message.usage.as_ref() else {
+        return false;
+    };
+
+    message.extra.get("stop_reason").is_some_and(Value::is_null)
+        && usage.input_tokens.unwrap_or(0) > 0
+        && usage.output_tokens.unwrap_or(0) == 0
+        && usage.cache_read_input_tokens.is_none()
+        && usage.cache_creation_input_tokens.is_none()
+}
+
 #[derive(Debug, Deserialize)]
 struct ClaudeUsage {
     input_tokens: Option<u64>,
@@ -413,6 +435,29 @@ struct ClaudeUsageRecord {
     cost: f64,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ClaudeFileScanResult {
+    counted: usize,
+    malformed_lines: u32,
+    incomplete_requests: u32,
+    read_failures: u32,
+}
+
+impl ClaudeFileScanResult {
+    fn absorb(&mut self, other: Self) {
+        self.counted += other.counted;
+        self.malformed_lines = self.malformed_lines.saturating_add(other.malformed_lines);
+        self.incomplete_requests = self
+            .incomplete_requests
+            .saturating_add(other.incomplete_requests);
+        self.read_failures = self.read_failures.saturating_add(other.read_failures);
+    }
+
+    fn is_complete(self) -> bool {
+        self.malformed_lines == 0 && self.incomplete_requests == 0 && self.read_failures == 0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CostScanner {
     days: u32,
@@ -469,11 +514,12 @@ impl CostScanner {
 
         // Walk through projects directory, de-duplicating usage records
         // that appear across multiple files.
+        let mut claude_scan = ClaudeFileScanResult::default();
         if projects_dir.exists() {
             let mut seen = HashSet::new();
             let mut pricing = ClaudeScanPricingResolver::default();
             let mut handle_file = |path: &Path| {
-                let counted = for_each_claude_usage_record_with_pricing(
+                let file_result = scan_claude_file_with_pricing(
                     path,
                     &cutoff,
                     &mut seen,
@@ -483,9 +529,10 @@ impl CostScanner {
                         add_claude_record_to_summary(&mut summary, record);
                     },
                 );
-                if counted > 0 {
+                if file_result.counted > 0 {
                     summary.sessions_count += 1;
                 }
+                claude_scan.absorb(file_result);
             };
             self.walk_claude_files(&projects_dir, &cutoff, cancel, &mut handle_file);
         }
@@ -498,6 +545,18 @@ impl CostScanner {
             self.days,
             cancel,
             &mut seen_pi,
+        );
+
+        // Claude has no persisted provider cost-report cache in the Windows
+        // port. Rebuilding from the transcript inventory on every scan makes
+        // pricing-semantics changes naturally reprice older rows. A malformed
+        // line or preliminary proxy estimate keeps coverage unknown rather
+        // than turning a partial zero into a known zero.
+        finalize_claude_summary(
+            &mut summary,
+            projects_dir.exists(),
+            claude_scan,
+            is_cancelled(cancel),
         );
 
         summary
@@ -602,7 +661,7 @@ where
     F: FnMut(&ClaudeUsageRecord),
 {
     let mut pricing = ClaudeScanPricingResolver::default();
-    for_each_claude_usage_record_with_pricing(path, cutoff, seen, cancel, &mut pricing, on_record)
+    scan_claude_file_with_pricing(path, cutoff, seen, cancel, &mut pricing, on_record).counted
 }
 
 fn for_each_claude_usage_record_with_pricing<F>(
@@ -611,61 +670,122 @@ fn for_each_claude_usage_record_with_pricing<F>(
     seen: &mut HashSet<ClaudeUsageDedupKey>,
     cancel: Option<&AtomicBool>,
     pricing: &mut ClaudeScanPricingResolver,
-    mut on_record: F,
+    on_record: F,
 ) -> usize
 where
     F: FnMut(&ClaudeUsageRecord),
 {
+    scan_claude_file_with_pricing(path, cutoff, seen, cancel, pricing, on_record).counted
+}
+
+fn scan_claude_file_with_pricing<F>(
+    path: &Path,
+    cutoff: &DateTime<Utc>,
+    seen: &mut HashSet<ClaudeUsageDedupKey>,
+    cancel: Option<&AtomicBool>,
+    pricing: &mut ClaudeScanPricingResolver,
+    mut on_record: F,
+) -> ClaudeFileScanResult
+where
+    F: FnMut(&ClaudeUsageRecord),
+{
     let Ok(file) = File::open(path) else {
-        return 0;
+        return ClaudeFileScanResult {
+            read_failures: 1,
+            ..ClaudeFileScanResult::default()
+        };
     };
 
-    let mut counted = 0;
+    let mut result = ClaudeFileScanResult::default();
     // Use read_until so a final incomplete line (no trailing newline) is still
     // processed when it is valid UTF-8 JSON, and so a single bad line does not
     // stop the walk the way `lines().map_while(Result::ok)` would.
-    for_each_jsonl_text_line(BufReader::new(file), |line| {
+    let line_result = for_each_jsonl_text_line(BufReader::new(file), |line| {
         if is_cancelled(cancel) {
             return false;
         }
-        if let Ok(event) = serde_json::from_str::<ClaudeEvent>(line)
-            && !event.is_vertex_ai_usage_entry()
-            && let Some(record) = claude_usage_record_from_event_with_pricing(&event, pricing)
+        if line.trim().is_empty() {
+            return true;
+        }
+        let Ok(event) = serde_json::from_str::<ClaudeEvent>(line) else {
+            result.malformed_lines = result.malformed_lines.saturating_add(1);
+            return true;
+        };
+        if event.is_vertex_ai_usage_entry() {
+            return true;
+        }
+        if is_preliminary_claude_usage(&event) {
+            result.incomplete_requests = result.incomplete_requests.saturating_add(1);
+            return true;
+        }
+        if let Some(record) = claude_usage_record_from_event_with_pricing(&event, pricing)
             && should_count_claude_record(&record, cutoff, seen)
         {
-            counted += 1;
+            result.counted += 1;
             on_record(&record);
         }
         true
     });
-    counted
+    result.malformed_lines = result
+        .malformed_lines
+        .saturating_add(line_result.malformed_lines);
+    result.read_failures = line_result.read_failures;
+    result
 }
 
 /// Walk JSONL text lines from `reader`, including a final incomplete line at EOF.
 /// Continues past invalid UTF-8 segments. `on_line` returns `false` to stop early.
-fn for_each_jsonl_text_line<R, F>(mut reader: R, mut on_line: F)
+fn for_each_jsonl_text_line<R, F>(mut reader: R, mut on_line: F) -> ClaudeJsonlLineResult
 where
     R: BufRead,
     F: FnMut(&str) -> bool,
 {
+    let mut result = ClaudeJsonlLineResult::default();
     let mut buf = Vec::new();
     loop {
         buf.clear();
         match reader.read_until(b'\n', &mut buf) {
             Ok(0) => break,
             Ok(_) => {}
-            Err(_) => break,
+            Err(_) => {
+                result.read_failures = result.read_failures.saturating_add(1);
+                break;
+            }
         }
         while matches!(buf.last(), Some(b'\n' | b'\r')) {
             buf.pop();
         }
         let Ok(line) = std::str::from_utf8(&buf) else {
+            result.malformed_lines = result.malformed_lines.saturating_add(1);
             continue;
         };
         if !on_line(line) {
             break;
         }
     }
+    result
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ClaudeJsonlLineResult {
+    malformed_lines: u32,
+    read_failures: u32,
+}
+
+fn finalize_claude_summary(
+    summary: &mut CostSummary,
+    projects_dir_exists: bool,
+    scan_result: ClaudeFileScanResult,
+    cancelled: bool,
+) {
+    let complete = projects_dir_exists && !cancelled && scan_result.is_complete();
+    summary.history_coverage_established = complete;
+    summary.known_zero = complete
+        && summary.sessions_count == 0
+        && summary.input_tokens == 0
+        && summary.output_tokens == 0
+        && summary.cached_tokens == 0
+        && summary.total_cost_usd == 0.0;
 }
 
 #[cfg(test)]
@@ -678,7 +798,7 @@ fn claude_usage_record_from_event_with_pricing(
     event: &ClaudeEvent,
     pricing: &mut ClaudeScanPricingResolver,
 ) -> Option<ClaudeUsageRecord> {
-    if event.event_type.as_deref() != Some("assistant") {
+    if event.event_type.as_deref() != Some("assistant") || is_preliminary_claude_usage(event) {
         return None;
     }
 
@@ -793,7 +913,10 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, Option<
     for days_ago in 0..days {
         let date = today - Duration::days(days_ago as i64);
         let date_str = date.format("%Y-%m-%d").to_string();
-        daily_costs.insert(date_str, (provider != "codex").then_some(0.0));
+        daily_costs.insert(
+            date_str,
+            (provider != "codex" && provider != "claude").then_some(0.0),
+        );
     }
 
     match provider {
@@ -840,8 +963,9 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, Option<
                 let cutoff = Utc::now() - Duration::days(days as i64);
                 let mut seen = HashSet::new();
                 let mut pricing = ClaudeScanPricingResolver::default();
+                let mut claude_scan = ClaudeFileScanResult::default();
                 let mut handle_file = |path: &Path| {
-                    for_each_claude_usage_record_with_pricing(
+                    let file_result = scan_claude_file_with_pricing(
                         path,
                         &cutoff,
                         &mut seen,
@@ -851,8 +975,16 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, Option<
                             add_claude_record_to_daily_costs(&mut daily_costs, record);
                         },
                     );
+                    claude_scan.absorb(file_result);
                 };
                 scanner.walk_claude_files(&projects_dir, &cutoff, None, &mut handle_file);
+                if claude_scan.is_complete() {
+                    for slot in daily_costs.values_mut() {
+                        if slot.is_none() {
+                            *slot = Some(0.0);
+                        }
+                    }
+                }
             }
         }
         "opencodego" => {

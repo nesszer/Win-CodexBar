@@ -550,6 +550,10 @@ pub struct ProviderMetadata {
     pub is_primary: bool,
     pub dashboard_url: Option<&'static str>,
     pub status_page_url: Option<&'static str>,
+    /// Locale key shown for the provider's tertiary metric lane in settings
+    /// pickers when the lane carries a semantic identity beyond "Tertiary"
+    /// (upstream F5). `None` renders the generic tertiary label.
+    pub tertiary_label_key: Option<&'static str>,
 }
 
 /// Errors that can occur when fetching provider data

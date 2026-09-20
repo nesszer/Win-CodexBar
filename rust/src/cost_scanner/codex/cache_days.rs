@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::{CodexSourceUsageRow, CodexUsageRecord, CostUsagePricing};
 
 pub(super) fn rebuild_cache_days(cache: &mut CostUsageCache) {
     cache.days.clear();
@@ -56,4 +57,39 @@ pub(super) fn rebuild_cache_days(cache: &mut CostUsageCache) {
             }
         }
     }
+}
+
+pub(super) fn days_from_codex_source_rows(
+    rows: &[CodexSourceUsageRow],
+) -> HashMap<String, HashMap<String, Vec<i64>>> {
+    let mut days: HashMap<String, HashMap<String, Vec<i64>>> = HashMap::new();
+    for row in rows {
+        let model = match row.pricing.pricing_model.as_deref() {
+            Some(model) if !model.is_empty() => {
+                if row.pricing.pricing_mode.as_deref() == Some("priority")
+                    && !model.ends_with("-priority")
+                {
+                    format!("{model}-priority")
+                } else {
+                    model.to_string()
+                }
+            }
+            _ => CostUsagePricing::CODEX_UNATTRIBUTED_MODEL.to_string(),
+        };
+        let record = CodexUsageRecord {
+            day_key: row.day_key.clone(),
+            model,
+            input: row.input,
+            cached: row.cached,
+            output: row.output,
+            reasoning: row.reasoning,
+        };
+        let packed = days
+            .entry(record.day_key.clone())
+            .or_default()
+            .entry(record.model.clone())
+            .or_default();
+        JsonlScanner::merge_codex_record_into_packed(packed, &record);
+    }
+    days
 }
