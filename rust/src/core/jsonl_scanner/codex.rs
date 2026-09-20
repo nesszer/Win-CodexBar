@@ -2,6 +2,7 @@ use super::*;
 
 mod helpers;
 mod parser;
+pub(crate) mod source_rows;
 
 use helpers::{
     BoundedJsonlLine, CODEX_JSONL_MAX_LINE_BYTES, nonempty_json_string, parse_rfc3339_timestamp,
@@ -569,7 +570,7 @@ impl JsonlScanner {
                 parsed_bytes = committed_bytes;
                 break;
             }
-            parser.process_line(line, range);
+            parser.process_line_with_source_offset(line, range, parsed_bytes);
             committed_bytes = parsed_bytes;
         }
 

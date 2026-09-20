@@ -36,6 +36,9 @@ menu-bar layout.
 - Sharing: retain recognized gateway model families and reporting dates while preserving provider attribution.
 - CLI: show provider-supplied history and totals with correct periods, currencies, and known zero values.
 
+### Fixed
+- Claude: when Hide Personal Info is enabled, keep saved account rows distinguishable with stable localized `Account N` labels and matching redacted tooltips.
+
 ---
 
 ## [Windows] 0.60.3 - 2026-09-15

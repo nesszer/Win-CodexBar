@@ -1,5 +1,4 @@
 use super::*;
-use crate::core::CodexSessionLineage;
 use chrono::TimeZone;
 use std::io::Write;
 
@@ -456,7 +455,7 @@ fn test_fast_codex_parser_reads_last_usage_from_payload() {
     );
 
     assert_eq!(parser.records.len(), 1);
-    let record = &parser.records[0];
+    let (record, _) = &parser.records[0];
     assert_eq!(record.day_key, "2026-05-31");
     assert_eq!(record.model, "gpt-5.5");
     assert_eq!((record.input, record.cached, record.output), (120, 40, 9));
@@ -485,7 +484,7 @@ fn test_fast_codex_parser_diffs_total_usage() {
         parser
             .records
             .iter()
-            .map(|record| (record.input, record.cached, record.output))
+            .map(|(record, _)| (record.input, record.cached, record.output))
             .collect::<Vec<_>>(),
         vec![(1_000, 200, 50), (250, 60, 40)]
     );
@@ -509,7 +508,7 @@ fn test_fast_codex_parser_reads_legacy_event_msg_shape() {
     );
 
     assert_eq!(parser.records.len(), 1);
-    let record = &parser.records[0];
+    let (record, _) = &parser.records[0];
     assert_eq!(record.model, "gpt-5");
     assert_eq!((record.input, record.cached, record.output), (20, 5, 3));
 }
@@ -536,7 +535,7 @@ fn test_parse_codex_file_uses_fast_parser_for_current_logs() {
 
     assert_eq!(parsed.last_model.as_deref(), Some("gpt-5.5"));
     assert_eq!(parsed.records.len(), 1);
-    let record = &parsed.records[0];
+    let (record, _) = &parsed.records[0];
     assert_eq!(record.day_key, "2026-05-31");
     assert_eq!(record.model, "gpt-5.5");
     assert_eq!((record.input, record.cached, record.output), (45, 12, 8));
@@ -562,7 +561,7 @@ fn codex_append_timestamp_state_is_output_equivalent_and_boundary_only() {
         JsonlScanner::parse_codex_file(file.path(), &range, 0, None, None).expect("parse prefix");
     assert_eq!(prefix.token_timestamps_monotonic, Some(true));
     assert_eq!(prefix.token_timestamp_comparisons, 1);
-    let prefix_input: i64 = prefix.records.iter().map(|record| record.input).sum();
+    let prefix_input: i64 = prefix.records.iter().map(|(record, _)| record.input).sum();
 
     writeln!(
         file,
@@ -589,8 +588,12 @@ fn codex_append_timestamp_state_is_output_equivalent_and_boundary_only() {
 
     let full = JsonlScanner::parse_codex_file(file.path(), &range, 0, None, None)
         .expect("parse complete file");
-    let full_input: i64 = full.records.iter().map(|record| record.input).sum();
-    let appended_input: i64 = appended.records.iter().map(|record| record.input).sum();
+    let full_input: i64 = full.records.iter().map(|(record, _)| record.input).sum();
+    let appended_input: i64 = appended
+        .records
+        .iter()
+        .map(|(record, _)| record.input)
+        .sum();
     assert_eq!(prefix_input + appended_input, full_input);
     assert_eq!(full_input, 30);
 }
@@ -613,7 +616,7 @@ fn codex_parse_publishes_only_the_committed_prefix_before_an_incomplete_tail() {
     let partial = JsonlScanner::parse_codex_file(file.path(), &range, 0, None, None)
         .expect("parse committed prefix");
     assert_eq!(partial.records.len(), 1);
-    assert_eq!(partial.records[0].input, 10);
+    assert_eq!(partial.records[0].0.input, 10);
     assert_eq!(partial.parsed_bytes, committed_bytes);
     assert_eq!(partial.scan_target_size, committed_bytes);
     assert!(partial.is_complete, "the logical prefix is complete");
@@ -631,7 +634,7 @@ fn codex_parse_publishes_only_the_committed_prefix_before_an_incomplete_tail() {
     )
     .expect("resume completed tail");
     assert_eq!(resumed.records.len(), 1);
-    assert_eq!(resumed.records[0].input, 10);
+    assert_eq!(resumed.records[0].0.input, 10);
     assert_eq!(
         resumed.parsed_bytes,
         i64::try_from(std::fs::metadata(file.path()).unwrap().len())
@@ -668,14 +671,14 @@ fn codex_parser_discards_oversized_line_and_recovers_next_record() {
 
     assert_eq!(parsed.records.len(), 1);
     assert_eq!(
-        parsed.records[0].model,
+        parsed.records[0].0.model,
         CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
     );
     assert_eq!(
         (
-            parsed.records[0].input,
-            parsed.records[0].cached,
-            parsed.records[0].output
+            parsed.records[0].0.input,
+            parsed.records[0].0.cached,
+            parsed.records[0].0.output
         ),
         (9, 2, 1)
     );
@@ -707,9 +710,9 @@ fn codex_parser_validates_a_record_at_the_line_limit() {
     assert_eq!(parsed.records.len(), 1);
     assert_eq!(
         (
-            parsed.records[0].input,
-            parsed.records[0].cached,
-            parsed.records[0].output
+            parsed.records[0].0.input,
+            parsed.records[0].0.cached,
+            parsed.records[0].0.output
         ),
         (9, 2, 1)
     );
@@ -741,7 +744,7 @@ fn codex_parser_discards_a_line_at_limit_plus_one_and_keeps_following_record() {
     .expect("parse");
 
     assert_eq!(parsed.records.len(), 1);
-    assert_eq!(parsed.records[0].input, 9);
+    assert_eq!(parsed.records[0].0.input, 9);
 }
 
 #[test]
@@ -764,7 +767,7 @@ fn codex_parser_discards_huge_malformed_lines_before_and_after_valid_records() {
     .expect("parse");
 
     assert_eq!(parsed.records.len(), 1);
-    assert_eq!(parsed.records[0].input, 9);
+    assert_eq!(parsed.records[0].0.input, 9);
 }
 
 #[test]
@@ -808,7 +811,7 @@ fn codex_turn_context_wins_over_conflicting_event_model() {
         &range,
     );
 
-    assert_eq!(parser.records[0].model, "gpt-5.5");
+    assert_eq!(parser.records[0].0.model, "gpt-5.5");
 }
 
 #[test]
@@ -826,7 +829,7 @@ fn codex_blank_context_clears_stale_model_and_emits_unattributed_usage() {
     );
 
     assert_eq!(
-        parser.records[0].model,
+        parser.records[0].0.model,
         CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
     );
 }
@@ -843,7 +846,7 @@ fn codex_model_less_token_event_uses_unpriced_sentinel() {
 
     assert_eq!(parser.records.len(), 1);
     assert_eq!(
-        parser.records[0].model,
+        parser.records[0].0.model,
         CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
     );
 }
@@ -890,12 +893,12 @@ fn process_line_accepts_type_less_bare_usage_row() {
     );
 
     assert_eq!(parser.records.len(), 1);
-    assert_eq!(parser.records[0].model, "gpt-5.6-sol");
+    assert_eq!(parser.records[0].0.model, "gpt-5.6-sol");
     assert_eq!(
         (
-            parser.records[0].input,
-            parser.records[0].cached,
-            parser.records[0].output
+            parser.records[0].0.input,
+            parser.records[0].0.cached,
+            parser.records[0].0.output
         ),
         (120, 55, 30)
     );
@@ -917,12 +920,12 @@ fn timestamp_less_bare_usage_uses_last_accepted_usage_day() {
     );
 
     assert_eq!(parser.records.len(), 2);
-    assert_eq!(parser.records[1].day_key, "2026-05-31");
+    assert_eq!(parser.records[1].0.day_key, "2026-05-31");
     assert_eq!(
         (
-            parser.records[1].input,
-            parser.records[1].cached,
-            parser.records[1].output
+            parser.records[1].0.input,
+            parser.records[1].0.cached,
+            parser.records[1].0.output
         ),
         (20, 3, 4)
     );
@@ -947,8 +950,8 @@ fn interleaved_lineage_totals_never_exceed_high_watermark_growth() {
         &range,
     );
 
-    let total_input: i64 = parser.records.iter().map(|r| r.input).sum();
-    let total_output: i64 = parser.records.iter().map(|r| r.output).sum();
+    let total_input: i64 = parser.records.iter().map(|(r, _)| r.input).sum();
+    let total_output: i64 = parser.records.iter().map(|(r, _)| r.output).sum();
     assert!(
         total_input <= 101,
         "input inflated to {total_input}, expected <= 101"
@@ -977,8 +980,8 @@ fn interleaved_lineage_mid_range_climb_below_watermark_does_not_readd() {
         );
     }
 
-    let total_input: i64 = parser.records.iter().map(|r| r.input).sum();
-    let total_output: i64 = parser.records.iter().map(|r| r.output).sum();
+    let total_input: i64 = parser.records.iter().map(|(r, _)| r.input).sum();
+    let total_output: i64 = parser.records.iter().map(|(r, _)| r.output).sum();
     assert!(
         total_input <= 101,
         "mid-range climb re-added input to {total_input}, expected <= 101"
@@ -1203,6 +1206,66 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
     assert_eq!(report.sessions_count, 1);
     assert!(!report.partial);
     assert!(report.updated_at.is_some());
+}
+
+#[test]
+fn ranged_catch_up_snapshot_excludes_historical_days_and_keeps_measurement_time() {
+    let usage = |day: &str| CostUsageFileUsage {
+        mtime_unix_ms: 0,
+        size: 100,
+        codex_file_identity: None,
+        days: HashMap::from([(
+            day.to_string(),
+            HashMap::from([("gpt-5.6-sol".to_string(), vec![100, 25, 10, 4])]),
+        )]),
+        parsed_bytes: Some(100),
+        codex_scan_target_size: None,
+        last_model: Some("gpt-5.6-sol".to_string()),
+        last_totals: None,
+        codex_token_timestamps_monotonic: Some(true),
+        codex_last_token_timestamp: None,
+        codex_session_id: None,
+        codex_forked_from_id: None,
+        codex_lineage: CodexSessionLineage::Root,
+        codex_fork_timestamp: None,
+        codex_unresolved_fork_parent: false,
+    };
+    let mut cache = CostUsageCache {
+        last_scan_unix_ms: 1,
+        ..CostUsageCache::default()
+    };
+    cache
+        .files
+        .insert("current.jsonl".to_string(), usage("2026-09-19"));
+    cache
+        .files
+        .insert("historical.jsonl".to_string(), usage("2026-09-01"));
+    cache.days.insert(
+        "2026-09-19".to_string(),
+        HashMap::from([("gpt-5.6-sol".to_string(), vec![100, 25, 10, 4])]),
+    );
+    cache.days.insert(
+        "2026-09-01".to_string(),
+        HashMap::from([("gpt-5.6-sol".to_string(), vec![900, 225, 90, 36])]),
+    );
+
+    let range = CostUsageDayRange {
+        since_key: "2026-09-19".to_string(),
+        until_key: "2026-09-19".to_string(),
+        scan_since_key: "2026-09-18".to_string(),
+        scan_until_key: "2026-09-20".to_string(),
+    };
+    let report = JsonlScanner::cached_cost_report_for_range(&cache, &range);
+
+    assert_eq!(report.input_tokens, 100);
+    assert_eq!(report.cached_tokens, 25);
+    assert_eq!(report.output_tokens, 10);
+    assert_eq!(report.reasoning_tokens, Some(4));
+    assert_eq!(report.sessions_count, 1);
+    assert_eq!(
+        report.updated_at,
+        DateTime::<Utc>::from_timestamp_millis(1).map(|timestamp| timestamp.to_rfc3339())
+    );
 }
 
 #[test]

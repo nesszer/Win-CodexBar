@@ -159,6 +159,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     resetTimeRelative: true,
     showResetWhenExhausted: false,
     menuBarDisplayMode: "detailed",
+    overviewLayout: "detailed",
     hidePersonalInfo: false,
     updateChannel: "stable",
     autoDownloadUpdates: false,

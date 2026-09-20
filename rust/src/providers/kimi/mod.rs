@@ -37,7 +37,12 @@ const KIMI_COOKIE_DOMAINS: [&str; 2] = ["www.kimi.com", "kimi.moonshot.cn"];
 
 #[derive(Debug, Deserialize)]
 struct KimiCodeApiUsageResponse {
-    usage: KimiUsageDetail,
+    /// Legacy Code API usage payload. Newer responses expose quota pools
+    /// under `usages`; keep this optional so a pool-only response is usable.
+    #[serde(default)]
+    usage: Option<KimiUsageDetail>,
+    #[serde(default)]
+    usages: Option<KimiCodeUsagePools>,
     #[serde(default)]
     limits: Option<Vec<KimiRateLimit>>,
     /// Optional membership metadata is deliberately kept as JSON. The API has
@@ -49,6 +54,40 @@ struct KimiCodeApiUsageResponse {
     version: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Deserialize)]
+struct KimiCodeUsagePools {
+    #[serde(default, rename = "limit_5h")]
+    session: Option<KimiRatioPool>,
+    #[serde(default, rename = "limit_7d")]
+    weekly: Option<KimiRatioPool>,
+    #[serde(default, rename = "limit_month_total")]
+    monthly: Option<KimiRatioPool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct KimiRatioPool {
+    #[serde(default, rename = "used_ratio", alias = "usedRatio")]
+    used_ratio: Option<serde_json::Value>,
+    #[serde(default, rename = "reset_time", alias = "resetTime")]
+    reset_time: Option<serde_json::Value>,
+}
+
+impl KimiRatioPool {
+    /// Explicit zero is a known quota value; missing or malformed ratios stay
+    /// unknown rather than being rendered as 0% used.
+    fn rate_window(&self, window_minutes: u32) -> Option<RateWindow> {
+        let ratio = value_as_f64(self.used_ratio.as_ref())?;
+        if !ratio.is_finite() || ratio < 0.0 {
+            return None;
+        }
+        Some(RateWindow::with_details(
+            ratio.min(1.0) * 100.0,
+            Some(window_minutes),
+            self.reset_time.as_ref().and_then(parse_kimi_timestamp),
+            None,
+        ))
+    }
+}
 impl KimiCodeApiUsageResponse {
     fn plan_name(&self) -> Option<String> {
         let level = self
@@ -206,6 +245,7 @@ impl KimiProvider {
                 is_primary: false,
                 dashboard_url: Some("https://kimi.moonshot.cn"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

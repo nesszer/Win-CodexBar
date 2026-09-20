@@ -304,6 +304,7 @@ impl InfiniProvider {
                 is_primary: false,
                 dashboard_url: Some("https://cloud.infini-ai.com"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
             client: InfiniClient::new(api_key),
         }

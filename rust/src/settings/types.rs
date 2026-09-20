@@ -359,7 +359,7 @@ impl CostSummaryDisplayStyle {
 /// empty objects (or skip serialization entirely). Defaults are applied via
 /// the accessor methods on [`Settings`] (e.g. cookie source defaults to
 /// `"auto"`, region defaults are provider-specific).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProviderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -410,4 +410,8 @@ pub struct ProviderConfig {
     /// means the shipped brand color is used (#2972).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accent_color: Option<String>,
+    /// Optional user-entered Copilot seat AI-credit allowance. GitHub does not
+    /// publish this denominator; it is only used when a valid value is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seat_credit_entitlement: Option<f64>,
 }

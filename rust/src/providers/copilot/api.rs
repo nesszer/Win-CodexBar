@@ -17,6 +17,12 @@ const DEFAULT_GITHUB_HOST: &str = "github.com";
 const COPILOT_USAGE_PATH: &str = "/copilot_internal/user";
 const GITHUB_USER_PATH: &str = "/user";
 
+/// Stable id of the Automatic-only seat-credit fallback lane minted by
+/// `append_seat_credit_window`. Shell selection code consumes this constant;
+/// renaming the id must fail loudly instead of silently disabling the
+/// fallback.
+pub const SEAT_CREDIT_WINDOW_ID: &str = "copilot-seat-credits";
+
 // Credential Manager targets to try
 const CREDENTIAL_TARGETS: &[&str] = &[
     "codexbar-copilot",       // Our own storage
@@ -48,29 +54,15 @@ impl CopilotApi {
         Self { client }
     }
 
-    /// Fetch usage information from the default GitHub host.
-    pub async fn fetch_usage(&self, api_key: Option<&str>) -> Result<UsageSnapshot, ProviderError> {
-        self.fetch_usage_for_host(api_key, None).await
-    }
-
-    /// Fetch usage information from Copilot API, optionally targeting an
-    /// enterprise GitHub host. `github.com` maps to `api.github.com`; an
-    /// enterprise host maps to `api.<host>` unless it already starts with
-    /// `api.`.
-    pub async fn fetch_usage_for_host(
-        &self,
-        api_key: Option<&str>,
-        github_host: Option<&str>,
-    ) -> Result<UsageSnapshot, ProviderError> {
-        let token = self.load_token(api_key, github_host)?;
-        self.fetch_usage_with_token(&token, github_host).await
-    }
-
-    /// Fetch usage with an already-resolved OAuth token.
+    /// Fetch usage information from Copilot API with an already-resolved
+    /// OAuth token, optionally targeting an enterprise GitHub host.
+    /// `github.com` maps to `api.github.com`; an enterprise host maps to
+    /// `api.<host>` unless it already starts with `api.`.
     pub async fn fetch_usage_with_token(
         &self,
         token: &str,
         github_host: Option<&str>,
+        seat_credit_entitlement: Option<f64>,
     ) -> Result<UsageSnapshot, ProviderError> {
         let api_url = copilot_usage_url(github_host);
         let response = self
@@ -102,7 +94,7 @@ impl CopilotApi {
             .await
             .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
-        snapshot_from_response(usage_response)
+        snapshot_from_response_with_seat_entitlement(usage_response, seat_credit_entitlement)
     }
 
     /// Fetch GitHub identity for labeling a stored device-OAuth token.
@@ -140,7 +132,9 @@ impl CopilotApi {
             .map_err(|e| ProviderError::Parse(e.to_string()))
     }
 
-    fn load_token(
+    /// Resolve the Copilot OAuth token from settings/legacy API key, GitHub
+    /// CLI auth, or the Windows Credential Manager fallback chain.
+    pub fn load_token(
         &self,
         api_key: Option<&str>,
         github_host: Option<&str>,
@@ -289,14 +283,17 @@ struct QuotaSnapshot {
     placeholder: bool,
     /// Absolute AI-credit consumption counter reported for token-billed seats
     /// (upstream 0.48.0 #2613: `credits_used`). Kept off the rate-window path
-    /// on purpose — a counter has no quota denominator to render.
+    /// on purpose unless a user-entered seat-credit denominator is available.
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     credits_used: Option<f64>,
 }
 
 // --- Snapshot building ---
 
-fn snapshot_from_response(response: CopilotUsageResponse) -> Result<UsageSnapshot, ProviderError> {
+fn snapshot_from_response_with_seat_entitlement(
+    response: CopilotUsageResponse,
+    seat_credit_entitlement: Option<f64>,
+) -> Result<UsageSnapshot, ProviderError> {
     let reset = response
         .quota_reset_date
         .as_deref()
@@ -316,9 +313,10 @@ fn snapshot_from_response(response: CopilotUsageResponse) -> Result<UsageSnapsho
         if let Some(credits) = credits_used {
             let mut primary = RateWindow::informational(format_credits_used(credits));
             primary.resets_at = reset;
-            return Ok(
-                UsageSnapshot::new(primary).with_login_method(plan_label(&response.copilot_plan))
-            );
+            let mut usage =
+                UsageSnapshot::new(primary).with_login_method(plan_label(&response.copilot_plan));
+            append_seat_credit_window(&mut usage, credits, seat_credit_entitlement, reset);
+            return Ok(usage);
         }
         return Err(ProviderError::Other(
             "Copilot Business token-based billing usage is unavailable from GitHub's current endpoint.".to_string(),
@@ -328,7 +326,7 @@ fn snapshot_from_response(response: CopilotUsageResponse) -> Result<UsageSnapsho
     let primary = primary_quota
         .as_ref()
         .map(|quota| quota.to_rate_window(reset))
-        .unwrap_or_else(|| RateWindow::new(0.0));
+        .unwrap_or_else(|| RateWindow::informational("No Copilot quota reported"));
 
     let mut usage =
         UsageSnapshot::new(primary).with_login_method(plan_label(&response.copilot_plan));
@@ -366,9 +364,36 @@ fn snapshot_from_response(response: CopilotUsageResponse) -> Result<UsageSnapsho
             "AI credits",
             RateWindow::informational(format_credits_used(credits)),
         );
+        append_seat_credit_window(&mut usage, credits, seat_credit_entitlement, reset);
     }
 
     Ok(usage)
+}
+
+fn append_seat_credit_window(
+    usage: &mut UsageSnapshot,
+    credits_used: f64,
+    seat_credit_entitlement: Option<f64>,
+    reset: Option<DateTime<Utc>>,
+) {
+    // The settings getter already rejects non-positive/invalid persisted
+    // values; only the division can still overflow (e.g. 1e308 / 1e-308).
+    let Some(entitlement) = seat_credit_entitlement.filter(|value| *value > 0.0) else {
+        return;
+    };
+    let used_percent = (credits_used / entitlement) * 100.0;
+    if !used_percent.is_finite() {
+        return;
+    }
+
+    usage.extra_rate_windows.push(
+        NamedRateWindow::new(
+            SEAT_CREDIT_WINDOW_ID,
+            "Credits used",
+            RateWindow::with_details(used_percent, None, reset, None),
+        )
+        .with_fallback_lane(true),
+    );
 }
 
 /// Render the absolute credits counter (whole numbers without decimals).
@@ -785,12 +810,12 @@ mod tests {
 
     fn parse_snapshot(json: &str) -> UsageSnapshot {
         let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
-        snapshot_from_response(response).unwrap()
+        snapshot_from_response_with_seat_entitlement(response, None).unwrap()
     }
 
     fn parse_snapshot_result(json: &str) -> Result<UsageSnapshot, ProviderError> {
         let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
-        snapshot_from_response(response)
+        snapshot_from_response_with_seat_entitlement(response, None)
     }
 
     #[test]
@@ -1068,6 +1093,109 @@ mod tests {
             extra.iter().any(|w| w.id == "ai-credits"
                 && w.window.reset_description.as_deref() == Some("1234.56 AI credits used")),
             "{extra:?}"
+        );
+    }
+
+    #[test]
+    fn configured_seat_allowance_adds_a_numeric_credit_window() {
+        let response: CopilotUsageResponse = serde_json::from_str(
+            r#"{
+                "copilot_plan": "business",
+                "quota_snapshots": {
+                    "premium_interactions": {
+                        "entitlement": 300,
+                        "remaining": 240,
+                        "percent_remaining": 80,
+                        "quota_id": "premium_interactions",
+                        "credits_used": 50
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let usage = snapshot_from_response_with_seat_entitlement(response, Some(200.0)).unwrap();
+
+        let seat = usage
+            .extra_rate_windows
+            .iter()
+            .find(|window| window.id == SEAT_CREDIT_WINDOW_ID)
+            .expect("configured seat-credit window");
+        assert!((seat.window.used_percent - 25.0).abs() < 0.001);
+        assert!(!seat.window.is_informational);
+        assert_eq!(seat.title, "Credits used");
+    }
+
+    #[test]
+    fn missing_primary_quota_is_informational_when_seat_credit_is_available() {
+        let response: CopilotUsageResponse = serde_json::from_str(
+            r#"{
+                "copilot_plan": "business",
+                "quota_snapshots": {
+                    "additional_budget": {
+                        "credits_used": 50
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let usage = snapshot_from_response_with_seat_entitlement(response, Some(200.0)).unwrap();
+
+        assert!(usage.primary.is_informational);
+        assert!(
+            usage
+                .extra_rate_windows
+                .iter()
+                .any(|window| window.id == SEAT_CREDIT_WINDOW_ID)
+        );
+    }
+
+    #[test]
+    fn non_finite_derived_seat_credit_percentage_is_omitted() {
+        let response: CopilotUsageResponse = serde_json::from_str(
+            r#"{
+                "copilot_plan": "business",
+                "quota_snapshots": {
+                    "premium_interactions": {
+                        "credits_used": 1e308
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let usage = snapshot_from_response_with_seat_entitlement(response, Some(1e-308)).unwrap();
+
+        assert!(
+            usage
+                .extra_rate_windows
+                .iter()
+                .all(|window| window.id != SEAT_CREDIT_WINDOW_ID)
+        );
+    }
+
+    #[test]
+    fn invalid_seat_allowance_keeps_credit_progress_unknown() {
+        let response: CopilotUsageResponse = serde_json::from_str(
+            r#"{
+                "copilot_plan": "business",
+                "token_based_billing": true,
+                "quota_snapshots": {
+                    "premium_interactions": {
+                        "entitlement": 0,
+                        "remaining": 0,
+                        "credits_used": 50
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let usage = snapshot_from_response_with_seat_entitlement(response, Some(0.0)).unwrap();
+
+        assert!(usage.primary.is_informational);
+        assert!(
+            usage
+                .extra_rate_windows
+                .iter()
+                .all(|window| window.id != SEAT_CREDIT_WINDOW_ID)
         );
     }
 
