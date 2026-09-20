@@ -9,10 +9,10 @@
 )]
 
 use crate::core::{CostUsagePricing, ProviderId};
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 #[cfg(test)]
-use chrono::{DateTime, Local};
+use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -526,6 +526,31 @@ impl JsonlScanner {
         }
     }
     pub(crate) fn cached_cost_report_from_days(cache: &CostUsageCache) -> CachedCostReport {
+        Self::cached_cost_report_from_days_filtered(cache, None)
+    }
+
+    /// Build a retained report for one requested reporting window.
+    ///
+    /// Codex catch-up can retain days outside the active dashboard window while
+    /// it processes historical files. A retained report must therefore use the
+    /// requested days rather than summing every day that happens to remain in
+    /// the cache. The cache scan timestamp is the measurement time for the
+    /// report; this keeps a stale report honest while a later bounded pass is
+    /// still pending.
+    pub(crate) fn cached_cost_report_for_range(
+        cache: &CostUsageCache,
+        range: &CostUsageDayRange,
+    ) -> CachedCostReport {
+        Self::cached_cost_report_from_days_filtered(
+            cache,
+            Some((&range.since_key, &range.until_key)),
+        )
+    }
+
+    fn cached_cost_report_from_days_filtered(
+        cache: &CostUsageCache,
+        range: Option<(&str, &str)>,
+    ) -> CachedCostReport {
         let mut total_cost_usd = 0.0;
         let mut input_tokens = 0_i64;
         let mut cached_tokens = 0_i64;
@@ -534,7 +559,14 @@ impl JsonlScanner {
         let mut reasoning_known = true;
         let mut partial = false;
 
+        let day_is_included = |day_key: &str| {
+            range.is_none_or(|(since, until)| CostUsageDayRange::is_in_range(day_key, since, until))
+        };
+
         for (day_key, models) in &cache.days {
+            if !day_is_included(day_key) {
+                continue;
+            }
             let pricing_day = NaiveDate::parse_from_str(day_key, "%Y-%m-%d").ok();
             for (model, values) in models {
                 let input = values.first().copied().unwrap_or(0).max(0);
@@ -589,10 +621,16 @@ impl JsonlScanner {
             cache
                 .files
                 .values()
-                .filter(|usage| !usage.days.is_empty())
+                .filter(|usage| usage.days.keys().any(|day| day_is_included(day)))
                 .count(),
         )
         .unwrap_or(i32::MAX);
+        let measured_at = if cache.last_scan_unix_ms > 0 {
+            DateTime::<Utc>::from_timestamp_millis(cache.last_scan_unix_ms)
+                .map(|timestamp| timestamp.to_rfc3339())
+        } else {
+            None
+        };
         CachedCostReport {
             total_cost_usd,
             input_tokens,
@@ -600,7 +638,7 @@ impl JsonlScanner {
             output_tokens,
             reasoning_tokens: reasoning_known.then_some(reasoning_tokens),
             sessions_count,
-            updated_at: Some(Utc::now().to_rfc3339()),
+            updated_at: Some(measured_at.unwrap_or_else(|| Utc::now().to_rfc3339())),
             partial,
         }
     }
