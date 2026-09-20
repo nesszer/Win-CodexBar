@@ -5,6 +5,7 @@ import type {
   RateWindowSnapshot,
 } from "../../../../types/bridge";
 import { InventoryItemRow } from "../../../../components/InventoryRows";
+import { ProviderDisplayRow } from "../../../../components/ProviderDisplayRow";
 import type { LocaleKey } from "../../../../i18n/keys";
 import { useFormattedResetTime } from "../../../../hooks/useFormattedResetTime";
 
@@ -89,31 +90,16 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
           lineClassName="provider-usage-inventory"
         />
       ))}
-      {displayDetails.map((detail, index) => (
-        <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
+      {displayDetails.map((detail) => (
+        <ProviderDisplayRow
+          key={detail.id}
+          detail={detail}
+          lineClassName="provider-usage-inventory"
+          trackClassName="provider-usage-bar__track"
+          fillClassName="provider-usage-bar__fill"
+        />
       ))}
     </section>
-  );
-}
-
-function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
-  const progress = detail.progress;
-  const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
-    ? Math.max(0, Math.min(100, (progress.used / progress.total) * 100))
-    : null;
-
-  return (
-    <div className="provider-usage-detail">
-      <div className="provider-usage-inventory">
-        <span>{detail.title}: {detail.value}</span>
-        {detail.secondaryValue && <span>{detail.secondaryValue}</span>}
-      </div>
-      {progressPercent != null && (
-        <div className="provider-usage-bar__track" aria-label={`${detail.title} progress`}>
-          <div className="provider-usage-bar__fill" style={{ width: `${progressPercent}%` }} />
-        </div>
-      )}
-    </div>
   );
 }
 
