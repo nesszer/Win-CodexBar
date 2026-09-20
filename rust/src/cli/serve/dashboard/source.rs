@@ -135,6 +135,7 @@ impl SnapshotProducer {
                 collection,
                 identity,
                 version: Some(self.version.clone()),
+                usage_bars_show_used: Some(settings.show_as_used),
             }),
             sidecar: Some(metrics),
         })
