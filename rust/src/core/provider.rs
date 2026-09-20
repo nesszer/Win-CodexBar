@@ -84,6 +84,7 @@ pub enum ProviderId {
     Fireworks,
     #[serde(alias = "metaspark")]
     Meta,
+    Muse,
 }
 
 impl ProviderId {
@@ -161,6 +162,7 @@ impl ProviderId {
             ProviderId::Xai,
             ProviderId::Fireworks,
             ProviderId::Meta,
+            ProviderId::Muse,
         ]
     }
 
@@ -204,6 +206,7 @@ impl ProviderId {
             ProviderId::DeepInfra => "deepinfra",
             ProviderId::Fireworks => "fireworks",
             ProviderId::Meta => "meta",
+            ProviderId::Muse => "muse",
             ProviderId::AiAnd => "aiand",
             ProviderId::Windsurf => "windsurf",
             ProviderId::Manus => "manus",
@@ -282,6 +285,7 @@ impl ProviderId {
             ProviderId::DeepInfra => "DeepInfra",
             ProviderId::Fireworks => "Fireworks",
             ProviderId::Meta => "Meta",
+            ProviderId::Muse => "Muse Code",
             ProviderId::AiAnd => "ai&",
             ProviderId::Windsurf => "Windsurf",
             ProviderId::Manus => "Manus",
@@ -373,6 +377,7 @@ impl ProviderId {
             ProviderId::DeepInfra => None,
             ProviderId::Fireworks => None,
             ProviderId::Meta => None,
+            ProviderId::Muse => None,
             ProviderId::AiAnd => None,
             ProviderId::Windsurf => None,
             ProviderId::Doubao => None,
@@ -446,6 +451,7 @@ impl ProviderId {
             "deepseek" | "deep-seek" | "ds" => Some(ProviderId::DeepSeek),
             "deepinfra" | "deep-infra" | "di" => Some(ProviderId::DeepInfra),
             "fireworks" | "fireworks-ai" | "fw" => Some(ProviderId::Fireworks),
+            "muse" | "muse-code" | "muse code" => Some(ProviderId::Muse),
             "meta" | "metaspark" | "meta-spark" | "muse-spark" | "musespark" | "muse spark"
             | "meta muse spark" => Some(ProviderId::Meta),
             "aiand" | "ai&" | "ai-and" | "ai and" => Some(ProviderId::AiAnd),
@@ -868,6 +874,8 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("di", ProviderId::DeepInfra);
     map.insert("fireworks-ai", ProviderId::Fireworks);
     map.insert("fw", ProviderId::Fireworks);
+    map.insert("muse-code", ProviderId::Muse);
+    map.insert("muse code", ProviderId::Muse);
     map.insert("metaspark", ProviderId::Meta);
     map.insert("meta-spark", ProviderId::Meta);
     map.insert("muse-spark", ProviderId::Meta);
@@ -1002,6 +1010,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::Xai => "#8E8E93",
         ProviderId::Fireworks => "#F25B1C",
         ProviderId::Meta => "#0467DF",
+        ProviderId::Muse => "#0668E1",
     }
 }
 
@@ -1016,7 +1025,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 71);
+        assert_eq!(all.len(), 72);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Fireworks));
@@ -1068,6 +1077,7 @@ mod tests {
         assert!(all.contains(&ProviderId::Notion));
         assert!(all.contains(&ProviderId::Xai));
         assert!(all.contains(&ProviderId::Meta));
+        assert!(all.contains(&ProviderId::Muse));
     }
 
     #[test]
@@ -1316,6 +1326,48 @@ mod tests {
             Some(ProviderId::Meta)
         );
         assert_eq!(brand_color(ProviderId::Meta), "#0467DF");
+    }
+
+    #[test]
+    fn test_provider_id_muse() {
+        assert_eq!(ProviderId::Muse.cli_name(), "muse");
+        assert_eq!(ProviderId::Muse.display_name(), "Muse Code");
+        assert_eq!(ProviderId::Muse.cookie_domain(), None);
+        assert_eq!(ProviderId::from_cli_name("muse"), Some(ProviderId::Muse));
+        assert_eq!(
+            ProviderId::from_cli_name("muse-code"),
+            Some(ProviderId::Muse)
+        );
+        assert_eq!(brand_color(ProviderId::Muse), "#0668E1");
+    }
+
+    // The "muse *" alias family spans two providers: bare `muse` / `muse code`
+    // are the Muse Code CLI, while `muse spark` belongs to Meta (Meta Muse
+    // Spark). Pin the boundary so a future alias edit cannot silently re-route
+    // either side (review finding: latent UX/triage trap).
+    #[test]
+    fn muse_alias_family_boundary() {
+        assert_eq!(
+            ProviderId::from_cli_name("muse code"),
+            Some(ProviderId::Muse)
+        );
+        assert_eq!(ProviderId::from_cli_name("muse"), Some(ProviderId::Muse));
+        assert_eq!(
+            ProviderId::from_cli_name("muse spark"),
+            Some(ProviderId::Meta)
+        );
+        assert_eq!(
+            ProviderId::from_cli_name("muse-spark"),
+            Some(ProviderId::Meta)
+        );
+        assert_eq!(
+            ProviderId::from_cli_name("musespark"),
+            Some(ProviderId::Meta)
+        );
+        assert_eq!(
+            ProviderId::from_cli_name("meta muse spark"),
+            Some(ProviderId::Meta)
+        );
     }
 
     #[test]

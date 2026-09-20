@@ -42,6 +42,7 @@ import meta from "./icons/ProviderIcon-meta.svg?raw";
 import mimo from "./icons/ProviderIcon-mimo.svg?raw";
 import minimax from "./icons/ProviderIcon-minimax.svg?raw";
 import mistral from "./icons/ProviderIcon-mistral.svg?raw";
+import muse from "./icons/ProviderIcon-muse.svg?raw";
 import notion from "./icons/ProviderIcon-notion.svg?raw";
 import xai from "./icons/ProviderIcon-xai.svg?raw";
 import ollama from "./icons/ProviderIcon-ollama.svg?raw";
@@ -127,6 +128,7 @@ const RAW: Record<string, string> = {
   notion: tint(notion),
   xai: tint(xai),
   mistral: tint(mistral),
+  muse: tint(muse),
   ollama: tint(ollama),
   opencode: tint(opencode),
   opencodego: tint(opencodego),
@@ -184,6 +186,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   llmproxy:    { id: "llmproxy",    brandColor: "#4f46e5", fallbackLetter: "L", svgPath: RAW.llmproxy },
   minimax:     { id: "minimax",     brandColor: "#fe603c", fallbackLetter: "M", svgPath: RAW.minimax },
   mistral:     { id: "mistral",     brandColor: "#ff500f", fallbackLetter: "M", svgPath: RAW.mistral },
+  muse:        { id: "muse",        brandColor: "#0668e1", fallbackLetter: "M", svgPath: RAW.muse },
   ollama:      { id: "ollama",      brandColor: "#8b95b0", fallbackLetter: "○", svgPath: RAW.ollama },
   azureopenai: { id: "azureopenai", brandColor: "#0078d4", fallbackLetter: "A" },
   t3chat:      { id: "t3chat",      brandColor: "#8b5cf6", fallbackLetter: "T", svgPath: RAW.t3chat },
