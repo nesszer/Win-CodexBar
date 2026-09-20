@@ -5,6 +5,8 @@
 //! the optional environment override is intended for controlled deployments,
 //! not for inference keys (`LLM_` / `LLM|`).
 
+pub mod local_usage;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::StreamExt;

@@ -13,7 +13,7 @@ use crate::spend_contract::build_local_spend_contract_from_summary;
 /// Arguments for the cost command
 #[derive(Args, Debug, Default)]
 pub struct CostArgs {
-    /// Provider to query (codex, claude, antigravity, cursor, gemini, copilot, all, both)
+    /// Provider to query (codex, claude, muse, antigravity, cursor, gemini, copilot, all, both)
     #[arg(short, long)]
     pub provider: Option<String>,
 
@@ -124,6 +124,20 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
                     token_history: Some(crate::providers::antigravity::local_sessions::summarize(
                         args.days,
                     )),
+                });
+            }
+            ProviderId::Muse => {
+                let report = crate::providers::muse::local_usage::scan(args.days, None);
+                results.push(CostResult {
+                    provider: provider.cli_name().to_string(),
+                    display_name: provider.display_name().to_string(),
+                    summary: CostSummary::default(),
+                    supported: true,
+                    token_history: Some(crate::spend_contract::LocalTokenHistorySummary {
+                        total_tokens: report.total_tokens.unwrap_or(0),
+                        session_count: report.session_count,
+                        coverage: report.coverage,
+                    }),
                 });
             }
             _ => {
