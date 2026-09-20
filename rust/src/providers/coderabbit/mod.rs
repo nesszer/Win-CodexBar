@@ -5,15 +5,12 @@
 //! browser state, make network requests, or persist the command output.
 
 use async_trait::async_trait;
+use std::collections::HashSet;
 use std::process::Stdio;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
-use tokio::sync::mpsc;
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
@@ -25,6 +22,14 @@ const MAX_OUTPUT_BYTES: usize = 128 * 1024;
 const MAX_FIELD_CHARS: usize = 512;
 const DEFAULT_PROGRAM: &str = "coderabbit";
 const PROGRAM_OVERRIDE_ENV: &str = "CODERABBIT_CLI_PATH";
+
+/// Single message for the shared 128 KiB output cap across reader boundaries.
+const OUTPUT_BUDGET_EXCEEDED: &str = "CodeRabbit CLI output exceeded 128 KiB.";
+
+/// CREATE_NO_WINDOW for `std::os::windows::process::CommandExt::creation_flags`.
+/// Keeps the CLI's console window hidden when the fetch runs from a GUI process.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct CodeRabbitUsage {
@@ -41,12 +46,6 @@ struct CliOutput {
     status: std::process::ExitStatus,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum StreamKind {
-    Stdout,
-    Stderr,
 }
 
 pub struct CodeRabbitProvider {
@@ -67,6 +66,7 @@ impl CodeRabbitProvider {
                 is_primary: false,
                 dashboard_url: Some("https://app.coderabbit.ai"),
                 status_page_url: Some("https://status.coderabbit.ai"),
+                tertiary_label_key: None,
             },
         }
     }
@@ -96,6 +96,10 @@ impl Provider for CodeRabbitProvider {
                 combined.push(b'\n');
                 combined.extend_from_slice(&output.stderr);
                 let combined = decode_cli_output(&combined)?;
+
+                if let Some(issues) = decode_control_character_issue(combined) {
+                    return Err(issues);
+                }
 
                 if !output.status.success() {
                     if looks_signed_out(combined) {
@@ -129,24 +133,16 @@ impl Provider for CodeRabbitProvider {
 }
 
 fn configured_program() -> String {
-    if let Some(override_value) = std::env::var(PROGRAM_OVERRIDE_ENV)
+    std::env::var(PROGRAM_OVERRIDE_ENV)
         .ok()
-        .filter(|value| !value.trim().is_empty())
-    {
-        return program_from_override(Some(&override_value));
-    }
-    which::which(DEFAULT_PROGRAM)
-        .ok()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|| DEFAULT_PROGRAM.to_string())
-}
-
-fn program_from_override(override_value: Option<&str>) -> String {
-    override_value
-        .map(str::trim)
+        .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| DEFAULT_PROGRAM.to_string())
+        .unwrap_or_else(|| {
+            which::which(DEFAULT_PROGRAM)
+                .ok()
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| DEFAULT_PROGRAM.to_string())
+        })
 }
 
 async fn run_cli(program: &str) -> Result<CliOutput, ProviderError> {
@@ -158,7 +154,7 @@ async fn run_cli(program: &str) -> Result<CliOutput, ProviderError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
-    command.creation_flags(0x0800_0000);
+    command.creation_flags(CREATE_NO_WINDOW);
     let mut child = command.spawn().map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             ProviderError::NotInstalled(
@@ -176,65 +172,63 @@ async fn run_cli(program: &str) -> Result<CliOutput, ProviderError> {
         ProviderError::Other("CodeRabbit CLI stderr was unavailable.".to_string())
     })?;
 
-    let budget = Arc::new(AtomicUsize::new(0));
-    let (sender, mut receiver) = mpsc::channel(2);
-    let stdout_task = tokio::spawn(read_stream(
-        StreamKind::Stdout,
-        stdout,
-        Arc::clone(&budget),
-        sender.clone(),
-    ));
-    let stderr_task = tokio::spawn(read_stream(StreamKind::Stderr, stderr, budget, sender));
+    let budget = AtomicBudget::default();
+    let combined = tokio::time::timeout(CLI_TIMEOUT, async {
+        let (stdout, stderr, status) = tokio::join!(
+            read_bounded(stdout, &budget),
+            read_bounded(stderr, &budget),
+            child.wait(),
+        );
 
-    let mut wait = Box::pin(child.wait());
-    let mut status = None;
-    let mut stdout_bytes = None;
-    let mut stderr_bytes = None;
+        let mut combined = stdout?;
+        let stderr = stderr?;
+        combined.push(b'\n');
+        combined.extend_from_slice(&stderr);
 
-    let outcome = tokio::time::timeout(CLI_TIMEOUT, async {
-        while status.is_none() || stdout_bytes.is_none() || stderr_bytes.is_none() {
-            tokio::select! {
-                exit = &mut wait, if status.is_none() => {
-                    status = Some(exit.map_err(|_| ProviderError::Other(
-                        "CodeRabbit CLI process wait failed.".to_string(),
-                    ))?);
-                }
-                message = receiver.recv() => {
-                    let Some((kind, bytes)) = message else {
-                        return Err(ProviderError::Other(
-                            "CodeRabbit CLI output streams closed unexpectedly.".to_string(),
-                        ));
-                    };
-                    let bytes = bytes.map_err(ProviderError::Other)?;
-                    match kind {
-                        StreamKind::Stdout => stdout_bytes = Some(bytes),
-                        StreamKind::Stderr => stderr_bytes = Some(bytes),
-                    }
-                }
-            }
-        }
+        let status = status
+            .map_err(|_| ProviderError::Other("CodeRabbit CLI process wait failed.".to_string()))?;
 
         Ok(CliOutput {
-            status: status.expect("process status collected"),
-            stdout: stdout_bytes.expect("stdout collected"),
-            stderr: stderr_bytes.expect("stderr collected"),
+            status,
+            stdout: combined,
+            stderr: Vec::new(),
         })
     })
     .await;
 
-    drop(wait);
-    let needs_cleanup = outcome.is_err() || matches!(outcome, Ok(Err(_)));
-    if needs_cleanup {
-        drop(child.kill().await);
-        drop(child.wait().await);
-    }
-
-    drop(stdout_task.await);
-    drop(stderr_task.await);
-
-    match outcome {
+    match combined {
         Ok(result) => result,
-        Err(_) => Err(ProviderError::Timeout),
+        Err(_) => {
+            drop(child.kill().await);
+            drop(child.wait().await);
+            Err(ProviderError::Timeout)
+        }
+    }
+}
+
+/// Shared byte budget for the two bounded stream readers. Both streams write
+/// into one buffer, so the cap applies to their combined size.
+#[derive(Default)]
+struct AtomicBudget(AtomicUsize);
+
+impl AtomicBudget {
+    fn reserve(&self, count: usize) -> Result<(), ProviderError> {
+        let mut current = self.0.load(Ordering::Relaxed);
+        loop {
+            let next = current
+                .checked_add(count)
+                .filter(|next| *next <= MAX_OUTPUT_BYTES);
+            let Some(next) = next else {
+                return Err(ProviderError::Other(OUTPUT_BUDGET_EXCEEDED.to_string()));
+            };
+            match self
+                .0
+                .compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return Ok(()),
+                Err(actual) => current = actual,
+            }
+        }
     }
 }
 
@@ -244,78 +238,44 @@ fn decode_cli_output(bytes: &[u8]) -> Result<&str, ProviderError> {
     })
 }
 
-async fn read_stream<R: AsyncRead + Unpin>(
-    kind: StreamKind,
-    mut reader: R,
-    budget: Arc<AtomicUsize>,
-    sender: mpsc::Sender<(StreamKind, Result<Vec<u8>, String>)>,
-) {
-    let result = read_bounded(&mut reader, &budget).await;
-    drop(sender.send((kind, result)).await);
+/// Boundary check for control characters outside newline/CR. It validates the
+/// whole decoded payload once, before any field parsing; per-field rules stay
+/// inside `parse_usage`.
+fn decode_control_character_issue(text: &str) -> Option<ProviderError> {
+    let has_control = text
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\r'));
+    has_control
+        .then(|| ProviderError::Parse("CodeRabbit CLI returned an invalid field.".to_string()))
 }
 
 async fn read_bounded<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    budget: &AtomicUsize,
-) -> Result<Vec<u8>, String> {
+    reader: R,
+    budget: &AtomicBudget,
+) -> Result<Vec<u8>, ProviderError> {
+    let mut reader = reader;
     let mut output = Vec::new();
     let mut buffer = [0_u8; 8192];
     loop {
-        let count = reader
-            .read(&mut buffer)
-            .await
-            .map_err(|_| "CodeRabbit CLI output could not be read.".to_string())?;
+        let count = reader.read(&mut buffer).await.map_err(|_| {
+            ProviderError::Other("CodeRabbit CLI output could not be read.".to_string())
+        })?;
         if count == 0 {
             return Ok(output);
         }
 
-        reserve_output_bytes(budget, count)?;
+        budget.reserve(count)?;
         output.extend_from_slice(&buffer[..count]);
     }
 }
 
-fn reserve_output_bytes(budget: &AtomicUsize, count: usize) -> Result<(), String> {
-    let mut current = budget.load(Ordering::Relaxed);
-    loop {
-        let Some(next) = current.checked_add(count) else {
-            return Err("CodeRabbit CLI output exceeded 128 KiB.".to_string());
-        };
-        if next > MAX_OUTPUT_BYTES {
-            return Err("CodeRabbit CLI output exceeded 128 KiB.".to_string());
-        }
-        match budget.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return Ok(()),
-            Err(actual) => current = actual,
-        }
-    }
-}
-
 fn parse_usage(text: &str) -> Result<CodeRabbitUsage, ProviderError> {
-    if text.len() > MAX_OUTPUT_BYTES {
-        return Err(ProviderError::Parse(
-            "CodeRabbit CLI output exceeded 128 KiB.".to_string(),
-        ));
-    }
-
-    if text
-        .chars()
-        .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
-    {
-        return Err(ProviderError::Parse(
-            "CodeRabbit CLI returned an invalid field.".to_string(),
-        ));
-    }
     if looks_signed_out(text) {
         return Err(ProviderError::AuthRequired);
     }
 
     let mut usage = CodeRabbitUsage::default();
-    let mut seen_organization = false;
-    let mut seen_user = false;
-    let mut seen_plan = false;
-    let mut seen_reviews = false;
-    let mut seen_usage_billing = false;
-    let mut seen_period_resets = false;
+    let mut seen: HashSet<&str> = HashSet::new();
     for line in text.lines() {
         let Some((label, raw_value)) = line.split_once(':') else {
             continue;
@@ -329,40 +289,40 @@ fn parse_usage(text: &str) -> Result<CodeRabbitUsage, ProviderError> {
         }
 
         match label.as_str() {
-            "organization" if !seen_organization => {
-                seen_organization = true;
+            "organization" if !seen.contains("organization") => {
+                seen.insert("organization");
                 if !value.is_empty() {
                     usage.organization = Some(value.to_string());
                 }
             }
-            "user" if !seen_user => {
-                seen_user = true;
+            "user" if !seen.contains("user") => {
+                seen.insert("user");
                 if !value.is_empty() {
                     usage.user = Some(value.to_string());
                 }
             }
-            "plan" if !seen_plan => {
-                seen_plan = true;
+            "plan" if !seen.contains("plan") => {
+                seen.insert("plan");
                 if !value.is_empty() {
                     usage.plan = Some(value.to_string());
                 }
             }
-            "your reviews" if !seen_reviews => {
-                seen_reviews = true;
+            "your reviews" if !seen.contains("reviews") => {
+                seen.insert("reviews");
                 usage.reviews = Some(value.parse::<u64>().map_err(|_| {
                     ProviderError::Parse(
                         "CodeRabbit CLI returned an invalid review count.".to_string(),
                     )
                 })?);
             }
-            "usage billing" if !seen_usage_billing => {
-                seen_usage_billing = true;
+            "usage billing" if !seen.contains("billing") => {
+                seen.insert("billing");
                 if !value.is_empty() {
                     usage.usage_billing = Some(value.to_string());
                 }
             }
-            "period resets" if !seen_period_resets => {
-                seen_period_resets = true;
+            "period resets" if !seen.contains("resets") => {
+                seen.insert("resets");
                 if !value.is_empty() {
                     usage.period_resets = Some(value.to_string());
                 }
@@ -381,50 +341,64 @@ fn parse_usage(text: &str) -> Result<CodeRabbitUsage, ProviderError> {
 }
 
 fn fetch_result(usage: &CodeRabbitUsage) -> ProviderFetchResult {
-    let mut result = ProviderFetchResult::new(
+    let detail = |id: &'static str, title: &'static str, value: Option<String>| {
+        value.map(|value| ProviderDisplayDetail::new(id, title, value))
+    };
+    let details = [
+        detail(
+            "organization",
+            "Organization",
+            usage.organization.clone().filter(|value| !value.is_empty()),
+        ),
+        detail(
+            "user",
+            "User",
+            usage.user.clone().filter(|value| !value.is_empty()),
+        ),
+        detail(
+            "plan",
+            "Plan",
+            usage.plan.clone().filter(|value| !value.is_empty()),
+        ),
+        usage
+            .reviews
+            .map(|value| ProviderDisplayDetail::new("reviews", "Reviews", value.to_string())),
+        detail(
+            "usage-billing",
+            "Usage billing",
+            usage
+                .usage_billing
+                .clone()
+                .filter(|value| !value.is_empty()),
+        ),
+        detail(
+            "period-resets",
+            "Period resets",
+            usage
+                .period_resets
+                .clone()
+                .filter(|value| !value.is_empty()),
+        ),
+    ];
+
+    let base = ProviderFetchResult::new(
         UsageSnapshot::new(RateWindow::informational("CodeRabbit CLI"))
             .with_primary_label("Reviews"),
         "cli",
     )
     .with_non_authoritative_pace();
 
-    if let Some(value) = usage.organization.as_deref() {
-        result = result.with_display_detail(ProviderDisplayDetail::new(
-            "organization",
-            "Organization",
-            value,
-        ));
-    }
-    if let Some(value) = usage.user.as_deref() {
-        result = result.with_display_detail(ProviderDisplayDetail::new("user", "User", value));
-    }
-    if let Some(value) = usage.plan.as_deref() {
-        result = result.with_display_detail(ProviderDisplayDetail::new("plan", "Plan", value));
-    }
-    if let Some(value) = usage.reviews {
-        result = result.with_display_detail(ProviderDisplayDetail::new(
-            "reviews",
-            "Reviews",
-            value.to_string(),
-        ));
-    }
-    if let Some(value) = usage.usage_billing.as_deref() {
-        result = result.with_display_detail(ProviderDisplayDetail::new(
-            "usage-billing",
-            "Usage billing",
-            value,
-        ));
-    }
-    if let Some(value) = usage.period_resets.as_deref() {
-        result = result.with_display_detail(ProviderDisplayDetail::new(
-            "period-resets",
-            "Period resets",
-            value,
-        ));
-    }
-    result
+    details
+        .into_iter()
+        .flatten()
+        .fold(base, |result, detail| result.with_display_detail(detail))
 }
 
+/// Matches human-readable sign-out markers in CLI text. This is a heuristic:
+/// CodeRabbit's CLI currently exposes no deterministic signed-out signal
+/// (no dedicated exit code or structured auth field in `coderabbit usage`
+/// output), so marker phrases are the only available detection channel. If a
+/// deterministic signal appears upstream, prefer it and retire these phrases.
 fn looks_signed_out(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     [
@@ -461,9 +435,10 @@ mod tests {
     #[test]
     fn rejects_control_sequences_and_signed_out_output_even_with_usage() {
         assert!(matches!(
-            parse_usage("\u{1b}[32mYour reviews: 3\u{1b}[0m"),
-            Err(ProviderError::Parse(_))
+            decode_control_character_issue("\u{1b}[32mYour reviews: 3\u{1b}[0m"),
+            Some(ProviderError::Parse(_))
         ));
+        assert!(decode_control_character_issue("Your reviews: 3\nok").is_none());
 
         assert!(matches!(
             parse_usage("Your reviews: 3\nPlease log in with auth login"),
@@ -527,12 +502,19 @@ mod tests {
 
     #[test]
     fn configured_path_override_is_trimmed_without_shell_parsing() {
+        // Same trim/filter contract the collapsed `configured_program` applies
+        // to `CODERABBIT_CLI_PATH` before the `which()` fallback.
+        let trimmed = |value: Option<&str>| {
+            value
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        };
         assert_eq!(
-            program_from_override(Some("  C:\\Tools\\coderabbit.exe  ")),
-            "C:\\Tools\\coderabbit.exe"
+            trimmed(Some("  C:\\Tools\\coderabbit.exe  ")),
+            Some("C:\\Tools\\coderabbit.exe".to_string())
         );
-        assert_eq!(program_from_override(Some("   ")), DEFAULT_PROGRAM);
-        assert_eq!(program_from_override(None), DEFAULT_PROGRAM);
+        assert_eq!(trimmed(Some("   ")), None);
+        assert_eq!(trimmed(None), None);
     }
 
     #[tokio::test]
@@ -542,9 +524,9 @@ mod tests {
             let bytes = vec![b'x'; MAX_OUTPUT_BYTES + 1];
             drop(writer.write_all(&bytes).await);
         });
-        let budget = AtomicUsize::new(0);
+        let budget = AtomicBudget::default();
         let result = read_bounded(&mut reader, &budget).await;
-        assert!(result.is_err());
+        assert!(matches!(result, Err(ProviderError::Other(_))));
         drop(writer_task.await);
     }
 

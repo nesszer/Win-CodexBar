@@ -193,7 +193,6 @@ pub struct ProviderInventoryItemSnapshot {
     pub next_expires_at: Option<String>,
 }
 
-<<<<<<< HEAD
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderDisplayProgressSnapshot {
@@ -213,8 +212,6 @@ pub struct ProviderDisplayDetailSnapshot {
     pub progress: Option<ProviderDisplayProgressSnapshot>,
 }
 
-=======
->>>>>>> origin/main
 /// A frontend-friendly snapshot of one provider's usage data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -239,11 +236,8 @@ pub struct ProviderUsageSnapshot {
     pub extra_rate_windows: Vec<NamedRateWindowSnapshot>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inventory: Vec<ProviderInventoryItemSnapshot>,
-<<<<<<< HEAD
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub display_details: Vec<ProviderDisplayDetailSnapshot>,
-=======
->>>>>>> origin/main
     #[serde(default)]
     pub cost: Option<CostSnapshotBridge>,
     #[serde(default)]
@@ -532,10 +526,7 @@ impl ProviderUsageSnapshot {
             tertiary_label: None,
             extra_rate_windows: Vec::new(),
             inventory: Vec::new(),
-<<<<<<< HEAD
             display_details: Vec::new(),
-=======
->>>>>>> origin/main
             cost: None,
             plan_name: None,
             account_email: None,

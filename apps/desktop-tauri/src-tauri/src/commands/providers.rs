@@ -1433,10 +1433,7 @@ mod reset_backfill_tests {
             tertiary_label: None,
             extra_rate_windows: Vec::new(),
             inventory: Vec::new(),
-<<<<<<< HEAD
             display_details: Vec::new(),
-=======
->>>>>>> origin/main
             cost: None,
             plan_name: None,
             account_email: None,
