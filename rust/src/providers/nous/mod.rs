@@ -252,7 +252,7 @@ fn parse_response(body: &[u8]) -> Result<ProviderFetchResult, ProviderError> {
     let mut result = ProviderFetchResult::new(usage, "api");
     if let Some(remaining) = remaining {
         let remaining = remaining.max(0.0);
-        let mut detail = ProviderDisplayDetail::new(
+        let detail = ProviderDisplayDetail::new(
             "subscription-credits",
             "Subscription credits",
             monthly
@@ -260,10 +260,12 @@ fn parse_response(body: &[u8]) -> Result<ProviderFetchResult, ProviderError> {
                 .map(|monthly| format!("{} of {} left", format_usd(remaining), format_usd(monthly)))
                 .unwrap_or_else(|| format!("{} left", format_usd(remaining))),
         );
-        if let Some(monthly) = monthly.filter(|value| *value > 0.0) {
+        let detail = if let Some(monthly) = monthly.filter(|value| *value > 0.0) {
             let used = (monthly - remaining).clamp(0.0, monthly);
-            detail = detail.with_progress(used, monthly);
-        }
+            detail.and_then(|row| row.with_progress(used, monthly))
+        } else {
+            detail
+        };
         result = result.with_display_detail(detail);
     } else if let Some(monthly) = monthly {
         result = result.with_display_detail(ProviderDisplayDetail::new(
@@ -524,7 +526,7 @@ mod tests {
                 .and_then(|value| value.renews_at),
             result.usage.primary.resets_at
         );
-        let details: Vec<_> = result.display_details().collect();
+        let details: Vec<_> = result.display_details().iter().collect();
         assert!(details.iter().any(|detail| {
             detail.id() == "subscription-credits"
                 && detail.value().contains("$61.50")
@@ -554,6 +556,7 @@ mod tests {
         assert!(
             result
                 .display_details()
+                .iter()
                 .any(|detail| detail.id() == "top-up-credits")
         );
     }

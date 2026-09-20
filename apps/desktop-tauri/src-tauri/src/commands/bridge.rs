@@ -435,6 +435,7 @@ impl ProviderUsageSnapshot {
                 .collect(),
             display_details: result
                 .display_details()
+                .iter()
                 .map(|detail| ProviderDisplayDetailSnapshot {
                     id: detail.id().to_string(),
                     title: detail.title().to_string(),

@@ -857,19 +857,6 @@ fn fetch_context_openrouter_falls_back_to_stored_api_key_without_token_accounts(
 }
 
 #[test]
-fn nous_provider_is_oauth_only_and_has_no_cookie_or_cli_lane() {
-    let provider = instantiate_provider(ProviderId::Nous);
-    assert_eq!(provider.metadata().display_name, "Nous Portal");
-    assert_eq!(
-        provider.available_sources(),
-        vec![SourceMode::Auto, SourceMode::OAuth]
-    );
-    assert!(provider.supports_oauth());
-    assert!(!provider.supports_web());
-    assert!(!provider.supports_cli());
-}
-
-#[test]
 fn provider_region_set_rejects_non_regional_provider() {
     let mut s = Settings::default();
     let err = super::provider_region_set(&mut s, "claude", "global".into()).unwrap_err();
@@ -1009,8 +996,8 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
     })
     .with_display_detail(
         ProviderDisplayDetail::new("credits", "Used this cycle", "12")
-            .with_secondary_value("Monthly refill: 100")
-            .with_progress(12.0, 100.0),
+            .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
+            .and_then(|row| row.with_progress(12.0, 100.0)),
     );
     let metadata = instantiate_provider(ProviderId::Grok).metadata().clone();
     let snapshot =

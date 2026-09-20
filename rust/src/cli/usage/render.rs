@@ -7,8 +7,8 @@ use chrono::Utc;
 
 use super::UsageOutput;
 use crate::core::{
-    CostSnapshot, ProviderFetchResult, ProviderId, ProviderInventoryItem, RateWindow, UsagePace,
-    UsageSnapshot, instantiate_provider,
+    CostSnapshot, ProviderDisplayDetail, ProviderFetchResult, ProviderId, ProviderInventoryItem,
+    RateWindow, UsagePace, UsageSnapshot, instantiate_provider,
 };
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel};
 
@@ -70,17 +70,11 @@ pub fn render_json_result(
         );
     }
 
-    if let Some(s) = status {
-        json_result["status"] = serde_json::json!({
-            "level": format!("{:?}", s.level).to_lowercase(),
-            "description": s.description,
-        });
-    }
-
-    if result.display_details().next().is_some() {
+    if !result.display_details().is_empty() {
         json_result["details"] = serde_json::Value::Array(
             result
                 .display_details()
+                .iter()
                 .map(|detail| {
                     serde_json::json!({
                         "id": detail.id(),
@@ -97,6 +91,13 @@ pub fn render_json_result(
                 })
                 .collect(),
         );
+    }
+
+    if let Some(s) = status {
+        json_result["status"] = serde_json::json!({
+            "level": format!("{:?}", s.level).to_lowercase(),
+            "description": s.description,
+        });
     }
 
     json_result
@@ -296,10 +297,7 @@ fn append_inventory_lines(lines: &mut Vec<String>, inventory: &[ProviderInventor
     }
 }
 
-fn append_display_detail_lines<'a>(
-    lines: &mut Vec<String>,
-    details: impl IntoIterator<Item = &'a crate::core::ProviderDisplayDetail>,
-) {
+fn append_display_detail_lines(lines: &mut Vec<String>, details: &[ProviderDisplayDetail]) {
     for detail in details {
         let secondary = detail
             .secondary_value()

@@ -122,6 +122,22 @@ fn is_cookie_auth_failure_only_auth_required() {
 }
 
 #[test]
+fn include_credits_false_does_not_start_reset_lookup() {
+    let ctx = FetchContext {
+        include_credits: false,
+        ..FetchContext::default()
+    };
+
+    let lookup = GrokProvider::spawn_remaining_resets(
+        &ctx,
+        None,
+        None,
+        crate::providers::grok::GrokProvider::new().client_for_tests(),
+    );
+    assert!(lookup.task.is_none());
+}
+
+#[test]
 fn cookie_billing_stays_siloed_from_auth_file_identity() {
     let result = result_from_cookie_billing(GrokBillingSnapshot {
         used_percent: Some(23.0),
