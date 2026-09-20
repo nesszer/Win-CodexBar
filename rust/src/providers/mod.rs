@@ -160,6 +160,21 @@ pub(crate) fn browser_cookie_header(
         .map_err(map_browser_cookie_error)
 }
 
+/// All non-empty values for one cookie name in a `Cookie:` header, in order.
+/// Returns every value so callers can reject duplicates instead of silently
+/// picking the first.
+pub(crate) fn cookie_values<'a>(cookie_header: &'a str, name: &str) -> Vec<&'a str> {
+    cookie_header
+        .split(';')
+        .filter_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            (key.trim() == name)
+                .then_some(value.trim())
+                .filter(|value| !value.is_empty())
+        })
+        .collect()
+}
+
 pub(crate) fn browser_cookies_for_domain(
     domain: &str,
 ) -> Result<Vec<crate::browser::cookies::Cookie>, crate::core::ProviderError> {

@@ -6,6 +6,9 @@ use serde_json::Value;
 use crate::core::{CostDailyPoint, CostSnapshot, ProviderError};
 
 const MAX_ACTIVITY_ROWS: usize = 20_000;
+/// Distinct identity rows tracked for dedupe; bounds the `seen` map.
+const MAX_DISTINCT_ROWS: usize = 10_000;
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 pub(super) fn parse_activity_cost(
     payloads: &[Value],
@@ -57,7 +60,12 @@ pub(super) fn parse_activity_cost(
                     "OpenRouter activity.data[{index}].date must be a real calendar date"
                 ))
             })?;
-            if parsed_day > latest_completed || parsed_day < cutoff {
+            if parsed_day > latest_completed {
+                return Err(ProviderError::Parse(format!(
+                    "OpenRouter activity.data[{index}].date must be a completed UTC day"
+                )));
+            }
+            if parsed_day < cutoff {
                 continue;
             }
             let model = object
@@ -78,9 +86,12 @@ pub(super) fn parse_activity_cost(
                 Some(Value::Null) | None => 0,
                 value => nonnegative_integer(value, index, "reasoning_tokens")?,
             };
-            if reasoning > completion {
+            if prompt
+                .checked_add(completion)
+                .is_none_or(|total| total > MAX_SAFE_INTEGER)
+            {
                 return Err(ProviderError::Parse(format!(
-                    "OpenRouter activity.data[{index}].reasoning_tokens exceeds completion_tokens"
+                    "OpenRouter activity.data[{index}] token total overflowed"
                 )));
             }
             let requests = nonnegative_integer(object.get("requests"), index, "requests")?;
@@ -122,6 +133,11 @@ pub(super) fn parse_activity_cost(
                 continue;
             }
             seen.insert(identity, signature);
+            if seen.len() > MAX_DISTINCT_ROWS {
+                return Err(ProviderError::Parse(
+                    "OpenRouter activity.data exceeds 10000 distinct rows".into(),
+                ));
+            }
             total += cost;
             *daily.entry(day.to_string()).or_default() += cost;
         }
@@ -132,14 +148,14 @@ pub(super) fn parse_activity_cost(
             "OpenRouter Activity spend overflowed".into(),
         ));
     }
-    Ok(
-        CostSnapshot::new(total, "USD", "Last 30 days (UTC)").with_daily(
+    Ok(CostSnapshot::new(total, "USD", "Last 30 days (UTC)")
+        .with_daily(
             daily
                 .into_iter()
                 .map(|(day, amount)| CostDailyPoint { day, amount })
                 .collect(),
-        ),
-    )
+        )
+        .always_visible())
 }
 
 fn normalize_activity_day(raw: &str) -> Option<&str> {
@@ -178,11 +194,17 @@ fn nonnegative_integer(
             "OpenRouter activity.data[{index}].{field} is missing"
         ))
     })?;
-    value.as_u64().ok_or_else(|| {
+    let value = value.as_u64().ok_or_else(|| {
         ProviderError::Parse(format!(
             "OpenRouter activity.data[{index}].{field} must be a nonnegative integer"
         ))
-    })
+    })?;
+    if value > MAX_SAFE_INTEGER {
+        return Err(ProviderError::Parse(format!(
+            "OpenRouter activity.data[{index}].{field} must be a nonnegative safe integer"
+        )));
+    }
+    Ok(value)
 }
 
 fn nonnegative_number(
@@ -226,6 +248,19 @@ mod tests {
     }
 
     #[test]
+    fn preserves_reasoning_tokens_when_they_exceed_completion_tokens() {
+        let payload = serde_json::json!({"data":[
+            {"date":"2026-08-21","model":"reasoning-model","prompt_tokens":10,
+             "completion_tokens":2,"reasoning_tokens":8,"requests":1,"usage":1.0}
+        ]});
+
+        let cost = parse_activity_cost(&[payload], now()).unwrap();
+
+        assert_eq!(cost.used, 1.0);
+        assert_eq!(cost.daily.len(), 1);
+    }
+
+    #[test]
     fn rejects_conflicting_duplicate_activity_rows() {
         let a = serde_json::json!({"data":[
             {"date":"2026-08-21","model":"m","prompt_tokens":10,"completion_tokens":5,"requests":1,"usage":1.0}
@@ -240,8 +275,7 @@ mod tests {
     fn filters_rows_outside_exact_30_day_window() {
         let payload = serde_json::json!({"data":[
             {"date":"2026-07-22","model":"old","prompt_tokens":10,"completion_tokens":5,"requests":1,"usage":99.0},
-            {"date":"2026-07-23","model":"in","prompt_tokens":10,"completion_tokens":5,"requests":1,"usage":1.0},
-            {"date":"2026-08-22","model":"today","prompt_tokens":10,"completion_tokens":5,"requests":1,"usage":99.0}
+            {"date":"2026-07-23","model":"in","prompt_tokens":10,"completion_tokens":5,"requests":1,"usage":1.0}
         ]});
         let cost = parse_activity_cost(&[payload], now()).unwrap();
         assert_eq!(cost.used, 1.0);
@@ -267,5 +301,17 @@ mod tests {
             ]});
             assert!(parse_activity_cost(&[payload], now()).is_err());
         }
+    }
+
+    #[test]
+    fn rejects_activity_rows_from_an_incomplete_utc_day() {
+        let payload = serde_json::json!({"data":[
+            {"date":"2026-08-22","model":"today","prompt_tokens":10,
+             "completion_tokens":5,"requests":1,"usage":1.0}
+        ]});
+
+        let error = parse_activity_cost(&[payload], now()).unwrap_err();
+
+        assert!(error.to_string().contains("completed UTC day"));
     }
 }

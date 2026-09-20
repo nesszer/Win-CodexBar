@@ -60,6 +60,7 @@ const settings: SettingsSnapshot = {
   enableAnimations: true,
   resetTimeRelative: true,
   menuBarDisplayMode: "compact",
+  overviewLayout: "detailed",
   windowScalePercent: 125,
   trayScalePercent: 100,
   trayPanelAlwaysOnTop: false,

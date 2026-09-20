@@ -44,6 +44,8 @@ struct MuseProviders {
 #[derive(Debug, Deserialize)]
 struct MuseMetaCredentials {
     mechanism: Option<String>,
+    // Upstream Muse emits camelCase in auth.json (`accessToken`); the snake_case
+    // field name is this port's local convention and the alias bridges the two.
     #[serde(alias = "accessToken")]
     access_token: Option<String>,
 }
@@ -67,6 +69,7 @@ impl MuseProvider {
                 is_primary: false,
                 dashboard_url: Some("https://dev.meta.ai"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
@@ -95,15 +98,9 @@ impl MuseProvider {
         if status != StatusCode::OK {
             return Err(status_error(status));
         }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-        {
-            return Err(ProviderError::Parse(
-                "Muse Code returned an oversized response.".to_string(),
-            ));
-        }
-
+        // Oversized responses are rejected by the streaming cap in
+        // read_bounded_body, which also covers unknown or lying
+        // content-length headers; no separate precheck is needed.
         let body = read_bounded_body(response).await?;
         parse_response(&body)
     }
@@ -164,7 +161,14 @@ impl Provider for MuseProvider {
 }
 
 fn resolve_device_token() -> Result<String, ProviderError> {
-    let environment: HashMap<String, String> = std::env::vars().collect();
+    let environment: HashMap<String, String> = [MUSE_DEVICE_TOKEN_ENV, MUSE_AUTH_PATH_ENV]
+        .into_iter()
+        .filter_map(|key| {
+            std::env::var(key)
+                .ok()
+                .map(|value| (key.to_string(), value))
+        })
+        .collect();
     let home = dirs::home_dir().ok_or_else(missing_credentials)?;
     resolve_device_token_from(&environment, &home)
 }
@@ -287,34 +291,40 @@ fn parse_response(body: &[u8]) -> Result<ProviderFetchResult, ProviderError> {
             .ok_or_else(|| parse_failure("window_duration_mins"))?,
         "window_duration_mins",
     )?)?;
-    let primary_percent = clamped_percent(number(
+    let primary_percent = number(
         window
             .get("used_percent")
             .ok_or_else(|| parse_failure("used_percent"))?,
         "used_percent",
-    )?);
-    let weekly_percent = clamped_percent(number(
+    )?;
+    let weekly_percent = number(
         weekly
             .get("used_percent")
             .ok_or_else(|| parse_failure("weekly.used_percent"))?,
         "weekly.used_percent",
-    )?);
+    )?;
     let primary_reset = parse_reset(window.get("resets_at"))?;
     let weekly_reset = parse_reset(weekly.get("resets_at"))?;
     let plan = optional_text(root.get("subs_tier_name"), "subs_tier_name")?;
     let email = optional_text(root.get("user_email"), "user_email")?;
 
-    let primary = RateWindow::with_details(primary_percent, Some(duration), primary_reset, None);
+    let primary = RateWindow::with_details(
+        primary_percent.clamp(0.0, 100.0),
+        Some(duration),
+        primary_reset,
+        None,
+    );
     let secondary = RateWindow::with_details(
-        weekly_percent,
+        weekly_percent.clamp(0.0, 100.0),
         Some(WEEKLY_WINDOW_MINUTES),
         weekly_reset,
         None,
     );
-    let login_method = plan.clone().unwrap_or_else(|| "Muse login".to_string());
+    // The plan ("Pro" etc.) is subscription metadata, not a login mechanism;
+    // it travels as the "plan" display detail row, not in login_method.
     let mut usage = UsageSnapshot::new(primary)
         .with_secondary(secondary)
-        .with_login_method(login_method);
+        .with_login_method("Muse login");
     if let Some(email) = email {
         usage = usage.with_email(email);
     }
@@ -345,6 +355,10 @@ fn object<'a>(
         .ok_or_else(|| parse_failure(format!("{field} must be an object")))
 }
 
+/// Strict boolean policy for Muse response fields: a present non-bool value
+/// is a parse failure, not a truthiness coercion. Muse's API is typed JSON;
+/// silently treating "yes"/1 as true would mask protocol drift. Non-null
+/// absence of the field stays `None` and callers treat that as false.
 fn optional_bool(value: Option<&Value>, field: &str) -> Result<Option<bool>, ProviderError> {
     match value {
         None | Some(Value::Null) => Ok(None),
@@ -379,20 +393,17 @@ fn positive_safe_minutes(value: f64) -> Result<u32, ProviderError> {
     if !value.is_finite() || value <= 0.0 {
         return Err(parse_failure("window_duration_mins"));
     }
+    // f64 has no TryFrom<u32> conversion; round first, then bound-check the
+    // integer result instead of the pre-merge manual u32::MAX float guard.
     let rounded = value.round();
-    if rounded <= 0.0 || rounded > u32::MAX as f64 {
+    if rounded <= 0.0 || rounded >= u32::MAX as f64 {
         return Err(parse_failure("window_duration_mins"));
     }
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
-        reason = "value is bounded to u32 range"
+        reason = "rounded is bounded below u32::MAX by the check above"
     )]
-    let value = rounded as u32;
-    Ok(value)
-}
-
-fn clamped_percent(value: f64) -> f64 {
-    value.clamp(0.0, 100.0)
+    Ok(rounded as u32)
 }
 
 fn parse_reset(value: Option<&Value>) -> Result<Option<DateTime<Utc>>, ProviderError> {
@@ -403,12 +414,15 @@ fn parse_reset(value: Option<&Value>) -> Result<Option<DateTime<Utc>>, ProviderE
         return Ok(None);
     }
     let seconds = number(value, "resets_at")?;
+    // MAX_RESET_SECONDS is the single bound: it caps seconds inside the i64
+    // range, so truncation cannot overflow and from_timestamp always
+    // succeeds for values that pass this check.
     if seconds <= 0.0 || seconds > MAX_RESET_SECONDS {
         return Ok(None);
     }
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
-        reason = "reset range is bounded to i64"
+        reason = "MAX_RESET_SECONDS bounds the value inside i64"
     )]
     let whole_seconds = seconds.trunc() as i64;
     Ok(DateTime::<Utc>::from_timestamp(whole_seconds, 0))
@@ -556,8 +570,8 @@ mod tests {
             result.usage.account_email.as_deref(),
             Some("muse@example.com")
         );
-        assert_eq!(result.usage.login_method.as_deref(), Some("Pro"));
-        let details: Vec<_> = result.display_details().collect();
+        assert_eq!(result.usage.login_method.as_deref(), Some("Muse login"));
+        let details: Vec<_> = result.display_details().iter().collect();
         assert_eq!(details.len(), 3);
         assert!(
             details

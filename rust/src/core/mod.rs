@@ -7,6 +7,7 @@ mod codex_routed_pricing;
 mod cost_cache_budget;
 mod cost_pricing;
 pub mod curl_capture;
+mod display_detail;
 mod hook_transition;
 mod hooks;
 
@@ -34,6 +35,7 @@ pub use aws_signing::*;
 pub use cost_cache_budget::*;
 pub use cost_pricing::*;
 pub use curl_capture::*;
+pub use display_detail::*;
 pub use hook_transition::*;
 pub use hooks::*;
 
@@ -50,7 +52,7 @@ pub use redactor::*;
 pub use session_equivalent_forecast::*;
 pub use session_quota::*;
 pub use sqlite::*;
-pub(crate) use timezone::local_timezone_name;
+pub use timezone::local_timezone_name;
 pub use token_accounts::*;
 pub use usage_pace::*;
 pub use usage_snapshot::*;

@@ -20,6 +20,7 @@ const baseSettings = {
   menuBarShowsHighestUsage: false,
   menuBarShowsPercent: false,
   menuBarDisplayMode: "detailed",
+  overviewLayout: "detailed",
   windowScalePercent: 100,
   showAsUsed: false,
   showAllTokenAccountsInMenu: false,
@@ -73,6 +74,17 @@ describe("DisplayTab window scale", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "ShowPace" }));
 
     expect(set).toHaveBeenCalledWith({ showPace: true });
+  });
+
+  it("updates the Overview layout preference", () => {
+    const set = vi.fn();
+    renderTab(set);
+
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "compact" },
+    });
+
+    expect(set).toHaveBeenCalledWith({ overviewLayout: "compact" });
   });
 
   it("updates the tray panel always-on-top preference", () => {

@@ -53,6 +53,7 @@ impl OllamaProvider {
                 is_primary: false,
                 dashboard_url: Some("https://ollama.com/settings"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

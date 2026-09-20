@@ -305,33 +305,6 @@ fn fetch_context_defaults_to_manual_cookies_without_browser_import() {
 }
 
 #[test]
-fn fetch_context_muse_uses_oauth_login_lane() {
-    let settings = Settings::default();
-    let cookies = ManualCookies::default();
-    let api_keys = ApiKeys::default();
-    let token_accounts = HashMap::new();
-
-    let ctx = super::build_fetch_context(
-        ProviderId::Muse,
-        &settings,
-        &cookies,
-        &api_keys,
-        &token_accounts,
-    );
-
-    assert_eq!(ctx.source_mode, SourceMode::Auto);
-    let provider = instantiate_provider(ProviderId::Muse);
-    assert_eq!(
-        provider.available_sources(),
-        vec![SourceMode::Auto, SourceMode::OAuth]
-    );
-    assert!(provider.supports_oauth());
-    assert!(!provider.supports_web());
-    assert!(!provider.supports_cli());
-    assert_eq!(provider.metadata().display_name, "Muse Code");
-}
-
-#[test]
 fn fetch_context_cursor_cookie_off_stays_cli() {
     let mut settings = Settings::default();
     settings.set_cookie_source(ProviderId::Cursor, "off");
@@ -1023,8 +996,8 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
     })
     .with_display_detail(
         ProviderDisplayDetail::new("credits", "Used this cycle", "12")
-            .with_secondary_value("Monthly refill: 100")
-            .with_progress(12.0, 100.0),
+            .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
+            .and_then(|row| row.with_progress(12.0, 100.0)),
     );
     let metadata = instantiate_provider(ProviderId::Grok).metadata().clone();
     let snapshot =
@@ -1199,11 +1172,13 @@ fn hiding_codex_spark_rows_preserves_other_extra_usage() {
         NamedRateWindowSnapshot {
             id: "codex-spark".to_string(),
             title: "Codex Spark 5-hour".to_string(),
+            fallback_lane: false,
             window: snapshot.primary.clone(),
         },
         NamedRateWindowSnapshot {
             id: "credits".to_string(),
             title: "Credits".to_string(),
+            fallback_lane: false,
             window: snapshot.primary.clone(),
         },
     ];

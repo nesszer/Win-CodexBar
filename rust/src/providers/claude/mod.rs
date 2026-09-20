@@ -138,6 +138,7 @@ impl ClaudeProvider {
                 is_primary: true,
                 dashboard_url: Some("https://claude.ai/settings/usage"),
                 status_page_url: Some("https://status.claude.com/"),
+                tertiary_label_key: None,
             },
             web_fetcher: ClaudeWebApiFetcher::new(),
             oauth_fetcher: ClaudeOAuthFetcher::new(),
@@ -466,6 +467,10 @@ impl Provider for ClaudeProvider {
         &self.metadata
     }
 
+    fn retains_last_good_on_transport_failure(&self) -> bool {
+        true
+    }
+
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto => self.fetch_via_auto(ctx).await,
@@ -540,12 +545,12 @@ impl ClaudeProvider {
     ) -> Result<ProviderFetchResult, ProviderError> {
         let mut failures = Vec::new();
 
-        if let Some(result) = self.try_auto_admin_api(ctx, &mut failures).await {
+        if let Some(result) = self.try_auto_admin_api(ctx, &mut failures).await? {
             return Ok(result);
         }
 
         if let Some(result) =
-            record_auto_source(&mut failures, "Web", self.fetch_via_web(ctx).await)
+            record_auto_source(&mut failures, "Web", self.fetch_via_web(ctx).await)?
         {
             return Ok(result);
         }
@@ -556,7 +561,7 @@ impl ClaudeProvider {
             .as_ref()
             .err()
             .is_some_and(is_oauth_revoked_error);
-        if let Some(result) = record_auto_source(&mut failures, "OAuth", oauth_result) {
+        if let Some(result) = record_auto_source(&mut failures, "OAuth", oauth_result)? {
             return Ok(result);
         }
 
@@ -568,7 +573,7 @@ impl ClaudeProvider {
         }
 
         if let Some(mut result) =
-            record_auto_source(&mut failures, "CLI", self.fetch_via_cli(ctx).await)
+            record_auto_source(&mut failures, "CLI", self.fetch_via_cli(ctx).await)?
         {
             // Without consent for reading Claude Code credentials, label the
             // CLI fallback as reduced fidelity.
@@ -597,13 +602,11 @@ impl ClaudeProvider {
         &self,
         ctx: &FetchContext,
         failures: &mut Vec<(&'static str, ProviderError)>,
-    ) -> Option<ProviderFetchResult> {
-        self.admin_fetcher
-            .has_credentials(ctx)
-            .then_some(async { self.fetch_via_admin_api(ctx).await })?
-            .await
-            .map_err(|error| failures.push(("Admin API", error)))
-            .ok()
+    ) -> Result<Option<ProviderFetchResult>, ProviderError> {
+        if !self.admin_fetcher.has_credentials(ctx) {
+            return Ok(None);
+        }
+        record_auto_source(failures, "Admin API", self.fetch_via_admin_api(ctx).await)
     }
 
     async fn fetch_via_oauth(
@@ -807,8 +810,15 @@ fn record_auto_source(
     failures: &mut Vec<(&'static str, ProviderError)>,
     source: &'static str,
     result: Result<ProviderFetchResult, ProviderError>,
-) -> Option<ProviderFetchResult> {
-    result.map_err(|error| failures.push((source, error))).ok()
+) -> Result<Option<ProviderFetchResult>, ProviderError> {
+    match result {
+        Ok(result) => Ok(Some(result)),
+        Err(error) if error.is_transport_failure() => Err(error),
+        Err(error) => {
+            failures.push((source, error));
+            Ok(None)
+        }
+    }
 }
 
 fn claude_auto_fetch_error(failures: Vec<(&'static str, ProviderError)>) -> ProviderError {
@@ -1540,6 +1550,21 @@ Resets Dec 24 at 3:59pm (Europe/Paris)
             err.to_string(),
             "Claude usage failed from all configured sources. OAuth: OAuth error: token expired; Web: No cookies available for web API; CLI: Parse error: Empty output from Claude CLI"
         );
+    }
+
+    #[test]
+    fn transient_transport_failure_stops_auto_fallback_and_preserves_last_good() {
+        let provider = ClaudeProvider::new();
+        assert!(provider.retains_last_good_on_transport_failure());
+        assert_eq!(
+            provider.last_good_failure_policy_for_error(&ProviderError::Timeout),
+            LastGoodFailurePolicy::Preserve
+        );
+
+        let mut failures = Vec::new();
+        let result = record_auto_source(&mut failures, "Web", Err(ProviderError::Timeout));
+        assert!(matches!(result, Err(ProviderError::Timeout)));
+        assert!(failures.is_empty());
     }
 
     #[test]

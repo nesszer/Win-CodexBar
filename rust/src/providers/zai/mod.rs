@@ -126,6 +126,7 @@ impl ZaiProvider {
                 is_primary: false,
                 dashboard_url: Some("https://z.ai/manage-apikey/coding-plan/personal/my-plan"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
         }
     }

@@ -38,6 +38,7 @@ impl LongCatProvider {
                 is_primary: false,
                 dashboard_url: Some("https://longcat.chat/platform/"),
                 status_page_url: None,
+                tertiary_label_key: None,
             },
             // Isolated cookie-free client — auth is only the explicit Cookie header.
             client: crate::core::credentialed_http_client_builder()

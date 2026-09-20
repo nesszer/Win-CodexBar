@@ -188,6 +188,7 @@ impl ZoomMateProvider {
                 is_primary: false,
                 dashboard_url: Some("https://zoommate.zoom.us/#/?settings=credit-usage"),
                 status_page_url: Some("https://www.zoomstatus.com/"),
+                tertiary_label_key: None,
             },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(Duration::from_secs(15))

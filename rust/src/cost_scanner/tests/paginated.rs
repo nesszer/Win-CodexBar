@@ -449,7 +449,7 @@ fn unresolved_legacy_fork_keeps_background_daily_usage_live() {
 }
 
 #[test]
-fn unresolved_legacy_fork_old_no_progress_pause_recovers_in_background() {
+fn unresolved_legacy_fork_old_no_progress_pause_retains_report_in_background() {
     let root = tempfile::tempdir().unwrap();
     let sessions = root.path().join("sessions");
     let cache_root = root.path().join("cache");
@@ -508,9 +508,11 @@ fn unresolved_legacy_fork_old_no_progress_pause_recovers_in_background() {
         .with_cache_root(&cache_root)
         .with_sessions_dirs(vec![sessions]);
     let (summary, stats, cache) = background.scan_codex_detailed_with_cache(None);
-    assert_eq!(summary.input_tokens, 300);
-    assert_eq!(summary.output_tokens, 10);
-    assert_eq!(summary.sessions_count, 2);
+    // v0.60.5 keeps the last validated report while unresolved current work
+    // remains queued; newly discovered rows are not authoritative yet.
+    assert_eq!(summary.input_tokens, 11);
+    assert_eq!(summary.output_tokens, 3);
+    assert_eq!(summary.sessions_count, 1);
     assert!(!summary.history_coverage_established);
     assert!(!summary.known_zero);
     assert!(stats.files_seen > 0);
@@ -522,5 +524,11 @@ fn unresolved_legacy_fork_old_no_progress_pause_recovers_in_background() {
     assert_eq!(still_unresolved.size, unchanged_fork.size);
     assert_eq!(still_unresolved.mtime_unix_ms, unchanged_fork.mtime_unix_ms);
     assert!(cache.codex_scan_pause_reason.is_none());
-    assert!(cache.previous_report.is_none());
+    assert_eq!(
+        cache
+            .previous_report
+            .as_ref()
+            .map(|report| report.input_tokens),
+        Some(11)
+    );
 }

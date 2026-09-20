@@ -36,8 +36,32 @@
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 
-use super::hooks::{HookEvent, HookEventType, HookRule, HooksConfig};
+use super::hooks::{HookEvent, HookEventType, HookRule, HooksConfig, spawn_hook_dispatch};
 use super::rate_window::RateWindow;
+use super::usage_snapshot::UsageSnapshot;
+
+/// Quota-window view consumed by the canonical `usage_updated` builder.
+///
+/// Carries exactly the payload-relevant fields of [`RateWindow`] so both the
+/// core `UsageSnapshot` and shell-side bridge snapshots feed one builder.
+#[derive(Debug, Clone)]
+pub struct HookUsageWindow {
+    pub used_percent: f64,
+    pub window_minutes: Option<u32>,
+    pub resets_at: Option<String>,
+    pub is_informational: bool,
+}
+
+impl From<&RateWindow> for HookUsageWindow {
+    fn from(window: &RateWindow) -> Self {
+        Self {
+            used_percent: window.used_percent,
+            window_minutes: window.window_minutes,
+            resets_at: window.resets_at.map(|reset| reset.to_rfc3339()),
+            is_informational: window.is_informational,
+        }
+    }
+}
 
 /// Identifies one quota lane for hook transition tracking.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -143,6 +167,11 @@ pub struct HookProviderObservation {
     /// Coarse failure category when the refresh itself failed (never a raw error).
     pub refresh_failure_status: Option<String>,
     pub account_display_name: Option<String>,
+    /// Present only after a successful fetch. Failed observations never emit an
+    /// update and leave quota/status baselines unchanged.
+    pub successful_usage: Option<UsageSnapshot>,
+    /// Private account identity used only for usage-updated rate limiting.
+    pub account_discriminator: Option<String>,
 }
 
 impl HookProviderObservation {
@@ -153,6 +182,8 @@ impl HookProviderObservation {
             status: HookProviderStatus::Unknown,
             refresh_failure_status: None,
             account_display_name: None,
+            successful_usage: None,
+            account_discriminator: None,
         }
     }
 }
@@ -163,6 +194,10 @@ pub struct HookDispatch {
     pub event: HookEvent,
     /// When set (currently only for `quota_low`), only these rules should run.
     pub rules: Option<Vec<HookRule>>,
+    /// Private limiter scope for [`HookEventType::UsageUpdated`] dispatches
+    /// (e.g. the account discriminator). Never serialized or exported to hook
+    /// processes; `None` falls back to event-identity keys.
+    pub rate_limit_scope: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -236,10 +271,30 @@ impl HookTransitionDetector {
                 None => event,
             };
             // Failed refresh must not disturb baselines.
-            return vec![HookDispatch { event, rules: None }];
+            return vec![HookDispatch {
+                event,
+                rules: None,
+                rate_limit_scope: None,
+            }];
         }
 
         let mut dispatches = self.status_events(observation, now);
+        if let Some(usage) = &observation.successful_usage {
+            dispatches.push(HookDispatch {
+                event: build_usage_updated_event(
+                    &observation.provider,
+                    &HookUsageWindow::from(&usage.primary),
+                    usage.secondary.as_ref().map(HookUsageWindow::from).as_ref(),
+                    observation.account_display_name.as_deref(),
+                    now,
+                ),
+                rules: None,
+                rate_limit_scope: observation
+                    .account_discriminator
+                    .clone()
+                    .filter(|scope| !scope.is_empty()),
+            });
+        }
 
         let observed_keys: HashSet<HookQuotaLaneKey> =
             observation.lanes.iter().map(|l| l.key.clone()).collect();
@@ -281,7 +336,11 @@ impl HookTransitionDetector {
             Some(account) => event.with_account(account.clone()),
             None => event,
         };
-        vec![HookDispatch { event, rules: None }]
+        vec![HookDispatch {
+            event,
+            rules: None,
+            rate_limit_scope: None,
+        }]
     }
 
     fn lane_events(
@@ -321,6 +380,7 @@ impl HookTransitionDetector {
             return vec![HookDispatch {
                 event: reset_event,
                 rules: None,
+                rate_limit_scope: None,
             }];
         }
 
@@ -333,6 +393,7 @@ impl HookTransitionDetector {
             dispatches.push(HookDispatch {
                 event: build_lane_event(HookEventType::QuotaReached, provider, lane, current, now),
                 rules: None,
+                rate_limit_scope: None,
             });
         }
 
@@ -406,6 +467,7 @@ impl HookTransitionDetector {
         vec![HookDispatch {
             event: build_lane_event(HookEventType::QuotaLow, provider, lane, current, now),
             rules: Some(crossed),
+            rate_limit_scope: None,
         }]
     }
 
@@ -450,6 +512,62 @@ fn build_lane_event(
         event = event.with_account(account.clone());
     }
     event
+}
+
+/// Builds the canonical `usage_updated` event.
+///
+/// The single place that assembles the payload from quota windows: non-
+/// informational windows are exported (primary and secondary), informational
+/// ones are omitted. `account` is the display account for the payload. The
+/// private limiter scope travels in `HookDispatch`, not in the payload.
+pub fn build_usage_updated_event(
+    provider: &str,
+    primary: &HookUsageWindow,
+    secondary: Option<&HookUsageWindow>,
+    account: Option<&str>,
+    now: DateTime<Utc>,
+) -> HookEvent {
+    let mut event = HookEvent::new(HookEventType::UsageUpdated, provider).with_timestamp(now);
+
+    if !primary.is_informational {
+        event = event
+            .with_used_percent(primary.used_percent)
+            .with_window_minutes(primary.window_minutes)
+            .with_reset_at(primary.resets_at.clone());
+    }
+    if let Some(secondary) = secondary.filter(|window| !window.is_informational) {
+        event = event
+            .with_secondary_usage_fraction(secondary.used_percent / 100.0)
+            .with_secondary_window_minutes(secondary.window_minutes)
+            .with_secondary_reset_at(secondary.resets_at.clone());
+    }
+    if let Some(account) = account {
+        event = event.with_account(account.to_string());
+    }
+    event
+}
+
+/// Loads settings, gates on hooks, builds the canonical `usage_updated` event
+/// and dispatches it on a background thread. Shared by every publishing
+/// surface (desktop refresh, CLI watch) so payload assembly and limiter scoping
+/// stay in one place.
+///
+/// `primary`/`secondary` windows are exported only when non-informational;
+/// `rate_limit_scope` is the private account discriminator used only for the
+/// in-memory ten-minute limiter (never serialized or exported).
+pub fn dispatch_usage_updated_hook(
+    hooks_enabled: bool,
+    provider: &str,
+    primary: &HookUsageWindow,
+    secondary: Option<&HookUsageWindow>,
+    account: Option<&str>,
+    rate_limit_scope: Option<String>,
+) {
+    if !hooks_enabled {
+        return;
+    }
+    let event = build_usage_updated_event(provider, primary, secondary, account, Utc::now());
+    spawn_hook_dispatch(event, true, rate_limit_scope);
 }
 
 #[cfg(test)]
@@ -512,6 +630,8 @@ mod tests {
             status,
             refresh_failure_status: refresh_failure.map(str::to_string),
             account_display_name: None,
+            successful_usage: None,
+            account_discriminator: None,
         }
     }
 
@@ -1100,11 +1220,12 @@ mod tests {
 
         let limiter = HookRateLimiter::new(Duration::from_secs(600));
         let event = HookEvent::new(HookEventType::RefreshFailed, "codex").with_status("timeout");
-        assert!(limiter.allow(&event));
-        assert!(!limiter.allow(&event));
+        assert!(limiter.allow(&event, None));
+        assert!(!limiter.allow(&event, None));
 
         // Quota events are not rate-limited by HookEventType::is_rate_limited.
         assert!(!HookEventType::QuotaLow.is_rate_limited());
+        assert!(HookEventType::UsageUpdated.is_rate_limited());
         assert!(HookEventType::RefreshFailed.is_rate_limited());
         assert!(HookEventType::ProviderUnavailable.is_rate_limited());
     }
