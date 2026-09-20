@@ -689,6 +689,11 @@ pub struct FetchContext {
     /// Manual cookie header (for testing)
     pub manual_cookie_header: Option<String>,
 
+    /// The cookie source is manual and no cookie is stored. The provider
+    /// decides what this means; Replicate fails closed instead of importing a
+    /// browser account the user did not select.
+    pub manual_cookie_missing: bool,
+
     /// API key for providers that require authentication
     pub api_key: Option<String>,
 
@@ -721,6 +726,7 @@ impl Default for FetchContext {
             web_timeout: 60,
             verbose: false,
             manual_cookie_header: None,
+            manual_cookie_missing: false,
             api_key: None,
             workspace_id: None,
             api_region: None,
@@ -738,6 +744,16 @@ pub enum LastGoodFailurePolicy {
     Preserve,
     PreserveOnce,
     PreserveOnceThenSurface,
+}
+
+/// How the shell should treat a manual cookie source with no cookie present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManualEmptyCookiePolicy {
+    /// Remap to the shell's generic browser-cookie attempt.
+    Fallback,
+    /// Keep `SourceMode::Web` with no header so the provider fails closed
+    /// instead of importing a browser account the user did not select.
+    FailClosedWeb,
 }
 
 /// Trait that all providers must implement
@@ -780,6 +796,16 @@ pub trait Provider: Send + Sync {
     /// Whether an explicitly selected manual cookie outranks a token-account override.
     fn manual_cookie_precedes_token_account(&self) -> bool {
         false
+    }
+
+    /// How the shell treats a manual cookie source with no cookie present.
+    ///
+    /// `Fallback` lets the shell remap to its generic browser-cookie attempt.
+    /// `FailClosedWeb` keeps `SourceMode::Web` without any header, so the
+    /// provider fails closed instead of importing a browser account the user
+    /// did not select.
+    fn manual_empty_cookie_policy(&self) -> ManualEmptyCookiePolicy {
+        ManualEmptyCookiePolicy::Fallback
     }
 
     /// Whether Automatic metric selection should prefer an exhausted quota lane.

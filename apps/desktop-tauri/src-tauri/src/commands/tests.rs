@@ -481,7 +481,8 @@ fn fetch_context_replicate_empty_manual_fails_closed_without_browser_import() {
     );
 
     assert_eq!(ctx.source_mode, SourceMode::Web);
-    assert_eq!(ctx.manual_cookie_header.as_deref(), Some(""));
+    assert!(ctx.manual_cookie_header.is_none());
+    assert!(ctx.manual_cookie_missing);
 }
 
 #[test]

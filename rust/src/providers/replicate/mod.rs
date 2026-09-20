@@ -17,8 +17,9 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use crate::core::{
-    CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    CostSnapshot, FetchContext, ManualEmptyCookiePolicy, Provider, ProviderDisplayDetail,
+    ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 const BILLING_URL: &str = "https://replicate.com/account/billing";
@@ -182,9 +183,24 @@ impl ReplicateProvider {
         }
     }
 
-    async fn fetch_auto(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+    /// Auto and Web share one path: a manual header wins, otherwise the
+    /// provider tries browser candidates. There is no divergence today; if
+    /// Auto and Web ever need one, state it here.
+    async fn fetch_with_cookie_source(
+        &self,
+        ctx: &FetchContext,
+    ) -> Result<ProviderFetchResult, ProviderError> {
         if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
             return self.fetch_with_cookie(cookie_header, "manual").await;
+        }
+        // The shell signals "manual source selected, no cookie stored". Fail
+        // closed instead of importing a browser account the user did not
+        // select; browser candidates remain available for Auto without a
+        // manual-cookie scope.
+        if ctx.manual_cookie_missing {
+            return Err(ProviderError::Other(
+                "Replicate needs a Cookie header containing a nonempty sessionid.".to_string(),
+            ));
         }
         self.fetch_browser_cookie().await
     }
@@ -208,14 +224,7 @@ impl Provider for ReplicateProvider {
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
-            SourceMode::Auto => self.fetch_auto(ctx).await,
-            SourceMode::Web => {
-                if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
-                    self.fetch_with_cookie(cookie_header, "manual").await
-                } else {
-                    self.fetch_browser_cookie().await
-                }
-            }
+            SourceMode::Auto | SourceMode::Web => self.fetch_with_cookie_source(ctx).await,
             source => Err(ProviderError::UnsupportedSource(source)),
         }
     }
@@ -230,6 +239,10 @@ impl Provider for ReplicateProvider {
 
     fn manual_cookie_precedes_token_account(&self) -> bool {
         true
+    }
+
+    fn manual_empty_cookie_policy(&self) -> ManualEmptyCookiePolicy {
+        ManualEmptyCookiePolicy::FailClosedWeb
     }
 }
 
@@ -278,10 +291,14 @@ fn account_endpoint(account: &ReplicateAccount, suffix: &str) -> Result<Url, Pro
 }
 
 fn parse_billing_account(body: &str) -> Result<ReplicateAccount, ProviderError> {
-    let mut scripts = 0usize;
+    let mut scanned = 0usize;
     let lower = body.to_ascii_lowercase();
     let mut cursor = 0usize;
-    while cursor < lower.len() && scripts < MAX_REACT_NODES {
+    while cursor < lower.len() {
+        scanned += 1;
+        if scanned > MAX_REACT_NODES {
+            break;
+        }
         let Some(relative_start) = lower[cursor..].find("<script") else {
             break;
         };
@@ -304,16 +321,17 @@ fn parse_billing_account(body: &str) -> Result<ReplicateAccount, ProviderError> 
             break;
         };
         let close = content_start + relative_close;
-        let attributes = &body[after_name..tag_end];
-        if has_script_attribute(attributes, "id", "react-component-props")
-            && has_script_attribute(attributes, "type", "application/json")
+        if parse_script_attributes(&body[after_name..tag_end]).is_some_and(|attrs| {
+            attrs
+                .iter()
+                .any(|(name, value)| name == "id" && value == "react-component-props")
+                && attrs
+                    .iter()
+                    .any(|(name, value)| name == "type" && value == "application/json")
+        }) && let Ok(value) = serde_json::from_str::<Value>(&body[content_start..close])
+            && let Some(account) = find_account_value(&value)
         {
-            scripts += 1;
-            if let Ok(value) = serde_json::from_str::<Value>(&body[content_start..close])
-                && let Some(account) = find_account_value(&value)
-            {
-                return Ok(account);
-            }
+            return Ok(account);
         }
         cursor = close + "</script".len();
     }
@@ -326,43 +344,45 @@ fn parse_billing_account(body: &str) -> Result<ReplicateAccount, ProviderError> 
     ))
 }
 
-fn has_script_attribute(attributes: &str, name: &str, expected: &str) -> bool {
-    let lower = attributes.to_ascii_lowercase();
-    let name = name.to_ascii_lowercase();
-    let expected = expected.to_ascii_lowercase();
-    let Some(mut cursor) = lower.find(&name) else {
-        return false;
-    };
-    while cursor < lower.len() {
-        let before = cursor
-            .checked_sub(1)
-            .and_then(|index| lower.as_bytes().get(index));
-        let after = lower.as_bytes().get(cursor + name.len());
-        if before.is_none_or(|value| !value.is_ascii_alphanumeric())
-            && after.is_none_or(|value| !value.is_ascii_alphanumeric())
-        {
-            let rest = lower[cursor + name.len()..].trim_start();
-            if let Some(rest) = rest.strip_prefix('=') {
-                let rest = rest.trim_start();
-                if let Some(rest) = rest.strip_prefix('"') {
-                    return rest
-                        .split_once('"')
-                        .is_some_and(|(value, _)| value == expected);
-                }
-                if let Some(rest) = rest.strip_prefix('\'') {
-                    return rest
-                        .split_once('\'')
-                        .is_some_and(|(value, _)| value == expected);
-                }
+/// Parse `name="value"` / `name='value'` pairs from a raw script tag attribute
+/// string. Unquoted and malformed attributes are skipped, matching the lenient
+/// reading the previous hand-rolled matcher accepted for the target tags.
+fn parse_script_attributes(raw: &str) -> Option<Vec<(String, String)>> {
+    let mut attrs = Vec::new();
+    let mut rest = raw.trim_start();
+    while !rest.is_empty() {
+        let name_len = rest
+            .chars()
+            .position(|c| c.is_ascii_whitespace() || c == '=')
+            .unwrap_or(rest.len());
+        let (name, after_name) = rest.split_at(name_len);
+        let after_name = after_name.trim_start();
+        if let Some(after_eq) = after_name.strip_prefix('=') {
+            let after_eq = after_eq.trim_start();
+            let (value, tail) = if let Some(quoted) = after_eq.strip_prefix('"') {
+                quoted.split_once('"')?
+            } else if let Some(quoted) = after_eq.strip_prefix('\'') {
+                quoted.split_once('\'')?
+            } else {
+                let end = after_eq
+                    .char_indices()
+                    .find(|(_, c)| c.is_ascii_whitespace())
+                    .map(|(i, _)| i)
+                    .unwrap_or(after_eq.len());
+                after_eq.split_at(end)
+            };
+            if !name.is_empty() {
+                attrs.push((name.to_ascii_lowercase(), value.to_ascii_lowercase()));
             }
+            rest = tail.trim_start();
+        } else {
+            if !name.is_empty() {
+                attrs.push((name.to_ascii_lowercase(), String::new()));
+            }
+            rest = after_name;
         }
-        let next = cursor + name.len();
-        let Some(relative) = lower[next..].find(&name) else {
-            break;
-        };
-        cursor = next + relative;
     }
-    false
+    Some(attrs)
 }
 
 fn find_account_value(root: &Value) -> Option<ReplicateAccount> {

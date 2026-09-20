@@ -289,6 +289,7 @@ async fn hooks_watch_observation(
         web_timeout,
         verbose,
         manual_cookie_header: None,
+        manual_cookie_missing: false,
         api_key: None,
         workspace_id: (!workspace.is_empty()).then(|| workspace.to_string()),
         api_region: (!region.is_empty()).then(|| region.to_string()),
