@@ -59,9 +59,14 @@ pub fn summarize(days: u32) -> LocalSessionSummary {
     let Some(context) = ScanContext::capture() else {
         return LocalSessionSummary::default();
     };
+    summarize_context(&context, now, days)
+}
+
+fn summarize_context(context: &ScanContext, now: DateTime<Utc>, days: u32) -> LocalSessionSummary {
     match super::local_sqlite::summarize(&context.database_roots, now, days) {
         super::local_sqlite::SQLiteScan::Summary(summary) => summary,
-        super::local_sqlite::SQLiteScan::NoDatabases => {
+        super::local_sqlite::SQLiteScan::NoDatabases
+        | super::local_sqlite::SQLiteScan::Unsupported => {
             let (paths, truncated) = tokscale_paths(&context.tokscale_sessions);
             if paths.is_empty() {
                 LocalSessionSummary::default()
@@ -285,6 +290,7 @@ fn token_field(value: &Value, keys: &[&str]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
 
     #[test]
     fn scan_context_honors_non_empty_root_overrides() {
@@ -315,6 +321,66 @@ mod tests {
                 .join("antigravity-cache")
                 .join("sessions")
         );
+    }
+
+    #[test]
+    fn foreign_database_preserves_valid_tokscale_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let gemini_base = dir.path().join(".gemini");
+        let database_root = gemini_base.join("antigravity-cli").join("conversations");
+        fs::create_dir_all(&database_root).unwrap();
+        let connection = Connection::open(database_root.join("foreign.db")).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE unrelated(id INTEGER PRIMARY KEY, value TEXT)",
+                [],
+            )
+            .unwrap();
+
+        let tokscale_sessions = dir
+            .path()
+            .join(".config/tokscale/antigravity-cache/sessions");
+        fs::create_dir_all(&tokscale_sessions).unwrap();
+        fs::write(
+            tokscale_sessions.join("session-a.jsonl"),
+            b"{\"type\":\"usage\",\"responseId\":\"r1\",\"timestamp\":1787572800000,\"input\":100,\"output\":20}\n",
+        )
+        .unwrap();
+
+        let context = ScanContext {
+            database_roots: super::super::local_sqlite::database_roots(&gemini_base),
+            tokscale_sessions,
+        };
+        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
+
+        let summary = summarize_context(&context, now, 7);
+
+        assert_eq!(summary.total_tokens, 120);
+        assert_eq!(summary.session_count, 1);
+        assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
+    }
+
+    #[test]
+    fn foreign_only_input_does_not_fabricate_known_zero_native_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let gemini_base = dir.path().join(".gemini");
+        let database_root = gemini_base.join("antigravity-cli").join("conversations");
+        fs::create_dir_all(&database_root).unwrap();
+        let connection = Connection::open(database_root.join("foreign.db")).unwrap();
+        connection
+            .execute("CREATE TABLE unrelated(id INTEGER PRIMARY KEY)", [])
+            .unwrap();
+
+        let context = ScanContext {
+            database_roots: super::super::local_sqlite::database_roots(&gemini_base),
+            tokscale_sessions: dir.path().join("missing-tokscale-sessions"),
+        };
+        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
+
+        let summary = summarize_context(&context, now, 7);
+
+        assert_eq!(summary, LocalSessionSummary::default());
+        assert_eq!(summary.coverage, LocalHistoryCoverage::Unavailable);
     }
 
     #[test]
