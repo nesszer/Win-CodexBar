@@ -131,6 +131,23 @@ pub(super) async fn try_fetch(
     }
 }
 
+/// Newer `agy` releases require a CSRF token for the local server started by
+/// the CLI. CodexBar cannot obtain that token from a managed process, so let
+/// the caller skip its readiness wait and continue to the print report.
+pub(super) async fn managed_spawn_is_csrf_gated(binary: Option<PathBuf>) -> bool {
+    let Some(binary) = binary else {
+        return false;
+    };
+    let Ok(version) = run_cli_command(&binary, &VERSION_ARGS, VERSION_TIMEOUT).await else {
+        return false;
+    };
+    if version.exceeded_limit {
+        return false;
+    }
+    let version = String::from_utf8_lossy(&version.bytes);
+    is_csrf_gated_version(version.trim())
+}
+
 async fn fetch_print_usage(binary: &Path) -> Result<ProviderFetchResult, ProviderError> {
     let version = run_cli_command(binary, &VERSION_ARGS, VERSION_TIMEOUT).await?;
     if version.exceeded_limit {
@@ -207,24 +224,27 @@ async fn run_cli_command(
 }
 
 fn is_supported_version(version: &str) -> bool {
+    parse_version(version).is_some_and(|version| version >= (1, 1, 11))
+}
+
+fn is_csrf_gated_version(version: &str) -> bool {
+    parse_version(version).is_some_and(|version| version >= (1, 2, 2))
+}
+
+fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
     let parts: Vec<_> = version.split('.').collect();
     if parts.len() != 3
         || parts
             .iter()
             .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
     {
-        return false;
+        return None;
     }
-    let Some(major) = parts[0].parse::<u64>().ok() else {
-        return false;
-    };
-    let Some(minor) = parts[1].parse::<u64>().ok() else {
-        return false;
-    };
-    let Some(patch) = parts[2].parse::<u64>().ok() else {
-        return false;
-    };
-    (major, minor, patch) >= (1, 1, 11)
+    Some((
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ))
 }
 
 #[cfg(test)]
@@ -241,6 +261,16 @@ mod tests {
         assert!(!is_supported_version("+1.2.2"));
         assert!(!is_supported_version("1.2.2.3"));
         assert!(!is_supported_version(""));
+    }
+
+    #[test]
+    fn managed_spawn_is_skipped_only_for_known_csrf_gated_versions() {
+        assert!(!is_csrf_gated_version("1.2.1"));
+        assert!(is_csrf_gated_version("1.2.2"));
+        assert!(is_csrf_gated_version("1.10.0"));
+        assert!(is_csrf_gated_version("2.0.0"));
+        assert!(!is_csrf_gated_version("1.2.2-preview"));
+        assert!(!is_csrf_gated_version(""));
     }
 
     #[tokio::test]
