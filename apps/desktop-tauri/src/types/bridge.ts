@@ -375,7 +375,7 @@ export interface UsageSpendRow {
   thirtyDayTokens?: number | null;
   currency: string;
   source: string;
-  includedInOverview?: boolean;
+  includedInOverview: boolean;
   daily?: UsageSpendDailyPoint[];
   /** F8: true when served from stale cache while a re-scan is in progress. */
   refreshing?: boolean;
@@ -601,6 +601,13 @@ export interface SubscriptionMetadataSnapshot {
   renewsAt: string | null;
 }
 
+export interface ProviderInventoryItem {
+  id: string;
+  title: string;
+  availableCount: number;
+  nextExpiresAt: string | null;
+}
+
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
   | "ready"
@@ -629,6 +636,8 @@ export interface ProviderUsageSnapshot {
     /** Provider-declared fallback lane; only fills in without a core quota window. */
     fallbackLane?: boolean;
   }>;
+  /** Display-only discrete provider inventory; never used as quota math. */
+  inventory?: ProviderInventoryItem[];
   cost: CostSnapshotBridge | null;
   planName: string | null;
   accountEmail: string | null;
@@ -907,6 +916,8 @@ export interface ProviderDetail {
     /** Provider-declared fallback lane; only fills in without a core quota window. */
     fallbackLane?: boolean;
   }>;
+  /** Display-only discrete provider inventory; never used as quota math. */
+  inventory?: ProviderInventoryItem[];
 
   cost: CostSnapshotBridge | null;
   pace: PaceSnapshot | null;

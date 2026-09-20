@@ -21,6 +21,10 @@ import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid from "../components/ProviderGrid";
 import AgentSessions from "../components/AgentSessions";
 import { hasSuccessfulClaudeCliQuota } from "../lib/claudeAccountActions";
+import {
+  filterUsageSpendSummaryForOverview,
+  shareUsageSpendPng,
+} from "../lib/usageSpendSharing";
 
 /** Provider IDs that have a dashboard URL in the backend */
 const HAS_DASHBOARD = new Set([
@@ -333,6 +337,7 @@ function TrayResizeHandles() {
 
 function OverviewSpendSummary({ providerIds, t }: { providerIds: string[]; t: (key: LocaleKey) => string }) {
   const [summary, setSummary] = useState<UsageSpendSummary | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -342,10 +347,22 @@ function OverviewSpendSummary({ providerIds, t }: { providerIds: string[]; t: (k
     return () => { cancelled = true; };
   }, [providerIds.join("|")]);
 
-  if (!summary) return null;
   // Overview consumes the same backend spend catalog as Usage & Spend. Do not
   // restrict accounting to whichever cards happen to be rendered in this tray.
-  const rows = summary.rows.filter((row) => row.includedInOverview !== false);
+  const overviewSummary = summary ? filterUsageSpendSummaryForOverview(summary) : null;
+
+  if (!overviewSummary) return null;
+  const onShare = () => {
+    setShareError(null);
+    const error = shareUsageSpendPng(
+      overviewSummary,
+      t("OverviewSpendTitle"),
+      `codexbar-overview-usage-${overviewSummary.reportingDay}.png`,
+    );
+    if (error) setShareError(t(error as LocaleKey));
+  };
+
+  const rows = overviewSummary.rows;
   const summable = rows.filter((row) => (row.currency || "USD") === "USD");
   const known = summable.filter((row) => row.thirtyDay != null && Number.isFinite(row.thirtyDay));
   if (known.length === 0) return null;
@@ -362,6 +379,19 @@ function OverviewSpendSummary({ providerIds, t }: { providerIds: string[]; t: (k
       <div className="settings-section__caption" style={{ marginTop: 4 }}>
         {known.length} of {rows.length} {t("OverviewSpendProviderCoverage")} · {t("OverviewSpendEstimate")}
       </div>
+      <button
+        type="button"
+        className="credential-btn credential-btn--secondary"
+        style={{ marginTop: 8 }}
+        onClick={onShare}
+      >
+        {t("UsageSpendShare")}
+      </button>
+      {shareError && (
+        <div className="settings-section__caption" role="status" style={{ marginTop: 4 }}>
+          {shareError}
+        </div>
+      )}
     </div>
   );
 }

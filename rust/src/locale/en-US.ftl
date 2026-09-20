@@ -256,6 +256,7 @@ NextExpiresInDaysHours = Next expires in { "{}" }d { "{}" }h
 NextExpiresInHoursMinutes = Next expires in { "{}" }h { "{}" }m
 NextExpiresInMinutes = Next expires in { "{}" }m
 NextExpiresDueNow = Expires now
+InventoryAvailableCount = { "{}" } available
 FloatBarShowCost = Show Local Cost
 FloatBarShowCostDescription = Shows estimated local usage cost in the floating bar.
 TrayDisplayTitle = Tray Display

@@ -247,6 +247,7 @@ NextExpiresInDaysHours = 次回の有効期限まで { "{}" }日 { "{}" }時間
 NextExpiresInHoursMinutes = 次回の有効期限まで { "{}" }時間 { "{}" }分
 NextExpiresInMinutes = 次回の有効期限まで { "{}" }分
 NextExpiresDueNow = まもなく期限切れ
+InventoryAvailableCount = { "{}" } available
 FloatBarShowCost = ローカルコストを表示
 FloatBarShowCostDescription = フローティングバーにローカル使用量の推定コストを表示します。
 TrayDisplayTitle = トレイ表示

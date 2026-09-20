@@ -69,7 +69,9 @@ function provider(): ProviderDetail {
 describe("UsageSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle());
+    tauriMocks.getLocaleStrings.mockResolvedValue(
+      buildBundle({ InventoryAvailableCount: "{} available" }),
+    );
     eventMocks.listen.mockResolvedValue(() => {});
   });
 
@@ -101,5 +103,28 @@ describe("UsageSection", () => {
     const label = await screen.findByText("ProviderSessionLabel");
     expect(label.parentElement).toHaveTextContent("No active 5h session");
     expect(label.parentElement?.querySelector(".provider-usage-bar__track")).toBeNull();
+  });
+
+  it("renders discrete inventory without turning it into a quota bar", async () => {
+    const detail = provider();
+    detail.session = null;
+    detail.extraRateWindows = [];
+    detail.inventory = [
+      {
+        id: "reset-credits",
+        title: "Limit Reset Credits",
+        availableCount: 2,
+        nextExpiresAt: "2099-01-01T00:00:00Z",
+      },
+    ];
+
+    const { container } = render(
+      <LocaleProvider>
+        <UsageSection provider={detail} resetTimeRelative={true} t={(key) => key} />
+      </LocaleProvider>,
+    );
+
+    expect(await screen.findByText(/Limit Reset Credits: 2 available/)).toBeInTheDocument();
+    expect(container.querySelector(".provider-usage-bar__track")).toBeNull();
   });
 });

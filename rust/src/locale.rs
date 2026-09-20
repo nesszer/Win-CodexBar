@@ -505,6 +505,7 @@ locale_keys! {
     NextExpiresInHoursMinutes,
     NextExpiresInMinutes,
     NextExpiresDueNow,
+    InventoryAvailableCount,
 
     // Provider detail - Tray Display
     TrayDisplayTitle,
