@@ -67,7 +67,6 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
   const inventory = provider.inventory ?? [];
   const displayDetails = provider.displayDetails ?? [];
   if (bars.length === 0 && inventory.length === 0 && displayDetails.length === 0) {
-  if (bars.length === 0 && inventory.length === 0) {
     return null;
   }
 
