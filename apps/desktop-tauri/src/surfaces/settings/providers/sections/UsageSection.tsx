@@ -1,14 +1,9 @@
-<<<<<<< HEAD
 import type {
   ProviderDisplayDetail,
-  ProviderInventoryItem,
   ProviderDetail,
   RateWindowSnapshot,
 } from "../../../../types/bridge";
-=======
-import type { ProviderDetail, RateWindowSnapshot } from "../../../../types/bridge";
 import { InventoryItemRow } from "../../../../components/InventoryRows";
->>>>>>> origin/main
 import type { LocaleKey } from "../../../../i18n/keys";
 import { useFormattedResetTime } from "../../../../hooks/useFormattedResetTime";
 
@@ -68,12 +63,8 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
   }
 
   const inventory = provider.inventory ?? [];
-<<<<<<< HEAD
   const displayDetails = provider.displayDetails ?? [];
   if (bars.length === 0 && inventory.length === 0 && displayDetails.length === 0) {
-=======
-  if (bars.length === 0 && inventory.length === 0) {
->>>>>>> origin/main
     return null;
   }
 
@@ -90,17 +81,6 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
         />
       ))}
       {inventory.map((item) => (
-<<<<<<< HEAD
-        <InventoryRow
-          key={item.id}
-          item={item}
-          resetTimeRelative={resetTimeRelative}
-        />
-      ))}
-      {displayDetails.map((detail, index) => (
-        <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
-      ))}
-=======
         <InventoryItemRow
           key={item.id}
           item={item}
@@ -108,30 +88,10 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
           lineClassName="provider-usage-inventory"
         />
       ))}
->>>>>>> origin/main
+      {displayDetails.map((detail, index) => (
+        <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
+      ))}
     </section>
-  );
-}
-
-function InventoryRow({
-  item,
-  resetTimeRelative,
-}: {
-  item: ProviderInventoryItem;
-  resetTimeRelative: boolean;
-}) {
-  const formattedExpiry = useFormattedResetTime(
-    item.nextExpiresAt,
-    null,
-    resetTimeRelative,
-    "expires",
-  );
-
-  return (
-    <div className="provider-usage-inventory">
-      <span>{item.title}: {item.availableCount} available</span>
-      {formattedExpiry && <span>{formattedExpiry}</span>}
-    </div>
   );
 }
 

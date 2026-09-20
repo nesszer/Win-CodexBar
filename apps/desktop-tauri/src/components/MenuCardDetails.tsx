@@ -761,4 +761,25 @@ export default function MenuCardDetails({
   );
 }
 
-function DisplayDetailRow(
+function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
+  const progress = detail.progress;
+  const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
+    ? Math.max(0, Math.min(100, (progress.used / progress.total) * 100))
+    : null;
+
+  return (
+    <div className="menu-card__provider-detail">
+      <div className="menu-card__cost-line">
+        <span>{detail.title}: {detail.value}</span>
+        {detail.secondaryValue && (
+          <span className="menu-card__cost-line--muted">{detail.secondaryValue}</span>
+        )}
+      </div>
+      {progressPercent != null && (
+        <div className="menu-metric__bar" aria-label={`${detail.title} progress`}>
+          <div className="menu-metric__bar-fill" style={{ width: `${progressPercent}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
