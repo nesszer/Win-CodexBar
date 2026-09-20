@@ -134,6 +134,114 @@ impl RemoteSessionFetcher {
         })
     }
 
+    /// Fetch the versioned, summary-only Codex cost payload from one trusted
+    /// SSH host. The command intentionally never requests sessions, account
+    /// metadata, project paths, or a remote shell chosen by the caller.
+    pub(crate) async fn fetch_codex_cost_summary(
+        &self,
+        host: &str,
+        history_days: u32,
+        force_refresh: bool,
+    ) -> Result<String, String> {
+        let options = Self::codex_cost_options(host, history_days, force_refresh)?;
+        let runner = Self::codex_cost_runner();
+        let result = runner
+            .run_async("ssh", None, &options)
+            .await
+            .map_err(|_| crate::codex_costs::REMOTE_CODEX_COST_UNAVAILABLE)?;
+        if result.timed_out || result.exit_code != Some(0) {
+            return Err(crate::codex_costs::REMOTE_CODEX_COST_UNAVAILABLE.to_string());
+        }
+        if result.text.len() > crate::codex_costs::MAX_REMOTE_CODEX_COST_BYTES {
+            return Err(crate::codex_costs::REMOTE_CODEX_COST_INVALID.to_string());
+        }
+        Ok(result.text)
+    }
+
+    pub(crate) fn validate_codex_cost_host(host: &str) -> Result<String, String> {
+        let host = Self::validate_host(host)?;
+        if host.len() > 255 {
+            return Err("host must not exceed 255 bytes".to_string());
+        }
+        Ok(host)
+    }
+
+    pub(crate) fn codex_cost_options(
+        host: &str,
+        history_days: u32,
+        force_refresh: bool,
+    ) -> Result<CommandOptions, String> {
+        let host = Self::validate_codex_cost_host(host)?;
+        if !(1..=365).contains(&history_days) {
+            return Err("history days must be between 1 and 365".to_string());
+        }
+
+        let refresh = if force_refresh { " --refresh" } else { "" };
+        let command = format!(
+            "if command -v codexbar >/dev/null 2>&1; then exec codexbar cost --provider codex --format json --summary-only --provider-native-only --days {history_days}{refresh}; else exec /Applications/CodexBar.app/Contents/Helpers/CodexBarCLI cost --provider codex --format json --summary-only --provider-native-only --days {history_days}{refresh}; fi"
+        );
+        let remote_command = format!("'{command}'");
+
+        Ok(CommandOptions {
+            timeout: Duration::from_secs(60),
+            initial_delay: Duration::ZERO,
+            extra_args: vec![
+                "-o".to_string(),
+                "BatchMode=yes".to_string(),
+                "-o".to_string(),
+                "ConnectTimeout=5".to_string(),
+                "-o".to_string(),
+                "StrictHostKeyChecking=yes".to_string(),
+                "-o".to_string(),
+                "RemoteCommand=none".to_string(),
+                "-o".to_string(),
+                "RequestTTY=no".to_string(),
+                "-o".to_string(),
+                "ForwardAgent=no".to_string(),
+                "-o".to_string(),
+                "ClearAllForwardings=yes".to_string(),
+                "-T".to_string(),
+                "-n".to_string(),
+                "--".to_string(),
+                host,
+                "sh".to_string(),
+                "-lc".to_string(),
+                remote_command,
+            ],
+            ..CommandOptions::default()
+        })
+    }
+
+    fn codex_cost_runner() -> CommandRunner {
+        const ALLOWED_ENVIRONMENT: &[&str] = &[
+            "PATH",
+            "PATHEXT",
+            "HOME",
+            "USER",
+            "LOGNAME",
+            "USERPROFILE",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "TEMP",
+            "TMP",
+            "SystemRoot",
+            "SYSTEMROOT",
+            "ComSpec",
+            "COMSPEC",
+            "LANG",
+            "LC_ALL",
+            "SSH_AUTH_SOCK",
+        ];
+
+        ALLOWED_ENVIRONMENT.iter().fold(
+            CommandRunner::new().without_inherited_env(),
+            |runner, key| match std::env::var(key) {
+                Ok(value) => runner.with_env(*key, value),
+                Err(_) => runner,
+            },
+        )
+    }
+
     pub(crate) async fn fetch_hosts_with<F, Fut>(
         hosts: &[String],
         fetch: F,
@@ -255,4 +363,61 @@ fn remote_sessions_command(bundled_cli_fallback: &str) -> String {
         &format!("'{bundled_cli_fallback}' sessions --json"),
     ]
     .join(" || ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_cost_options_are_noninteractive_and_summary_only() {
+        let options = RemoteSessionFetcher::codex_cost_options("build-host", 30, false).unwrap();
+        assert_eq!(options.timeout, Duration::from_secs(60));
+        assert!(options.extra_args.contains(&"BatchMode=yes".to_string()));
+        assert!(
+            options
+                .extra_args
+                .contains(&"StrictHostKeyChecking=yes".to_string())
+        );
+        assert!(options.extra_args.contains(&"ForwardAgent=no".to_string()));
+        assert!(
+            options
+                .extra_args
+                .contains(&"RemoteCommand=none".to_string())
+        );
+        assert!(options.extra_args.contains(&"RequestTTY=no".to_string()));
+        assert!(
+            options
+                .extra_args
+                .contains(&"ClearAllForwardings=yes".to_string())
+        );
+        assert!(options.extra_args.contains(&"-T".to_string()));
+        assert!(options.extra_args.contains(&"-n".to_string()));
+
+        let separator = options
+            .extra_args
+            .iter()
+            .position(|arg| arg == "--")
+            .expect("SSH host separator is present");
+        assert_eq!(
+            &options.extra_args[separator..separator + 4],
+            ["--", "build-host", "sh", "-lc"]
+        );
+        let remote_command = options
+            .extra_args
+            .get(separator + 4)
+            .expect("SSH command is present");
+        assert!(remote_command.starts_with('\''));
+        assert!(remote_command.ends_with('\''));
+        assert!(remote_command.contains("cost --provider codex --format json --summary-only"));
+        assert!(remote_command.contains("--days 30"));
+    }
+
+    #[test]
+    fn codex_cost_options_reject_unsafe_or_unbounded_targets() {
+        assert!(RemoteSessionFetcher::codex_cost_options("-oProxyCommand=x", 30, false).is_err());
+        assert!(RemoteSessionFetcher::codex_cost_options("build host", 30, false).is_err());
+        assert!(RemoteSessionFetcher::codex_cost_options("build-host", 0, false).is_err());
+        assert!(RemoteSessionFetcher::codex_cost_options("build-host", 366, false).is_err());
+    }
 }

@@ -1,4 +1,87 @@
+use super::cache_days::days_from_codex_source_rows;
 use super::*;
+use crate::core::{
+    CodexSourceRowCache, CodexSourceUsageRow, read_source_rows, recover_rows, row_cache,
+    row_cache_matches, row_cache_needs_recovery,
+};
+
+/// A complete, non-forked file whose source rows may be (re)priced this pass.
+struct CodexSourceRowPlan {
+    metadata: fs::Metadata,
+    source_rows: Vec<CodexSourceUsageRow>,
+    recoverable_cache: Option<CodexSourceRowCache>,
+}
+
+/// Decide whether a completed file qualifies for source-row evidence, and
+/// whether its cached pricing needs recovery. `None` skips the file entirely:
+/// the pass was partial, the file keeps an unconsumed tail, or the usage is
+/// fork/parent-baseline shaped (whose source rows are not trusted here).
+fn codex_source_row_plan(
+    cache: &CostUsageCache,
+    path: &Path,
+    scan_range: &CostUsageDayRange,
+) -> Option<CodexSourceRowPlan> {
+    let usage_safe = cache
+        .files
+        .get(&path.to_string_lossy().to_string())
+        .is_some_and(|usage| {
+            usage.codex_forked_from_id.is_none()
+                && !usage.codex_lineage.uses_parent_baseline()
+                && !usage.codex_unresolved_fork_parent
+        });
+    if !usage_safe {
+        return None;
+    }
+    let metadata = fs::metadata(path).ok()?;
+    let source_rows = read_source_rows(path, scan_range).ok()?;
+    let recoverable_cache = cache
+        .codex_source_rows
+        .get(&path.to_string_lossy().to_string())
+        .filter(|cached| !cached.rows.is_empty() && row_cache_matches(path, &metadata, cached))
+        .cloned();
+    Some(CodexSourceRowPlan {
+        metadata,
+        source_rows,
+        recoverable_cache,
+    })
+}
+
+/// Apply a source-row plan: recover cached pricing when required, retain the
+/// resulting rows as evidence, and unprice the file's day map when recovery
+/// left appended rows unvalidated.
+fn apply_codex_source_row_plan(cache: &mut CostUsageCache, key: &str, plan: CodexSourceRowPlan) {
+    let CodexSourceRowPlan {
+        metadata,
+        source_rows,
+        recoverable_cache,
+    } = plan;
+    let requires_recovery = recoverable_cache
+        .as_ref()
+        .is_some_and(|cached| row_cache_needs_recovery(cached, &source_rows));
+    let rows = if requires_recovery {
+        let cached = recoverable_cache.expect("recovery cache checked above");
+        recover_rows(&cached.rows, &source_rows, cached.size)
+    } else {
+        source_rows
+    };
+    let Some(source_cache) = row_cache(&key_path(key), &metadata, rows) else {
+        return;
+    };
+    if requires_recovery && let Some(usage) = cache.files.get_mut(key) {
+        // Rebuild from recovered rows even when a new row is intentionally
+        // unresolved. Leaving the normal parser's model-priced days in place
+        // would silently price an appended row that has no validated
+        // historical evidence.
+        usage.days = days_from_codex_source_rows(&source_cache.rows);
+    }
+    cache
+        .codex_source_rows
+        .insert(key.to_string(), source_cache);
+}
+
+fn key_path(key: &str) -> PathBuf {
+    PathBuf::from(key)
+}
 
 pub(super) fn scan_codex_detailed_with_cache(
     scanner: &CostScanner,
@@ -188,6 +271,8 @@ pub(super) fn scan_codex_detailed_with_cache(
         if !outcome.is_complete || has_unconsumed_tail {
             incomplete_processed.push(key);
             stats.files_deferred = stats.files_deferred.saturating_add(1);
+        } else if let Some(plan) = codex_source_row_plan(&cache, &candidate.path, scan_range) {
+            apply_codex_source_row_plan(&mut cache, &key, plan);
         }
     }
     pending_next.extend(incomplete_processed);

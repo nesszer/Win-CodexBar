@@ -175,6 +175,9 @@ pub(super) fn reconcile_missing_codex_cache_files(
     cache
         .codex_pending_paths
         .retain(|path| Path::new(path).exists());
+    cache
+        .codex_source_rows
+        .retain(|path, _| Path::new(path).exists());
 }
 
 /// Whether the cache contains a path that depends on this source partition.

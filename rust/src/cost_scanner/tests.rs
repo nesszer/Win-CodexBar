@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::CodexSessionLineage;
+use crate::core::{CodexSessionLineage, CostUsagePricing};
 use std::io::Write;
 
 #[test]
@@ -1538,6 +1538,51 @@ fn codex_lazy_history_receipt_reads_only_changed_file_and_matches_fresh_parse() 
     assert_eq!(incremental.by_model_tokens, full.by_model_tokens);
     assert!((incremental.total_cost_usd - full.total_cost_usd).abs() < 1e-12);
     assert!(second_path.exists());
+}
+
+#[test]
+fn codex_source_recovery_keeps_appended_duplicate_unpriced_after_cache_reload() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let cache_root = root.path().join("cache");
+    let path = write_codex_session_fixture_with_inputs(&sessions, "recovery.jsonl", &[100]);
+    let scanner = CostScanner::new(7)
+        .with_options(CostScanOptions::app_driven())
+        .with_cache_root(&cache_root)
+        .with_sessions_dirs(vec![sessions.clone()]);
+
+    let (_, _, mut first_cache) = scanner.scan_codex_detailed_with_cache(None);
+    let path_key = path.to_string_lossy().to_string();
+    let source_rows = first_cache
+        .codex_source_rows
+        .get_mut(&path_key)
+        .expect("source rows persisted");
+    assert_eq!(source_rows.rows.len(), 1);
+    source_rows.rows[0].pricing.pricing_mode = Some("priority".to_string());
+    first_cache.last_scan_unix_ms = 1;
+    JsonlScanner::save_cache(ProviderId::Codex, &mut first_cache, Some(&cache_root));
+
+    let timestamp = (Utc::now() - Duration::minutes(30))
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string();
+    let appended = format!(
+        r#"{{"timestamp":"{timestamp}","type":"event_msg","payload":{{"type":"token_count","info":{{"model":"gpt-5","total_token_usage":{{"input_tokens":200,"cached_input_tokens":0,"output_tokens":10}}}}}}}}"#
+    ) + "\n";
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(appended.as_bytes())
+        .unwrap();
+
+    let (_, _, second_cache) = scanner.scan_codex_detailed_with_cache(None);
+    let usage = second_cache.files.get(&path_key).expect("file cache");
+    let day = Local::now().format("%Y-%m-%d").to_string();
+    assert_eq!(usage.days[&day]["gpt-5-priority"], vec![100, 0, 5]);
+    assert_eq!(
+        usage.days[&day][CostUsagePricing::CODEX_UNATTRIBUTED_MODEL],
+        vec![100, 0, 5]
+    );
 }
 
 #[test]

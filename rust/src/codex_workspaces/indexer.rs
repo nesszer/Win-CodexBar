@@ -464,7 +464,7 @@ fn index_one_file(path: &Path, range: &CostUsageDayRange) -> Option<ParsedFile> 
     let mut model_tokens: HashMap<String, u64> = HashMap::new();
     let mut day_models: HashMap<String, HashMap<String, (u64, u64, u64)>> = HashMap::new();
 
-    for record in &parsed.records {
+    for (record, _) in &parsed.records {
         let input = record.input.max(0) as u64;
         let cached = (record.cached.max(0) as u64).min(input);
         let output = record.output.max(0) as u64;
