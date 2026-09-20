@@ -508,4 +508,25 @@ mod tests {
         assert_eq!(value["selectedMetric"]["usedPercent"], 60.0);
         assert!(value.get("snapshot").is_none());
     }
+
+    #[test]
+    fn hidden_usage_items_are_presentation_metadata_and_do_not_change_selected_metric() {
+        let mut settings = Settings::default();
+        settings.set_hidden_usage_item_ids(ProviderId::Codex, vec!["metric:secondary".to_string()]);
+
+        let presentation =
+            crate::commands::ProviderUsagePresentationSnapshot::new(snapshot(), &settings);
+
+        assert!(presentation.snapshot.secondary.is_some());
+        assert_eq!(presentation.selected_metric.used_percent, 60.0);
+        assert_eq!(
+            presentation.hidden_usage_item_ids,
+            vec!["metric:secondary".to_string()]
+        );
+        let value = serde_json::to_value(presentation).expect("serialize presentation");
+        assert_eq!(
+            value["hiddenUsageItemIds"],
+            serde_json::json!(["metric:secondary"])
+        );
+    }
 }

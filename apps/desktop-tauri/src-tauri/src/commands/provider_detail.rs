@@ -26,6 +26,8 @@ pub struct ProviderDetail {
     pub model_specific: Option<RateWindowSnapshot>,
     pub tertiary: Option<RateWindowSnapshot>,
     pub extra_rate_windows: Vec<NamedRateWindowSnapshot>,
+    pub usage_items: Vec<ProviderUsageItemSnapshot>,
+    pub hidden_usage_item_ids: Vec<String>,
     pub inventory: Vec<ProviderInventoryItemSnapshot>,
     pub display_details: Vec<ProviderDisplayDetailSnapshot>,
 
@@ -93,6 +95,8 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         model_specific: None,
         tertiary: None,
         extra_rate_windows: Vec::new(),
+        usage_items: Vec::new(),
+        hidden_usage_item_ids: settings.hidden_usage_item_ids(id),
         inventory: Vec::new(),
         display_details: Vec::new(),
         cost: None,
@@ -129,6 +133,9 @@ pub fn get_provider_detail(
     provider_id: String,
 ) -> Result<ProviderDetail, String> {
     let mut detail = build_provider_detail(&provider_id)?;
+    let settings = Settings::load();
+    let parsed_provider_id = parse_provider_arg(&provider_id)?;
+    detail.hidden_usage_item_ids = settings.hidden_usage_item_ids(parsed_provider_id);
 
     // Merge the latest cached snapshot, if any.
     let state = app.state::<Mutex<AppState>>();
@@ -138,11 +145,7 @@ pub fn get_provider_detail(
             .iter()
             .find(|s| s.provider_id == detail.id)
     {
-        let mut snapshot = snap.clone();
-        super::filter_hidden_codex_spark_rows(
-            &mut snapshot,
-            Settings::load().codex_spark_usage_visible(),
-        );
+        let snapshot = snap.clone();
         detail.email = snapshot.account_email.clone();
         detail.plan = snapshot.plan_name.clone();
         detail.organization = snapshot.account_organization.clone();
@@ -153,6 +156,8 @@ pub fn get_provider_detail(
         };
         detail.last_updated = Some(snapshot.updated_at.clone());
         if snapshot.error.is_none() {
+            detail.usage_items =
+                super::usage_item_descriptors(Some(&snapshot), &settings, parsed_provider_id);
             detail.session = Some(snapshot.primary.clone());
             detail.weekly = snapshot.secondary.clone();
             detail.model_specific = snapshot.model_specific.clone();
@@ -166,6 +171,10 @@ pub fn get_provider_detail(
         detail.last_error = snapshot.error.clone();
         detail.error_state = Some(snapshot.error_state);
         detail.has_snapshot = true;
+    }
+
+    if detail.usage_items.is_empty() {
+        detail.usage_items = super::usage_item_descriptors(None, &settings, parsed_provider_id);
     }
 
     Ok(detail)

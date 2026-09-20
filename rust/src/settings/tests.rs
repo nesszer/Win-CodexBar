@@ -1055,3 +1055,74 @@ fn codex_spark_usage_visibility_defaults_to_visible_and_roundtrips() {
 
     assert!(!loaded.codex_spark_usage_visible());
 }
+
+#[test]
+fn hidden_usage_item_ids_keep_legacy_visibility_compatible() {
+    let mut settings = Settings::default();
+    settings.set_codex_spark_usage_visible(false);
+    settings.set_claude_daily_routines_usage_visible(false);
+
+    assert_eq!(
+        settings.hidden_usage_item_ids(ProviderId::Codex),
+        CODEX_SPARK_USAGE_ITEM_IDS
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        settings.hidden_usage_item_ids(ProviderId::Claude),
+        vec![CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string()]
+    );
+}
+
+#[test]
+fn explicit_hidden_usage_item_ids_roundtrip_and_restore_defaults() {
+    let mut settings = Settings::default();
+    settings.set_hidden_usage_item_ids(
+        ProviderId::Codex,
+        vec![
+            "metric:secondary".to_string(),
+            "metric:secondary".to_string(),
+            "not-a-metric".to_string(),
+        ],
+    );
+
+    assert_eq!(
+        settings.hidden_usage_item_ids(ProviderId::Codex),
+        vec!["metric:secondary".to_string()]
+    );
+    assert!(settings.codex_spark_usage_visible());
+
+    let serialized = serde_json::to_string(&settings).unwrap();
+    let loaded: Settings = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(
+        loaded.hidden_usage_item_ids(ProviderId::Codex),
+        vec!["metric:secondary".to_string()]
+    );
+
+    settings.set_hidden_usage_item_ids(ProviderId::Codex, Vec::new());
+    settings.set_hidden_usage_item_ids(ProviderId::Claude, Vec::new());
+    assert!(settings.hidden_usage_item_ids(ProviderId::Codex).is_empty());
+    assert!(settings.codex_spark_usage_visible());
+}
+
+#[test]
+fn legacy_visibility_setters_preserve_other_explicit_hidden_items() {
+    let mut settings = Settings::default();
+    settings.set_hidden_usage_item_ids(ProviderId::Claude, vec!["metric:secondary".to_string()]);
+
+    settings.set_claude_daily_routines_usage_visible(false);
+    assert_eq!(
+        settings.hidden_usage_item_ids(ProviderId::Claude),
+        vec![
+            "metric:extra-claude-routines".to_string(),
+            "metric:secondary".to_string(),
+        ]
+    );
+
+    settings.set_claude_daily_routines_usage_visible(true);
+    assert_eq!(
+        settings.hidden_usage_item_ids(ProviderId::Claude),
+        vec!["metric:secondary".to_string()]
+    );
+}

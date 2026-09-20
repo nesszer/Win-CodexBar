@@ -232,6 +232,8 @@ export interface SettingsSnapshot {
   disableKeychainAccess: boolean;
   wayfinderGatewayUrl?: string;
   providerMetrics: Record<string, MetricPreference>;
+  /** Explicitly persisted hidden usage-item IDs by provider CLI name. */
+  providerHiddenUsageItemIds?: Record<string, string[]>;
   floatBarEnabled: boolean;
   /** 30..=100 — clamped server-side. */
   floatBarOpacity: number;
@@ -328,6 +330,8 @@ export interface SettingsUpdate {
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */
   providerMetrics?: Record<string, MetricPreference>;
+  /** Map of provider CLI name → stable raw usage-item IDs hidden in the UI. */
+  providerHiddenUsageItemIds?: Record<string, string[]>;
   floatBarEnabled?: boolean;
   floatBarOpacity?: number;
   floatBarScale?: number;
@@ -613,6 +617,13 @@ export interface ProviderDisplayDetail {
   progress: ProviderDisplayProgress | null;
 }
 
+/** One metric or provider-emitted extra row available to visibility controls. */
+export interface ProviderUsageItem {
+  id: string;
+  title: string;
+  available: boolean;
+}
+
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
   | "ready"
@@ -643,6 +654,8 @@ export interface ProviderUsageSnapshot {
   inventory?: ProviderInventoryItem[];
   /** Provider-specific display rows; never used as quota math or persistence. */
   displayDetails?: ProviderDisplayDetail[];
+  /** Presentation-only hidden metric/extra row IDs. */
+  hiddenUsageItemIds?: string[];
   cost: CostSnapshotBridge | null;
   planName: string | null;
   accountEmail: string | null;
@@ -917,6 +930,10 @@ export interface ProviderDetail {
     title: string;
     window: RateWindowSnapshot;
   }>;
+  /** Metric and extra rows exposed by the current provider snapshot. */
+  usageItems?: ProviderUsageItem[];
+  /** Persisted presentation-only hidden metric/extra row IDs. */
+  hiddenUsageItemIds?: string[];
   /** Display-only discrete provider inventory; never used as quota math. */
   inventory?: ProviderInventoryItem[];
   /** Provider-specific display rows; never used as quota math or persistence. */

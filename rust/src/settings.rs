@@ -17,6 +17,14 @@ use std::path::PathBuf;
 
 use crate::core::ProviderId;
 
+/// Stable namespace used by the desktop bridge for quota metric rows.
+pub const USAGE_ITEM_METRIC_PREFIX: &str = "metric:";
+pub const CODEX_SPARK_USAGE_ITEM_IDS: [&str; 2] = [
+    "metric:extra-codex-spark",
+    "metric:extra-codex-spark-weekly",
+];
+pub const CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID: &str = "metric:extra-claude-routines";
+
 mod api_keys;
 mod manual_cookies;
 mod provider_workspace;
@@ -487,6 +495,23 @@ fn default_api_region(id: ProviderId) -> &'static str {
 /// Default for the codex `openai_web_extras` boolean (true = show extras).
 const DEFAULT_CODEX_OPENAI_WEB_EXTRAS: bool = true;
 const DEFAULT_CODEX_SPARK_USAGE_VISIBLE: bool = true;
+
+fn normalize_hidden_usage_item_ids(ids: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 128
+                && !id.chars().any(char::is_control)
+                && id.starts_with(USAGE_ITEM_METRIC_PREFIX)
+        })
+        .filter(|id| seen.insert(id.clone()))
+        .collect::<Vec<_>>();
+    normalized.sort_unstable();
+    normalized
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -1006,6 +1031,101 @@ impl Settings {
 
     pub fn set_spark_usage_visible(&mut self, id: ProviderId, value: bool) {
         self.provider_config_mut(id).spark_usage_visible = Some(value);
+
+        // Keep the legacy Codex-specific control compatible after the generic
+        // visibility list has been introduced. Existing settings without an
+        // explicit list continue to use the legacy fallback above.
+        let has_explicit_usage_item_visibility = self
+            .provider_configs
+            .get(&id)
+            .and_then(|config| config.hidden_usage_item_ids.as_ref())
+            .is_some();
+        if has_explicit_usage_item_visibility && id == ProviderId::Codex {
+            let mut hidden = self
+                .provider_configs
+                .get(&id)
+                .and_then(|config| config.hidden_usage_item_ids.clone())
+                .unwrap_or_default();
+            hidden.retain(|item| !CODEX_SPARK_USAGE_ITEM_IDS.contains(&item.as_str()));
+            if !value {
+                hidden.extend(
+                    CODEX_SPARK_USAGE_ITEM_IDS
+                        .iter()
+                        .map(|item| (*item).to_string()),
+                );
+            }
+            self.provider_config_mut(id).hidden_usage_item_ids =
+                Some(normalize_hidden_usage_item_ids(hidden));
+        }
+    }
+
+    /// Return the persisted hidden usage-item IDs, or derive the IDs from the
+    /// pre-0.62 provider-specific visibility flags for legacy settings.
+    pub fn hidden_usage_item_ids(&self, id: ProviderId) -> Vec<String> {
+        if let Some(ids) = self
+            .provider_configs
+            .get(&id)
+            .and_then(|config| config.hidden_usage_item_ids.as_ref())
+        {
+            return normalize_hidden_usage_item_ids(ids.clone());
+        }
+
+        let mut hidden = Vec::new();
+        if id == ProviderId::Codex && !self.spark_usage_visible(id) {
+            hidden.extend(
+                CODEX_SPARK_USAGE_ITEM_IDS
+                    .iter()
+                    .map(|item| (*item).to_string()),
+            );
+        }
+        if id == ProviderId::Claude && !self.claude_daily_routines_usage_visible {
+            hidden.push(CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string());
+        }
+        hidden
+    }
+
+    /// Persist an explicit usage-item visibility list and synchronize the
+    /// existing provider-specific compatibility flags.
+    pub fn set_hidden_usage_item_ids(&mut self, id: ProviderId, ids: Vec<String>) {
+        let hidden = normalize_hidden_usage_item_ids(ids);
+        self.provider_config_mut(id).hidden_usage_item_ids = Some(hidden.clone());
+
+        if id == ProviderId::Codex {
+            let spark_visible = !CODEX_SPARK_USAGE_ITEM_IDS
+                .iter()
+                .all(|item| hidden.iter().any(|hidden_id| hidden_id == item));
+            self.provider_config_mut(id).spark_usage_visible = Some(spark_visible);
+        }
+        if id == ProviderId::Claude {
+            self.claude_daily_routines_usage_visible = !hidden
+                .iter()
+                .any(|hidden_id| hidden_id == CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID);
+        }
+    }
+
+    /// Update the old Claude Daily Routines flag while preserving any other
+    /// explicit hidden usage-item choices.
+    pub fn set_claude_daily_routines_usage_visible(&mut self, value: bool) {
+        self.claude_daily_routines_usage_visible = value;
+        let id = ProviderId::Claude;
+        let has_explicit_usage_item_visibility = self
+            .provider_configs
+            .get(&id)
+            .and_then(|config| config.hidden_usage_item_ids.as_ref())
+            .is_some();
+        if has_explicit_usage_item_visibility {
+            let mut hidden = self
+                .provider_configs
+                .get(&id)
+                .and_then(|config| config.hidden_usage_item_ids.clone())
+                .unwrap_or_default();
+            hidden.retain(|item| item != CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID);
+            if !value {
+                hidden.push(CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string());
+            }
+            self.provider_config_mut(id).hidden_usage_item_ids =
+                Some(normalize_hidden_usage_item_ids(hidden));
+        }
     }
 
     /// Per-provider historical-tracking toggle (currently codex-only).

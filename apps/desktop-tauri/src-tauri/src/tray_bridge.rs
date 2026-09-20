@@ -408,8 +408,7 @@ pub(crate) fn rebuild_tray_menu(app: &AppHandle) {
     let settings = Settings::load();
     let status_labels = if let Some(st) = app.try_state::<Mutex<AppState>>() {
         let guard = st.lock().unwrap();
-        let snapshots =
-            presentation_snapshots(&guard.provider_cache, settings.codex_spark_usage_visible());
+        let snapshots = presentation_snapshots(&guard.provider_cache);
         status_labels_for_settings(&settings, &snapshots, settings.ui_language)
     } else {
         vec![]
@@ -428,7 +427,7 @@ pub fn update_tray_status_items(
 ) {
     let catalog = crate::commands::get_provider_catalog();
     let settings = Settings::load();
-    let snapshots = presentation_snapshots(snapshots, settings.codex_spark_usage_visible());
+    let snapshots = presentation_snapshots(snapshots);
     let status_labels = status_labels_for_settings(&settings, &snapshots, settings.ui_language);
 
     if let Ok(menu) = build_native_tray_menu(app, &catalog, &status_labels)
@@ -450,13 +449,8 @@ pub(crate) fn refresh_tray_presentation(app: &AppHandle) {
 
 fn presentation_snapshots(
     snapshots: &[crate::commands::ProviderUsageSnapshot],
-    spark_usage_visible: bool,
 ) -> Vec<crate::commands::ProviderUsageSnapshot> {
-    let mut snapshots = snapshots.to_vec();
-    for snapshot in &mut snapshots {
-        crate::commands::filter_hidden_codex_spark_rows(snapshot, spark_usage_visible);
-    }
-    snapshots
+    snapshots.to_vec()
 }
 
 /// Update the tray icon pixels and tooltip text to reflect current provider usage.
@@ -480,7 +474,7 @@ pub fn update_tray_icon_and_tooltip(
 
     // ── Icon ─────────────────────────────────────────────────────────────
     let settings = Settings::load();
-    let snapshots = presentation_snapshots(snapshots, settings.codex_spark_usage_visible());
+    let snapshots = presentation_snapshots(snapshots);
     let ordered_snapshots = ordered_snapshot_refs(&settings, &snapshots);
     let ok_snapshots: Vec<_> = ordered_snapshots
         .iter()
