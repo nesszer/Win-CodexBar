@@ -221,17 +221,28 @@ fn cleanup_probe_session_jsonl(probe_dir: &std::path::Path) {
     }
 }
 
+/// Arguments shared by every Claude CLI `/usage` probe.
+///
+/// The remote-control startup hook can otherwise change the interactive
+/// session before the usage command is collected. Keep this override in one
+/// helper so future CLI probe paths cannot silently omit it.
+fn claude_usage_settings_args() -> [String; 2] {
+    [
+        "--settings".to_string(),
+        r#"{"remoteControlAtStartup":false}"#.to_string(),
+    ]
+}
+
 fn claude_probe_launch_args(session_id: &str) -> Vec<String> {
-    vec![
+    let mut args = vec![
         "--setting-sources".to_string(),
         "user".to_string(),
         "--allowed-tools".to_string(),
         String::new(),
-        "--settings".to_string(),
-        r#"{"remoteControlAtStartup":false}"#.to_string(),
-        "--session-id".to_string(),
-        session_id.to_string(),
-    ]
+    ];
+    args.extend(claude_usage_settings_args());
+    args.extend(["--session-id".to_string(), session_id.to_string()]);
+    args
 }
 
 struct ClaudePtyProbeOptions {
@@ -1210,6 +1221,17 @@ mod tests {
                 r#"{"remoteControlAtStartup":false}"#.to_string(),
                 "--session-id".to_string(),
                 first,
+            ]
+        );
+    }
+
+    #[test]
+    fn usage_probe_settings_disable_remote_control_startup() {
+        assert_eq!(
+            claude_usage_settings_args(),
+            [
+                "--settings".to_string(),
+                r#"{"remoteControlAtStartup":false}"#.to_string(),
             ]
         );
     }
