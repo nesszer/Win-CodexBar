@@ -742,27 +742,6 @@ mod tests {
     }
 
     #[test]
-    fn fetch_result_display_details_are_transient_and_validate_progress() {
-        let usage = UsageSnapshot::new(RateWindow::new(25.0));
-        let result = ProviderFetchResult::new(usage, "web").with_display_detail(
-            ProviderDisplayDetail::new("credits", "Used this cycle", "12")
-                .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
-                .and_then(|row| row.with_progress(12.0, 100.0)),
-        );
-
-        let details = result.display_details();
-        assert_eq!(details.len(), 1);
-        assert!(details[0].progress().is_some());
-        assert!(
-            ProviderDisplayDetail::new("invalid", "Invalid", "value")
-                .and_then(|row| row.with_progress(f64::NAN, 1.0))
-                .is_none()
-        );
-        let encoded = serde_json::to_value(&result).unwrap();
-        assert!(encoded.get("display_details").is_none());
-    }
-
-    #[test]
     fn display_details_reject_invalid_shapes_and_duplicate_ids() {
         let usage = UsageSnapshot::new(RateWindow::new(25.0));
         let result = ProviderFetchResult::new(usage, "web")

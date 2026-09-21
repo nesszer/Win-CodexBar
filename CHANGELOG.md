@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## [Windows] 0.61.0 - Unreleased
+
+Windows port of upstream CodexBar **0.60.3 → 0.61.0**: new subscription and
+spend providers (Nous Portal, Replicate, CodeRabbit, Muse Code), richer
+allowances and per-model spending, clearer account switching, and steadier
+menu-bar layout.
 
 ### Added
 - Grok: Settings and tray **Add account** flow matching Codex/Claude — isolated `grok login --oauth`, save current CLI login, switch, and remove without logging out the active session.

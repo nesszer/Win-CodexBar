@@ -299,7 +299,7 @@ type MetricRowDisplay = {
  * Single metric row inside the card — mirrors upstream `MetricRow`:
  *   • title (body / medium)
  *   • UsageProgressBar (capsule, 6pt)
- *   • HStack: "N% used"  ··  reset countdown (right-aligned, secondary)
+ *   • HStack: "N% used"  · ·  reset countdown (right-aligned, secondary)
  */
 function MetricRow({
   title,
