@@ -507,6 +507,7 @@ PanelThirtyDayCostHistogram = Гистограмма затрат за 30 дн�
 PanelTopModelPrefix = Топ-модель
 PanelEstimatedFromLocalLogs = Оценка по локальным журналам; может отличаться от вашего счета
 PanelEstimatedFromLocalLogsClaude = Оценено на основе локальных журналов Claude по ставкам API; общая сумма токенов может отличаться от суммы вашего счета
+PanelEstimatedFromLocalLogsMuse = Локальная история токенов; стоимость в долларах недоступна
 PanelExpected = Ожидается
 PanelActual = Фактический
 PanelUsedSuffix = использованный

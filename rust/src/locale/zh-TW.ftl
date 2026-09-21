@@ -522,6 +522,7 @@ PanelThirtyDayCostHistogram = 30天成本直方圖
 PanelTopModelPrefix = 熱門模型
 PanelEstimatedFromLocalLogs = 根據本機日誌估算；可能與賬單不同
 PanelEstimatedFromLocalLogsClaude = 根據本機Claude日誌按API費率估算；權杖總數可能與賬單不同
+PanelEstimatedFromLocalLogsMuse = 本地權杖歷史; 美元費用不可用
 PanelExpected = 預期
 PanelActual = 實際
 PanelUsedSuffix = 已使用

@@ -99,18 +99,47 @@ fn account_row_for_slot(
         .ok_or_else(|| "claude-swap did not report that account slot.".to_string())
 }
 
-fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String> {
+/// Emitted when a Claude account change needs a provider refresh before the
+/// settle. Event order is load-bearing for every listener:
+///
+/// 1. `claude-accounts-reconciling` — listeners show the reconciling phase.
+/// 2. the bounded provider refresh runs; superseded batches are detected below.
+/// 3. `claude-accounts-reconciled` — the terminal marker; settling must be
+///    event-driven, never inferred from a switch promise resolving.
+/// 4. `claude-accounts-updated` + tray rebuild — the settled reload.
+///
+/// Do not reorder these emits. A refresh that never started or was superseded
+/// mid-flight keeps the reconciling phase armed instead of settling, so no
+/// surface shows "settled" while a refresh is still in flight.
+async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String> {
     let pending = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().map_err(|e| e.to_string())?;
         invalidate_account_usage(&mut state, ProviderId::Claude)
     };
     crate::events::emit_provider_updated(&app, &pending);
+    let _emit = app.emit("claude-accounts-reconciling", ());
+    let refresh_result = super::refresh_providers(app.clone()).await;
+    if !refresh_providers_ran(&app) {
+        // begin_provider_refresh skipped (another batch owns the refresh) or
+        // finish_provider_refresh dropped a superseded generation: a refresh
+        // is still in flight, so stay in the reconciling phase and let the
+        // owning batch's completion settle listeners.
+        return refresh_result;
+    }
+    let _reconciled = app.emit("claude-accounts-reconciled", ());
     changed(&app);
-    tauri::async_runtime::spawn(async move {
-        let _refresh = super::refresh_providers(app).await;
-    });
-    Ok(())
+    refresh_result
+}
+
+/// Whether the completed refresh batch owned the generation it published
+/// under. A skipped or superseded batch must not settle account listeners.
+fn refresh_providers_ran(app: &tauri::AppHandle) -> bool {
+    let state = app.state::<Mutex<AppState>>();
+    state
+        .lock()
+        .map(|guard| !guard.is_refreshing)
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -210,14 +239,14 @@ fn run_claude_swap_operation(
     }
 }
 
-fn finish_claude_swap_mutation(
+async fn finish_claude_swap_mutation(
     app: tauri::AppHandle,
     outcome: ClaudeSwapMutationOutcome,
 ) -> Result<(), String> {
     if !outcome.applied {
         return outcome.error.map_or(Ok(()), Err);
     }
-    let refresh_error = refresh_after_claude_change(app).err();
+    let refresh_error = refresh_after_claude_change(app).await.err();
     match (outcome.error, refresh_error) {
         (None, None) => Ok(()),
         (Some(operation_error), None) => Err(operation_error),
@@ -237,6 +266,12 @@ pub async fn claude_swap_accounts_list() -> Result<ClaudeSwapAccountsState, Stri
 
 #[tauri::command]
 pub async fn claude_swap_account_switch(app: tauri::AppHandle, slot: u32) -> Result<(), String> {
+    // MUTATION is held for the whole command body, including
+    // `finish_claude_swap_mutation`'s awaited provider refresh below. This is
+    // deliberate: it serializes account mutations across the full
+    // reconciliation, so other add/save/remove operations fail fast with
+    // "already in progress" instead of racing the swap. The refresh is bounded,
+    // so the lock window stays finite.
     let _mutation = MUTATION
         .try_lock()
         .map_err(|_| "A Claude account operation is already in progress.")?;
@@ -247,7 +282,7 @@ pub async fn claude_swap_account_switch(app: tauri::AppHandle, slot: u32) -> Res
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
-    finish_claude_swap_mutation(app, outcome)
+    finish_claude_swap_mutation(app, outcome).await
 }
 
 /// Re-authenticate an active slot whose current Claude credential belongs to a
@@ -269,7 +304,7 @@ pub async fn claude_swap_account_reauthenticate(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
-    finish_claude_swap_mutation(app, outcome)
+    finish_claude_swap_mutation(app, outcome).await
 }
 
 fn changed(app: &tauri::AppHandle) {
@@ -344,7 +379,7 @@ pub async fn claude_account_switch(app: tauri::AppHandle, id: String) -> Result<
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
     drop(_credentials);
-    refresh_after_claude_change(app)
+    refresh_after_claude_change(app).await
 }
 
 #[cfg(test)]
