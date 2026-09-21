@@ -4,6 +4,7 @@
 
 ### Added
 - Grok: Settings and tray **Add account** flow matching Codex/Claude — isolated `grok login --oauth`, save current CLI login, switch, and remove without logging out the active session.
+- DeepSeek: show reported per-model spend in the provider details while preserving the billing currency, reporting period, zero values, and incomplete-total safeguards.
 
 ### Fixed
 - Claude: when Hide Personal Info is enabled, keep saved account rows distinguishable with stable localized `Account N` labels and matching redacted tooltips.

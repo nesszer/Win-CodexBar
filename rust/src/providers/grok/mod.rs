@@ -12,20 +12,25 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde_json::Value;
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderInventoryItem,
+    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
 use self::accounts::{GrokAuthKind, ParsedGrokAuthFile};
 use self::billing::GrokBillingSnapshot;
 
 const BILLING_ENDPOINT: &str = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
+const REMAINING_RESETS_ENDPOINT: &str =
+    "https://grok.com/prod_mc_billing.ConsumerUiSvc/GetRemainingResets";
 const CLI_SETTINGS_ENDPOINT: &str = "https://cli-chat-proxy.grok.com/v1/settings";
+const RESET_CREDITS_TIMEOUT: Duration = Duration::from_secs(2);
+const RESET_CREDITS_JOIN_GRACE: Duration = Duration::from_millis(250);
 
 pub struct GrokProvider {
     metadata: ProviderMetadata,
@@ -64,6 +69,11 @@ impl GrokProvider {
         dirs::home_dir().map(|home| home.join(".grok").join("auth.json"))
     }
 
+    #[cfg(test)]
+    fn client_for_tests(&self) -> Client {
+        self.client.clone()
+    }
+
     fn load_credentials(kind: GrokAuthKind) -> Result<GrokCredentials, ProviderError> {
         let path = Self::auth_file_path()
             .ok_or_else(|| ProviderError::NotInstalled("Grok auth path not found".to_string()))?;
@@ -86,7 +96,9 @@ impl GrokProvider {
                     GrokAuthKind::Cli,
                 )
             };
-        let result = self.fetch_with_auth(&credentials, kind).await?;
+        let result = self
+            .fetch_with_auth(&credentials, kind, &FetchContext::default())
+            .await?;
         Ok(account_usage_from_result(&result))
     }
 
@@ -94,17 +106,34 @@ impl GrokProvider {
         &self,
         credentials: &GrokCredentials,
         kind: GrokAuthKind,
+        ctx: &FetchContext,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let billing = self
+        let reset_lookup = GrokProvider::spawn_remaining_resets(
+            ctx,
+            Some(credentials.access_token.clone()),
+            None,
+            self.client.clone(),
+        );
+        let billing = match self
             .fetch_billing(Some(format!("Bearer {}", credentials.access_token)), None)
-            .await?;
+            .await
+        {
+            Ok(billing) => billing,
+            Err(error) => {
+                reset_lookup.abort();
+                return Err(error);
+            }
+        };
         let plan = if kind == GrokAuthKind::Cli {
             self.fetch_cli_subscription_tier(credentials).await
         } else {
             None
         }
         .or_else(|| credentials.login_method());
-        Ok(result_from_billing(
+        let reset_credits = reset_lookup
+            .join(ctx.requires_optional_usage_completeness)
+            .await;
+        let result = result_from_billing(
             billing,
             if kind == GrokAuthKind::Cli {
                 "grok-cli"
@@ -114,7 +143,11 @@ impl GrokProvider {
             credentials.email.clone(),
             credentials.team_id.clone(),
             plan,
-        ))
+        );
+        Ok(match reset_credits {
+            Some(credits) => result.with_inventory_item(credits),
+            None => result,
+        })
     }
 
     async fn fetch_cli_subscription_tier(&self, credentials: &GrokCredentials) -> Option<String> {
@@ -146,14 +179,35 @@ impl GrokProvider {
     async fn fetch_with_cookie(
         &self,
         cookie_header: &str,
+        ctx: &FetchContext,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let billing = self
+        let reset_lookup = GrokProvider::spawn_remaining_resets(
+            ctx,
+            None,
+            Some(cookie_header.to_string()),
+            self.client.clone(),
+        );
+        let billing = match self
             .fetch_billing(None, Some(cookie_header.to_string()))
-            .await?;
+            .await
+        {
+            Ok(billing) => billing,
+            Err(error) => {
+                reset_lookup.abort();
+                return Err(error);
+            }
+        };
+        let reset_credits = reset_lookup
+            .join(ctx.requires_optional_usage_completeness)
+            .await;
         // v0.56.0: a browser session is its own principal. Never enrich a
         // successful cookie billing result from ambient auth.json metadata,
         // which may belong to a different account or change during the fetch.
-        Ok(result_from_cookie_billing(billing))
+        let result = result_from_cookie_billing(billing);
+        Ok(match reset_credits {
+            Some(credits) => result.with_inventory_item(credits),
+            None => result,
+        })
     }
 
     async fn fetch_auto(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -170,12 +224,12 @@ impl GrokProvider {
         ) {
             match step {
                 GrokAutoStep::AmbientOAuth => {
-                    if let Some(result) = self.try_ambient(GrokAuthKind::OAuth).await {
+                    if let Some(result) = self.try_ambient(GrokAuthKind::OAuth, ctx).await {
                         return result;
                     }
                 }
                 GrokAutoStep::AmbientCli => {
-                    if let Some(result) = self.try_ambient(GrokAuthKind::Cli).await {
+                    if let Some(result) = self.try_ambient(GrokAuthKind::Cli, ctx).await {
                         return result;
                     }
                 }
@@ -183,17 +237,17 @@ impl GrokProvider {
                     if let Some(token) = ctx.api_key.as_deref() {
                         let credentials = GrokCredentials::from_bearer(token);
                         return self
-                            .fetch_with_auth(&credentials, GrokAuthKind::OAuth)
+                            .fetch_with_auth(&credentials, GrokAuthKind::OAuth, ctx)
                             .await;
                     }
                 }
                 GrokAutoStep::ManualCookie => {
                     if let Some(cookie_header) = &ctx.manual_cookie_header {
-                        return self.fetch_with_cookie(cookie_header).await;
+                        return self.fetch_with_cookie(cookie_header, ctx).await;
                     }
                 }
                 GrokAutoStep::CookieRefresh => {
-                    return self.fetch_with_cookie_refresh().await;
+                    return self.fetch_with_cookie_refresh(ctx).await;
                 }
             }
         }
@@ -203,9 +257,10 @@ impl GrokProvider {
     async fn try_ambient(
         &self,
         kind: GrokAuthKind,
+        ctx: &FetchContext,
     ) -> Option<Result<ProviderFetchResult, ProviderError>> {
         let credentials = Self::load_credentials(kind).ok()?;
-        match self.fetch_with_auth(&credentials, kind).await {
+        match self.fetch_with_auth(&credentials, kind, ctx).await {
             Ok(result) => Some(Ok(result)),
             Err(ProviderError::AuthRequired) => None,
             Err(error) => {
@@ -218,11 +273,14 @@ impl GrokProvider {
     /// Cookie refresh path (upstream #2458):
     /// 1. Try last validated cached cookie header (background reuse)
     /// 2. On miss/auth failure: re-import browser cookies, validate, cache
-    async fn fetch_with_cookie_refresh(&self) -> Result<ProviderFetchResult, ProviderError> {
+    async fn fetch_with_cookie_refresh(
+        &self,
+        ctx: &FetchContext,
+    ) -> Result<ProviderFetchResult, ProviderError> {
         use crate::browser::cookie_cache::CookieHeaderCache;
 
         if let Some(cached) = CookieHeaderCache::load(ProviderId::Grok) {
-            match self.fetch_with_cookie(&cached.cookie_header).await {
+            match self.fetch_with_cookie(&cached.cookie_header, ctx).await {
                 Ok(result) => return Ok(result),
                 Err(err) if is_cookie_authentication_failure(&err) => {
                     CookieHeaderCache::clear(ProviderId::Grok);
@@ -232,7 +290,7 @@ impl GrokProvider {
         }
 
         let cookie_header = crate::providers::browser_cookie_header(&["grok.com"])?;
-        let result = self.fetch_with_cookie(&cookie_header).await?;
+        let result = self.fetch_with_cookie(&cookie_header, ctx).await?;
         // Best-effort cache write: failing to persist the cookie only costs a
         // re-read from the browser on the next fetch.
         let _cached = CookieHeaderCache::store(ProviderId::Grok, &cookie_header, "browser");
@@ -280,6 +338,94 @@ impl GrokProvider {
         billing::parse_grpc_web_response(&bytes)
     }
 
+    fn spawn_remaining_resets(
+        ctx: &FetchContext,
+        access_token: Option<String>,
+        cookie_header: Option<String>,
+        client: Client,
+    ) -> ResetLookup {
+        if !ctx.include_credits {
+            return ResetLookup::idle();
+        }
+        ResetLookup {
+            task: Some(tokio::spawn(async move {
+                Self::fetch_remaining_resets(
+                    client,
+                    access_token.as_deref(),
+                    cookie_header.as_deref(),
+                )
+                .await
+            })),
+        }
+    }
+
+    /// Fetch optional SuperGrok reset-credit inventory using the same principal
+    /// that produced the successful billing result. This is deliberately
+    /// best-effort: billing remains valid when this secondary endpoint is down,
+    /// malformed, unauthorized, or empty.
+    async fn fetch_remaining_resets(
+        client: Client,
+        access_token: Option<&str>,
+        cookie_header: Option<&str>,
+    ) -> Option<ProviderInventoryItem> {
+        let mut request = client
+            .post(REMAINING_RESETS_ENDPOINT)
+            .body(vec![0, 0, 0, 0, 0])
+            .timeout(RESET_CREDITS_TIMEOUT)
+            .header("Origin", "https://grok.com")
+            .header("Referer", "https://grok.com/?_s=usage")
+            .header("Accept", "*/*")
+            .header("Content-Type", "application/grpc-web+proto")
+            .header("x-grpc-web", "1")
+            .header("x-user-agent", "connect-es/2.1.1")
+            .header("User-Agent", "CodexBar");
+        if let Some(access_token) = access_token {
+            request = request.header("Authorization", format!("Bearer {access_token}"));
+        }
+        if let Some(cookie_header) = cookie_header {
+            request = request.header("Cookie", cookie_header);
+        }
+
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::debug!("Grok reset-credit lookup failed: {error}");
+                return None;
+            }
+        };
+        if !response.status().is_success() {
+            tracing::debug!(status = %response.status(), "Grok reset-credit lookup returned a non-success status");
+            return None;
+        }
+        let headers = response.headers().clone();
+        let bytes = match response.bytes().await {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                tracing::debug!("Grok reset-credit response read failed: {error}");
+                return None;
+            }
+        };
+        if let Err(error) = billing::validate_grpc_headers(&headers) {
+            tracing::debug!("Grok reset-credit RPC failed: {error}");
+            return None;
+        }
+        let coupons = match billing::parse_grpc_web_reset_coupons(&bytes, Utc::now()) {
+            Ok(coupons) => coupons,
+            Err(error) => {
+                tracing::debug!("Grok reset-credit response was invalid: {error}");
+                return None;
+            }
+        };
+        let next_expiry = coupons.first().map(|coupon| coupon.expires_at);
+        let available_count = u32::try_from(coupons.len()).ok()?;
+        (!coupons.is_empty()).then_some(ProviderInventoryItem {
+            id: "reset-credits".to_string(),
+            title: "Limit Reset Credits".to_string(),
+            available_count,
+            next_expires_at: next_expiry,
+        })
+    }
+
     fn detect_cli_version() -> Option<String> {
         let mut command = std::process::Command::new("grok");
         command.arg("--version");
@@ -293,6 +439,47 @@ impl GrokProvider {
             .strip_prefix("grok ")
             .unwrap_or(text.trim());
         (!trimmed.is_empty()).then(|| trimmed.to_string())
+    }
+}
+
+/// Best-effort reset-credit lookup running alongside the billing request.
+/// `abort` and `join` own the handle state; `JoinHandle::abort` is already
+/// idempotent on finished tasks.
+struct ResetLookup {
+    task: Option<tokio::task::JoinHandle<Option<ProviderInventoryItem>>>,
+}
+
+impl ResetLookup {
+    fn idle() -> Self {
+        Self { task: None }
+    }
+
+    fn abort(self) {
+        if let Some(task) = self.task {
+            task.abort();
+        }
+    }
+
+    /// Wait for the lookup with the policy budget: under
+    /// `requires_optional_usage_completeness` the full timeout remains;
+    /// otherwise a short grace joins the already-running request.
+    async fn join(
+        self,
+        requires_optional_usage_completeness: bool,
+    ) -> Option<ProviderInventoryItem> {
+        let mut task = self.task?;
+        let budget = if requires_optional_usage_completeness {
+            RESET_CREDITS_TIMEOUT
+        } else {
+            RESET_CREDITS_JOIN_GRACE
+        };
+        match tokio::time::timeout(budget, &mut task).await {
+            Ok(Ok(inventory)) => inventory,
+            Ok(Err(_)) | Err(_) => {
+                task.abort();
+                None
+            }
+        }
     }
 }
 
@@ -326,13 +513,14 @@ impl Provider for GrokProvider {
             SourceMode::Auto => self.fetch_auto(ctx).await,
             SourceMode::Web => {
                 if let Some(cookie_header) = &ctx.manual_cookie_header {
-                    return self.fetch_with_cookie(cookie_header).await;
+                    return self.fetch_with_cookie(cookie_header, ctx).await;
                 }
-                self.fetch_with_cookie_refresh().await
+                self.fetch_with_cookie_refresh(ctx).await
             }
             SourceMode::Cli => {
                 let credentials = Self::load_credentials(GrokAuthKind::Cli)?;
-                self.fetch_with_auth(&credentials, GrokAuthKind::Cli).await
+                self.fetch_with_auth(&credentials, GrokAuthKind::Cli, ctx)
+                    .await
             }
             SourceMode::OAuth => {
                 // Prefer the switched ~/.grok/auth.json over a leftover token
@@ -347,14 +535,15 @@ impl Provider for GrokProvider {
                     }
                 };
                 match self
-                    .fetch_with_auth(&credentials, GrokAuthKind::OAuth)
+                    .fetch_with_auth(&credentials, GrokAuthKind::OAuth, ctx)
                     .await
                 {
                     Ok(result) => Ok(result),
                     Err(ProviderError::AuthRequired) => {
                         if let Some(token) = ctx.api_key.as_deref() {
                             let fallback = GrokCredentials::from_bearer(token);
-                            self.fetch_with_auth(&fallback, GrokAuthKind::OAuth).await
+                            self.fetch_with_auth(&fallback, GrokAuthKind::OAuth, ctx)
+                                .await
                         } else {
                             Err(ProviderError::AuthRequired)
                         }
