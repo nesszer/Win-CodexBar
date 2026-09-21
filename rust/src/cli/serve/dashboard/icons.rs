@@ -170,6 +170,10 @@ static ICONS: &[(&str, &[u8])] = &[
         include_bytes!("icons/ProviderIcon-groq.svg"),
     ),
     (
+        "ProviderIcon-huggingface",
+        include_bytes!("icons/ProviderIcon-huggingface.svg"),
+    ),
+    (
         "ProviderIcon-jetbrains",
         include_bytes!("icons/ProviderIcon-jetbrains.svg"),
     ),

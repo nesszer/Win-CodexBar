@@ -555,7 +555,25 @@ const STRUCTURED_CLI_USAGE_REPORT: &[u8] = br#"{
 fn structured_cli_result() -> ProviderFetchResult {
     let usage = quota_summary::parse_cli_usage_report(STRUCTURED_CLI_USAGE_REPORT)
         .expect("structured CLI fixture should parse");
-    AntigravityProvider::fetch_result(usage, "cli")
+    AntigravityProvider::fetch_result(usage, AntigravityStrategyId::Cli)
+}
+
+#[test]
+fn strategy_ids_are_stable_and_reject_unknown_sources() {
+    assert_eq!(
+        strategy_from_source_label("local"),
+        Some(AntigravityStrategyId::Local)
+    );
+    assert_eq!(
+        strategy_from_source_label("cli"),
+        Some(AntigravityStrategyId::Cli)
+    );
+    assert_eq!(
+        strategy_from_source_label("offline"),
+        Some(AntigravityStrategyId::Offline)
+    );
+    assert_eq!(strategy_from_source_label("managed"), None);
+    assert_eq!(AntigravityStrategyId::Cli.as_str(), "cli");
 }
 
 fn offline_result() -> ProviderFetchResult {

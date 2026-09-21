@@ -445,7 +445,7 @@ fn oauth_extras_put_scoped_weekly_before_routines() {
 }
 
 #[test]
-fn oauth_extras_hide_routines_when_disabled() {
+fn oauth_extras_keep_routines_in_raw_snapshot() {
     let response: OAuthUsageResponse = serde_json::from_str(
         r#"{
             "five_hour": {"utilization": 10.0},
@@ -467,17 +467,11 @@ fn oauth_extras_hide_routines_when_disabled() {
         scopes: vec![],
         rate_limit_tier: None,
     };
-    let usage =
-        ClaudeOAuthFetcher::new().build_usage_snapshot_with_options(&response, &credentials, false);
+    let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
 
-    assert!(
-        usage
-            .extra_rate_windows
-            .iter()
-            .all(|w| w.id != "claude-routines")
-    );
-    assert_eq!(usage.extra_rate_windows.len(), 1);
+    assert_eq!(usage.extra_rate_windows.len(), 2);
     assert_eq!(usage.extra_rate_windows[0].id, "claude-weekly-scoped-fable");
+    assert_eq!(usage.extra_rate_windows[1].id, "claude-routines");
 }
 
 // ── Refresh-token backoff (upstream 0.48.0 #2650 mapping) ───

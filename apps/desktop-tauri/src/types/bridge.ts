@@ -336,6 +336,11 @@ export interface SettingsUpdate {
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */
   providerMetrics?: Record<string, MetricPreference>;
+  /**
+   * Map of provider CLI name → full hidden usage-item ID list. Replaces the
+   * whole list for that provider; empty clears all hidden rows.
+   */
+  providerHiddenUsageItemIds?: Record<string, string[]>;
   floatBarEnabled?: boolean;
   floatBarOpacity?: number;
   floatBarScale?: number;
@@ -625,6 +630,12 @@ export interface ProviderDisplayDetail {
   progress: ProviderDisplayProgress | null;
 }
 
+/** One metric or provider-emitted extra row available to visibility controls. */
+export interface ProviderUsageItem {
+  id: string;
+  title: string;
+  available: boolean;
+}
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
   | "ready"
@@ -657,6 +668,8 @@ export interface ProviderUsageSnapshot {
   inventory?: ProviderInventoryItem[];
   /** Provider-specific display rows; never used as quota math or persistence. */
   displayDetails?: ProviderDisplayDetail[];
+  /** Presentation-only hidden metric/extra row IDs. */
+  hiddenUsageItemIds?: string[];
   cost: CostSnapshotBridge | null;
   planName: string | null;
   accountEmail: string | null;
@@ -935,6 +948,10 @@ export interface ProviderDetail {
     /** Provider-declared fallback lane; only fills in without a core quota window. */
     fallbackLane?: boolean;
   }>;
+  /** Metric and extra rows exposed by the current provider snapshot. */
+  usageItems?: ProviderUsageItem[];
+  /** Persisted presentation-only hidden metric/extra row IDs. */
+  hiddenUsageItemIds?: string[];
   /** Display-only discrete provider inventory; never used as quota math. */
   inventory?: ProviderInventoryItem[];
   /** Provider-specific display rows; never used as quota math or persistence. */

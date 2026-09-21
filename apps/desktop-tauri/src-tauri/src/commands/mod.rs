@@ -47,6 +47,7 @@ mod settings;
 mod shortcuts;
 mod surface;
 mod system;
+mod usage_items;
 
 pub use agent_sessions::*;
 pub(crate) use bridge::*;
@@ -66,6 +67,7 @@ pub use settings::*;
 pub use shortcuts::*;
 pub use surface::*;
 pub use system::*;
+pub(crate) use usage_items::*;
 
 #[cfg(test)]
 mod tests;

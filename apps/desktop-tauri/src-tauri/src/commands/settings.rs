@@ -63,6 +63,8 @@ pub struct SettingsUpdate {
     pub disable_keychain_access: Option<bool>,
     /// Map of provider CLI name → metric preference label.
     pub provider_metrics: Option<std::collections::HashMap<String, String>>,
+    /// Map of provider CLI name → stable raw usage-item IDs hidden in the UI.
+    pub provider_hidden_usage_item_ids: Option<std::collections::HashMap<String, Vec<String>>>,
     pub float_bar_enabled: Option<bool>,
     pub float_bar_opacity: Option<u8>,
     pub float_bar_scale: Option<u8>,
@@ -88,7 +90,6 @@ pub struct SettingsUpdate {
 impl SettingsUpdate {
     fn refreshes_provider_data(&self) -> bool {
         self.enabled_providers.is_some()
-            || self.claude_daily_routines_usage_visible.is_some()
             || self.claude_allow_reading_claude_code_credentials.is_some()
             || self.alibaba_token_plan_region.is_some()
             || self.copilot_seat_credit_entitlement.is_some()
@@ -128,6 +129,7 @@ impl SettingsUpdate {
             || self.menu_bar_display_mode.is_some()
             || self.overview_layout.is_some()
             || self.provider_metrics.is_some()
+            || self.provider_hidden_usage_item_ids.is_some()
             || self.codex_spark_usage_visible.is_some()
             || self.copilot_seat_credit_entitlement.is_some()
             || self.enabled_providers.is_some()
@@ -190,6 +192,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.provider_metrics.clone() {
             apply_provider_metrics(settings, v);
+        }
+        if let Some(values) = self.provider_hidden_usage_item_ids.clone() {
+            apply_provider_hidden_usage_item_ids(settings, values);
         }
         self
     }
@@ -369,7 +374,7 @@ impl SettingsUpdate {
             }
         }
         if let Some(v) = self.claude_daily_routines_usage_visible {
-            settings.claude_daily_routines_usage_visible = v;
+            settings.set_claude_daily_routines_usage_visible(v);
         }
         if let Some(v) = self.alibaba_token_plan_region.as_deref() {
             let region = codexbar::providers::AlibabaTokenPlanRegion::from_settings_value(Some(v));
@@ -458,6 +463,17 @@ fn apply_provider_metrics(
     for (provider, label) in metrics_map {
         if let Some(pref) = parse_metric_preference(&label) {
             settings.provider_metrics.insert(provider, pref);
+        }
+    }
+}
+
+fn apply_provider_hidden_usage_item_ids(
+    settings: &mut Settings,
+    values: std::collections::HashMap<String, Vec<String>>,
+) {
+    for (provider, ids) in values {
+        if let Ok(provider_id) = super::parse_provider_arg(&provider) {
+            settings.set_hidden_usage_item_ids(provider_id, ids);
         }
     }
 }
@@ -580,6 +596,22 @@ mod tests {
             }
             .refreshes_provider_data()
         );
+        assert!(
+            !SettingsUpdate {
+                provider_hidden_usage_item_ids: Some(
+                    [("codex".to_string(), Vec::new())].into_iter().collect(),
+                ),
+                ..Default::default()
+            }
+            .refreshes_provider_data()
+        );
+        assert!(
+            !SettingsUpdate {
+                claude_daily_routines_usage_visible: Some(false),
+                ..Default::default()
+            }
+            .refreshes_provider_data()
+        );
     }
 
     #[test]
@@ -600,6 +632,26 @@ mod tests {
         }
         .apply_advanced_settings(&mut settings);
         assert!(!settings.claude_allow_reading_claude_code_credentials);
+    }
+
+    #[test]
+    fn apply_provider_usage_item_visibility_persists() {
+        let mut settings = Settings::default();
+        SettingsUpdate {
+            provider_hidden_usage_item_ids: Some(
+                [("codex".to_string(), vec!["metric:secondary".to_string()])]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        }
+        .apply_provider_settings(&mut settings);
+
+        assert_eq!(
+            settings.hidden_usage_item_ids(ProviderId::Codex),
+            vec!["metric:secondary".to_string()]
+        );
+        assert!(settings.codex_spark_usage_visible());
     }
 
     #[test]

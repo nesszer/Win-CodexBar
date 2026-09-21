@@ -62,6 +62,7 @@ pub enum ProviderId {
     ElevenLabs,
     Deepgram,
     Groq,
+    HuggingFace,
     LLMProxy,
     Chutes,
     LiteLLM,
@@ -142,6 +143,7 @@ impl ProviderId {
             ProviderId::ElevenLabs,
             ProviderId::Deepgram,
             ProviderId::Groq,
+            ProviderId::HuggingFace,
             ProviderId::LLMProxy,
             ProviderId::Chutes,
             ProviderId::LiteLLM,
@@ -224,6 +226,7 @@ impl ProviderId {
             ProviderId::ElevenLabs => "elevenlabs",
             ProviderId::Deepgram => "deepgram",
             ProviderId::Groq => "groq",
+            ProviderId::HuggingFace => "huggingface",
             ProviderId::LLMProxy => "llmproxy",
             ProviderId::Chutes => "chutes",
             ProviderId::LiteLLM => "litellm",
@@ -304,6 +307,7 @@ impl ProviderId {
             ProviderId::ElevenLabs => "ElevenLabs",
             ProviderId::Deepgram => "Deepgram",
             ProviderId::Groq => "Groq",
+            ProviderId::HuggingFace => "Hugging Face",
             ProviderId::LLMProxy => "LLM Proxy",
             ProviderId::Chutes => "Chutes",
             ProviderId::LiteLLM => "LiteLLM",
@@ -393,6 +397,7 @@ impl ProviderId {
             ProviderId::ElevenLabs => None,
             ProviderId::Deepgram => None,
             ProviderId::Groq => None,
+            ProviderId::HuggingFace => None,
             ProviderId::LLMProxy => None,
             ProviderId::Chutes => None,
             ProviderId::LiteLLM => None,
@@ -479,6 +484,7 @@ impl ProviderId {
             "elevenlabs" | "eleven-labs" | "11labs" => Some(ProviderId::ElevenLabs),
             "deepgram" | "dg" => Some(ProviderId::Deepgram),
             "groq" | "groqcloud" | "groq-cloud" | "groq cloud" => Some(ProviderId::Groq),
+            "huggingface" | "hugging-face" | "hugging face" | "hf" => Some(ProviderId::HuggingFace),
             "llmproxy" | "llm-proxy" | "llm proxy" => Some(ProviderId::LLMProxy),
             "chutes" | "chutes-ai" | "chutes ai" => Some(ProviderId::Chutes),
             "litellm" | "lite-llm" | "lite llm" => Some(ProviderId::LiteLLM),
@@ -524,12 +530,17 @@ impl std::fmt::Display for ProviderId {
 }
 
 /// Data source mode for fetching usage
+///
+/// Conventions for providers whose transport is not an OAuth flow: they
+/// reuse `OAuth` as the persisted token/API lane (an API key, hub token, or
+/// other credential), because the source enum is shared with the settings
+/// UI. `Auto` may dispatch to that lane as well.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SourceMode {
     /// Automatically choose the best available source
     #[default]
     Auto,
-    /// Use OAuth API
+    /// Use OAuth API; also the token/API lane for non-OAuth providers
     OAuth,
     /// Use web API with browser cookies
     Web,
@@ -928,6 +939,8 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("dg", ProviderId::Deepgram);
     map.insert("groqcloud", ProviderId::Groq);
     map.insert("groq-cloud", ProviderId::Groq);
+    map.insert("hugging-face", ProviderId::HuggingFace);
+    map.insert("hf", ProviderId::HuggingFace);
     map.insert("chutes-ai", ProviderId::Chutes);
     map.insert("lite-llm", ProviderId::LiteLLM);
     map.insert("zed-ai", ProviderId::Zed);
@@ -995,6 +1008,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::ElevenLabs => "#111827",
         ProviderId::Deepgram => "#13EF93",
         ProviderId::Groq => "#F55036",
+        ProviderId::HuggingFace => "#FFD21E",
         ProviderId::LLMProxy => "#4F46E5",
         ProviderId::Chutes => "#FF5C35",
         ProviderId::LiteLLM => "#0EA5E9",
@@ -1032,7 +1046,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 73);
+        assert_eq!(all.len(), 74);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Fireworks));
@@ -1064,6 +1078,7 @@ mod tests {
         assert!(all.contains(&ProviderId::ElevenLabs));
         assert!(all.contains(&ProviderId::Deepgram));
         assert!(all.contains(&ProviderId::Groq));
+        assert!(all.contains(&ProviderId::HuggingFace));
         assert!(all.contains(&ProviderId::LLMProxy));
         assert!(all.contains(&ProviderId::Chutes));
         assert!(all.contains(&ProviderId::LiteLLM));
@@ -1121,6 +1136,7 @@ mod tests {
         assert_eq!(ProviderId::Codex.cli_name(), "codex");
         assert_eq!(ProviderId::Factory.cli_name(), "factory");
         assert_eq!(ProviderId::Zai.cli_name(), "zai");
+        assert_eq!(ProviderId::HuggingFace.cli_name(), "huggingface");
         assert_eq!(ProviderId::CodeRabbit.cli_name(), "coderabbit");
     }
 
@@ -1129,6 +1145,7 @@ mod tests {
         assert_eq!(ProviderId::Claude.display_name(), "Claude");
         assert_eq!(ProviderId::Factory.display_name(), "Factory");
         assert_eq!(ProviderId::Zai.display_name(), "z.ai");
+        assert_eq!(ProviderId::HuggingFace.display_name(), "Hugging Face");
         assert_eq!(ProviderId::CodeRabbit.display_name(), "CodeRabbit");
     }
 
@@ -1147,6 +1164,10 @@ mod tests {
             Some(ProviderId::Claude)
         );
         assert_eq!(ProviderId::from_cli_name("codex"), Some(ProviderId::Codex));
+        assert_eq!(
+            ProviderId::from_cli_name("hf"),
+            Some(ProviderId::HuggingFace)
+        );
         assert_eq!(ProviderId::from_cli_name("openai"), Some(ProviderId::Codex));
         assert_eq!(
             ProviderId::from_cli_name("factory"),
@@ -1234,6 +1255,7 @@ mod tests {
         assert_eq!(ProviderId::Zai.cookie_domain(), None);
         assert_eq!(ProviderId::VertexAI.cookie_domain(), None);
         assert_eq!(ProviderId::JetBrains.cookie_domain(), None);
+        assert_eq!(ProviderId::HuggingFace.cookie_domain(), None);
         assert_eq!(ProviderId::CodeRabbit.cookie_domain(), None);
     }
 

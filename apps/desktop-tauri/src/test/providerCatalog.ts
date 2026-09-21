@@ -55,6 +55,7 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["elevenlabs", "ElevenLabs"],
   ["deepgram", "Deepgram"],
   ["groq", "Groq"],
+  ["huggingface", "Hugging Face"],
   ["llmproxy", "LLM Proxy"],
   ["chutes", "Chutes"],
   ["litellm", "LiteLLM"],

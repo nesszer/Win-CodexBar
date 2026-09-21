@@ -22,7 +22,6 @@ import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
 import { InventoryItemRow } from "./InventoryRows";
-import { ProviderDisplayRow } from "./ProviderDisplayRow";
 import { getPaceBudget, type PaceBudget } from "../lib/paceBudget";
 import PaceDetailsChart from "./PaceDetailsChart";
 
@@ -113,6 +112,7 @@ function LocalUsageBlock({
 }) {
   const { t } = useLocale();
   const isCodex = providerId === "codex";
+  const isMuse = providerId === "muse";
   const visibleHistory = costHistory.slice(-30);
   const maxCost = Math.max(
     ...visibleHistory.flatMap((point) => (point.value == null ? [] : [point.value])),
@@ -125,27 +125,35 @@ function LocalUsageBlock({
         <div>
           <span className="menu-card__local-label">{t("PanelToday")}</span>
           <strong>
-            {summary.todayCost != null
+            {isMuse
+              ? (summary.latestTokens != null
+                ? formatCompactCount(summary.latestTokens)
+                : "—")
+              : summary.todayCost != null
               ? formatCurrency(summary.todayCost, "USD")
               : "—"}
           </strong>
         </div>
-        <div>
-          <span className="menu-card__local-label">{t("PanelThirtyDayCost")}</span>
-          <strong>
-            {summary.thirtyDayCost != null
-              ? formatCurrency(summary.thirtyDayCost, "USD")
-              : "—"}
-          </strong>
-        </div>
+        {!isMuse && (
+          <div>
+            <span className="menu-card__local-label">{t("PanelThirtyDayCost")}</span>
+            <strong>
+              {summary.thirtyDayCost != null
+                ? formatCurrency(summary.thirtyDayCost, "USD")
+                : "—"}
+            </strong>
+          </div>
+        )}
         <div>
           <span className="menu-card__local-label">{t("PanelThirtyDayTokens")}</span>
           <strong>{formatCompactCount(summary.thirtyDayTokens)}</strong>
         </div>
-        <div>
-          <span className="menu-card__local-label">{t("PanelLatestTokens")}</span>
-          <strong>{formatCompactCount(summary.latestTokens)}</strong>
-        </div>
+        {!isMuse && (
+          <div>
+            <span className="menu-card__local-label">{t("PanelLatestTokens")}</span>
+            <strong>{formatCompactCount(summary.latestTokens)}</strong>
+          </div>
+        )}
       </div>
 
       {isCodex && visibleHistory.length > 0 && (
@@ -580,18 +588,18 @@ export default function MenuCardDetails({
           ))}
         </section>
       )}
+      {!provider.error && hasDisplayDetails && !compactOverview && (
+        <section className="menu-card__group menu-card__provider-details">
+          {provider.displayDetails?.map((detail, index) => (
+            <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
+          ))}
+        </section>
+      )}
 
       {!provider.error && hasDisplayDetails && (
         <section className="menu-card__group menu-card__provider-details">
-          {provider.displayDetails?.map((detail) => (
-            <ProviderDisplayRow
-              key={detail.id}
-              detail={detail}
-              lineClassName="menu-card__cost-line"
-              secondaryClassName="menu-card__cost-line--muted"
-              trackClassName="menu-metric__bar"
-              fillClassName="menu-metric__bar-fill"
-            />
+          {provider.displayDetails?.map((detail, index) => (
+            <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
           ))}
         </section>
       )}
@@ -769,4 +777,25 @@ export default function MenuCardDetails({
   );
 }
 
+function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
+  const progress = detail.progress;
+  const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
+    ? Math.max(0, Math.min(100, (progress.used / progress.total) * 100))
+    : null;
 
+  return (
+    <div className="menu-card__provider-detail">
+      <div className="menu-card__cost-line">
+        <span>{detail.title}: {detail.value}</span>
+        {detail.secondaryValue && (
+          <span className="menu-card__cost-line--muted">{detail.secondaryValue}</span>
+        )}
+      </div>
+      {progressPercent != null && (
+        <div className="menu-metric__bar" aria-label={`${detail.title} progress`}>
+          <div className="menu-metric__bar-fill" style={{ width: `${progressPercent}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}

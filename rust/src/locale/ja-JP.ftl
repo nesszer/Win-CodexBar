@@ -523,6 +523,7 @@ PanelThirtyDayCostHistogram = 30日間コストのヒストグラム
 PanelTopModelPrefix = トップモデル
 PanelEstimatedFromLocalLogs = ローカルログから推定したもので、請求書と異なる場合があります
 PanelEstimatedFromLocalLogsClaude = ClaudeのローカルログからAPIレートで推定したもので、トークン総数が請求書と異なる場合があります
+PanelEstimatedFromLocalLogsMuse = ローカルトークン履歴; ドルコストは表示されません
 PanelExpected = 予測
 PanelActual = 実績
 PanelUsedSuffix = 使用済み

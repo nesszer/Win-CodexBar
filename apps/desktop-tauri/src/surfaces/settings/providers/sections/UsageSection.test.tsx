@@ -86,6 +86,25 @@ describe("UsageSection", () => {
     expect(screen.getByText("42%")).toBeInTheDocument();
   });
 
+  it("filters only hidden metric and extra rows", async () => {
+    const detail = provider();
+    detail.weekly = rateWindow(30);
+    detail.hiddenUsageItemIds = [
+      "metric:primary",
+      "metric:extra-additional_budget",
+    ];
+
+    render(
+      <LocaleProvider>
+        <UsageSection provider={detail} resetTimeRelative={true} t={(key) => key} />
+      </LocaleProvider>,
+    );
+
+    await screen.findByText("ProviderUsage");
+    expect(screen.queryByText("ProviderSessionLabel")).not.toBeInTheDocument();
+    expect(screen.queryByText("Additional Budget")).not.toBeInTheDocument();
+  });
+
   it("marks an unavailable session without rendering a quota bar", async () => {
     const detail = provider();
     detail.session = {
