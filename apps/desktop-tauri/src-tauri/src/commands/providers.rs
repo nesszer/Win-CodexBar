@@ -1255,15 +1255,11 @@ pub async fn refresh_providers_if_stale(app: tauri::AppHandle) -> Result<(), Str
 pub fn get_cached_providers(
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Vec<ProviderUsagePresentationSnapshot> {
-    let mut snapshots = state
+    let snapshots = state
         .lock()
         .map(|guard| guard.provider_cache.clone())
         .unwrap_or_default();
     let settings = Settings::load();
-    let spark_usage_visible = settings.codex_spark_usage_visible();
-    for snapshot in &mut snapshots {
-        super::filter_hidden_codex_spark_rows(snapshot, spark_usage_visible);
-    }
 
     snapshots
         .into_iter()

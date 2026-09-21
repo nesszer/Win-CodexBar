@@ -10,6 +10,7 @@ import augment from "./icons/ProviderIcon-augment.svg?raw";
 import bedrock from "./icons/ProviderIcon-bedrock.svg?raw";
 import claude from "./icons/ProviderIcon-claude.svg?raw";
 import codebuff from "./icons/ProviderIcon-codebuff.svg?raw";
+import coderabbit from "./icons/ProviderIcon-coderabbit.svg?raw";
 import codex from "./icons/ProviderIcon-codex.svg?raw";
 import commandcode from "./icons/ProviderIcon-commandcode.svg?raw";
 import copilot from "./icons/ProviderIcon-copilot.svg?raw";
@@ -94,6 +95,7 @@ const RAW: Record<string, string> = {
   bedrock: tint(bedrock),
   claude: tint(claude),
   codebuff: tint(codebuff),
+  coderabbit: tint(coderabbit),
   codex: tint(codex),
   commandcode: tint(commandcode),
   copilot: tint(copilot),
@@ -159,6 +161,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   augment:     { id: "augment",     brandColor: "#6366f1", fallbackLetter: "A", svgPath: RAW.augment },
   claude:      { id: "claude",      brandColor: "#cc7c5e", fallbackLetter: "◈", svgPath: RAW.claude },
   codebuff:    { id: "codebuff",    brandColor: "#44ff00", fallbackLetter: "B", svgPath: RAW.codebuff },
+  coderabbit:  { id: "coderabbit",  brandColor: "#ff5c35", fallbackLetter: "C", svgPath: RAW.coderabbit },
   codex:       { id: "codex",       brandColor: "#49a3b0", fallbackLetter: "◆", svgPath: RAW.codex },
   copilot:     { id: "copilot",     brandColor: "#a855f7", fallbackLetter: "⬡", svgPath: RAW.copilot },
   cursor:      { id: "cursor",      brandColor: "#00bfa5", fallbackLetter: "▸", svgPath: RAW.cursor },

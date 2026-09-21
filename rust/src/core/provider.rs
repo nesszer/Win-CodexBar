@@ -45,6 +45,7 @@ pub enum ProviderId {
     Kilo,
     Bedrock,
     Codebuff,
+    CodeRabbit,
     DeepSeek,
     DeepInfra,
     AiAnd,
@@ -124,6 +125,7 @@ impl ProviderId {
             ProviderId::Kilo,
             ProviderId::Bedrock,
             ProviderId::Codebuff,
+            ProviderId::CodeRabbit,
             ProviderId::DeepSeek,
             ProviderId::DeepInfra,
             ProviderId::AiAnd,
@@ -202,6 +204,7 @@ impl ProviderId {
             ProviderId::Kilo => "kilo",
             ProviderId::Bedrock => "bedrock",
             ProviderId::Codebuff => "codebuff",
+            ProviderId::CodeRabbit => "coderabbit",
             ProviderId::DeepSeek => "deepseek",
             ProviderId::DeepInfra => "deepinfra",
             ProviderId::Fireworks => "fireworks",
@@ -281,6 +284,7 @@ impl ProviderId {
             ProviderId::Kilo => "Kilo",
             ProviderId::Bedrock => "AWS Bedrock",
             ProviderId::Codebuff => "Codebuff",
+            ProviderId::CodeRabbit => "CodeRabbit",
             ProviderId::DeepSeek => "DeepSeek",
             ProviderId::DeepInfra => "DeepInfra",
             ProviderId::Fireworks => "Fireworks",
@@ -373,6 +377,7 @@ impl ProviderId {
             ProviderId::Kilo => None,
             ProviderId::Bedrock => None,
             ProviderId::Codebuff => None,
+            ProviderId::CodeRabbit => None,
             ProviderId::DeepSeek => None,
             ProviderId::DeepInfra => None,
             ProviderId::Fireworks => None,
@@ -448,6 +453,7 @@ impl ProviderId {
             "kilo" => Some(ProviderId::Kilo),
             "bedrock" | "aws-bedrock" | "aws bedrock" => Some(ProviderId::Bedrock),
             "codebuff" | "manicode" => Some(ProviderId::Codebuff),
+            "coderabbit" | "code-rabbit" | "code rabbit" => Some(ProviderId::CodeRabbit),
             "deepseek" | "deep-seek" | "ds" => Some(ProviderId::DeepSeek),
             "deepinfra" | "deep-infra" | "di" => Some(ProviderId::DeepInfra),
             "fireworks" | "fireworks-ai" | "fw" => Some(ProviderId::Fireworks),
@@ -972,6 +978,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::Kilo => "#5D87FF",
         ProviderId::Bedrock => "#FF9900",
         ProviderId::Codebuff => "#44FF00",
+        ProviderId::CodeRabbit => "#FF5C35",
         ProviderId::DeepSeek => "#527DF0",
         ProviderId::DeepInfra => "#2A3275",
         ProviderId::AiAnd => "#E25C2B",
@@ -1025,7 +1032,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 72);
+        assert_eq!(all.len(), 73);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Fireworks));
@@ -1040,6 +1047,7 @@ mod tests {
         assert!(all.contains(&ProviderId::Infini));
         assert!(all.contains(&ProviderId::Bedrock));
         assert!(all.contains(&ProviderId::Codebuff));
+        assert!(all.contains(&ProviderId::CodeRabbit));
         assert!(all.contains(&ProviderId::DeepSeek));
         assert!(all.contains(&ProviderId::DeepInfra));
         assert!(all.contains(&ProviderId::AiAnd));
@@ -1113,6 +1121,7 @@ mod tests {
         assert_eq!(ProviderId::Codex.cli_name(), "codex");
         assert_eq!(ProviderId::Factory.cli_name(), "factory");
         assert_eq!(ProviderId::Zai.cli_name(), "zai");
+        assert_eq!(ProviderId::CodeRabbit.cli_name(), "coderabbit");
     }
 
     #[test]
@@ -1120,6 +1129,7 @@ mod tests {
         assert_eq!(ProviderId::Claude.display_name(), "Claude");
         assert_eq!(ProviderId::Factory.display_name(), "Factory");
         assert_eq!(ProviderId::Zai.display_name(), "z.ai");
+        assert_eq!(ProviderId::CodeRabbit.display_name(), "CodeRabbit");
     }
 
     #[test]
@@ -1148,6 +1158,10 @@ mod tests {
         );
         assert_eq!(ProviderId::from_cli_name("zed"), Some(ProviderId::Zed));
         assert_eq!(ProviderId::from_cli_name("unknown"), None);
+        assert_eq!(
+            ProviderId::from_cli_name("code-rabbit"),
+            Some(ProviderId::CodeRabbit)
+        );
     }
 
     #[test]
@@ -1219,6 +1233,7 @@ mod tests {
         assert_eq!(ProviderId::Zai.cookie_domain(), None);
         assert_eq!(ProviderId::VertexAI.cookie_domain(), None);
         assert_eq!(ProviderId::JetBrains.cookie_domain(), None);
+        assert_eq!(ProviderId::CodeRabbit.cookie_domain(), None);
     }
 
     #[test]

@@ -878,7 +878,7 @@ fn launch_block_reason_helper_prefers_ssh() {
 
 #[test]
 fn build_provider_detail_populates_identity_urls() {
-    let detail = super::build_provider_detail("claude").expect("known provider");
+    let (detail, _settings, _id) = super::build_provider_detail("claude").expect("known provider");
     assert_eq!(detail.id, "claude");
     assert_eq!(detail.display_name, "Claude");
     // Claude advertises a status page URL in its metadata.
@@ -897,12 +897,52 @@ fn build_provider_detail_rejects_unknown_provider() {
 
 #[test]
 fn provider_detail_roundtrips_through_serde() {
-    let detail = super::build_provider_detail("codex").expect("known provider");
+    let (detail, _settings, _id) = super::build_provider_detail("codex").expect("known provider");
     let json = serde_json::to_string(&detail).expect("serialize");
     // camelCase rename survives the round-trip.
     assert!(json.contains("\"displayName\""));
     assert!(json.contains("\"hasSnapshot\""));
     assert!(json.contains("\"statusPageUrl\""));
+}
+
+#[test]
+fn usage_item_descriptors_keep_raw_ids_and_redact_titles() {
+    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        cost: None,
+        wayfinder_usage: None,
+        inventory: Vec::new(),
+        display_details: Vec::new(),
+        source_label: "OAuth".to_string(),
+        has_successful_claude_cli_quota: false,
+        pace_authoritative: true,
+        account_identity: None,
+    };
+    let mut snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+    snapshot.primary_label = Some("Account owner@example.com".to_string());
+    snapshot.extra_rate_windows = vec![NamedRateWindowSnapshot {
+        id: "credits".to_string(),
+        title: "Credits owner@example.com".to_string(),
+        window: snapshot.primary.clone(),
+        fallback_lane: false,
+    }];
+
+    let mut settings = Settings {
+        hide_personal_info: true,
+        ..Settings::default()
+    };
+    settings.set_hidden_usage_item_ids(ProviderId::Codex, vec!["metric:extra-missing".to_string()]);
+
+    let items = super::usage_item_descriptors(Some(&snapshot), &settings, ProviderId::Codex);
+
+    assert_eq!(items[0].id, "metric:primary");
+    assert_eq!(items[0].title, "Account Hidden");
+    assert_eq!(items[1].id, "metric:extra-credits");
+    assert_eq!(items[1].title, "Credits Hidden");
+    assert_eq!(items[2].id, "metric:extra-missing");
+    assert!(!items[2].available);
 }
 
 #[test]
@@ -1153,43 +1193,7 @@ fn superseded_refresh_generation_is_not_current() {
 }
 
 #[test]
-fn hiding_codex_spark_rows_preserves_other_extra_usage() {
-    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
-        cost: None,
-        wayfinder_usage: None,
-        inventory: Vec::new(),
-        display_details: Vec::new(),
-        source_label: "CLI".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-    };
-    let mut snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
-    snapshot.extra_rate_windows = vec![
-        NamedRateWindowSnapshot {
-            id: "codex-spark".to_string(),
-            title: "Codex Spark 5-hour".to_string(),
-            fallback_lane: false,
-            window: snapshot.primary.clone(),
-        },
-        NamedRateWindowSnapshot {
-            id: "credits".to_string(),
-            title: "Credits".to_string(),
-            fallback_lane: false,
-            window: snapshot.primary.clone(),
-        },
-    ];
 
-    super::filter_hidden_codex_spark_rows(&mut snapshot, false);
-
-    assert_eq!(snapshot.extra_rate_windows.len(), 1);
-    assert_eq!(snapshot.extra_rate_windows[0].id, "credits");
-}
-
-#[test]
 fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
     let result = ProviderFetchResult {
