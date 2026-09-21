@@ -346,6 +346,7 @@ pub fn build_local_spend_contract(
     let summary = match provider_id {
         "codex" => scanner.scan_codex(),
         "claude" => scanner.scan_claude(),
+        "pi" => scanner.scan_pi(),
         "opencodego" => scanner.scan_opencodego_with_cancel(None),
         _ => CostSummary::default(),
     };

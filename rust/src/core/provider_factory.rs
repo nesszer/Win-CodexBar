@@ -18,10 +18,10 @@ use crate::providers::{
     LongCatProvider, ManusProvider, MetaProvider, MiMoProvider, MiniMaxProvider, MistralProvider,
     MuseProvider, NanoGPTProvider, NeuralwattProvider, NotionProvider, NousProvider,
     OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider, OpenCodeProvider, OpenRouterProvider,
-    PerplexityProvider, PoeProvider, QoderProvider, QwenCloudProvider, ReplicateProvider,
-    SakanaProvider, StepFunProvider, Sub2ApiProvider, T3ChatProvider, VeniceProvider,
-    VertexAIProvider, WarpProvider, WayfinderProvider, WindsurfProvider, XaiProvider, ZaiProvider,
-    ZedProvider, ZenMuxProvider, ZoomMateProvider,
+    PerplexityProvider, PiProvider, PoeProvider, QoderProvider, QwenCloudProvider,
+    ReplicateProvider, SakanaProvider, StepFunProvider, Sub2ApiProvider, T3ChatProvider,
+    VeniceProvider, VertexAIProvider, WarpProvider, WayfinderProvider, WindsurfProvider,
+    XaiProvider, ZaiProvider, ZedProvider, ZenMuxProvider, ZoomMateProvider,
 };
 
 /// Instantiate the concrete [`Provider`] implementation for a given [`ProviderId`].
@@ -32,6 +32,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
     match id {
         ProviderId::Claude => Box::new(ClaudeProvider::new()),
         ProviderId::Codex => Box::new(CodexProvider::new()),
+        ProviderId::Pi => Box::new(PiProvider::new()),
         ProviderId::Cursor => Box::new(CursorProvider::new()),
         ProviderId::Gemini => Box::new(GeminiProvider::new()),
         ProviderId::Copilot => Box::new(CopilotProvider::new()),

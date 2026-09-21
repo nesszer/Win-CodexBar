@@ -166,6 +166,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   antigravity: { id: "antigravity", brandColor: "#60ba7e", fallbackLetter: "◉", svgPath: RAW.antigravity },
   augment:     { id: "augment",     brandColor: "#6366f1", fallbackLetter: "A", svgPath: RAW.augment },
   claude:      { id: "claude",      brandColor: "#cc7c5e", fallbackLetter: "◈", svgPath: RAW.claude },
+  pi:          { id: "pi",          brandColor: "#7c3aed", fallbackLetter: "P" },
   codebuff:    { id: "codebuff",    brandColor: "#44ff00", fallbackLetter: "B", svgPath: RAW.codebuff },
   coderabbit:  { id: "coderabbit",  brandColor: "#ff5c35", fallbackLetter: "C", svgPath: RAW.coderabbit },
   codex:       { id: "codex",       brandColor: "#49a3b0", fallbackLetter: "◆", svgPath: RAW.codex },

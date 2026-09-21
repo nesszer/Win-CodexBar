@@ -16,7 +16,7 @@ use crate::spend_contract::build_local_spend_contract_from_summary;
 /// Arguments for the cost command
 #[derive(Args, Debug, Default)]
 pub struct CostArgs {
-    /// Provider to query (codex, claude, muse, antigravity, cursor, gemini, copilot, all, both)
+    /// Provider to query (codex, claude, pi, muse, antigravity, cursor, gemini, copilot, all, both)
     #[arg(short, long)]
     pub provider: Option<String>,
 
@@ -109,7 +109,12 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     }
 
     let mut scan_options = CostScanOptions::app_driven();
-    scan_options.include_pi_sessions = !args.provider_native_only;
+    let requested_providers = providers.as_list();
+    let pi_selected = requested_providers.contains(&ProviderId::Pi);
+    // When Pi is selected alongside native providers, the standalone Pi row
+    // owns its mirrored Codex/Claude events. A single native-provider request
+    // keeps the historical inclusive behavior unless explicitly narrowed.
+    scan_options.include_pi_sessions = !args.provider_native_only && !pi_selected;
     let scanner = CostScanner::new(args.days).with_options(scan_options);
 
     tracing::debug!(
@@ -135,7 +140,21 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
                 });
             }
             ProviderId::Claude => {
-                let summary = scanner.scan_claude();
+                let summary = if pi_selected || args.provider_native_only {
+                    scanner.scan_claude_with_cancel_and_pi_sessions(None, false)
+                } else {
+                    scanner.scan_claude()
+                };
+                results.push(CostResult {
+                    provider: provider.cli_name().to_string(),
+                    display_name: provider.display_name().to_string(),
+                    summary,
+                    supported: true,
+                    token_history: None,
+                });
+            }
+            ProviderId::Pi => {
+                let summary = scanner.scan_pi();
                 results.push(CostResult {
                     provider: provider.cli_name().to_string(),
                     display_name: provider.display_name().to_string(),
@@ -450,7 +469,7 @@ fn build_json_payloads(results: &[CostResult], days: u32) -> Vec<serde_json::Val
                     "error": "Local cost scanning not available for this provider"
                 })
             } else {
-                let spend_contract = matches!(r.provider.as_str(), "codex" | "claude" | "opencodego")
+                let spend_contract = matches!(r.provider.as_str(), "codex" | "claude" | "pi" | "opencodego")
                     .then(|| build_local_spend_contract_from_summary(
                         &r.provider,
                         days.clamp(1, 365),
@@ -466,8 +485,8 @@ fn build_json_payloads(results: &[CostResult], days: u32) -> Vec<serde_json::Val
                     "cost": {"total_usd": r.summary.total_cost_usd, "currency": "USD"},
                     "tokens": {"input": r.summary.input_tokens, "output": r.summary.output_tokens, "cached": r.summary.cached_tokens},
                     "sessions_count": r.summary.sessions_count,
-                    "historyCoverageIsEstablished": if r.provider == "codex" { serde_json::Value::Bool(r.summary.history_coverage_established) } else { serde_json::Value::Null },
-                    "knownZero": if r.provider == "codex" { serde_json::Value::Bool(r.summary.known_zero) } else { serde_json::Value::Null },
+                    "historyCoverageIsEstablished": if matches!(r.provider.as_str(), "codex" | "pi") { serde_json::Value::Bool(r.summary.history_coverage_established) } else { serde_json::Value::Null },
+                    "knownZero": if matches!(r.provider.as_str(), "codex" | "pi") { serde_json::Value::Bool(r.summary.known_zero) } else { serde_json::Value::Null },
                     "modelPricingCompleteness": match &r.summary.model_pricing_completeness {
                         crate::cost_scanner::ModelPricingCompleteness::Complete => serde_json::Value::String("complete".to_string()),
                         crate::cost_scanner::ModelPricingCompleteness::Partial { unpriced_models } => serde_json::json!({"partial": {"unpriced_models": unpriced_models}}),

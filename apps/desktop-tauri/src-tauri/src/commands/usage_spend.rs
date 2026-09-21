@@ -363,6 +363,9 @@ fn build_usage_spend_summary(
 ) -> UsageSpendSummary {
     let include_opencodex = settings.open_codex_usage_logs_enabled;
     let hide_native = settings.hide_native_codex_cost_when_open_codex_present;
+    let pi_selected = settings.enabled_providers.iter().any(|id| id == "pi")
+        || cached.iter().any(|snapshot| snapshot.provider_id == "pi");
+    let include_pi_in_native = !pi_selected;
 
     // Upstream 0.55.0 #3105: independent provider baselines load in parallel.
     // Keep each provider's 7d/30d scans serial so they can safely share that
@@ -372,29 +375,43 @@ fn build_usage_spend_summary(
     } else {
         codexbar::core::CostScanOptions::default()
     };
-    let ((codex_7_summary, codex_30_summary), (claude_7_summary, claude_30_summary)) =
-        std::thread::scope(|scope| {
-            let codex = scope.spawn(move || {
-                (
-                    CostScanner::new(7)
-                        .with_options(codex_scan_options)
-                        .scan_codex(),
-                    CostScanner::new(30)
-                        .with_options(codex_scan_options)
-                        .scan_codex(),
-                )
-            });
-            let claude = scope.spawn(|| {
-                (
-                    CostScanner::new(7).scan_claude(),
-                    CostScanner::new(30).scan_claude(),
-                )
-            });
+    let mut codex_scan_options = codex_scan_options;
+    codex_scan_options.include_pi_sessions = include_pi_in_native;
+    let (
+        (codex_7_summary, codex_30_summary),
+        (claude_7_summary, claude_30_summary),
+        (pi_7_summary, pi_30_summary),
+    ) = std::thread::scope(|scope| {
+        let codex = scope.spawn(move || {
             (
-                codex.join().expect("Codex spend scan worker panicked"),
-                claude.join().expect("Claude spend scan worker panicked"),
+                CostScanner::new(7)
+                    .with_options(codex_scan_options)
+                    .scan_codex(),
+                CostScanner::new(30)
+                    .with_options(codex_scan_options)
+                    .scan_codex(),
             )
         });
+        let claude = scope.spawn(|| {
+            (
+                CostScanner::new(7)
+                    .scan_claude_with_cancel_and_pi_sessions(None, include_pi_in_native),
+                CostScanner::new(30)
+                    .scan_claude_with_cancel_and_pi_sessions(None, include_pi_in_native),
+            )
+        });
+        let pi = scope.spawn(|| {
+            (
+                CostScanner::new(7).scan_pi(),
+                CostScanner::new(30).scan_pi(),
+            )
+        });
+        (
+            codex.join().expect("Codex spend scan worker panicked"),
+            claude.join().expect("Claude spend scan worker panicked"),
+            pi.join().expect("Pi spend scan worker panicked"),
+        )
+    });
 
     let codex_stale = !codex_30_summary.history_coverage_established;
     let codex_stale_updated_at = codex_stale
@@ -420,6 +437,22 @@ fn build_usage_spend_summary(
         hide_native,
         settings.hide_personal_info,
         codex_30_summary.clone(),
+    );
+    let pi_7_contract = build_local_spend_contract_from_summary(
+        "pi",
+        7,
+        false,
+        false,
+        settings.hide_personal_info,
+        pi_7_summary.clone(),
+    );
+    let pi_30_contract = build_local_spend_contract_from_summary(
+        "pi",
+        30,
+        false,
+        false,
+        settings.hide_personal_info,
+        pi_30_summary.clone(),
     );
 
     let mut provider_ids: BTreeSet<String> = settings.enabled_providers.iter().cloned().collect();
@@ -492,6 +525,15 @@ fn build_usage_spend_summary(
                 ),
                 source: "local logs".to_string(),
                 refreshing: false,
+                stale_updated_at: None,
+            },
+            "pi" => SpendValues {
+                seven_day: pi_7_contract.known_cost_usd,
+                thirty_day: pi_30_contract.known_cost_usd,
+                seven_day_tokens: total_token_mix(&pi_7_contract.token_mix),
+                thirty_day_tokens: total_token_mix(&pi_30_contract.token_mix),
+                source: "local Pi/OMP history".to_string(),
+                refreshing: !pi_30_summary.history_coverage_established,
                 stale_updated_at: None,
             },
             "opencodego" | "kimi" | "deepseek" if include_opencodex => {
@@ -585,8 +627,11 @@ fn build_usage_spend_summary(
             thirty_day_tokens: spend.thirty_day_tokens,
             currency,
             source: spend.source,
-            included_in_overview: settings.enabled_providers.contains(&provider_id)
-                || cached_snapshot.is_some(),
+            included_in_overview: include_in_shared_overview(
+                &provider_id,
+                settings.enabled_providers.contains(&provider_id),
+                cached_snapshot.is_some(),
+            ),
             daily,
             refreshing: spend.refreshing,
             stale_updated_at: spend.stale_updated_at,
@@ -621,6 +666,13 @@ fn build_usage_spend_summary(
         reporting_day,
         dashboard_timezone,
     }
+}
+
+/// Pi is an alternate local-history view over rows that may already be
+/// projected into Codex or Claude. Keep it out of the shared denominator so
+/// enabling Pi cannot double-count the same physical usage.
+fn include_in_shared_overview(provider_id: &str, enabled: bool, cached: bool) -> bool {
+    provider_id != "pi" && (enabled || cached)
 }
 
 fn last_included_reporting_day(contract: &SpendContract) -> String {
@@ -773,5 +825,13 @@ mod cache_key_tests {
         let public = usage_spend_cache_key_with_privacy(&[], 30, false, false, false);
         let private = usage_spend_cache_key_with_privacy(&[], 30, false, false, true);
         assert_ne!(public, private);
+    }
+
+    #[test]
+    fn pi_history_is_an_alternate_view_not_a_shared_overview_source() {
+        assert!(!include_in_shared_overview("pi", true, true));
+        assert!(include_in_shared_overview("codex", true, false));
+        assert!(include_in_shared_overview("claude", false, true));
+        assert!(!include_in_shared_overview("codex", false, false));
     }
 }

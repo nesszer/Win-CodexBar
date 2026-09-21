@@ -88,6 +88,7 @@ pub async fn cost_response(provider: Option<&str>) -> String {
         let (supported, summary) = match provider_id {
             ProviderId::Codex => (true, scanner.scan_codex()),
             ProviderId::Claude => (true, scanner.scan_claude()),
+            ProviderId::Pi => (true, scanner.scan_pi()),
             _ => (false, Default::default()),
         };
         if supported {

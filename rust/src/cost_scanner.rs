@@ -523,6 +523,38 @@ impl CostScanner {
         self
     }
 
+    /// Scan standalone Pi and OMP local history.
+    ///
+    /// Pi session rows can represent either Codex or Claude models. They are
+    /// priced with the mapped provider's table but owned by the standalone Pi
+    /// source, so this path never adds native Codex/Claude transcripts.
+    pub fn scan_pi(&self) -> CostSummary {
+        self.scan_pi_with_cancel(None)
+    }
+
+    pub fn scan_pi_with_cancel(&self, cancel: Option<&AtomicBool>) -> CostSummary {
+        let today = Utc::now().date_naive();
+        let mut summary = CostSummary {
+            period_start: Some(today - Duration::days(self.days as i64)),
+            period_end: Some(today),
+            ..CostSummary::default()
+        };
+        let mut seen_entries = HashSet::new();
+        let evidence = crate::pi_session_cost::scan_pi_into(
+            &mut summary,
+            self.days,
+            cancel,
+            &mut seen_entries,
+        );
+        summary.history_coverage_established = evidence.complete && !is_cancelled(cancel);
+        summary.known_zero = summary.history_coverage_established
+            && summary.sessions_count == 0
+            && summary.input_tokens == 0
+            && summary.output_tokens == 0
+            && summary.cached_tokens == 0;
+        summary
+    }
+
     /// Scan Codex local logs
     pub fn scan_claude(&self) -> CostSummary {
         self.scan_claude_with_cancel(None)
@@ -530,6 +562,19 @@ impl CostScanner {
 
     /// Scan Claude local logs, stopping early when the caller cancels the scan.
     pub fn scan_claude_with_cancel(&self, cancel: Option<&AtomicBool>) -> CostSummary {
+        self.scan_claude_with_cancel_and_pi_sessions(cancel, true)
+    }
+
+    /// Scan Claude local logs with optional Pi/OMP-compatible history.
+    ///
+    /// The default scanner remains inclusive for backwards compatibility. A
+    /// combined Codex/Claude/Pi selection can turn this off so the standalone
+    /// Pi row owns those mirrored events exactly once.
+    pub fn scan_claude_with_cancel_and_pi_sessions(
+        &self,
+        cancel: Option<&AtomicBool>,
+        include_pi_sessions: bool,
+    ) -> CostSummary {
         let projects_dir = self.get_claude_projects_dir();
         let mut summary = CostSummary::default();
         let today = Utc::now().date_naive();
@@ -565,14 +610,16 @@ impl CostScanner {
         }
 
         // OMP / pi-compatible anthropic rows, deduped across shared files.
-        let mut seen_pi = HashSet::new();
-        crate::pi_session_cost::scan_pi_compatible_into(
-            &mut summary,
-            crate::pi_session_cost::PiMappedProvider::Claude,
-            self.days,
-            cancel,
-            &mut seen_pi,
-        );
+        if include_pi_sessions {
+            let mut seen_pi = HashSet::new();
+            crate::pi_session_cost::scan_pi_compatible_into(
+                &mut summary,
+                crate::pi_session_cost::PiMappedProvider::Claude,
+                self.days,
+                cancel,
+                &mut seen_pi,
+            );
+        }
 
         // Claude has no persisted provider cost-report cache in the Windows
         // port. Rebuilding from the transcript inventory on every scan makes
@@ -1092,7 +1139,7 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, Option<
         let date_str = date.format("%Y-%m-%d").to_string();
         daily_costs.insert(
             date_str,
-            (provider != "codex" && provider != "claude").then_some(0.0),
+            (provider != "codex" && provider != "claude" && provider != "pi").then_some(0.0),
         );
     }
 
@@ -1173,6 +1220,21 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, Option<
                 }
             }
         }
+        "pi" => {
+            let scan = crate::pi_session_cost::scan_pi_daily(days, None);
+            for (day_key, cost) in &scan.costs {
+                if let Some(slot) = daily_costs.get_mut(day_key) {
+                    *slot = (!scan.unpriced_days.contains(day_key)).then_some(*cost);
+                }
+            }
+            if scan.history_coverage_established {
+                for (day_key, slot) in &mut daily_costs {
+                    if slot.is_none() && !scan.unpriced_days.contains(day_key) {
+                        *slot = Some(0.0);
+                    }
+                }
+            }
+        }
         _ => {}
     }
 
@@ -1247,6 +1309,17 @@ pub fn get_daily_token_history(provider: &str, days: u32) -> (Vec<(String, u64)>
                 scanner.walk_claude_files(&projects_dir, &cutoff, None, &mut handle_file);
             }
         }
+        "pi" => {
+            let scan = crate::pi_session_cost::scan_pi_daily(days, None);
+            for (day_key, tokens) in scan.tokens {
+                if let Some(slot) = daily_tokens.get_mut(&day_key) {
+                    *slot = tokens;
+                }
+            }
+            if scan.history_coverage_established {
+                covered_days.extend(daily_tokens.keys().cloned());
+            }
+        }
         _ => {}
     }
 
@@ -1257,12 +1330,18 @@ pub fn get_daily_token_history(provider: &str, days: u32) -> (Vec<(String, u64)>
     // Codex only: the bounded catch-up may not have reached the requested
     // depth yet. Incomplete = history exists but the oldest quarter of the
     // window has no scanned day.
-    let incomplete = provider == "codex"
-        && !covered_days.is_empty()
-        && covered_days.len() < days as usize
-        && result[..(result.len() / 4).max(1)]
-            .iter()
-            .any(|(date, _)| !covered_days.contains(date));
+    let incomplete = if provider == "pi" {
+        // Pi scans are bounded filesystem walks, so a complete parse covers
+        // the requested window even when the roots contain no sessions.
+        covered_days.is_empty()
+    } else {
+        provider == "codex"
+            && !covered_days.is_empty()
+            && covered_days.len() < days as usize
+            && result[..(result.len() / 4).max(1)]
+                .iter()
+                .any(|(date, _)| !covered_days.contains(date))
+    };
 
     (result, incomplete)
 }

@@ -644,6 +644,7 @@ fn scan_local_cost(
     match provider_id {
         "codex" => Some(scanner.scan_codex_with_cancel(cancel)),
         "claude" => Some(scanner.scan_claude_with_cancel(cancel)),
+        "pi" => Some(scanner.scan_pi_with_cancel(cancel)),
         "opencodego" => Some(scanner.scan_opencodego_with_cancel(cancel)),
         _ => None,
     }

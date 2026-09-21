@@ -218,7 +218,7 @@ fn local_usage_provider_ids(settings: &Settings) -> Vec<String> {
         .get_enabled_provider_ids()
         .into_iter()
         .map(|provider| provider.cli_name().to_string())
-        .filter(|provider_id| matches!(provider_id.as_str(), "codex" | "claude" | "muse"))
+        .filter(|provider_id| matches!(provider_id.as_str(), "codex" | "claude" | "pi" | "muse"))
         .collect()
 }
 

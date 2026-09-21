@@ -14,6 +14,7 @@ use super::provider_state::ProviderStateKind;
 pub enum ProviderId {
     Codex,
     Claude,
+    Pi,
     Cursor,
     Factory,
     Gemini,
@@ -97,6 +98,7 @@ impl ProviderId {
         &[
             ProviderId::Codex,
             ProviderId::Claude,
+            ProviderId::Pi,
             ProviderId::Cursor,
             ProviderId::Factory,
             ProviderId::Gemini,
@@ -179,6 +181,7 @@ impl ProviderId {
         match self {
             ProviderId::Codex => "codex",
             ProviderId::Claude => "claude",
+            ProviderId::Pi => "pi",
             ProviderId::Cursor => "cursor",
             ProviderId::Factory => "factory",
             ProviderId::Gemini => "gemini",
@@ -261,6 +264,7 @@ impl ProviderId {
         match self {
             ProviderId::Codex => "Codex",
             ProviderId::Claude => "Claude",
+            ProviderId::Pi => "Pi",
             ProviderId::Cursor => "Cursor",
             ProviderId::Factory => "Factory",
             ProviderId::Gemini => "Gemini",
@@ -349,6 +353,7 @@ impl ProviderId {
             ProviderId::Cursor => Some("cursor.com"),
             ProviderId::Factory => Some("app.factory.ai"),
             ProviderId::Codex => Some("chatgpt.com"),
+            ProviderId::Pi => None,
             ProviderId::Gemini => Some("aistudio.google.com"),
             ProviderId::Kiro => Some("kiro.dev"),
             ProviderId::Kimi => Some("kimi.moonshot.cn"),
@@ -432,6 +437,7 @@ impl ProviderId {
         match name.to_lowercase().as_str() {
             "codex" | "openai" => Some(ProviderId::Codex),
             "claude" | "anthropic" => Some(ProviderId::Claude),
+            "pi" | "pi-mono" => Some(ProviderId::Pi),
             "cursor" => Some(ProviderId::Cursor),
             "factory" | "droid" => Some(ProviderId::Factory),
             "gemini" | "google" => Some(ProviderId::Gemini),
@@ -1001,6 +1007,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
     match id {
         ProviderId::Codex => "#49A3B0",
         ProviderId::Claude => "#CC7C5E",
+        ProviderId::Pi => "#7C3AED",
         ProviderId::Cursor => "#00BFA5",
         ProviderId::Factory => "#FF6B35",
         ProviderId::Gemini => "#AB87EA",
@@ -1089,9 +1096,10 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 76);
+        assert_eq!(all.len(), 77);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
+        assert!(all.contains(&ProviderId::Pi));
         assert!(all.contains(&ProviderId::Fireworks));
         assert!(all.contains(&ProviderId::Kimi));
         assert!(all.contains(&ProviderId::KimiK2));

@@ -16,6 +16,7 @@ use chrono::{Local, Utc};
 use crate::core::{CostScanOptions, FetchContext, ProviderId, SourceMode, instantiate_provider};
 use crate::cost_scanner::{self, CostScanner};
 use crate::settings::Settings;
+use crate::spend_contract::build_local_spend_contract_from_summary;
 
 use crate::cli::serve::collection::{
     AccountFetchEnvelope, ClaudeAccountsInput, ProviderFetchEnvelope, RawCostPayload,
@@ -111,7 +112,7 @@ impl SnapshotProducer {
         let providers: Vec<ProviderFetchEnvelope> =
             indexed.into_iter().map(|(_, envelope)| envelope).collect();
 
-        let costs = collect_costs().await;
+        let costs = collect_costs(provider_ids.contains(&ProviderId::Pi)).await;
         let claude_accounts =
             collect_claude_accounts(provider_ids.contains(&ProviderId::Claude)).await;
 
@@ -205,13 +206,18 @@ async fn bounded_fetch(
     }
 }
 
-/// Local cost data for the two scanned providers, computed off the async
+/// Local cost data for the scanned providers, computed off the async
 /// runtime so a large corpus cannot stall dashboard builds.
-async fn collect_costs() -> HashMap<String, RawCostPayload> {
-    let result = tokio::task::spawn_blocking(|| {
-        let scanner = CostScanner::new(30).with_options(CostScanOptions::app_driven());
+async fn collect_costs(pi_selected: bool) -> HashMap<String, RawCostPayload> {
+    let result = tokio::task::spawn_blocking(move || {
+        let mut scan_options = CostScanOptions::app_driven();
+        scan_options.include_pi_sessions = !pi_selected;
+        let scanner = CostScanner::new(30).with_options(scan_options);
         let codex = scanner.scan_codex_with_cancel(None);
-        let claude = scanner.scan_claude_with_cancel(None);
+        let claude = scanner.scan_claude_with_cancel_and_pi_sessions(None, !pi_selected);
+        let pi = scanner.scan_pi_with_cancel(None);
+        let pi_contract =
+            build_local_spend_contract_from_summary("pi", 30, false, false, false, pi);
         let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
         let today_of = |provider: &str| {
             cost_scanner::get_daily_cost_history(provider, 30)
@@ -232,6 +238,13 @@ async fn collect_costs() -> HashMap<String, RawCostPayload> {
             RawCostPayload {
                 today_usd: today_of("claude"),
                 last_30_days_usd: Some(claude.total_cost_usd),
+            },
+        );
+        costs.insert(
+            "pi".to_string(),
+            RawCostPayload {
+                today_usd: today_of("pi"),
+                last_30_days_usd: pi_contract.known_cost_usd,
             },
         );
         costs

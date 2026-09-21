@@ -7,6 +7,7 @@ describe("providerSupportsChartData", () => {
     expect(providerSupportsChartData("claude")).toBe(true);
     expect(providerSupportsChartData("openai")).toBe(true);
     expect(providerSupportsChartData("muse")).toBe(true);
+    expect(providerSupportsChartData("pi")).toBe(true);
     expect(providerSupportsChartData("OpenAI")).toBe(true);
 
     expect(providerSupportsChartData("copilot")).toBe(false);

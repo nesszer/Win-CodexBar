@@ -332,6 +332,7 @@ impl TokenAccountSupport {
             }),
             // These providers don't support token accounts
             ProviderId::Codex
+            | ProviderId::Pi
             | ProviderId::Gemini
             | ProviderId::Antigravity
             | ProviderId::Kiro
