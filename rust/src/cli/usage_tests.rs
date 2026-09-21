@@ -324,4 +324,3 @@ fn json_inventory_is_additive_and_contains_no_redemption_token() {
             .contains("coupon-token-secret")
     );
 }
-

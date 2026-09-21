@@ -491,10 +491,12 @@ fn build_result(
                 "ZeroGPU quota",
                 format!("{:.0} minutes used", zerogpu.used_minutes),
             )
-            .and_then(|row| row.with_secondary_value(format!(
-                "{:.0} minutes remaining{reset}",
-                zerogpu.remaining_minutes
-            )))
+            .and_then(|row| {
+                row.with_secondary_value(format!(
+                    "{:.0} minutes remaining{reset}",
+                    zerogpu.remaining_minutes
+                ))
+            })
             .and_then(|row| row.with_progress(zerogpu.used_minutes, zerogpu.total_minutes)),
         );
     }
