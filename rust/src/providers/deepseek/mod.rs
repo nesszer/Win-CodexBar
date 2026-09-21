@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Deserialize;
 
@@ -79,6 +79,8 @@ struct DeepSeekCostData {
     total: Vec<DeepSeekCostItem>,
     #[serde(default)]
     days: Vec<DeepSeekCostDay>,
+    #[serde(default)]
+    currency: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -95,8 +97,8 @@ struct DeepSeekCostItem {
     model: String,
     #[serde(default)]
     category: String,
-    #[serde(default)]
-    cost: FlexibleF64,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    cost: Option<FlexibleF64>,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, Default)]
@@ -104,6 +106,26 @@ struct FlexibleF64(#[serde(deserialize_with = "deserialize_f64")] f64);
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 struct FlexibleI64(#[serde(deserialize_with = "deserialize_i64")] i64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum DeepSeekUsagePeriod {
+    #[default]
+    CurrentMonth,
+}
+
+impl DeepSeekUsagePeriod {
+    fn label(self) -> &'static str {
+        match self {
+            Self::CurrentMonth => "Current month",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct DeepSeekModelCost {
+    model: String,
+    cost: f64,
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 struct DeepSeekUsageSummary {
@@ -115,6 +137,9 @@ struct DeepSeekUsageSummary {
     month_cost: f64,
     top_model: Option<String>,
     category_tokens: Vec<(String, f64)>,
+    model_costs: Vec<DeepSeekModelCost>,
+    currency: String,
+    period: DeepSeekUsagePeriod,
 }
 
 pub struct DeepSeekProvider {
@@ -206,12 +231,16 @@ impl DeepSeekProvider {
         if let Ok(summary) = self.fetch_usage_summary(&api_key).await {
             usage = Self::apply_usage_summary(usage, &summary);
             result = ProviderFetchResult::new(usage, "api");
-            if summary.month_cost > 0.0 {
-                result = result.with_cost(CostSnapshot::new(
+            if summary.month_cost > 0.0 || !summary.model_costs.is_empty() {
+                let mut cost = CostSnapshot::new(
                     summary.month_cost,
-                    "USD",
-                    "Current month",
-                ));
+                    &summary.currency,
+                    summary.period.label(),
+                );
+                if let Some(symbol) = currency_symbol_for_cost(&summary.currency) {
+                    cost = cost.with_currency_symbol(symbol);
+                }
+                result = result.with_cost(cost);
             }
         }
 
@@ -357,6 +386,17 @@ impl DeepSeekProvider {
                 RateWindow::with_details(0.0, None, None, Some(format_count(*tokens))),
             );
         }
+        for (idx, model_cost) in summary.model_costs.iter().enumerate() {
+            usage = usage.with_extra_rate_window(
+                format!("deepseek-model-cost-{idx}"),
+                format!("Spend: {}", model_cost.model),
+                RateWindow::informational(format!(
+                    "{} · {}",
+                    format_currency_amount(model_cost.cost, &summary.currency),
+                    summary.period.label()
+                )),
+            );
+        }
         usage
     }
 }
@@ -399,6 +439,18 @@ impl DeepSeekUsageSummary {
         let mut category_tokens = category_tokens.into_iter().collect::<Vec<_>>();
         category_tokens.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
+        let mut model_cost_totals = ModelCostTotals::default();
+        for item in &cost.total {
+            let model = item.model.trim();
+            if model.is_empty() || is_request_category(&item.category) {
+                continue;
+            }
+            let amount = is_known_cost_category(&item.category)
+                .then(|| item.cost.map(|cost| cost.0))
+                .flatten();
+            model_cost_totals.add(amount, model);
+        }
+
         Ok(Self {
             today_tokens: today.map(sum_non_request_amount).unwrap_or_default(),
             month_tokens: amount
@@ -415,9 +467,18 @@ impl DeepSeekUsageSummary {
                 .map(|item| item.amount.0)
                 .sum(),
             today_cost: today_cost_day.map(sum_cost).unwrap_or_default(),
-            month_cost: cost.total.iter().map(|item| item.cost.0).sum(),
+            month_cost: sum_cost(&cost.total),
             top_model,
             category_tokens,
+            model_costs: model_cost_totals.values(),
+            currency: cost
+                .currency
+                .as_deref()
+                .map(str::trim)
+                .filter(|currency| !currency.is_empty())
+                .unwrap_or("USD")
+                .to_string(),
+            period: DeepSeekUsagePeriod::CurrentMonth,
         })
     }
 }
@@ -521,6 +582,13 @@ fn is_request_category(category: &str) -> bool {
     category.eq_ignore_ascii_case("REQUEST")
 }
 
+fn is_known_cost_category(category: &str) -> bool {
+    matches!(
+        category,
+        "PROMPT_CACHE_HIT_TOKEN" | "PROMPT_CACHE_MISS_TOKEN" | "RESPONSE_TOKEN" | "REQUEST"
+    )
+}
+
 fn sum_non_request_amount(items: &[DeepSeekAmountItem]) -> f64 {
     items
         .iter()
@@ -538,7 +606,59 @@ fn sum_request_amount(items: &[DeepSeekAmountItem]) -> f64 {
 }
 
 fn sum_cost(items: &[DeepSeekCostItem]) -> f64 {
-    items.iter().map(|item| item.cost.0).sum()
+    items
+        .iter()
+        .filter(|item| {
+            is_known_cost_category(&item.category) && !is_request_category(&item.category)
+        })
+        .filter_map(|item| item.cost.map(|cost| cost.0))
+        .filter(|cost| cost.is_finite() && *cost >= 0.0)
+        .sum()
+}
+
+#[derive(Default)]
+struct ModelCostTotals {
+    totals: HashMap<String, f64>,
+    unavailable: HashSet<String>,
+}
+
+impl ModelCostTotals {
+    fn add(&mut self, amount: Option<f64>, model: &str) {
+        let model = model.trim();
+        if model.is_empty() || self.unavailable.contains(model) {
+            return;
+        }
+
+        let Some(amount) = amount.filter(|amount| amount.is_finite() && *amount >= 0.0) else {
+            self.unavailable.insert(model.to_string());
+            self.totals.remove(model);
+            return;
+        };
+
+        let total = self.totals.get(model).copied().unwrap_or_default() + amount;
+        if total.is_finite() {
+            self.totals.insert(model.to_string(), total);
+        } else {
+            self.unavailable.insert(model.to_string());
+            self.totals.remove(model);
+        }
+    }
+
+    fn values(self) -> Vec<DeepSeekModelCost> {
+        let mut values = self
+            .totals
+            .into_iter()
+            .map(|(model, cost)| DeepSeekModelCost { model, cost })
+            .collect::<Vec<_>>();
+        values.sort_by(|left, right| {
+            right
+                .cost
+                .partial_cmp(&left.cost)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.model.cmp(&right.model))
+        });
+        values
+    }
 }
 
 fn category_label(category: &str) -> String {
@@ -574,21 +694,44 @@ fn format_count(value: f64) -> String {
     }
 }
 
+fn format_currency_amount(value: f64, currency: &str) -> String {
+    match currency.trim().to_uppercase().as_str() {
+        "CNY" | "RMB" => format!("¥{value:.4}"),
+        "USD" | "" => format!("${value:.4}"),
+        code => format!("{code} {value:.4}"),
+    }
+}
+
+fn currency_symbol_for_cost(currency: &str) -> Option<&'static str> {
+    match currency.trim().to_uppercase().as_str() {
+        "CNY" | "RMB" => Some("¥"),
+        "USD" => Some("$"),
+        _ => None,
+    }
+}
+
+fn parse_flexible_json_number(value: serde_json::Value) -> Option<f64> {
+    match value {
+        serde_json::Value::Number(number) => number.as_f64(),
+        serde_json::Value::String(value) => value.replace(',', "").parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
 fn deserialize_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let value = serde_json::Value::deserialize(deserializer)?;
-    match value {
-        serde_json::Value::Number(n) => n
-            .as_f64()
-            .ok_or_else(|| serde::de::Error::custom("invalid number")),
-        serde_json::Value::String(s) => s
-            .replace(',', "")
-            .parse::<f64>()
-            .map_err(|_| serde::de::Error::custom("invalid number string")),
-        _ => Ok(0.0),
-    }
+    parse_flexible_json_number(value).ok_or_else(|| serde::de::Error::custom("invalid number"))
+}
+
+fn deserialize_optional_f64<'de, D>(deserializer: D) -> Result<Option<FlexibleF64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(parse_flexible_json_number(value).map(FlexibleF64))
 }
 
 fn deserialize_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
@@ -615,183 +758,5 @@ fn currency_symbol(currency: &str) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prefers_usd_balance_and_formats_paid_and_granted() {
-        let snapshot = DeepSeekProvider::snapshot_from_balance(BalanceResponse {
-            is_available: true,
-            balance_infos: vec![
-                BalanceInfo {
-                    currency: "CNY".into(),
-                    total_balance: "10".into(),
-                    granted_balance: "1".into(),
-                    topped_up_balance: "9".into(),
-                },
-                BalanceInfo {
-                    currency: "USD".into(),
-                    total_balance: "3.50".into(),
-                    granted_balance: "0.50".into(),
-                    topped_up_balance: "3.00".into(),
-                },
-            ],
-        });
-
-        assert_eq!(snapshot.primary.used_percent, 0.0);
-        assert_eq!(
-            snapshot.primary.reset_description.as_deref(),
-            Some("$3.50 (Paid: $3.00 / Granted: $0.50)")
-        );
-    }
-
-    #[test]
-    fn uses_cny_balance_when_usd_is_empty() {
-        let snapshot = DeepSeekProvider::snapshot_from_balance(BalanceResponse {
-            is_available: true,
-            balance_infos: vec![
-                BalanceInfo {
-                    currency: "USD".into(),
-                    total_balance: "0".into(),
-                    granted_balance: "0".into(),
-                    topped_up_balance: "0".into(),
-                },
-                BalanceInfo {
-                    currency: "CNY".into(),
-                    total_balance: "42.25".into(),
-                    granted_balance: "2.25".into(),
-                    topped_up_balance: "40".into(),
-                },
-            ],
-        });
-
-        assert_eq!(snapshot.primary.used_percent, 0.0);
-        assert_eq!(
-            snapshot.primary.reset_description.as_deref(),
-            Some("¥42.25 (Paid: ¥40.00 / Granted: ¥2.25)")
-        );
-        assert_eq!(
-            snapshot.login_method.as_deref(),
-            Some("CNY balance: ¥42.25")
-        );
-    }
-
-    #[test]
-    fn keeps_zero_usd_when_no_currency_has_balance() {
-        let snapshot = DeepSeekProvider::snapshot_from_balance(BalanceResponse {
-            is_available: true,
-            balance_infos: vec![
-                BalanceInfo {
-                    currency: "CNY".into(),
-                    total_balance: "0".into(),
-                    granted_balance: "0".into(),
-                    topped_up_balance: "0".into(),
-                },
-                BalanceInfo {
-                    currency: "USD".into(),
-                    total_balance: "0".into(),
-                    granted_balance: "0".into(),
-                    topped_up_balance: "0".into(),
-                },
-            ],
-        });
-
-        assert_eq!(snapshot.primary.used_percent, 100.0);
-        assert_eq!(
-            snapshot.primary.reset_description.as_deref(),
-            Some("$0.00 — add credits at platform.deepseek.com")
-        );
-        assert_eq!(snapshot.login_method.as_deref(), Some("USD balance: $0.00"));
-    }
-
-    #[test]
-    fn exhausted_when_balance_unavailable() {
-        let snapshot = DeepSeekProvider::snapshot_from_balance(BalanceResponse {
-            is_available: false,
-            balance_infos: vec![BalanceInfo {
-                currency: "USD".into(),
-                total_balance: "1".into(),
-                granted_balance: "1".into(),
-                topped_up_balance: "0".into(),
-            }],
-        });
-
-        assert_eq!(snapshot.primary.used_percent, 100.0);
-        assert_eq!(
-            snapshot.primary.reset_description.as_deref(),
-            Some("Balance unavailable for API calls")
-        );
-    }
-
-    #[test]
-    fn parses_deepseek_usage_summary_payloads() {
-        let amount: UsageEnvelope<DeepSeekAmountData> = serde_json::from_value(serde_json::json!({
-            "code": 0,
-            "data": {
-                "biz_code": "0",
-                "biz_data": {
-                    "total": [
-                        {"model": "deepseek-chat", "category": "PROMPT_CACHE_HIT_TOKEN", "amount": "100"},
-                        {"model": "deepseek-chat", "category": "RESPONSE_TOKEN", "amount": 50},
-                        {"model": "deepseek-reasoner", "category": "REQUEST", "amount": "3"}
-                    ],
-                    "days": [
-                        {"date": "2026-05-26", "models": [{"model": "deepseek-chat", "category": "RESPONSE_TOKEN", "amount": 1}]},
-                        {"date": "2026-05-27", "models": [
-                            {"model": "deepseek-chat", "category": "PROMPT_CACHE_MISS_TOKEN", "amount": "20"},
-                            {"model": "deepseek-chat", "category": "REQUEST", "amount": "2"}
-                        ]}
-                    ]
-                }
-            }
-        })).unwrap();
-        let cost: UsageEnvelope<DeepSeekCostData> = serde_json::from_value(serde_json::json!({
-            "code": "0",
-            "data": {
-                "biz_code": 0,
-                "biz_data": {
-                    "total": [{"model": "deepseek-chat", "category": "RESPONSE_TOKEN", "cost": "1.25"}],
-                    "days": [{"date": "2026-05-27", "models": [{"model": "deepseek-chat", "category": "RESPONSE_TOKEN", "cost": "0.10"}]}]
-                }
-            }
-        })).unwrap();
-        let summary = DeepSeekUsageSummary::from_payloads(amount, cost).unwrap();
-        assert_eq!(summary.month_tokens, 150.0);
-        assert_eq!(summary.today_tokens, 20.0);
-        assert_eq!(summary.month_requests, 3.0);
-        assert_eq!(summary.today_requests, 2.0);
-        assert_eq!(summary.month_cost, 1.25);
-        assert_eq!(summary.today_cost, 0.10);
-        assert_eq!(summary.top_model.as_deref(), Some("deepseek-chat"));
-    }
-
-    #[test]
-    fn applies_deepseek_summary_as_extra_windows() {
-        let usage = UsageSnapshot::new(RateWindow::new(0.0));
-        let usage = DeepSeekProvider::apply_usage_summary(
-            usage,
-            &DeepSeekUsageSummary {
-                today_tokens: 20.0,
-                month_tokens: 150.0,
-                today_requests: 2.0,
-                month_requests: 3.0,
-                today_cost: 0.10,
-                month_cost: 1.25,
-                top_model: Some("deepseek-chat".to_string()),
-                category_tokens: vec![("RESPONSE_TOKEN".to_string(), 50.0)],
-            },
-        );
-        assert!(
-            usage
-                .extra_rate_windows
-                .iter()
-                .any(|window| window.id == "tokens-today")
-        );
-        assert!(
-            usage
-                .extra_rate_windows
-                .iter()
-                .any(|window| window.title == "Top model")
-        );
-    }
-}
+#[path = "tests.rs"]
+mod tests;
