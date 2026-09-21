@@ -4,7 +4,6 @@ import type {
   DailyCostPoint,
   ProviderDisplayDetail,
   PaceSnapshot,
-  ProviderInventoryItem,
   ProviderChartData,
   ProviderLocalUsageSummary,
   ProviderUsageSnapshot,
@@ -579,8 +578,7 @@ export default function MenuCardDetails({
           ))}
         </section>
       )}
-
-      {!provider.error && hasDisplayDetails && (
+      {!provider.error && hasDisplayDetails && !compactOverview && (
         <section className="menu-card__group menu-card__provider-details">
           {provider.displayDetails?.map((detail, index) => (
             <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
@@ -756,32 +754,6 @@ export default function MenuCardDetails({
             )}
           </div>
         </details>
-      )}
-    </div>
-  );
-}
-
-function InventoryItemRow({
-  item,
-  resetTimeRelative,
-}: {
-  item: ProviderInventoryItem;
-  resetTimeRelative: boolean;
-}) {
-  const formattedExpiry = useFormattedResetTime(
-    item.nextExpiresAt,
-    null,
-    resetTimeRelative,
-    "expires",
-  );
-
-  return (
-    <div className="menu-card__cost-line">
-      <span>{item.title}: {item.availableCount} available</span>
-      {formattedExpiry && (
-        <span className="menu-card__cost-line--muted">
-          {formattedExpiry}
-        </span>
       )}
     </div>
   );

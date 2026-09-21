@@ -24,6 +24,7 @@ import {
 import { buildSubtitle } from "./providerDetailFormat";
 import { IdentitySection } from "./sections/IdentitySection";
 import { UsageSection } from "./sections/UsageSection";
+import { UsageItemVisibilitySection } from "./sections/UsageItemVisibilitySection";
 import { AutoResumeSection } from "./sections/AutoResumeSection";
 import { PaceSection } from "./sections/PaceSection";
 import { CostSection } from "./sections/CostSection";
@@ -33,7 +34,6 @@ import { CookieSourceSection } from "./sections/CookieSourceSection";
 import { UsageSourceSection } from "./sections/UsageSourceSection";
 import { shouldShowCookieSource } from "./sections/usageSourcePolicy";
 import { RegionSection } from "./sections/RegionSection";
-import { CodexUsageOptions } from "./sections/credentials/CodexUsageOptions";
 import { CopilotSeatCreditOptions } from "./sections/credentials/CopilotSeatCreditOptions";
 import { CodexAccountsSection } from "./sections/credentials/CodexAccountsSection";
 import { ClaudeAccountsSection } from "./sections/credentials/ClaudeAccountsSection";
@@ -205,6 +205,21 @@ export function ProviderDetailPane({
     };
   }, [providerId, load]);
 
+  // Visibility changes are persisted through the shared settings command and
+  // broadcast to detached windows. Reload the selected provider so the raw
+  // descriptor list and hidden IDs stay authoritative after that event.
+  useEffect(() => {
+    if (!providerId) return;
+    const signal = { stale: false };
+    const unlistenPromise = listen("settings-changed", () => {
+      void load(providerId, signal);
+    });
+    return () => {
+      signal.stale = true;
+      void unlistenPromise.then((fn) => fn());
+    };
+  }, [providerId, load]);
+
   if (!providerId) {
     return emptyDetail(t("StateNoProviderSelected"));
   }
@@ -290,6 +305,12 @@ export function ProviderDetailPane({
         resetTimeRelative={resetTimeRelative}
         t={t}
       />
+      <UsageItemVisibilitySection
+        provider={detail}
+        disabled={settingsDisabled}
+        t={t}
+        onChange={onSettingsChange}
+      />
       <AutoResumeSection
         providerId={detail.id}
         enabled={detail.autoResumeAfterQuotaReset}
@@ -364,15 +385,7 @@ export function ProviderDetailPane({
         />
       )}
       <CredentialsDispatcher providerId={detail.id} t={t} />
-      {detail.id === "codex" && <CodexUsageOptions t={t} />}
-      {detail.id === "copilot" && (
-        <CopilotSeatCreditOptions
-          value={copilotSeatCreditEntitlement}
-          disabled={settingsDisabled}
-          t={t}
-          onChange={onSettingsChange}
-        />
-      )}
+
       <CredentialStorageSection
         status={credentialStatus}
         busy={busy}

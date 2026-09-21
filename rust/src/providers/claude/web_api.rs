@@ -372,7 +372,6 @@ impl ClaudeWebApiFetcher {
             snapshot = snapshot.with_model_specific(m);
         }
 
-        let show_routines = crate::settings::Settings::load().claude_daily_routines_usage_visible;
         append_web_extra_windows(
             &mut snapshot,
             usage
@@ -384,7 +383,6 @@ impl ClaudeWebApiFetcher {
                 .seven_day_routines
                 .as_ref()
                 .map(|w| self.to_rate_window(w, Some(10080))),
-            show_routines,
         );
 
         if let Some(acc) = &account {
@@ -799,13 +797,12 @@ fn apply_prepaid_balance(balance: PrepaidBalance, existing: Option<CostSnapshot>
     }
 }
 
-/// Push extras in upstream order: oauth-apps → scoped weekly → routines (optional).
+/// Push extras in upstream order: oauth-apps → scoped weekly → routines when present.
 fn append_web_extra_windows(
     snapshot: &mut UsageSnapshot,
     oauth_apps: Option<RateWindow>,
     scoped_weekly: Vec<NamedRateWindow>,
     routines: Option<RateWindow>,
-    show_routines: bool,
 ) {
     if let Some(window) = oauth_apps {
         snapshot.extra_rate_windows.push(NamedRateWindow::new(
@@ -815,7 +812,7 @@ fn append_web_extra_windows(
         ));
     }
     snapshot.extra_rate_windows.extend(scoped_weekly);
-    if show_routines && let Some(window) = routines {
+    if let Some(window) = routines {
         snapshot.extra_rate_windows.push(NamedRateWindow::new(
             "claude-routines",
             "Daily Routines",
@@ -1295,7 +1292,6 @@ mod tests {
                 RateWindow::new(2.0),
             )],
             Some(RateWindow::new(3.0)),
-            true,
         );
 
         let ids: Vec<&str> = snapshot
@@ -1314,7 +1310,7 @@ mod tests {
     }
 
     #[test]
-    fn web_extras_hide_routines_when_disabled() {
+    fn web_extras_keep_routines_in_raw_snapshot() {
         use crate::core::{NamedRateWindow, RateWindow, UsageSnapshot};
 
         let mut snapshot = UsageSnapshot::new(RateWindow::new(10.0));
@@ -1327,16 +1323,10 @@ mod tests {
                 RateWindow::new(2.0),
             )],
             Some(RateWindow::new(3.0)),
-            false,
         );
 
-        assert!(
-            snapshot
-                .extra_rate_windows
-                .iter()
-                .all(|w| w.id != "claude-routines")
-        );
-        assert_eq!(snapshot.extra_rate_windows.len(), 2);
+        assert_eq!(snapshot.extra_rate_windows.len(), 3);
+        assert_eq!(snapshot.extra_rate_windows[2].id, "claude-routines");
     }
 }
 
