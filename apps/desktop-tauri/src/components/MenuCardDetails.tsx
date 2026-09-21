@@ -4,6 +4,7 @@ import type {
   DailyCostPoint,
   ProviderDisplayDetail,
   PaceSnapshot,
+  ProviderInventoryItem,
   ProviderChartData,
   ProviderLocalUsageSummary,
   ProviderUsageSnapshot,
@@ -588,6 +589,14 @@ export default function MenuCardDetails({
         </section>
       )}
       {!provider.error && hasDisplayDetails && !compactOverview && (
+        <section className="menu-card__group menu-card__provider-details">
+          {provider.displayDetails?.map((detail, index) => (
+            <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
+          ))}
+        </section>
+      )}
+
+      {!provider.error && hasDisplayDetails && (
         <section className="menu-card__group menu-card__provider-details">
           {provider.displayDetails?.map((detail, index) => (
             <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />

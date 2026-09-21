@@ -169,7 +169,10 @@ async fn fetch_print_usage(binary: &Path) -> Result<ProviderFetchResult, Provide
         ));
     }
     let usage = quota_summary::parse_cli_usage_report(&output.bytes)?;
-    Ok(AntigravityProvider::fetch_result(usage, "cli"))
+    Ok(AntigravityProvider::fetch_result(
+        usage,
+        super::AntigravityStrategyId::Cli,
+    ))
 }
 
 fn prepare_command(binary: &Path, args: &[&str], working_dir: &Path) -> AsyncCommand {

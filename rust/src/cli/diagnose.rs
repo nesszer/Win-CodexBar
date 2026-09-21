@@ -83,6 +83,10 @@ struct ProviderDiagnosticFetchAttempt {
     kind: String,
     was_available: bool,
     error_category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strategy_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strategy_outcome: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -199,6 +203,8 @@ async fn collect_provider_diagnostic(
                     kind: source_mode_name(source_mode).to_string(),
                     was_available: true,
                     error_category: None,
+                    strategy_id: final_strategy_id(provider_id, Some(&result.source_label)),
+                    strategy_outcome: final_strategy_outcome(provider_id, true),
                 }],
             )
         }
@@ -215,6 +221,8 @@ async fn collect_provider_diagnostic(
                     kind: source_mode_name(source_mode).to_string(),
                     was_available: false,
                     error_category: Some(category.to_string()),
+                    strategy_id: None,
+                    strategy_outcome: final_strategy_outcome(provider_id, false),
                 }],
             )
         }
@@ -360,6 +368,19 @@ fn cost_present(cost: Option<&CostSnapshot>) -> bool {
     cost.is_some()
 }
 
+fn final_strategy_id(provider_id: ProviderId, source_label: Option<&str>) -> Option<String> {
+    (provider_id == ProviderId::Antigravity)
+        .then_some(source_label)
+        .flatten()
+        .and_then(crate::providers::antigravity::strategy_from_source_label)
+        .map(|strategy| strategy.as_str().to_owned())
+}
+
+fn final_strategy_outcome(provider_id: ProviderId, succeeded: bool) -> Option<String> {
+    (provider_id == ProviderId::Antigravity)
+        .then(|| if succeeded { "success" } else { "error" }.to_string())
+}
+
 fn source_mode_name(mode: SourceMode) -> &'static str {
     match mode {
         SourceMode::Auto => "auto",
@@ -411,6 +432,28 @@ mod tests {
         assert_eq!(source_mode_name(SourceMode::OAuth), "oauth");
         assert_eq!(source_mode_name(SourceMode::Web), "web");
         assert_eq!(source_mode_name(SourceMode::Cli), "cli");
+    }
+
+    #[test]
+    fn antigravity_diagnostics_report_only_the_final_strategy() {
+        assert_eq!(
+            final_strategy_id(ProviderId::Antigravity, Some("cli")),
+            Some("cli".to_string())
+        );
+        assert_eq!(
+            final_strategy_outcome(ProviderId::Antigravity, true),
+            Some("success".to_string())
+        );
+        assert_eq!(
+            final_strategy_outcome(ProviderId::Antigravity, false),
+            Some("error".to_string())
+        );
+        assert_eq!(
+            final_strategy_id(ProviderId::Antigravity, Some("unknown")),
+            None
+        );
+        assert_eq!(final_strategy_id(ProviderId::Grok, Some("cli")), None);
+        assert_eq!(final_strategy_outcome(ProviderId::Grok, true), None);
     }
 
     #[test]

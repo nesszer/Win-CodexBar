@@ -69,6 +69,32 @@ pub struct AntigravityProvider {
     metadata: ProviderMetadata,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AntigravityStrategyId {
+    Local,
+    Cli,
+    Offline,
+}
+
+impl AntigravityStrategyId {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Cli => "cli",
+            Self::Offline => "offline",
+        }
+    }
+}
+
+pub(crate) fn strategy_from_source_label(source_label: &str) -> Option<AntigravityStrategyId> {
+    match source_label {
+        "local" => Some(AntigravityStrategyId::Local),
+        "cli" => Some(AntigravityStrategyId::Cli),
+        "offline" => Some(AntigravityStrategyId::Offline),
+        _ => None,
+    }
+}
+
 /// Return a regex that matches `--<flag> <value>` or `--<flag>=<value>`.
 fn flag_re(flag: &str) -> Regex {
     Regex::new(&format!("--{f}(?:\\s+|\\s*=\\s*)(\\S+)", f = flag)).expect("valid flag pattern")
@@ -411,7 +437,7 @@ impl AntigravityProvider {
                     {
                         legacy_status::apply_user_identity(&mut snapshot, &identity);
                     }
-                    return Ok(Self::fetch_result(snapshot, "local"));
+                    return Ok(Self::fetch_result(snapshot, AntigravityStrategyId::Local));
                 }
                 Err(error) => tracing::debug!(
                     %error,
@@ -444,11 +470,14 @@ impl AntigravityProvider {
         let response: UserStatusResponse = serde_json::from_slice(&bytes)
             .map_err(|e| ProviderError::Parse(format!("Failed to parse response: {e}")))?;
         self.parse_user_status(response)
-            .map(|usage| Self::fetch_result(usage, "local"))
+            .map(|usage| Self::fetch_result(usage, AntigravityStrategyId::Local))
     }
 
-    pub(super) fn fetch_result(usage: UsageSnapshot, source_label: &str) -> ProviderFetchResult {
-        ProviderFetchResult::new(Self::with_cadence_labels(usage), source_label)
+    pub(super) fn fetch_result(
+        usage: UsageSnapshot,
+        strategy: AntigravityStrategyId,
+    ) -> ProviderFetchResult {
+        ProviderFetchResult::new(Self::with_cadence_labels(usage), strategy.as_str())
     }
 
     async fn try_print_usage_fallback(&self) -> Result<Option<ProviderFetchResult>, ProviderError> {
@@ -607,7 +636,10 @@ impl AntigravityProvider {
             "Offline · {count} {noun}"
         )))
         .with_login_method("offline");
-        Some(ProviderFetchResult::new(usage, "offline"))
+        Some(ProviderFetchResult::new(
+            usage,
+            AntigravityStrategyId::Offline.as_str(),
+        ))
     }
 
     /// Resolve a failure to obtain live usage.
@@ -641,7 +673,7 @@ impl AntigravityProvider {
         match outcome {
             Ok(ManagedAgyOutcome::Reused(result)) => Ok(Some(result)),
             Ok(ManagedAgyOutcome::Fetched(mut result)) => {
-                result.source_label = "cli".to_string();
+                result.source_label = AntigravityStrategyId::Cli.as_str().to_string();
                 Ok(Some(result))
             }
             Ok(ManagedAgyOutcome::Missing) => Ok(None),
@@ -710,7 +742,7 @@ impl AntigravityProvider {
                 match self.fetch_with_managed_agy().await {
                     Ok(ManagedAgyOutcome::Reused(result)) => return Ok(result),
                     Ok(ManagedAgyOutcome::Fetched(mut result)) => {
-                        result.source_label = "cli".to_string();
+                        result.source_label = AntigravityStrategyId::Cli.as_str().to_string();
                         return Ok(result);
                     }
                     Ok(ManagedAgyOutcome::Missing) => {}
