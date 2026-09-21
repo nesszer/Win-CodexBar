@@ -1,9 +1,14 @@
 import type {
   ProviderDisplayDetail,
+<<<<<<< HEAD
+=======
+  ProviderInventoryItem,
+>>>>>>> origin/main
   ProviderDetail,
   RateWindowSnapshot,
 } from "../../../../types/bridge";
 import { InventoryItemRow } from "../../../../components/InventoryRows";
+import { ProviderDisplayRow } from "../../../../components/ProviderDisplayRow";
 import type { LocaleKey } from "../../../../i18n/keys";
 import { useFormattedResetTime } from "../../../../hooks/useFormattedResetTime";
 
@@ -88,8 +93,19 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
           lineClassName="provider-usage-inventory"
         />
       ))}
+<<<<<<< HEAD
       {displayDetails.map((detail, index) => (
         <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
+=======
+      {displayDetails.map((detail) => (
+        <ProviderDisplayRow
+          key={detail.id}
+          detail={detail}
+          lineClassName="provider-usage-inventory"
+          trackClassName="provider-usage-bar__track"
+          fillClassName="provider-usage-bar__fill"
+        />
+>>>>>>> origin/main
       ))}
     </section>
   );
