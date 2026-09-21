@@ -1210,19 +1210,16 @@ mod tests {
         assert_eq!(first, second);
         assert!(uuid::Uuid::parse_str(&first).is_ok());
         let args = claude_probe_launch_args(&first);
+        // Positional structure only: the settings pair is pinned once by
+        // `claude_usage_settings_args` being the sole composer.
         assert_eq!(
-            args,
-            vec![
-                "--setting-sources".to_string(),
-                "user".to_string(),
-                "--allowed-tools".to_string(),
-                String::new(),
-                "--settings".to_string(),
-                r#"{"remoteControlAtStartup":false}"#.to_string(),
-                "--session-id".to_string(),
-                first,
-            ]
+            args[..4],
+            ["--setting-sources", "user", "--allowed-tools", ""]
         );
+        assert_eq!(args[4], claude_usage_settings_args()[0]);
+        assert_eq!(args[5], claude_usage_settings_args()[1]);
+        assert_eq!(args[6], "--session-id");
+        assert_eq!(args[7], first);
     }
 
     #[test]
