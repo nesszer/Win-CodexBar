@@ -141,9 +141,15 @@ fn collect_windows(value: &Value, out: &mut Vec<RateWindow>) {
 fn window_from_object(map: &serde_json::Map<String, Value>) -> Option<RateWindow> {
     let percent = percent_from_object(map)?;
     let detail = quota_count_description(map);
+    let window_minutes = window_minutes_from_object(map);
     // Only parse dedicated reset timestamp keys — never raw quota counts.
     let resets_at = first_reset_timestamp(map);
-    Some(RateWindow::with_details(percent, None, resets_at, detail))
+    Some(RateWindow::with_details(
+        percent,
+        window_minutes,
+        resets_at,
+        detail,
+    ))
 }
 
 fn percent_from_object(map: &serde_json::Map<String, Value>) -> Option<f64> {
@@ -162,7 +168,9 @@ fn percent_from_object(map: &serde_json::Map<String, Value>) -> Option<f64> {
         // 0..=1 as fractions turned a real 1% into a false 100% exhausted
         // state (#408; same class as #247 / upstream #3216, fixed for
         // opencodego in #407).
-        return Some(v.clamp(0.0, 100.0));
+        if v.is_finite() {
+            return Some(v.clamp(0.0, 100.0));
+        }
     }
     let used = first_f64(map, &["used", "usage", "current_usage", "currentUsage"]);
     let limit = first_f64(
@@ -171,13 +179,21 @@ fn percent_from_object(map: &serde_json::Map<String, Value>) -> Option<f64> {
     );
     let remaining = first_f64(map, &["remaining", "remaining_quota", "remainingQuota"]);
     match (used, limit, remaining) {
-        (Some(used), Some(limit), _) if limit > 0.0 => Some((used / limit) * 100.0),
+        (Some(used), Some(limit), _) if limit > 0.0 => {
+            let percent = (used / limit) * 100.0;
+            percent.is_finite().then_some(percent.clamp(0.0, 100.0))
+        }
         (None, Some(limit), Some(remaining)) if limit > 0.0 => {
-            Some(((limit - remaining).max(0.0) / limit) * 100.0)
+            let percent = ((limit - remaining).max(0.0) / limit) * 100.0;
+            percent.is_finite().then_some(percent.clamp(0.0, 100.0))
         }
         (Some(used), None, Some(remaining)) => {
             let limit = used + remaining;
-            (limit > 0.0).then_some((used / limit) * 100.0)
+            if limit <= 0.0 {
+                return None;
+            }
+            let percent = (used / limit) * 100.0;
+            percent.is_finite().then_some(percent.clamp(0.0, 100.0))
         }
         _ => None,
     }
@@ -196,7 +212,7 @@ fn quota_count_description(map: &serde_json::Map<String, Value>) -> Option<Strin
     {
         limit = Some(used + remaining);
     }
-    let limit = limit.filter(|l| *l > 0.0)?;
+    let limit = limit.filter(|l| l.is_finite() && *l > 0.0)?;
     let used = match used {
         Some(u) => u,
         None => remaining.map(|r| (limit - r).max(0.0))?,
@@ -208,6 +224,123 @@ fn quota_count_description(map: &serde_json::Map<String, Value>) -> Option<Strin
         format_quota_amount(limit),
         unit
     ))
+}
+
+fn window_minutes_from_object(map: &serde_json::Map<String, Value>) -> Option<u32> {
+    for (keys, multiplier) in [
+        (
+            [
+                "window_minutes",
+                "windowMinutes",
+                "period_minutes",
+                "periodMinutes",
+                "duration_minutes",
+                "durationMinutes",
+            ]
+            .as_slice(),
+            1.0,
+        ),
+        (
+            [
+                "window_hours",
+                "windowHours",
+                "period_hours",
+                "periodHours",
+                "duration_hours",
+                "durationHours",
+            ]
+            .as_slice(),
+            60.0,
+        ),
+        (
+            [
+                "window_days",
+                "windowDays",
+                "period_days",
+                "periodDays",
+                "duration_days",
+                "durationDays",
+            ]
+            .as_slice(),
+            24.0 * 60.0,
+        ),
+        (
+            [
+                "window_seconds",
+                "windowSeconds",
+                "period_seconds",
+                "periodSeconds",
+                "duration_seconds",
+                "durationSeconds",
+            ]
+            .as_slice(),
+            1.0 / 60.0,
+        ),
+    ] {
+        if let Some(minutes) = keys.iter().find_map(|key| {
+            map.get(*key)
+                .and_then(numeric_value)
+                .and_then(|value| rounded_window_minutes(value * multiplier))
+        }) {
+            return Some(minutes);
+        }
+    }
+
+    ["window", "period", "interval", "duration"]
+        .iter()
+        .find_map(|key| map.get(*key).and_then(Value::as_str))
+        .and_then(parse_window_duration_text)
+}
+
+fn numeric_value(value: &Value) -> Option<f64> {
+    match value {
+        Value::Number(number) => number.as_f64().filter(|value| value.is_finite()),
+        Value::String(text) => text
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite()),
+        _ => None,
+    }
+}
+
+fn rounded_window_minutes(value: f64) -> Option<u32> {
+    if !value.is_finite() || value <= 0.0 {
+        return None;
+    }
+    let rounded = value.round();
+    if rounded <= 0.0 || rounded > u32::MAX as f64 {
+        return None;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "rounded value is bounded by u32::MAX"
+    )]
+    Some(rounded as u32)
+}
+
+fn parse_window_duration_text(raw: &str) -> Option<u32> {
+    let compact: String = raw
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    let split_at = compact.find(|character: char| {
+        !character.is_ascii_digit() && !matches!(character, '.' | '+' | '-' | 'e' | 'E')
+    })?;
+    let (number, suffix) = compact.split_at(split_at);
+    let value = number.parse::<f64>().ok()?;
+    let multiplier = if suffix.starts_with("min") || suffix == "m" {
+        1.0
+    } else if suffix.starts_with("hour") || suffix.starts_with("hr") || suffix == "h" {
+        60.0
+    } else if suffix.starts_with("day") || suffix == "d" {
+        24.0 * 60.0
+    } else if suffix.starts_with("month") || suffix == "mo" {
+        30.0 * 24.0 * 60.0
+    } else {
+        return None;
+    };
+    rounded_window_minutes(value * multiplier)
 }
 
 fn first_reset_timestamp(map: &serde_json::Map<String, Value>) -> Option<DateTime<Utc>> {
@@ -274,8 +407,11 @@ fn epoch_to_datetime(value: f64) -> Option<DateTime<Utc>> {
 }
 
 fn first_f64(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<f64> {
-    keys.iter()
-        .find_map(|k| map.get(*k).and_then(Value::as_f64))
+    keys.iter().find_map(|k| {
+        map.get(*k)
+            .and_then(Value::as_f64)
+            .filter(|v| v.is_finite())
+    })
 }
 
 fn first_str<'a>(map: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
@@ -286,14 +422,18 @@ fn first_str<'a>(map: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Opti
 }
 
 fn format_quota_amount(value: f64) -> String {
-    if (value - value.round()).abs() < 0.0001 {
+    if !value.is_finite() {
+        return "unknown".to_string();
+    }
+    let rounded = value.round();
+    if (value - rounded).abs() < 0.0001 && rounded >= i64::MIN as f64 && rounded < i64::MAX as f64 {
         // Guarded above: value is within 0.0001 of a whole number, so the
-        // fractional part is zero.
-        #[expect(
+        // fractional part is zero and the rounded value fits in i64.
+        #[allow(
             clippy::cast_possible_truncation,
-            reason = "whole-number guard above; fractional part is zero"
+            reason = "finite rounded value is bounded to the i64 range above"
         )]
-        let whole = value.round() as i64;
+        let whole = rounded as i64;
         format!("{}", whole)
     } else {
         let mut text = format!("{value:.2}");
@@ -392,5 +532,58 @@ mod tests {
             "quotas": [{"usage_percent": 100, "limit": 100}]
         }));
         assert_eq!(snapshot.primary.used_percent, 100.0);
+    }
+
+    #[test]
+    fn large_quota_amounts_keep_their_description() {
+        let snapshot = snapshot_from_usage(&serde_json::json!({
+            "rolling_window": {"used": 1e20, "limit": 2e20, "unit": "credits"}
+        }));
+        assert_eq!(snapshot.primary.used_percent, 50.0);
+        assert_eq!(
+            snapshot.primary.reset_description.as_deref(),
+            Some("100000000000000000000/200000000000000000000 credits")
+        );
+    }
+
+    #[test]
+    fn duration_fields_populate_window_minutes() {
+        let snapshot = snapshot_from_usage(&serde_json::json!({
+            "quotas": [
+                {"used": 25, "limit": 100, "duration": "4 hours"},
+                {"used": 1, "limit": 2, "window_seconds": 1800}
+            ]
+        }));
+        assert_eq!(snapshot.primary.window_minutes, Some(240));
+        assert_eq!(
+            snapshot.secondary.as_ref().unwrap().window_minutes,
+            Some(30)
+        );
+    }
+
+    #[test]
+    fn unrepresentable_duration_keeps_usage_with_unknown_window() {
+        let snapshot = snapshot_from_usage(&serde_json::json!({
+            "rolling_window": {
+                "used": 25,
+                "limit": 100,
+                "window_hours": "1e308"
+            }
+        }));
+        assert_eq!(snapshot.primary.used_percent, 25.0);
+        assert_eq!(snapshot.primary.window_minutes, None);
+    }
+
+    #[test]
+    fn non_finite_amount_formatting_is_safe() {
+        assert_eq!(format_quota_amount(f64::INFINITY), "unknown");
+        assert_eq!(format_quota_amount(f64::NAN), "unknown");
+    }
+
+    #[test]
+    fn oversized_integral_amount_is_not_saturated_to_i64_max() {
+        let value = 2_f64.powi(63);
+
+        assert_eq!(format_quota_amount(value), "9223372036854775808");
     }
 }

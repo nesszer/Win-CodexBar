@@ -411,8 +411,8 @@ fn kimi_window_minutes(window: &KimiWindow) -> Option<u32> {
     match unit.as_str() {
         "second" | "seconds" => Some((window.duration / 60).max(1)),
         "minute" | "minutes" => Some(window.duration),
-        "hour" | "hours" => Some(window.duration.saturating_mul(60)),
-        "day" | "days" => Some(window.duration.saturating_mul(24 * 60)),
+        "hour" | "hours" => window.duration.checked_mul(60),
+        "day" | "days" => window.duration.checked_mul(24 * 60),
         _ => None,
     }
 }
@@ -583,14 +583,22 @@ fn ascii_header_value(raw: &str) -> String {
 }
 
 fn format_usage_amount(value: f64) -> String {
-    if (value.fract()).abs() < f64::EPSILON {
-        // Value verified integral to f64 precision; the i64 cast loses nothing.
+    if value.is_finite()
+        && value.fract() == 0.0
+        && value >= i64::MIN as f64
+        && value < i64::MAX as f64
+    {
+        // The strict upper bound excludes 2^63, which is representable as f64
+        // but has no exact i64 representation.
         #[allow(
             clippy::cast_possible_truncation,
-            reason = "guarded by the fract() == 0 check above"
+            reason = "finite integral value is bounded to the i64 range above"
         )]
         let integral = value as i64;
         format!("{integral}")
+    } else if value.is_finite() && value.fract() == 0.0 {
+        // Preserve a large integral value without saturating it to i64::MAX.
+        format!("{value:.0}")
     } else {
         format!("{value:.2}")
     }
@@ -848,5 +856,24 @@ mod tests {
         assert_eq!(cleaned_owned("  \"token\"  ").as_deref(), Some("token"));
         assert_eq!(cleaned_owned("'token'").as_deref(), Some("token"));
         assert!(cleaned_owned("   ").is_none());
+    }
+
+    #[test]
+    fn oversized_integral_usage_amount_is_not_saturated_to_i64_max() {
+        let value = 2_f64.powi(63);
+        let formatted = format_usage_amount(value);
+
+        assert!(formatted.starts_with("9223372036854775808"));
+        assert_ne!(formatted, i64::MAX.to_string());
+    }
+
+    #[test]
+    fn overflowing_window_units_are_omitted() {
+        let window = KimiWindow {
+            duration: u32::MAX,
+            time_unit: "hours".to_string(),
+        };
+
+        assert_eq!(kimi_window_minutes(&window), None);
     }
 }

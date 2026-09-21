@@ -159,7 +159,7 @@ fn parse_available_usage(text: &str) -> Option<(i64, u32)> {
         return None;
     }
     let duration: f64 = duration_raw.parse().ok()?;
-    let window_minutes = minutes_from_duration(duration, unit_raw);
+    let window_minutes = minutes_from_duration(duration, unit_raw)?;
     if window_minutes == 0 {
         return None;
     }
@@ -167,14 +167,23 @@ fn parse_available_usage(text: &str) -> Option<(i64, u32)> {
 }
 
 /// Convert a duration + unit to minutes (upstream `minutes(from:unit:)`).
-fn minutes_from_duration(value: f64, unit: &str) -> u32 {
-    // Window lengths come from the provider's own dashboard text and are
-    // minutes-scale; u32 overflow would need a >8000-year window.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "dashboard window durations are minutes-scale; u32 is far beyond any real window"
-    )]
-    let to_minutes = |scaled: f64| -> u32 { scaled.round() as u32 };
+fn minutes_from_duration(value: f64, unit: &str) -> Option<u32> {
+    let to_minutes = |scaled: f64| -> Option<u32> {
+        if !scaled.is_finite() {
+            return None;
+        }
+        let rounded = scaled.round();
+        if !(0.0..=u32::MAX as f64).contains(&rounded) {
+            return None;
+        }
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "finite rounded value is bounded to the non-negative u32 range above"
+        )]
+        let rounded = rounded as u32;
+        Some(rounded)
+    };
     let lower = unit.to_lowercase();
     if lower.starts_with('d') {
         return to_minutes(value * 24.0 * 60.0);
@@ -186,9 +195,9 @@ fn minutes_from_duration(value: f64, unit: &str) -> u32 {
         return to_minutes(value);
     }
     if lower.starts_with('s') {
-        return to_minutes(value / 60.0).max(1);
+        return to_minutes(value / 60.0).map(|minutes| minutes.max(1));
     }
-    0
+    None
 }
 
 /// Parse "37% used" or "used 37%" (upstream `parseUsedPercent`).
@@ -607,5 +616,12 @@ mod tests {
         let usage = to_usage_snapshot(&snapshot, now()).unwrap();
         assert!((usage.primary.used_percent - 25.0).abs() < 0.01);
         assert_eq!(usage.login_method.as_deref(), Some("Text Generation Pro"));
+    }
+
+    #[test]
+    fn oversized_html_duration_is_omitted() {
+        assert_eq!(minutes_from_duration(f64::MAX, "hours"), None);
+        assert_eq!(minutes_from_duration(f64::INFINITY, "days"), None);
+        assert_eq!(minutes_from_duration(5.0, "hours"), Some(300));
     }
 }

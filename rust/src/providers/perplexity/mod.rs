@@ -72,6 +72,9 @@ impl PerplexityProvider {
     }
 
     fn ts_to_datetime(ts: f64) -> Option<DateTime<Utc>> {
+        if !ts.is_finite() {
+            return None;
+        }
         // Grant expiry epochs are whole-second unix timestamps, far below i64::MAX.
         #[expect(
             clippy::cast_possible_truncation,
@@ -117,7 +120,7 @@ impl PerplexityProvider {
         let purchased_used = remaining_usage.min(purchased_total);
 
         let pct = |used: f64, total: f64| -> f64 {
-            if total <= 0.0 {
+            if !used.is_finite() || !total.is_finite() || total <= 0.0 {
                 0.0
             } else {
                 ((used / total) * 100.0).clamp(0.0, 100.0)
@@ -128,33 +131,26 @@ impl PerplexityProvider {
 
         let mut primary = RateWindow::new(pct(recurring_used, recurring_total));
         primary.resets_at = renewal;
-        primary.reset_description = Some(format!(
-            "${:.2}/${:.2}",
-            recurring_used / 100.0,
-            recurring_total / 100.0
-        ));
+        primary.reset_description = Self::credit_description(recurring_used, recurring_total);
 
         let mut snapshot = UsageSnapshot::new(primary);
 
         if bonus_total > 0.0 {
             let mut secondary = RateWindow::new(pct(bonus_used, bonus_total));
             secondary.resets_at = bonus_expiry;
-            let mut bonus_description =
-                format!("${:.2}/${:.2}", bonus_used / 100.0, bonus_total / 100.0);
-            if let Some(expiry) = bonus_expiry {
-                bonus_description.push_str(&format!(" · exp. {}", expiry.format("%Y-%m-%d")));
+            let mut bonus_description = Self::credit_description(bonus_used, bonus_total);
+            if let Some(expiry) = bonus_expiry
+                && let Some(description) = bonus_description.as_mut()
+            {
+                description.push_str(&format!(" · exp. {}", expiry.format("%Y-%m-%d")));
             }
-            secondary.reset_description = Some(bonus_description);
+            secondary.reset_description = bonus_description;
             snapshot = snapshot.with_secondary(secondary);
         }
 
         if purchased_total > 0.0 {
             let mut tertiary = RateWindow::new(pct(purchased_used, purchased_total));
-            tertiary.reset_description = Some(format!(
-                "${:.2}/${:.2}",
-                purchased_used / 100.0,
-                purchased_total / 100.0
-            ));
+            tertiary.reset_description = Self::credit_description(purchased_used, purchased_total);
             snapshot = snapshot.with_tertiary(tertiary);
         }
 
@@ -173,6 +169,13 @@ impl PerplexityProvider {
         let _ = resp.balance_cents;
 
         Ok(snapshot)
+    }
+
+    fn credit_description(used: f64, total: f64) -> Option<String> {
+        if !used.is_finite() || !total.is_finite() {
+            return None;
+        }
+        Some(format!("${:.2}/${:.2}", used / 100.0, total / 100.0))
     }
 
     async fn fetch_with_cookies(
@@ -316,5 +319,30 @@ mod tests {
         .unwrap();
         let snap = PerplexityProvider::parse_response(resp).unwrap();
         assert_eq!(snap.login_method.as_deref(), Some("Max"));
+    }
+
+    #[test]
+    fn oversized_credit_totals_do_not_render_non_finite_descriptions() {
+        let resp = CreditsResponse {
+            balance_cents: 0.0,
+            renewal_date_ts: None,
+            current_period_purchased_cents: 0.0,
+            credit_grants: vec![
+                CreditGrant {
+                    grant_type: "recurring".to_string(),
+                    amount_cents: f64::MAX,
+                    expires_at_ts: None,
+                },
+                CreditGrant {
+                    grant_type: "recurring".to_string(),
+                    amount_cents: f64::MAX,
+                    expires_at_ts: None,
+                },
+            ],
+            total_usage_cents: 0.0,
+        };
+
+        let snap = PerplexityProvider::parse_response(resp).unwrap();
+        assert!(snap.primary.reset_description.is_none());
     }
 }
