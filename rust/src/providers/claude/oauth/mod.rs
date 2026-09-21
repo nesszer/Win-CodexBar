@@ -642,16 +642,6 @@ impl ClaudeOAuthFetcher {
         response: &OAuthUsageResponse,
         credentials: &ClaudeOAuthCredentials,
     ) -> UsageSnapshot {
-        let show_routines = crate::settings::Settings::load().claude_daily_routines_usage_visible;
-        self.build_usage_snapshot_with_options(response, credentials, show_routines)
-    }
-
-    fn build_usage_snapshot_with_options(
-        &self,
-        response: &OAuthUsageResponse,
-        credentials: &ClaudeOAuthCredentials,
-        show_routines: bool,
-    ) -> UsageSnapshot {
         // Primary: prefer limits[] session over legacy five_hour (mirrors the
         // weekly lane preferring weekly_all over seven_day). A stale
         // five_hour.utilization can transiently report 1.0 (100%) right after
@@ -703,11 +693,10 @@ impl ClaudeOAuthFetcher {
                 &response.limits,
             ));
 
-        if show_routines
-            && let Some(window) = response
-                .seven_day_routines
-                .as_ref()
-                .and_then(|w| Self::to_rate_window(w, Some(10080)))
+        if let Some(window) = response
+            .seven_day_routines
+            .as_ref()
+            .and_then(|w| Self::to_rate_window(w, Some(10080)))
         {
             usage.extra_rate_windows.push(NamedRateWindow::new(
                 "claude-routines",

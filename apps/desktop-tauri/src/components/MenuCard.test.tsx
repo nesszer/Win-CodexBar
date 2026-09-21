@@ -200,6 +200,22 @@ describe("MenuCard", () => {
     expect(await screen.findByText("API spend")).toBeInTheDocument();
     expect(document.querySelector(".menu-card__cost-line")).toHaveTextContent("$12.34");
   });
+
+  it("filters hidden metric and extra rows without changing the snapshot payload", async () => {
+    const snapshot = provider(null, 25);
+    snapshot.secondary = rateWindow(60);
+    snapshot.secondaryLabel = "Weekly";
+    snapshot.extraRateWindows = [
+      { id: "credits", title: "Credits", window: rateWindow(10) },
+    ];
+    snapshot.hiddenUsageItemIds = ["metric:primary", "metric:extra-credits"];
+
+    renderCard(snapshot);
+
+    await screen.findByText("ProviderWeeklyLabel");
+    expect(screen.queryByText("Session")).not.toBeInTheDocument();
+    expect(screen.queryByText("Credits")).not.toBeInTheDocument();
+  });
   it("does not mix stale local usage into an error card", async () => {
     const { container } = renderCard(
       provider("OAuth error: Claude OAuth credentials not found."),

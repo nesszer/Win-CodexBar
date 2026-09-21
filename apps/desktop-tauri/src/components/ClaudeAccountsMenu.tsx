@@ -8,15 +8,17 @@ import {
   buildPrivateClaudeAccountLabel,
 } from "./claudeAccountDisplay";
 
+type ClaudeAccountPhase = "idle" | "activating" | "reconciling" | "settled";
+
 export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
   hideEmail: boolean;
   onLayoutChange?: () => void;
 }) {
   const { t } = useLocale();
   const [accounts, setAccounts] = useState<ClaudeAccount[]>([]);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [switched, setSwitched] = useState(false);
+  const [phase, setPhase] = useState<ClaudeAccountPhase>("idle");
   const mounted = useRef(false);
   const load = useCallback(async () => {
     const next = await claudeAccountsList();
@@ -33,37 +35,58 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
     reload();
     window.addEventListener("focus", reload);
     const unlisten = listen("claude-accounts-updated", reload);
+    const unlistenReconciling = listen("claude-accounts-reconciling", () => {
+      if (mounted.current) {
+        setPhase("reconciling");
+        setSwitched(false);
+      }
+    });
+    const unlistenReconciled = listen("claude-accounts-reconciled", () => {
+      if (mounted.current) {
+        setPhase("settled");
+      }
+    });
     return () => {
       mounted.current = false;
       window.removeEventListener("focus", reload);
       void unlisten.then(fn => fn()).catch(() => {});
+      void unlistenReconciling.then(fn => fn()).catch(() => {});
+      void unlistenReconciled.then(fn => fn()).catch(() => {});
     };
   }, [load]);
   useEffect(() => {
     onLayoutChange?.();
-  }, [accounts.length, error, switched, onLayoutChange]);
+  }, [accounts.length, error, phase, switched, onLayoutChange]);
 
   const accountOrdinals = buildClaudeAccountOrdinals(accounts);
 
   const switchAccount = async (id: string) => {
-    setBusy(true);
+    setPhase("activating");
     setError(null);
     setSwitched(false);
     try {
       await claudeAccountSwitch(id);
       await load();
+      // Settling is event-driven: the backend emits claude-accounts-reconciled
+      // after the awaited refresh. The promise resolving does not settle.
       if (mounted.current) setSwitched(true);
     } catch (e) {
-      if (mounted.current) setError(String(e));
-    } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted.current) {
+        setPhase("idle");
+        setError(String(e));
+      }
     }
   };
 
   const hasSwitchableAccount = accounts.some(account => account.isSaved && !account.isActive);
   if (accounts.length <= 1 && !hasSwitchableAccount && !error) return null;
   return (
-    <details className="codex-menu-accounts" onToggle={onLayoutChange}>
+    <details
+      className="codex-menu-accounts"
+      data-claude-account-phase={phase}
+      aria-busy={phase === "activating" || phase === "reconciling"}
+      onToggle={onLayoutChange}
+    >
       <summary className="codex-menu-accounts__summary">
         <span className="codex-menu-accounts__title">{t("ClaudeAccountsTitle")}</span>
         <span className="codex-menu-accounts__count">{accounts.length}</span>
@@ -93,7 +116,7 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
                 <button
                   type="button"
                   className="codex-menu-accounts__switch"
-                  disabled={busy || account.isActive || !account.isSaved}
+                  disabled={phase === "activating" || phase === "reconciling" || account.isActive || !account.isSaved}
                   onClick={() => void switchAccount(account.id)}
                 >
                   {t("CodexAccountsSwitchButton")}

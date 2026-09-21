@@ -29,6 +29,8 @@ pub struct ProviderDetail {
     /// beyond "Tertiary" (upstream F5). Drives the settings metric picker.
     pub tertiary_label_key: Option<&'static str>,
     pub extra_rate_windows: Vec<NamedRateWindowSnapshot>,
+    pub usage_items: Vec<ProviderUsageItemSnapshot>,
+    pub hidden_usage_item_ids: Vec<String>,
     pub inventory: Vec<ProviderInventoryItemSnapshot>,
     pub display_details: Vec<ProviderDisplayDetailSnapshot>,
 
@@ -57,7 +59,9 @@ pub struct ProviderDetail {
     pub region: Option<String>,
 }
 
-pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail, String> {
+pub(crate) fn build_provider_detail(
+    provider_id: &str,
+) -> Result<(ProviderDetail, Settings, ProviderId), String> {
     let id = parse_provider_arg(provider_id)?;
 
     let settings = Settings::load();
@@ -79,7 +83,7 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         metadata.dashboard_url.map(|s| s.to_string())
     };
 
-    Ok(ProviderDetail {
+    let detail = ProviderDetail {
         id: id.cli_name().to_string(),
         display_name: id.display_name().to_string(),
         enabled,
@@ -97,6 +101,8 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         tertiary: None,
         tertiary_label_key: metadata.tertiary_label_key,
         extra_rate_windows: Vec::new(),
+        usage_items: Vec::new(),
+        hidden_usage_item_ids: settings.hidden_usage_item_ids(id),
         inventory: Vec::new(),
         display_details: Vec::new(),
         cost: None,
@@ -116,7 +122,9 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         usage_source: provider_usage_source_lookup(&settings, id.cli_name()),
         cookie_source: provider_cookie_source_lookup(&settings, id.cli_name()),
         region: provider_region_lookup(&settings, id.cli_name()),
-    })
+    };
+
+    Ok((detail, settings, id))
 }
 
 /// Return whether the exact-session resume control can safely be offered for
@@ -132,7 +140,7 @@ pub fn get_provider_detail(
     app: tauri::AppHandle,
     provider_id: String,
 ) -> Result<ProviderDetail, String> {
-    let mut detail = build_provider_detail(&provider_id)?;
+    let (mut detail, settings, parsed_provider_id) = build_provider_detail(&provider_id)?;
 
     // Merge the latest cached snapshot, if any.
     let state = app.state::<Mutex<AppState>>();
@@ -142,11 +150,7 @@ pub fn get_provider_detail(
             .iter()
             .find(|s| s.provider_id == detail.id)
     {
-        let mut snapshot = snap.clone();
-        super::filter_hidden_codex_spark_rows(
-            &mut snapshot,
-            Settings::load().codex_spark_usage_visible(),
-        );
+        let snapshot = snap.clone();
         detail.email = snapshot.account_email.clone();
         detail.plan = snapshot.plan_name.clone();
         detail.organization = snapshot.account_organization.clone();
@@ -157,6 +161,8 @@ pub fn get_provider_detail(
         };
         detail.last_updated = Some(snapshot.updated_at.clone());
         if snapshot.error.is_none() {
+            detail.usage_items =
+                super::usage_item_descriptors(Some(&snapshot), &settings, parsed_provider_id);
             detail.session = Some(snapshot.primary.clone());
             detail.weekly = snapshot.secondary.clone();
             detail.model_specific = snapshot.model_specific.clone();
@@ -170,6 +176,10 @@ pub fn get_provider_detail(
         detail.last_error = snapshot.error.clone();
         detail.error_state = Some(snapshot.error_state);
         detail.has_snapshot = true;
+    }
+
+    if detail.usage_items.is_empty() {
+        detail.usage_items = super::usage_item_descriptors(None, &settings, parsed_provider_id);
     }
 
     Ok(detail)

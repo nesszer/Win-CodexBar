@@ -218,7 +218,7 @@ fn local_usage_provider_ids(settings: &Settings) -> Vec<String> {
         .get_enabled_provider_ids()
         .into_iter()
         .map(|provider| provider.cli_name().to_string())
-        .filter(|provider_id| matches!(provider_id.as_str(), "codex" | "claude"))
+        .filter(|provider_id| matches!(provider_id.as_str(), "codex" | "claude" | "muse"))
         .collect()
 }
 
@@ -423,13 +423,17 @@ mod tests {
     fn local_usage_refresh_includes_codex_without_powertoys() {
         let settings = Settings {
             powertoys_status_pipe_enabled: false,
-            enabled_providers: ["codex".to_string(), "cursor".to_string()]
-                .into_iter()
-                .collect(),
+            enabled_providers: [
+                "codex".to_string(),
+                "muse".to_string(),
+                "cursor".to_string(),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         };
 
-        assert_eq!(local_usage_provider_ids(&settings), vec!["codex"]);
+        assert_eq!(local_usage_provider_ids(&settings), vec!["codex", "muse"]);
         assert!(!settings.powertoys_status_pipe_enabled);
     }
 
