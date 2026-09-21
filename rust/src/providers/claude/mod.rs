@@ -221,8 +221,11 @@ fn cleanup_probe_session_jsonl(probe_dir: &std::path::Path) {
     }
 }
 
-/// Shared Claude CLI probe `--settings` pair. Composed only by
-/// [`claude_probe_launch_args`]; every CLI probe path routes through it.
+/// Arguments shared by every Claude CLI `/usage` probe.
+///
+/// The remote-control startup hook can otherwise change the interactive
+/// session before the usage command is collected. Keep this override in one
+/// helper so future CLI probe paths cannot silently omit it.
 fn claude_usage_settings_args() -> [String; 2] {
     [
         "--settings".to_string(),
@@ -238,8 +241,7 @@ fn claude_probe_launch_args(session_id: &str) -> Vec<String> {
         String::new(),
     ];
     args.extend(claude_usage_settings_args());
-    args.push("--session-id".to_string());
-    args.push(session_id.to_string());
+    args.extend(["--session-id".to_string(), session_id.to_string()]);
     args
 }
 
@@ -1218,6 +1220,17 @@ mod tests {
         assert_eq!(args[5], claude_usage_settings_args()[1]);
         assert_eq!(args[6], "--session-id");
         assert_eq!(args[7], first);
+    }
+
+    #[test]
+    fn usage_probe_settings_disable_remote_control_startup() {
+        assert_eq!(
+            claude_usage_settings_args(),
+            [
+                "--settings".to_string(),
+                r#"{"remoteControlAtStartup":false}"#.to_string(),
+            ]
+        );
     }
 
     #[test]
