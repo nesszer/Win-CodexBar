@@ -3,8 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::RateWindow;
 use super::ProviderDisplayDetail;
+use super::RateWindow;
 /// Subscription dates explicitly reported by an authenticated provider
 /// dashboard or subscription endpoint.
 ///
@@ -103,28 +103,6 @@ pub struct ProviderInventoryItem {
     pub title: String,
     pub available_count: u32,
     pub next_expires_at: Option<DateTime<Utc>>,
-}
-
-fn is_display_safe_text(value: &str, max_len: usize) -> bool {
-    if value.is_empty() || value.chars().count() > max_len || value.chars().any(char::is_control) {
-        return false;
-    }
-
-    let lower = value.to_ascii_lowercase();
-    [
-        "authorization:",
-        "bearer ",
-        "cookie:",
-        "set-cookie:",
-        "access_token",
-        "api_key",
-        "api-key",
-        "client_secret",
-        "refresh_token",
-        "x-api-key",
-    ]
-    .iter()
-    .all(|marker| !lower.contains(marker))
 }
 
 fn named_rate_window_usage_known_default() -> bool {
@@ -724,7 +702,8 @@ impl ProviderFetchResult {
     pub fn with_inventory_item(mut self, item: ProviderInventoryItem) -> Self {
         self.inventory.push(item);
         self
-    }}
+    }
+}
 
 #[cfg(test)]
 mod tests {
