@@ -22,6 +22,7 @@ import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
 import { InventoryItemRow } from "./InventoryRows";
+import { ProviderDisplayRow } from "./ProviderDisplayRow";
 import { getPaceBudget, type PaceBudget } from "../lib/paceBudget";
 import PaceDetailsChart from "./PaceDetailsChart";
 
@@ -495,6 +496,7 @@ export function describeCard(
   return {
     hasMetrics,
     hasInventory,
+    hasDisplayDetails,
     hasCost,
     hasPace,
     hasCharts,
@@ -586,13 +588,18 @@ export default function MenuCardDetails({
 
       {!provider.error && hasDisplayDetails && (
         <section className="menu-card__group menu-card__provider-details">
-          {provider.displayDetails?.map((detail, index) => (
-            <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
+          {provider.displayDetails?.map((detail) => (
+            <ProviderDisplayRow
+              key={detail.id}
+              detail={detail}
+              lineClassName="menu-card__cost-line"
+              secondaryClassName="menu-card__cost-line--muted"
+              trackClassName="menu-metric__bar"
+              fillClassName="menu-metric__bar-fill"
+            />
           ))}
         </section>
       )}
-
-      {wayfinderUsage && <WayfinderUsageBlock usage={wayfinderUsage} />}
 
       {wayfinderUsage && !compactOverview && <WayfinderUsageBlock usage={wayfinderUsage} />}
 
@@ -767,51 +774,4 @@ export default function MenuCardDetails({
   );
 }
 
-function InventoryItemRow({
-  item,
-  resetTimeRelative,
-}: {
-  item: ProviderInventoryItem;
-  resetTimeRelative: boolean;
-}) {
-  const formattedExpiry = useFormattedResetTime(
-    item.nextExpiresAt,
-    null,
-    resetTimeRelative,
-    "expires",
-  );
 
-  return (
-    <div className="menu-card__cost-line">
-      <span>{item.title}: {item.availableCount} available</span>
-      {formattedExpiry && (
-        <span className="menu-card__cost-line--muted">
-          {formattedExpiry}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
-  const progress = detail.progress;
-  const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
-    ? Math.max(0, Math.min(100, (progress.used / progress.total) * 100))
-    : null;
-
-  return (
-    <div className="menu-card__provider-detail">
-      <div className="menu-card__cost-line">
-        <span>{detail.title}: {detail.value}</span>
-        {detail.secondaryValue && (
-          <span className="menu-card__cost-line--muted">{detail.secondaryValue}</span>
-        )}
-      </div>
-      {progressPercent != null && (
-        <div className="menu-metric__bar" aria-label={`${detail.title} progress`}>
-          <div className="menu-metric__bar-fill" style={{ width: `${progressPercent}%` }} />
-        </div>
-      )}
-    </div>
-  );
-}

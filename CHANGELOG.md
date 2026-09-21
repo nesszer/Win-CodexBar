@@ -8,33 +8,8 @@ allowances and per-model spending, clearer account switching, and steadier
 menu-bar layout.
 
 ### Added
-
-- Azure OpenAI: expose OpenAI-compatible v1 selection in Settings and the CLI ([#558](https://github.com/nesszer/Win-CodexBar/pull/558)).
-- Grok: Settings and tray **Add account** flow matching Codex/Claude — isolated `grok login --oauth`, save current CLI login, switch, and remove without logging out the active session ([#538](https://github.com/nesszer/Win-CodexBar/pull/538)).
-- CodeRabbit: report bounded CLI review counts and billing state without inventing quotas ([#566](https://github.com/nesszer/Win-CodexBar/pull/566)).
-- DeepSeek: report per-model spend with its billing currency and period ([#556](https://github.com/nesszer/Win-CodexBar/pull/556)).
-- Grok: show usage-limit reset coupons and expiry dates from the billing account ([#562](https://github.com/nesszer/Win-CodexBar/pull/562)).
-- Hugging Face: show Inference Providers charges and optional ZeroGPU quota with isolated token-account identity ([#567](https://github.com/nesszer/Win-CodexBar/pull/567)).
-- Mistral: show included API and Vibe Code allowances beside spend and credits ([#559](https://github.com/nesszer/Win-CodexBar/pull/559)).
-- Muse Code: show five-hour and weekly subscription quotas through the existing CLI login ([#568](https://github.com/nesszer/Win-CodexBar/pull/568)).
-- Nous Portal: show monthly subscription credits and purchased balances through the existing Hermes login ([#569](https://github.com/nesszer/Win-CodexBar/pull/569)).
-- OpenRouter: show uncapped pay-as-you-go spending, prepaid balance, and account Activity summaries ([#557](https://github.com/nesszer/Win-CodexBar/pull/557)).
-- Replicate: show monthly inference spend and optional prepaid credits with browser-session recovery and manual-cookie support ([#570](https://github.com/nesszer/Win-CodexBar/pull/570)).
-- Venice: show subscription credits, monthly spending, bank cap, and refill dates through the explicit Web source ([#565](https://github.com/nesszer/Win-CodexBar/pull/565)).
-
-### Fixed
-
-- Codex: refresh the selected account card while its menu stays open, preserving submenus and account ownership.
-- Claude: distinguish account switching from refresh reconciliation and retain active-account inspection during credential repair.
-- Claude: apply the Remote Control startup override to direct CLI usage fallbacks while preserving settings precedence.
-- Menu bar: preserve saved icon positions when hiding or removing status items, quitting, and recovering from display changes.
-- Switcher: keep multiword provider names aligned with adjacent icons and labels while preserving accessibility text.
-- OpenRouter: retain spend history when reasoning tokens exceed completion tokens and ignore deprecated rate-limit metadata.
-- OpenRouter: distinguish invalid responses from network failures in credits, key-quota, and Activity diagnostics.
-- Antigravity: preserve useful source outcomes and avoid misleading OAuth-fallback wording in usage and diagnose output.
-- Devin: honor the selected organization and import only Devin browser sessions using current decoded credentials.
-- Sharing: retain recognized gateway model families and reporting dates while preserving provider attribution.
-- CLI: show provider-supplied history and totals with correct periods, currencies, and known zero values.
+- Grok: Settings and tray **Add account** flow matching Codex/Claude — isolated `grok login --oauth`, save current CLI login, switch, and remove without logging out the active session.
+- DeepSeek: show reported per-model spend in the provider details while preserving the billing currency, reporting period, zero values, and incomplete-total safeguards.
 
 ### Fixed
 - Claude: when Hide Personal Info is enabled, keep saved account rows distinguishable with stable localized `Account N` labels and matching redacted tooltips.

@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::RateWindow;
+use crate::core::ProviderDisplayDetail;
 
 /// Subscription dates explicitly reported by an authenticated provider
 /// dashboard or subscription endpoint.
@@ -875,17 +876,16 @@ mod tests {
         let usage = UsageSnapshot::new(RateWindow::new(25.0));
         let result = ProviderFetchResult::new(usage, "web").with_display_detail(
             ProviderDisplayDetail::new("credits", "Used this cycle", "12")
-                .with_secondary_value("Monthly refill: 100")
-                .with_progress(12.0, 100.0),
+                .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
+                .and_then(|row| row.with_progress(12.0, 100.0)),
         );
 
-        let details: Vec<_> = result.display_details().collect();
+        let details = result.display_details();
         assert_eq!(details.len(), 1);
         assert!(details[0].progress().is_some());
         assert!(
             ProviderDisplayDetail::new("invalid", "Invalid", "value")
-                .with_progress(f64::NAN, 1.0)
-                .progress
+                .and_then(|row| row.with_progress(f64::NAN, 1.0))
                 .is_none()
         );
         let encoded = serde_json::to_value(&result).unwrap();
@@ -893,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn display_details_reject_secret_markers_and_duplicate_ids() {
+    fn display_details_reject_invalid_shapes_and_duplicate_ids() {
         let usage = UsageSnapshot::new(RateWindow::new(25.0));
         let result = ProviderFetchResult::new(usage, "web")
             .with_display_detail(ProviderDisplayDetail::new("credits", "Credits", "12"))
@@ -902,13 +902,9 @@ mod tests {
                 "Credits duplicate",
                 "13",
             ))
-            .with_display_detail(ProviderDisplayDetail::new(
-                "secret",
-                "Authorization",
-                "Bearer hidden",
-            ));
+            .with_display_detail(ProviderDisplayDetail::new("", "", ""));
 
-        let details: Vec<_> = result.display_details().collect();
+        let details = result.display_details();
         assert_eq!(details.len(), 1);
         assert_eq!(details[0].value(), "12");
     }

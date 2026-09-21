@@ -996,8 +996,8 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
     })
     .with_display_detail(
         ProviderDisplayDetail::new("credits", "Used this cycle", "12")
-            .with_secondary_value("Monthly refill: 100")
-            .with_progress(12.0, 100.0),
+            .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
+            .and_then(|row| row.with_progress(12.0, 100.0)),
     );
     let metadata = instantiate_provider(ProviderId::Grok).metadata().clone();
     let snapshot =
