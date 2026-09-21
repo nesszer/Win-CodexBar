@@ -19,6 +19,7 @@ pub mod claude;
 pub mod clinepass;
 pub mod codebuddy;
 pub mod codebuff;
+pub mod coderabbit;
 pub mod codex;
 pub mod commandcode;
 pub mod copilot;
@@ -36,6 +37,7 @@ pub mod fireworks;
 pub mod gemini;
 pub mod grok;
 pub mod groq;
+pub mod huggingface;
 pub mod infini;
 pub mod jetbrains;
 pub mod kilo;
@@ -50,6 +52,7 @@ pub mod meta;
 pub mod mimo;
 pub mod minimax;
 pub mod mistral;
+pub mod muse;
 pub mod nanogpt;
 pub mod neuralwatt;
 pub mod notion;
@@ -64,6 +67,7 @@ pub mod perplexity;
 pub mod poe;
 pub mod qoder;
 pub mod qwencloud;
+pub mod replicate;
 pub mod sakana;
 pub mod stepfun;
 pub mod sub2api;
@@ -94,6 +98,7 @@ pub use claude::ClaudeProvider;
 pub use clinepass::ClinePassProvider;
 pub use codebuddy::CodeBuddyProvider;
 pub use codebuff::CodebuffProvider;
+pub use coderabbit::CodeRabbitProvider;
 pub use codex::CodexProvider;
 pub use commandcode::CommandCodeProvider;
 pub use copilot::CopilotProvider;
@@ -111,6 +116,7 @@ pub use fireworks::FireworksProvider;
 pub use gemini::GeminiProvider;
 pub use grok::GrokProvider;
 pub use groq::GroqProvider;
+pub use huggingface::HuggingFaceProvider;
 pub use infini::InfiniProvider;
 pub use jetbrains::JetBrainsProvider;
 pub use kilo::KiloProvider;
@@ -125,6 +131,7 @@ pub use meta::MetaProvider;
 pub use mimo::MiMoProvider;
 pub use minimax::{MiniMaxProvider, MiniMaxRegion};
 pub use mistral::MistralProvider;
+pub use muse::MuseProvider;
 pub use nanogpt::NanoGPTProvider;
 pub use neuralwatt::NeuralwattProvider;
 pub use notion::NotionProvider;
@@ -138,6 +145,7 @@ pub use perplexity::PerplexityProvider;
 pub use poe::PoeProvider;
 pub use qoder::QoderProvider;
 pub use qwencloud::QwenCloudProvider;
+pub use replicate::ReplicateProvider;
 pub use sakana::SakanaProvider;
 pub use stepfun::StepFunProvider;
 pub use sub2api::Sub2ApiProvider;
@@ -157,6 +165,19 @@ pub(crate) fn browser_cookie_header(
     domains: &[&str],
 ) -> Result<String, crate::core::ProviderError> {
     crate::browser::cookies::get_cookie_header_for_domains(domains)
+        .map_err(map_browser_cookie_error)
+}
+
+pub(crate) fn browser_cookie_headers_for_domain(
+    domain: &str,
+) -> Result<Vec<(String, String)>, crate::core::ProviderError> {
+    crate::browser::cookies::get_cookie_headers_for_domain(domain)
+        .map(|candidates| {
+            candidates
+                .into_iter()
+                .map(|(browser, header)| (browser.display_name().to_string(), header))
+                .collect()
+        })
         .map_err(map_browser_cookie_error)
 }
 

@@ -316,6 +316,7 @@ async fn fetch_guard_outcome(
         web_timeout,
         verbose: false,
         manual_cookie_header: None,
+        manual_cookie_missing: false,
         api_key: None,
         workspace_id: None,
         seat_credit_entitlement: None,

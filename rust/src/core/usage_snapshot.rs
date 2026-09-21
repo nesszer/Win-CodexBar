@@ -3,9 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::ProviderDisplayDetail;
 use super::RateWindow;
-use crate::core::ProviderDisplayDetail;
-
 /// Subscription dates explicitly reported by an authenticated provider
 /// dashboard or subscription endpoint.
 ///

@@ -45,6 +45,16 @@ Settings → **Providers** → provider detail → choose browser → Import.
 Manual cookie header paste is the fallback (required under WSL for Chromium DPAPI).  
 Details: [COOKIES.md](./COOKIES.md).
 
+### Replicate billing
+
+Replicate uses the signed-in `replicate.com` session cookie for its billing
+page and read-only account endpoints. Automatic mode reuses a validated local
+cookie before importing the browser session; manual mode accepts a Cookie
+header containing a nonempty `sessionid`. The provider reports this month's
+spend and, when the optional balance request succeeds, prepaid credit balance.
+It keeps those values in the cost/detail surfaces and does not invent a quota
+percentage or use a Replicate API token as a website credential.
+
 ## Listing what is enabled
 
 ```powershell

@@ -474,24 +474,38 @@ async fn over_cap_connection_closes_immediately_without_response() {
     );
 
     // Ending the tricklers releases their permits via EOF; a normal client
-    // must then be served (strict outer timeout).
+    // must then be served (strict outer timeout). Permit release races the
+    // server's graceful close-drain window, so a single fixed wait can see a
+    // connection reset; retry within a bounded budget instead.
     for task in &tricklers {
         task.abort();
     }
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    let mut good = TcpStream::connect(addr).await.unwrap();
-    good.write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
-        .await
-        .unwrap();
-    let mut response = Vec::new();
-    tokio::time::timeout(Duration::from_secs(5), good.read_to_end(&mut response))
-        .await
-        .expect("no connection slot freed after trickling clients ended")
-        .unwrap();
+    let request = b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    let mut served: Option<String> = None;
+    let retry = tokio::time::Instant::now();
+    while retry.elapsed() < Duration::from_secs(2) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let Ok(mut good) = TcpStream::connect(addr).await else {
+            continue;
+        };
+        if good.write_all(request).await.is_err() {
+            continue;
+        }
+        let mut response = Vec::new();
+        match tokio::time::timeout(Duration::from_secs(5), good.read_to_end(&mut response)).await {
+            // A reset mid-handshake is the drain race; retry.
+            Ok(Err(_)) | Err(_) => continue,
+            Ok(Ok(_)) => {}
+        }
+        if String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200") {
+            served = Some(String::from_utf8_lossy(&response).into_owned());
+            break;
+        }
+    }
+    let served = served.expect("no freed slot served a normal request within retry budget");
     assert!(
-        String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"),
-        "freed slot must serve a normal request, got: {}",
-        String::from_utf8_lossy(&response)
+        served.starts_with("HTTP/1.1 200"),
+        "freed slot must serve a normal request, got: {served}"
     );
     server_task.abort();
 }

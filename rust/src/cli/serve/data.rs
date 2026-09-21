@@ -25,6 +25,7 @@ pub async fn usage_response(provider: Option<&str>) -> String {
         web_timeout: 60,
         verbose: false,
         manual_cookie_header: None,
+        manual_cookie_missing: false,
         api_key: None,
         workspace_id: None,
         seat_credit_entitlement: None,
@@ -71,6 +72,15 @@ pub async fn cost_response(provider: Option<&str>) -> String {
             results.push(crate::spend_contract::local_token_history_json(
                 "antigravity",
                 history,
+                30,
+            ));
+            continue;
+        }
+        if provider_id == ProviderId::Muse {
+            let report = crate::providers::muse::local_usage::scan(30, None);
+            results.push(crate::spend_contract::local_token_history_json(
+                "muse",
+                report.into(),
                 30,
             ));
             continue;

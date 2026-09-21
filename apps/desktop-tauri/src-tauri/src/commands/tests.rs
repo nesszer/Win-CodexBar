@@ -279,6 +279,20 @@ fn minimax_cookie_domain_follows_selected_region() {
 }
 
 #[test]
+fn replicate_cookie_source_and_domain_are_exposed() {
+    let mut settings = Settings::default();
+    super::provider_cookie_source_set(&mut settings, "replicate", "manual".to_string()).unwrap();
+    assert_eq!(
+        provider_cookie_source_lookup(&settings, "replicate").as_deref(),
+        Some("manual")
+    );
+    assert_eq!(
+        super::provider_cookie_domain(ProviderId::Replicate, &settings),
+        Some("replicate.com")
+    );
+}
+
+#[test]
 fn provider_cookie_source_set_rejects_unknown_provider() {
     let mut s = Settings::default();
     let err = super::provider_cookie_source_set(&mut s, "nope", "x".into()).unwrap_err();
@@ -453,6 +467,22 @@ fn fetch_context_opencode_empty_manual_remaps_to_web() {
     );
 
     assert_eq!(ctx.source_mode, SourceMode::Web);
+}
+
+#[test]
+fn fetch_context_replicate_empty_manual_fails_closed_without_browser_import() {
+    let settings = Settings::default();
+    let ctx = super::build_fetch_context(
+        ProviderId::Replicate,
+        &settings,
+        &ManualCookies::default(),
+        &ApiKeys::default(),
+        &HashMap::new(),
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Web);
+    assert!(ctx.manual_cookie_header.is_none());
+    assert!(ctx.manual_cookie_missing);
 }
 
 #[test]
@@ -878,7 +908,7 @@ fn launch_block_reason_helper_prefers_ssh() {
 
 #[test]
 fn build_provider_detail_populates_identity_urls() {
-    let detail = super::build_provider_detail("claude").expect("known provider");
+    let (detail, _settings, _id) = super::build_provider_detail("claude").expect("known provider");
     assert_eq!(detail.id, "claude");
     assert_eq!(detail.display_name, "Claude");
     // Claude advertises a status page URL in its metadata.
@@ -897,12 +927,52 @@ fn build_provider_detail_rejects_unknown_provider() {
 
 #[test]
 fn provider_detail_roundtrips_through_serde() {
-    let detail = super::build_provider_detail("codex").expect("known provider");
+    let (detail, _settings, _id) = super::build_provider_detail("codex").expect("known provider");
     let json = serde_json::to_string(&detail).expect("serialize");
     // camelCase rename survives the round-trip.
     assert!(json.contains("\"displayName\""));
     assert!(json.contains("\"hasSnapshot\""));
     assert!(json.contains("\"statusPageUrl\""));
+}
+
+#[test]
+fn usage_item_descriptors_keep_raw_ids_and_redact_titles() {
+    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        cost: None,
+        wayfinder_usage: None,
+        inventory: Vec::new(),
+        display_details: Vec::new(),
+        source_label: "OAuth".to_string(),
+        has_successful_claude_cli_quota: false,
+        pace_authoritative: true,
+        account_identity: None,
+    };
+    let mut snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+    snapshot.primary_label = Some("Account owner@example.com".to_string());
+    snapshot.extra_rate_windows = vec![NamedRateWindowSnapshot {
+        id: "credits".to_string(),
+        title: "Credits owner@example.com".to_string(),
+        window: snapshot.primary.clone(),
+        fallback_lane: false,
+    }];
+
+    let mut settings = Settings {
+        hide_personal_info: true,
+        ..Settings::default()
+    };
+    settings.set_hidden_usage_item_ids(ProviderId::Codex, vec!["metric:extra-missing".to_string()]);
+
+    let items = super::usage_item_descriptors(Some(&snapshot), &settings, ProviderId::Codex);
+
+    assert_eq!(items[0].id, "metric:primary");
+    assert_eq!(items[0].title, "Account Hidden");
+    assert_eq!(items[1].id, "metric:extra-credits");
+    assert_eq!(items[1].title, "Credits Hidden");
+    assert_eq!(items[2].id, "metric:extra-missing");
+    assert!(!items[2].available);
 }
 
 #[test]
@@ -1153,43 +1223,7 @@ fn superseded_refresh_generation_is_not_current() {
 }
 
 #[test]
-fn hiding_codex_spark_rows_preserves_other_extra_usage() {
-    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
-        cost: None,
-        wayfinder_usage: None,
-        inventory: Vec::new(),
-        display_details: Vec::new(),
-        source_label: "CLI".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-    };
-    let mut snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
-    snapshot.extra_rate_windows = vec![
-        NamedRateWindowSnapshot {
-            id: "codex-spark".to_string(),
-            title: "Codex Spark 5-hour".to_string(),
-            fallback_lane: false,
-            window: snapshot.primary.clone(),
-        },
-        NamedRateWindowSnapshot {
-            id: "credits".to_string(),
-            title: "Credits".to_string(),
-            fallback_lane: false,
-            window: snapshot.primary.clone(),
-        },
-    ];
 
-    super::filter_hidden_codex_spark_rows(&mut snapshot, false);
-
-    assert_eq!(snapshot.extra_rate_windows.len(), 1);
-    assert_eq!(snapshot.extra_rate_windows[0].id, "credits");
-}
-
-#[test]
 fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
     let result = ProviderFetchResult {
@@ -1704,6 +1738,13 @@ fn cookie_options_for_cookie_supporting_provider() {
     assert!(opts.iter().any(|o| o.label == "Automatic"));
     assert!(opts.iter().any(|o| o.label == "Manual"));
     assert!(opts.iter().any(|o| o.label == "Disabled"));
+}
+
+#[test]
+fn replicate_cookie_options_allow_automatic_and_manual_sessions() {
+    let opts = super::cookie_source_options_for("replicate", Language::English);
+    let values: Vec<_> = opts.iter().map(|option| option.value.as_str()).collect();
+    assert_eq!(values, vec!["auto", "manual"]);
 }
 
 #[test]

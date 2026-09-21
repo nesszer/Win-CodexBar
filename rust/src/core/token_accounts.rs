@@ -213,6 +213,14 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: true,
                 cookie_name: Some("token_v2"),
             }),
+            ProviderId::Replicate => Some(TokenAccountSupport {
+                title: "Session tokens",
+                subtitle: "Store multiple Replicate Cookie headers from the billing page.",
+                placeholder: "Cookie: sessionid=...; ...",
+                injection: TokenInjection::CookieHeader,
+                requires_manual_cookie_source: true,
+                cookie_name: Some("sessionid"),
+            }),
             ProviderId::Sub2Api => Some(TokenAccountSupport {
                 title: "Group API keys",
                 subtitle: "Store multiple sub2api group API keys with labels such as Claude, Codex, or Gemini.",
@@ -229,6 +237,16 @@ impl TokenAccountSupport {
                 placeholder: "API key from deepinfra.com/dash",
                 injection: TokenInjection::Environment {
                     key: "DEEPINFRA_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            ProviderId::HuggingFace => Some(TokenAccountSupport {
+                title: "API tokens",
+                subtitle: "Store multiple Hugging Face access tokens.",
+                placeholder: "Paste a Hugging Face access token",
+                injection: TokenInjection::Environment {
+                    key: "CODEXBAR_HUGGINGFACE_API_KEY".to_string(),
                 },
                 requires_manual_cookie_source: false,
                 cookie_name: None,
@@ -331,6 +349,7 @@ impl TokenAccountSupport {
             | ProviderId::Kilo
             | ProviderId::Bedrock
             | ProviderId::Codebuff
+            | ProviderId::CodeRabbit
             | ProviderId::DeepSeek
             | ProviderId::Windsurf
             | ProviderId::Doubao
@@ -353,7 +372,8 @@ impl TokenAccountSupport {
             | ProviderId::QwenCloud
             | ProviderId::Fireworks
             | ProviderId::Meta
-            | ProviderId::Nous => None,
+            | ProviderId::Nous
+            | ProviderId::Muse => None,
         }
     }
 
