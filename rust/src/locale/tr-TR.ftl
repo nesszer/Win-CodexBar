@@ -542,6 +542,7 @@ PanelThirtyDayCostHistogram = 30 günlük maliyet histogramı
 PanelTopModelPrefix = En çok kullanılan model
 PanelEstimatedFromLocalLogs = Yerel günlüklerden tahmin edilmiştir; faturanızdan farklı olabilir
 PanelEstimatedFromLocalLogsClaude = Yerel Claude günlüklerinden API tarifeleriyle tahmin edilmiştir; token toplamları faturanızdan farklı olabilir
+PanelEstimatedFromLocalLogsMuse = Yerel jeton geçmişi; dolar maliyetleri kullanılamıyor
 PanelExpected = Beklenen
 PanelActual = Gerçekleşen
 PanelUsedSuffix = kullanıldı

@@ -75,6 +75,15 @@ pub async fn cost_response(provider: Option<&str>) -> String {
             ));
             continue;
         }
+        if provider_id == ProviderId::Muse {
+            let report = crate::providers::muse::local_usage::scan(30, None);
+            results.push(crate::spend_contract::local_token_history_json(
+                "muse",
+                report.into(),
+                30,
+            ));
+            continue;
+        }
         let (supported, summary) = match provider_id {
             ProviderId::Codex => (true, scanner.scan_codex()),
             ProviderId::Claude => (true, scanner.scan_claude()),

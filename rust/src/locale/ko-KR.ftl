@@ -528,6 +528,7 @@ PanelThirtyDayCostHistogram = 30일 비용 히스토그램
 PanelTopModelPrefix = 상위 모델
 PanelEstimatedFromLocalLogs = 로컬 로그에서 추정; 청구서와 다를 수 있음
 PanelEstimatedFromLocalLogsClaude = API 요율로 로컬 Claude 로그에서 추정; 토큰 합계가 청구서와 다를 수 있음
+PanelEstimatedFromLocalLogsMuse = 로컬 토큰 기록; 달러 비용은 제공되지 않음
 PanelExpected = 예상
 PanelActual = 실제
 PanelUsedSuffix = 사용됨
