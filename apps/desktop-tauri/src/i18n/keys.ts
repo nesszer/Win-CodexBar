@@ -648,6 +648,7 @@ export const ALL_LOCALE_KEYS = [
   "PanelTopModelPrefix",
   "PanelEstimatedFromLocalLogs",
   "PanelEstimatedFromLocalLogsClaude",
+  "PanelEstimatedFromLocalLogsMuse",
   "PanelExpected",
   "PanelActual",
   "PanelUsedSuffix",

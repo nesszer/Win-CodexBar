@@ -111,6 +111,7 @@ function LocalUsageBlock({
 }) {
   const { t } = useLocale();
   const isCodex = providerId === "codex";
+  const isMuse = providerId === "muse";
   const visibleHistory = costHistory.slice(-30);
   const maxCost = Math.max(
     ...visibleHistory.flatMap((point) => (point.value == null ? [] : [point.value])),
@@ -123,27 +124,35 @@ function LocalUsageBlock({
         <div>
           <span className="menu-card__local-label">{t("PanelToday")}</span>
           <strong>
-            {summary.todayCost != null
+            {isMuse
+              ? (summary.latestTokens != null
+                ? formatCompactCount(summary.latestTokens)
+                : "—")
+              : summary.todayCost != null
               ? formatCurrency(summary.todayCost, "USD")
               : "—"}
           </strong>
         </div>
-        <div>
-          <span className="menu-card__local-label">{t("PanelThirtyDayCost")}</span>
-          <strong>
-            {summary.thirtyDayCost != null
-              ? formatCurrency(summary.thirtyDayCost, "USD")
-              : "—"}
-          </strong>
-        </div>
+        {!isMuse && (
+          <div>
+            <span className="menu-card__local-label">{t("PanelThirtyDayCost")}</span>
+            <strong>
+              {summary.thirtyDayCost != null
+                ? formatCurrency(summary.thirtyDayCost, "USD")
+                : "—"}
+            </strong>
+          </div>
+        )}
         <div>
           <span className="menu-card__local-label">{t("PanelThirtyDayTokens")}</span>
           <strong>{formatCompactCount(summary.thirtyDayTokens)}</strong>
         </div>
-        <div>
-          <span className="menu-card__local-label">{t("PanelLatestTokens")}</span>
-          <strong>{formatCompactCount(summary.latestTokens)}</strong>
-        </div>
+        {!isMuse && (
+          <div>
+            <span className="menu-card__local-label">{t("PanelLatestTokens")}</span>
+            <strong>{formatCompactCount(summary.latestTokens)}</strong>
+          </div>
+        )}
       </div>
 
       {isCodex && visibleHistory.length > 0 && (

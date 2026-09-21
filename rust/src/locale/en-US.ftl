@@ -585,6 +585,7 @@ PanelThirtyDayCostHistogram = 30 day cost histogram
 PanelTopModelPrefix = Top model
 PanelEstimatedFromLocalLogs = Estimated from local logs; may differ from your bill
 PanelEstimatedFromLocalLogsClaude = Estimated from local Claude logs at API rates; token totals may differ from your bill
+PanelEstimatedFromLocalLogsMuse = Local token history; dollar costs unavailable
 PanelExpected = Expected
 PanelActual = Actual
 PanelUsedSuffix = used

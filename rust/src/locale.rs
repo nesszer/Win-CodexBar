@@ -922,6 +922,7 @@ locale_keys! {
     PanelTopModelPrefix,
     PanelEstimatedFromLocalLogs,
     PanelEstimatedFromLocalLogsClaude,
+    PanelEstimatedFromLocalLogsMuse,
     PanelExpected,
     PanelActual,
     PanelUsedSuffix,
