@@ -299,7 +299,7 @@ type MetricRowDisplay = {
  * Single metric row inside the card — mirrors upstream `MetricRow`:
  *   • title (body / medium)
  *   • UsageProgressBar (capsule, 6pt)
- *   • HStack: "N% used"  ··  reset countdown (right-aligned, secondary)
+ *   • HStack: "N% used"  · ·  reset countdown (right-aligned, secondary)
  */
 function MetricRow({
   title,
@@ -491,11 +491,6 @@ export function describeCard(
       hasPace ||
       hasCharts ||
       !!localUsage ||
-      !!wayfinderUsage);
-  return {
-    hasMetrics,
-    hasInventory,
-    hasDisplayDetails,
       !!wayfinderUsage) &&
     // Compact Overview suppresses supplemental sections entirely; a card
     // whose only content would be suppressed renders header-only so no empty

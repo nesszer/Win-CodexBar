@@ -87,15 +87,6 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
         />
       ))}
       {inventory.map((item) => (
-        <InventoryRow
-          key={item.id}
-          item={item}
-          resetTimeRelative={resetTimeRelative}
-        />
-      ))}
-      {displayDetails.map((detail, index) => (
-        <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
-      ))}
         <InventoryItemRow
           key={item.id}
           item={item}
@@ -113,49 +104,6 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
         />
       ))}
     </section>
-  );
-}
-
-function InventoryRow({
-  item,
-  resetTimeRelative,
-}: {
-  item: ProviderInventoryItem;
-  resetTimeRelative: boolean;
-}) {
-  const formattedExpiry = useFormattedResetTime(
-    item.nextExpiresAt,
-    null,
-    resetTimeRelative,
-    "expires",
-  );
-
-  return (
-    <div className="provider-usage-inventory">
-      <span>{item.title}: {item.availableCount} available</span>
-      {formattedExpiry && <span>{formattedExpiry}</span>}
-    </div>
-  );
-}
-
-function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
-  const progress = detail.progress;
-  const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
-    ? Math.max(0, Math.min(100, (progress.used / progress.total) * 100))
-    : null;
-
-  return (
-    <div className="provider-usage-detail">
-      <div className="provider-usage-inventory">
-        <span>{detail.title}: {detail.value}</span>
-        {detail.secondaryValue && <span>{detail.secondaryValue}</span>}
-      </div>
-      {progressPercent != null && (
-        <div className="provider-usage-bar__track" aria-label={`${detail.title} progress`}>
-          <div className="provider-usage-bar__fill" style={{ width: `${progressPercent}%` }} />
-        </div>
-      )}
-    </div>
   );
 }
 
