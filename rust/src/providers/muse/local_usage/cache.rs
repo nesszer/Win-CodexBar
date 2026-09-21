@@ -56,7 +56,11 @@ pub(crate) fn platform_file_identity(path: &Path, _metadata: &fs::Metadata) -> O
     let file_index = ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64;
     Some(format!("{}:{file_index}", info.dwVolumeSerialNumber))
 }
-pub(crate) fn digest_bytes(path: &Path, stamp: &FileStamp, state: &mut ScanState) -> Option<String> {
+pub(crate) fn digest_bytes(
+    path: &Path,
+    stamp: &FileStamp,
+    state: &mut ScanState,
+) -> Option<String> {
     if !state.charge_file(stamp.length) {
         return None;
     }
@@ -75,7 +79,7 @@ pub(crate) fn digest_bytes(path: &Path, stamp: &FileStamp, state: &mut ScanState
             return None;
         }
     }
-    if bytes_read != stamp.length || file_stamp(path).as_ref() != Some(&stamp) {
+    if bytes_read != stamp.length || file_stamp(path).as_ref() != Some(stamp) {
         return None;
     }
     Some(format!("{:x}", hasher.finalize()))

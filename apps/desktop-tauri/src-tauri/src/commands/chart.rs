@@ -143,7 +143,7 @@ fn build_provider_chart_data_with_cancel(
                     tokens: day.total_tokens,
                 })
                 .collect();
-            let local_usage = muse_local_usage_summary(&report, lang);
+            let local_usage = muse_local_usage_summary(&report, locale::current_language());
             (
                 Vec::new(),
                 tokens_history,
@@ -233,7 +233,7 @@ fn load_local_usage_summary_with_unknown_models(
             None
         } else {
             let report = muse_local_usage::scan(30, cancel);
-            muse_local_usage_summary(&report, lang)
+            muse_local_usage_summary(&report, locale::current_language())
         };
         return (summary, HashSet::new());
     }
@@ -671,7 +671,9 @@ mod tests {
             coverage: LocalHistoryCoverage::Partial,
             ..report
         };
-        assert!(muse_local_usage_summary(&partial, codexbar::settings::Language::default()).is_none());
+        assert!(
+            muse_local_usage_summary(&partial, codexbar::settings::Language::default()).is_none()
+        );
     }
 
     #[test]

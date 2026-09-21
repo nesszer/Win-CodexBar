@@ -8,9 +8,8 @@
 mod cache;
 mod parse;
 
+use cache::{CachedFile, FileStamp, digest_bytes, file_stamp, load_cache, save_cache};
 use parse::{parse_line, read_bounded_line};
-use cache::{load_cache, save_cache, Cache, CachedFile, FileStamp, cache_path, digest_bytes, file_stamp};
-
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File};
@@ -69,7 +68,6 @@ impl From<Report> for crate::spend_contract::LocalTokenHistorySummary {
     }
 }
 
-
 impl Report {
     pub fn is_available(&self) -> bool {
         self.coverage != LocalHistoryCoverage::Unavailable
@@ -103,7 +101,10 @@ struct ScanState<'a> {
 
 impl ScanState<'_> {
     fn check(&self) -> bool {
-        if self.cancelled.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+        if self
+            .cancelled
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
             return true;
         }
         SystemTime::now()
@@ -162,9 +163,7 @@ fn day_window(days: u32) -> (String, String) {
     )
 }
 
-
 #[cfg(windows)]
-
 #[cfg(unix)]
 fn platform_file_identity(_path: &Path, metadata: &fs::Metadata) -> Option<String> {
     use std::os::unix::fs::MetadataExt;
@@ -180,10 +179,6 @@ fn platform_file_identity(_path: &Path, metadata: &fs::Metadata) -> Option<Strin
         .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
         .map(|value| value.as_nanos().to_string())
 }
-
-
-
-
 
 fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
     let mut files = Vec::new();
@@ -281,9 +276,6 @@ fn discover(root: &Path, state: &mut ScanState) -> (Vec<PathBuf>, bool) {
     }
     (files, complete)
 }
-
-
-
 
 fn parse_file(
     path: &Path,
@@ -532,4 +524,3 @@ pub fn scan_in(
         coverage,
     }
 }
-

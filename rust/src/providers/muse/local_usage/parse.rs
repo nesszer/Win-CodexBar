@@ -154,4 +154,3 @@ pub(crate) fn read_bounded_line<R: BufRead>(
         }
     }
 }
-
