@@ -247,6 +247,7 @@ fn build_usage_fetch_context(args: &UsageArgs, source_mode: SourceMode) -> Fetch
         web_timeout: args.web_timeout,
         verbose: false,
         manual_cookie_header: None,
+        manual_cookie_missing: false,
         api_key: None,
         workspace_id: None,
         seat_credit_entitlement: None,

@@ -175,6 +175,7 @@ async fn collect_provider_diagnostic(
         manual_cookie_header: manual_cookies
             .get(provider_id.cli_name())
             .map(ToOwned::to_owned),
+        manual_cookie_missing: false,
         api_key: api_keys.get(provider_id.cli_name()).map(ToOwned::to_owned),
         workspace_id: settings
             .provider_config(provider_id)

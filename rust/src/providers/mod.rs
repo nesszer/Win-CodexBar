@@ -66,6 +66,7 @@ pub mod perplexity;
 pub mod poe;
 pub mod qoder;
 pub mod qwencloud;
+pub mod replicate;
 pub mod sakana;
 pub mod stepfun;
 pub mod sub2api;
@@ -142,6 +143,7 @@ pub use perplexity::PerplexityProvider;
 pub use poe::PoeProvider;
 pub use qoder::QoderProvider;
 pub use qwencloud::QwenCloudProvider;
+pub use replicate::ReplicateProvider;
 pub use sakana::SakanaProvider;
 pub use stepfun::StepFunProvider;
 pub use sub2api::Sub2ApiProvider;
@@ -161,6 +163,19 @@ pub(crate) fn browser_cookie_header(
     domains: &[&str],
 ) -> Result<String, crate::core::ProviderError> {
     crate::browser::cookies::get_cookie_header_for_domains(domains)
+        .map_err(map_browser_cookie_error)
+}
+
+pub(crate) fn browser_cookie_headers_for_domain(
+    domain: &str,
+) -> Result<Vec<(String, String)>, crate::core::ProviderError> {
+    crate::browser::cookies::get_cookie_headers_for_domain(domain)
+        .map(|candidates| {
+            candidates
+                .into_iter()
+                .map(|(browser, header)| (browser.display_name().to_string(), header))
+                .collect()
+        })
         .map_err(map_browser_cookie_error)
 }
 

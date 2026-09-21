@@ -25,6 +25,7 @@ pub async fn usage_response(provider: Option<&str>) -> String {
         web_timeout: 60,
         verbose: false,
         manual_cookie_header: None,
+        manual_cookie_missing: false,
         api_key: None,
         workspace_id: None,
         seat_credit_entitlement: None,

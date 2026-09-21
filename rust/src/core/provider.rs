@@ -87,6 +87,7 @@ pub enum ProviderId {
     #[serde(alias = "metaspark")]
     Meta,
     Muse,
+    Replicate,
 }
 
 impl ProviderId {
@@ -167,6 +168,7 @@ impl ProviderId {
             ProviderId::Fireworks,
             ProviderId::Meta,
             ProviderId::Muse,
+            ProviderId::Replicate,
         ]
     }
 
@@ -247,6 +249,7 @@ impl ProviderId {
             ProviderId::QwenCloud => "qwen-cloud",
             ProviderId::Notion => "notion",
             ProviderId::Xai => "xai",
+            ProviderId::Replicate => "replicate",
         }
     }
 
@@ -329,6 +332,7 @@ impl ProviderId {
             ProviderId::QwenCloud => "Qwen Cloud",
             ProviderId::Notion => "Notion AI",
             ProviderId::Xai => "xAI",
+            ProviderId::Replicate => "Replicate",
         }
     }
 
@@ -369,6 +373,7 @@ impl ProviderId {
             ProviderId::CodeBuddy => Some("codebuddy.cn"),
             ProviderId::Sakana => Some("console.sakana.ai"),
             ProviderId::LongCat => Some("longcat.chat"),
+            ProviderId::Replicate => Some("replicate.com"),
             // Token-based providers (don't use cookies)
             ProviderId::Copilot => None,
             ProviderId::Zai => None,
@@ -510,6 +515,7 @@ impl ProviderId {
             }
             "zoommate" | "zoom-mate" | "zoom mate" => Some(ProviderId::ZoomMate),
             "notion" | "notion-ai" | "notionai" | "notion ai" => Some(ProviderId::Notion),
+            "replicate" | "r8" => Some(ProviderId::Replicate),
             _ => None,
         }
     }
@@ -710,6 +716,11 @@ pub struct FetchContext {
     /// Manual cookie header (for testing)
     pub manual_cookie_header: Option<String>,
 
+    /// The cookie source is manual and no cookie is stored. The provider
+    /// decides what this means; Replicate fails closed instead of importing a
+    /// browser account the user did not select.
+    pub manual_cookie_missing: bool,
+
     /// API key for providers that require authentication
     pub api_key: Option<String>,
 
@@ -746,6 +757,7 @@ impl Default for FetchContext {
             web_timeout: 60,
             verbose: false,
             manual_cookie_header: None,
+            manual_cookie_missing: false,
             api_key: None,
             workspace_id: None,
             seat_credit_entitlement: None,
@@ -764,6 +776,16 @@ pub enum LastGoodFailurePolicy {
     Preserve,
     PreserveOnce,
     PreserveOnceThenSurface,
+}
+
+/// How the shell should treat a manual cookie source with no cookie present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManualEmptyCookiePolicy {
+    /// Remap to the shell's generic browser-cookie attempt.
+    Fallback,
+    /// Keep `SourceMode::Web` with no header so the provider fails closed
+    /// instead of importing a browser account the user did not select.
+    FailClosedWeb,
 }
 
 /// Trait that all providers must implement
@@ -806,6 +828,16 @@ pub trait Provider: Send + Sync {
     /// Whether an explicitly selected manual cookie outranks a token-account override.
     fn manual_cookie_precedes_token_account(&self) -> bool {
         false
+    }
+
+    /// How the shell treats a manual cookie source with no cookie present.
+    ///
+    /// `Fallback` lets the shell remap to its generic browser-cookie attempt.
+    /// `FailClosedWeb` keeps `SourceMode::Web` without any header, so the
+    /// provider fails closed instead of importing a browser account the user
+    /// did not select.
+    fn manual_empty_cookie_policy(&self) -> ManualEmptyCookiePolicy {
+        ManualEmptyCookiePolicy::Fallback
     }
 
     /// Whether Automatic metric selection should prefer an exhausted quota lane.
@@ -1032,6 +1064,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::Fireworks => "#F25B1C",
         ProviderId::Meta => "#0467DF",
         ProviderId::Muse => "#0668E1",
+        ProviderId::Replicate => "#000000",
     }
 }
 
@@ -1046,7 +1079,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 74);
+        assert_eq!(all.len(), 75);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Fireworks));
@@ -1100,6 +1133,7 @@ mod tests {
         assert!(all.contains(&ProviderId::Notion));
         assert!(all.contains(&ProviderId::Xai));
         assert!(all.contains(&ProviderId::Meta));
+        assert!(all.contains(&ProviderId::Replicate));
         assert!(all.contains(&ProviderId::Muse));
     }
 

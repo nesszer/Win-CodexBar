@@ -223,6 +223,7 @@ fn cookie_source_provider(provider_id: &str) -> Option<codexbar::core::ProviderI
         "sakana" => ProviderId::Sakana,
         "notion" => ProviderId::Notion,
         "grok" => ProviderId::Grok,
+        "replicate" => ProviderId::Replicate,
         _ => return None,
     })
 }
@@ -727,6 +728,22 @@ pub fn cookie_source_options_for(provider_id: &str, lang: Language) -> Vec<Cooki
                 None,
             ),
             cookie_option(lang, "off", "", "", Some("Notion cookies are disabled.")),
+        ],
+        "replicate" => vec![
+            cookie_option(
+                lang,
+                "auto",
+                "Automatic imports the signed-in replicate.com browser session.",
+                "Paste a Cookie header from the Replicate billing page.",
+                None,
+            ),
+            cookie_option(
+                lang,
+                "manual",
+                "",
+                "Paste a Cookie header from https://replicate.com/account/billing.",
+                None,
+            ),
         ],
         _ => Vec::new(),
     }
