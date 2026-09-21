@@ -1,9 +1,6 @@
 import type {
   ProviderDisplayDetail,
-<<<<<<< HEAD
-=======
   ProviderInventoryItem,
->>>>>>> origin/main
   ProviderDetail,
   RateWindowSnapshot,
 } from "../../../../types/bridge";
