@@ -197,10 +197,21 @@ pub(super) fn parse_amp_subscription_usage(
         let agent_remaining = parse_amp_number(caps.get(2)?.as_str())?;
         let agent_limit = parse_amp_number(caps.get(3)?.as_str())?;
         let details = caps.get(4)?.as_str();
-        let renewal_value: i64 = caps.get(5)?.as_str().replace(',', "").parse().ok()?;
+        let renewal_text = caps.get(5)?.as_str().replace(',', "");
+        let renewal_value = renewal_text.parse::<i64>().ok();
         let renewal_unit = caps.get(6)?.as_str().to_ascii_lowercase();
-        let reset_description = amp_renewal_description(renewal_value, &renewal_unit);
-        let (period_start, resets_at) = parse_amp_tier_period(details).unzip();
+        let period = parse_amp_tier_period(details);
+        let has_period_text = details.to_ascii_lowercase().contains("period ");
+        let resets_at = period.map(|(_, end)| end).or_else(|| {
+            (!has_period_text)
+                .then(|| {
+                    renewal_value
+                        .and_then(|value| subscription_reset_date(value, &renewal_unit, now))
+                })
+                .flatten()
+        });
+        let reset_description = amp_renewal_description_text(&renewal_text, &renewal_unit);
+        let period_start = period.map(|(start, _)| start);
         let orb = orb_re.captures(details).and_then(|orb_caps| {
             let remaining = parse_amp_number(orb_caps.get(1)?.as_str())?;
             let limit = parse_amp_number(orb_caps.get(2)?.as_str())?;
@@ -242,11 +253,7 @@ pub(super) fn parse_amp_subscription_usage(
             continue;
         }
         let unit = caps.get(5)?.as_str().to_ascii_lowercase();
-        let resets_at = if unit.starts_with("month") {
-            add_calendar_months(now, renewal_value)?
-        } else {
-            now + chrono::Duration::days(renewal_value)
-        };
+        let resets_at = subscription_reset_date(renewal_value, &unit, now)?;
         let reset_description = amp_renewal_description(renewal_value, &unit);
         return Some(AmpSubscriptionUsage {
             plan: plan.to_string(),
@@ -271,6 +278,35 @@ fn amp_renewal_description(value: i64, unit: &str) -> String {
         format!("renews in 1 {singular}")
     } else {
         format!("renews in {value} {singular}s")
+    }
+}
+
+fn amp_renewal_description_text(value: &str, unit: &str) -> String {
+    let singular = if unit.starts_with("month") {
+        "month"
+    } else {
+        "day"
+    };
+    if value == "1" {
+        format!("renews in 1 {singular}")
+    } else {
+        format!("renews in {value} {singular}s")
+    }
+}
+
+fn subscription_reset_date(
+    value: i64,
+    unit: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    if value < 0 {
+        return None;
+    }
+    if unit.starts_with("month") {
+        add_calendar_months(now, value)
+    } else {
+        let seconds = value.checked_mul(24 * 60 * 60)?;
+        now.checked_add_signed(chrono::Duration::seconds(seconds))
     }
 }
 

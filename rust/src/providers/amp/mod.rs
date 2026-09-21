@@ -501,4 +501,22 @@ period 2026-09-13 to 2026-10-13, resets upon renewal in 27 days";
         assert!(snapshot.secondary.is_none());
         assert_eq!(snapshot.primary.used_percent, 85.0);
     }
+
+    #[test]
+    fn tier_keeps_explicit_period_when_renewal_count_overflows() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 16, 12, 0, 0).unwrap();
+        let text = "Amp Example Tier: agent usage $10 of $20 remaining - \
+period 2026-09-13 to 2026-10-13, resets upon renewal in 999999999999999999999999999999 days";
+        let sub = parse_amp_subscription_usage(text, now).expect("tier");
+        assert_eq!(
+            sub.resets_at(),
+            Some(Utc.with_ymd_and_hms(2026, 10, 13, 0, 0, 0).unwrap())
+        );
+        assert_eq!(
+            sub.reset_description,
+            "renews in 999999999999999999999999999999 days"
+        );
+        let snapshot = usage_snapshot_from_amp_display_text(text, now).expect("snapshot");
+        assert_eq!(snapshot.primary.used_percent, 50.0);
+    }
 }

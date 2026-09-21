@@ -111,8 +111,8 @@ impl KiloProvider {
                 has_blocks = !arr.is_empty();
                 for block in arr {
                     if let Ok(b) = serde_json::from_value::<CreditBlock>(block.clone()) {
-                        total += b.amount_m_usd.unwrap_or(0.0);
-                        remaining += b.balance_m_usd.unwrap_or(0.0);
+                        add_finite(&mut total, b.amount_m_usd);
+                        add_finite(&mut remaining, b.balance_m_usd);
                     }
                 }
             }
@@ -121,22 +121,26 @@ impl KiloProvider {
                 && let Some(balance_m_usd) =
                     payload.get("totalBalance_mUsd").and_then(|v| v.as_f64())
             {
-                total = balance_m_usd;
-                remaining = balance_m_usd;
+                total = finite_or_zero(Some(balance_m_usd));
+                remaining = total;
             }
         }
 
         let total_usd = total / 1_000_000.0;
         let remaining_usd = remaining / 1_000_000.0;
-        let used_usd = (total_usd - remaining_usd).max(0.0);
-        let percent = if total_usd > 0.0 {
-            ((used_usd / total_usd) * 100.0).clamp(0.0, 100.0)
+        let primary = if total_usd.is_finite() && remaining_usd.is_finite() {
+            let used_usd = (total_usd - remaining_usd).max(0.0);
+            let percent = if total_usd > 0.0 {
+                ((used_usd / total_usd) * 100.0).clamp(0.0, 100.0)
+            } else {
+                0.0
+            };
+            let mut window = RateWindow::new(percent);
+            window.reset_description = Some(format!("${used_usd:.2}/${total_usd:.2}"));
+            window
         } else {
-            0.0
+            RateWindow::informational("Credit usage unavailable")
         };
-
-        let mut primary = RateWindow::new(percent);
-        primary.reset_description = Some(format!("${:.2}/${:.2}", used_usd, total_usd));
 
         let mut snap = UsageSnapshot::new(primary);
 
@@ -145,17 +149,20 @@ impl KiloProvider {
             let usage = pass
                 .get("currentPeriodUsageUsd")
                 .and_then(|v| v.as_f64())
+                .filter(|value| value.is_finite())
                 .unwrap_or(0.0);
             let base = pass
                 .get("currentPeriodBaseCreditsUsd")
                 .and_then(|v| v.as_f64())
+                .filter(|value| value.is_finite())
                 .unwrap_or(0.0);
             let bonus = pass
                 .get("currentPeriodBonusCreditsUsd")
                 .and_then(|v| v.as_f64())
+                .filter(|value| value.is_finite())
                 .unwrap_or(0.0);
             let pass_total = base + bonus;
-            if pass_total > 0.0 {
+            if pass_total.is_finite() && pass_total > 0.0 {
                 let pass_pct = ((usage / pass_total) * 100.0).clamp(0.0, 100.0);
                 let mut secondary = RateWindow::new(pass_pct);
                 secondary.reset_description = Some(format!("${:.2}/${:.2}", usage, pass_total));
@@ -219,6 +226,17 @@ impl KiloProvider {
 
         Self::build_snapshot(credit_blocks, kilo_pass)
     }
+}
+
+fn finite_or_zero(value: Option<f64>) -> f64 {
+    value.filter(|value| value.is_finite()).unwrap_or(0.0)
+}
+
+fn add_finite(total: &mut f64, value: Option<f64>) {
+    let Some(value) = value.filter(|value| value.is_finite()) else {
+        return;
+    };
+    *total += value;
 }
 
 fn direct_kilo_api_key(api_key: Option<&str>) -> Option<String> {
@@ -371,6 +389,30 @@ mod tests {
             snap.primary.reset_description.as_deref(),
             Some("$0.00/$1.06")
         );
+        assert!(snap.secondary.is_none());
+    }
+
+    #[test]
+    fn makes_overflowed_credit_totals_unavailable() {
+        let credit_blocks = serde_json::json!({
+            "creditBlocks": [
+                { "amount_mUsd": 1e308, "balance_mUsd": 1e308 },
+                { "amount_mUsd": 1e308, "balance_mUsd": 1e308 }
+            ]
+        });
+        let snap = KiloProvider::build_snapshot(Some(&credit_blocks), None).unwrap();
+        assert!(snap.primary.is_informational);
+        assert!(snap.primary.used_percent.is_finite());
+    }
+
+    #[test]
+    fn omits_pass_window_when_usage_arithmetic_overflows() {
+        let pass = serde_json::json!({
+            "currentPeriodUsageUsd": 1e308,
+            "currentPeriodBaseCreditsUsd": 1e308,
+            "currentPeriodBonusCreditsUsd": 1e308
+        });
+        let snap = KiloProvider::build_snapshot(None, Some(&pass)).unwrap();
         assert!(snap.secondary.is_none());
     }
 }
