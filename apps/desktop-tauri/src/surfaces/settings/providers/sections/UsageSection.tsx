@@ -94,10 +94,6 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
           lineClassName="provider-usage-inventory"
         />
       ))}
-<<<<<<< HEAD
-      {displayDetails.map((detail, index) => (
-        <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
-=======
       {displayDetails.map((detail) => (
         <ProviderDisplayRow
           key={detail.id}
@@ -106,30 +102,8 @@ export function UsageSection({ provider, resetTimeRelative, t }: Props) {
           trackClassName="provider-usage-bar__track"
           fillClassName="provider-usage-bar__fill"
         />
->>>>>>> origin/main
       ))}
     </section>
-  );
-}
-
-function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
-  const progress = detail.progress;
-  const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
-    ? Math.max(0, Math.min(100, (progress.used / progress.total) * 100))
-    : null;
-
-  return (
-    <div className="provider-usage-detail">
-      <div className="provider-usage-inventory">
-        <span>{detail.title}: {detail.value}</span>
-        {detail.secondaryValue && <span>{detail.secondaryValue}</span>}
-      </div>
-      {progressPercent != null && (
-        <div className="provider-usage-bar__track" aria-label={`${detail.title} progress`}>
-          <div className="provider-usage-bar__fill" style={{ width: `${progressPercent}%` }} />
-        </div>
-      )}
-    </div>
   );
 }
 
