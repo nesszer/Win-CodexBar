@@ -624,6 +624,7 @@ export interface ProviderDisplayDetail {
   secondaryValue: string | null;
   progress: ProviderDisplayProgress | null;
 }
+
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
   | "ready"

@@ -9,13 +9,14 @@ use super::{Provider, ProviderId};
 use crate::providers::{
     AbacusProvider, AiAndProvider, AlibabaProvider, AlibabaTokenPlanProvider, AmpProvider,
     AntigravityProvider, AugmentProvider, AzureOpenAIProvider, BedrockProvider, ChutesProvider,
-    ClaudeProvider, ClinePassProvider, CodeBuddyProvider, CodebuffProvider, CodexProvider,
-    CommandCodeProvider, CopilotProvider, CrofProvider, CrossModelProvider, CursorProvider,
-    DeepInfraProvider, DeepSeekProvider, DeepgramProvider, DevinProvider, DoubaoProvider,
-    ElevenLabsProvider, FactoryProvider, FireworksProvider, GeminiProvider, GrokProvider,
-    GroqProvider, HuggingFaceProvider, InfiniProvider, JetBrainsProvider, KiloProvider,
-    KimiK2Provider, KimiProvider, KiroProvider, LLMProxyProvider, LiteLLMProvider, LongCatProvider,
-    ManusProvider, MetaProvider, MiMoProvider, MiniMaxProvider, MistralProvider, NanoGPTProvider,
+    ClaudeProvider, ClinePassProvider, CodeBuddyProvider, CodeRabbitProvider, CodebuffProvider,
+    CodexProvider, CommandCodeProvider, CopilotProvider, CrofProvider, CrossModelProvider,
+    CursorProvider, DeepInfraProvider, DeepSeekProvider, DeepgramProvider, DevinProvider,
+    DoubaoProvider, ElevenLabsProvider, FactoryProvider, FireworksProvider, GeminiProvider,
+    GrokProvider, GroqProvider, HuggingFaceProvider, InfiniProvider, JetBrainsProvider,
+    KiloProvider, KimiK2Provider, KimiProvider, KiroProvider, LLMProxyProvider, LiteLLMProvider,
+    LongCatProvider, ManusProvider, MetaProvider, MiMoProvider, MiniMaxProvider, MistralProvider,
+    MuseProvider, NanoGPTProvider,
     NeuralwattProvider, NotionProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider,
     OpenCodeProvider, OpenRouterProvider, PerplexityProvider, PoeProvider, QoderProvider,
     QwenCloudProvider, SakanaProvider, StepFunProvider, Sub2ApiProvider, T3ChatProvider,
@@ -62,6 +63,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Kilo => Box::new(KiloProvider::new()),
         ProviderId::Bedrock => Box::new(BedrockProvider::new()),
         ProviderId::Codebuff => Box::new(CodebuffProvider::new()),
+        ProviderId::CodeRabbit => Box::new(CodeRabbitProvider::new()),
         ProviderId::DeepSeek => Box::new(DeepSeekProvider::new()),
         ProviderId::DeepInfra => Box::new(DeepInfraProvider::new()),
         ProviderId::AiAnd => Box::new(AiAndProvider::new()),
@@ -101,6 +103,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Xai => Box::new(XaiProvider::new()),
         ProviderId::Fireworks => Box::new(FireworksProvider::new()),
         ProviderId::Meta => Box::new(MetaProvider::new()),
+        ProviderId::Muse => Box::new(MuseProvider::new()),
     }
 }
 

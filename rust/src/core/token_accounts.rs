@@ -341,6 +341,7 @@ impl TokenAccountSupport {
             | ProviderId::Kilo
             | ProviderId::Bedrock
             | ProviderId::Codebuff
+            | ProviderId::CodeRabbit
             | ProviderId::DeepSeek
             | ProviderId::Windsurf
             | ProviderId::Doubao
@@ -362,7 +363,8 @@ impl TokenAccountSupport {
             | ProviderId::Wayfinder
             | ProviderId::QwenCloud
             | ProviderId::Fireworks
-            | ProviderId::Meta => None,
+            | ProviderId::Meta
+            | ProviderId::Muse => None,
         }
     }
 

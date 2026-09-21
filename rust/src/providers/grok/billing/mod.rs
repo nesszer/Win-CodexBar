@@ -3,6 +3,10 @@ use reqwest::header::HeaderMap;
 
 use crate::core::ProviderError;
 
+mod reset_coupons;
+
+pub(super) use reset_coupons::parse_grpc_web_reset_coupons;
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct GrokBillingSnapshot {
     pub(super) used_percent: Option<f64>,
@@ -19,18 +23,109 @@ pub(super) fn validate_grpc_headers(headers: &HeaderMap) -> Result<(), ProviderE
         .and_then(|value| value.parse::<u16>().ok())
         && status != 0
     {
-        if status == 16 {
-            return Err(ProviderError::AuthRequired);
-        }
-        return Err(ProviderError::Other(format!(
-            "Grok RPC failed with status {status}"
-        )));
+        return map_grpc_status(status, "Grok RPC");
     }
     Ok(())
 }
 
 pub(super) fn parse_grpc_web_response(data: &[u8]) -> Result<GrokBillingSnapshot, ProviderError> {
     parse_grpc_web_response_at(data, Utc::now())
+}
+
+/// Map a gRPC status code onto the provider error policy shared by the
+/// billing and reset-credit endpoints.
+pub(super) fn map_grpc_status(status: u16, context: &str) -> Result<(), ProviderError> {
+    if status != 0 {
+        if status == 16 {
+            return Err(ProviderError::AuthRequired);
+        }
+        return Err(ProviderError::Other(format!(
+            "{context} failed with status {status}"
+        )));
+    }
+    Ok(())
+}
+
+/// Decode a length-prefixed field body: `read_varint -> try_from ->
+/// checked_add -> bounds-check` in one place.
+pub(super) fn read_length_field(
+    data: &[u8],
+    index: usize,
+    what: &str,
+) -> Result<(usize, usize), ProviderError> {
+    let (len, start) = read_varint(data, index)
+        .ok_or_else(|| ProviderError::Parse(format!("Grok {what} is malformed")))?;
+    let len = usize::try_from(len)
+        .map_err(|_| ProviderError::Parse(format!("Grok {what} is too large")))?;
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| ProviderError::Parse(format!("Grok {what} length overflowed")))?;
+    if end > data.len() {
+        return Err(ProviderError::Parse(format!("Grok {what} is truncated")));
+    }
+    Ok((start, end))
+}
+
+/// Decode a varint Unix-seconds timestamp with the shared epoch bounding.
+pub(super) fn unix_seconds_timestamp(seconds: u64) -> Option<DateTime<Utc>> {
+    // Varint timestamps are Unix seconds inside the range checked below.
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "varint timestamps are bounded to the Unix-seconds range checked below"
+    )]
+    let seconds = seconds as i64;
+    (1_700_000_000..=2_100_000_000)
+        .contains(&seconds)
+        .then(|| Utc.timestamp_opt(seconds, 0).single())
+        .flatten()
+}
+
+/// One parameterized gRPC-web frame walker. `on_malformed` decides the
+/// malformed-frame policy: billing swallows malformed frames, the optional
+/// reset lookup fails closed.
+///
+/// Yields `(flags, payload)` for every frame, data and trailer alike; callers
+/// split on the trailer flag.
+pub(super) fn grpc_web_frames(
+    data: &[u8],
+    on_malformed: fn(&str) -> Option<ProviderError>,
+) -> Result<Vec<(u8, &[u8])>, ProviderError> {
+    let mut frames = Vec::new();
+    let mut index = 0;
+    while index < data.len() {
+        if index + 5 > data.len() {
+            return on_malformed("truncated").map_or(Ok(frames), Err);
+        }
+        let flags = data[index];
+        let len = ((data[index + 1] as usize) << 24)
+            | ((data[index + 2] as usize) << 16)
+            | ((data[index + 3] as usize) << 8)
+            | (data[index + 4] as usize);
+        let start = index + 5;
+        let Some(end) = start.checked_add(len) else {
+            return on_malformed("frame is too large").map_or(Ok(frames), Err);
+        };
+        if end > data.len() {
+            return on_malformed("truncated").map_or(Ok(frames), Err);
+        }
+        frames.push((flags, &data[start..end]));
+        index = end;
+    }
+    Ok(frames)
+}
+
+fn skip_field(data: &[u8], index: usize, wire: u64) -> Option<usize> {
+    match wire {
+        0 => read_varint(data, index).map(|(_, next)| next),
+        1 => index.checked_add(8).filter(|end| *end <= data.len()),
+        2 => {
+            let (len, start) = read_varint(data, index)?;
+            let len = usize::try_from(len).ok()?;
+            start.checked_add(len).filter(|end| *end <= data.len())
+        }
+        5 => index.checked_add(4).filter(|end| *end <= data.len()),
+        _ => None,
+    }
 }
 
 fn parse_grpc_web_response_at(
@@ -127,16 +222,7 @@ fn looks_like_protobuf_payload(data: &[u8]) -> bool {
 }
 
 fn varint_timestamp(field: &VarintField) -> Option<DateTime<Utc>> {
-    // Varint timestamps are Unix seconds inside the range checked below.
-    #[allow(
-        clippy::cast_possible_wrap,
-        reason = "varint timestamps are bounded to the Unix-seconds range checked below"
-    )]
-    let seconds = field.value as i64;
-    (1_700_000_000..=2_100_000_000)
-        .contains(&field.value)
-        .then(|| Utc.timestamp_opt(seconds, 0).single())
-        .flatten()
+    unix_seconds_timestamp(field.value)
 }
 
 fn current_period_window_minutes(scan: &ProtoScan, now: DateTime<Utc>) -> Option<u32> {
@@ -173,30 +259,12 @@ fn unique_varint_at_path(scan: &ProtoScan, path: &[u64]) -> Option<u64> {
 }
 
 fn grpc_web_data_frames(data: &[u8]) -> Vec<Vec<u8>> {
-    let mut frames = Vec::new();
-    let mut index = 0;
-    while index < data.len() {
-        if index + 5 > data.len() {
-            return Vec::new();
-        }
-        let flags = data[index];
-        let len = ((data[index + 1] as usize) << 24)
-            | ((data[index + 2] as usize) << 16)
-            | ((data[index + 3] as usize) << 8)
-            | (data[index + 4] as usize);
-        let start = index + 5;
-        let Some(end) = start.checked_add(len) else {
-            return Vec::new();
-        };
-        if end > data.len() {
-            return Vec::new();
-        }
-        if flags & 0x80 == 0 {
-            frames.push(data[start..end].to_vec());
-        }
-        index = end;
-    }
-    frames
+    grpc_web_frames(data, |_| None)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(flags, _)| flags & 0x80 == 0)
+        .map(|(_, payload)| payload.to_vec())
+        .collect()
 }
 
 struct ProtoScan {
@@ -633,6 +701,83 @@ mod tests {
         }
     }
 
+    #[test]
+    fn reset_coupons_filter_expired_records_and_sort_by_expiry() {
+        let now = fixed_time(1_800_000_000);
+        let mut payload = Vec::new();
+        payload.extend(reset_coupon_record("later", 1_900_000_000));
+        payload.extend(reset_coupon_record("expired", 1_700_000_000));
+        payload.extend(reset_coupon_record("earlier", 1_850_000_000));
+        payload.extend(reset_coupon_record("", 1_950_000_000));
+
+        let coupons = parse_grpc_web_reset_coupons(&payload, now).unwrap();
+
+        assert_eq!(
+            coupons
+                .iter()
+                .map(|coupon| coupon.token_id.as_str())
+                .collect::<Vec<_>>(),
+            ["earlier", "later"]
+        );
+        assert!(coupons.iter().all(|coupon| coupon.expires_at > now));
+    }
+
+    #[test]
+    fn reset_coupon_empty_payload_is_valid_and_malformed_payload_is_atomic() {
+        assert!(
+            parse_grpc_web_reset_coupons(&[0, 0, 0, 0, 0], fixed_time(1_800_000_000))
+                .unwrap()
+                .is_empty()
+        );
+
+        let mut malformed = reset_coupon_record("valid", 1_900_000_000);
+        malformed.extend([0x52, 0x05, b'a']);
+        assert!(parse_grpc_web_reset_coupons(&malformed, fixed_time(1_800_000_000)).is_err());
+    }
+
+    #[test]
+    fn reset_coupon_truncated_timestamp_is_rejected() {
+        let mut record = length_field(10, b"valid");
+        record.extend([0xf2, 0x01, 0x01, 0x08]);
+        let payload = length_field(10, &record);
+
+        assert!(parse_grpc_web_reset_coupons(&payload, fixed_time(1_800_000_000)).is_err());
+    }
+
+    #[test]
+    fn reset_coupon_nonzero_grpc_web_trailer_is_rejected() {
+        let payload = reset_coupon_record("valid", 1_900_000_000);
+        let mut framed = grpc_web_frame(0, &payload);
+        framed.extend(grpc_web_frame(0x80, b"grpc-status: 13\r\n"));
+
+        assert!(matches!(
+            parse_grpc_web_reset_coupons(&framed, fixed_time(1_800_000_000)),
+            Err(ProviderError::Other(message)) if message.contains("status 13")
+        ));
+    }
+
+    #[test]
+    fn reset_coupon_zero_grpc_web_trailer_is_accepted() {
+        let payload = reset_coupon_record("valid", 1_900_000_000);
+        let mut framed = grpc_web_frame(0, &payload);
+        framed.extend(grpc_web_frame(0x80, b"grpc-status: 0\r\n"));
+
+        let coupons = parse_grpc_web_reset_coupons(&framed, fixed_time(1_800_000_000)).unwrap();
+        assert_eq!(coupons.len(), 1);
+        assert_eq!(coupons[0].token_id, "valid");
+    }
+
+    fn reset_coupon_record(token_id: &str, expires_at: u64) -> Vec<u8> {
+        let timestamp = {
+            let mut bytes = vec![0x08];
+            bytes.extend(varint(expires_at));
+            bytes
+        };
+        let mut record = length_field(10, token_id.as_bytes());
+        record.extend(length_field(30, &timestamp));
+        length_field(10, &record)
+    }
+
     fn fixed_time(seconds: i64) -> DateTime<Utc> {
         Utc.timestamp_opt(seconds, 0).single().unwrap()
     }
@@ -665,6 +810,17 @@ mod tests {
         encoded.extend(varint(contents.len() as u64));
         encoded.extend(contents);
         encoded
+    }
+
+    fn grpc_web_frame(flags: u8, payload: &[u8]) -> Vec<u8> {
+        let mut frame = vec![flags];
+        frame.extend(
+            u32::try_from(payload.len())
+                .expect("test gRPC-web payload length fits u32")
+                .to_be_bytes(),
+        );
+        frame.extend(payload);
+        frame
     }
 
     fn fixed32_field(value: f32) -> Vec<u8> {

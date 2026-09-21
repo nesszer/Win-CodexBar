@@ -463,7 +463,7 @@ fn build_result(
         details.push(("inference-requests", "Requests", requests.to_string()));
     }
 
-    let mut rows: Vec<ProviderDisplayDetail> = details
+    let mut rows: Vec<Option<ProviderDisplayDetail>> = details
         .into_iter()
         .map(|(id, title, value)| ProviderDisplayDetail::new(id, title, value))
         .collect();
@@ -491,11 +491,11 @@ fn build_result(
                 "ZeroGPU quota",
                 format!("{:.0} minutes used", zerogpu.used_minutes),
             )
-            .with_secondary_value(format!(
+            .and_then(|row| row.with_secondary_value(format!(
                 "{:.0} minutes remaining{reset}",
                 zerogpu.remaining_minutes
-            ))
-            .with_progress(zerogpu.used_minutes, zerogpu.total_minutes),
+            )))
+            .and_then(|row| row.with_progress(zerogpu.used_minutes, zerogpu.total_minutes)),
         );
     }
 
@@ -752,7 +752,7 @@ mod tests {
         );
         assert_eq!(result.source_label, "api");
         assert_eq!(result.cost.as_ref().and_then(|cost| cost.limit), Some(10.0));
-        assert_eq!(result.display_details().count(), 6);
+        assert_eq!(result.display_details().len(), 6);
         assert!(result.usage.primary.is_informational);
         assert!(result.usage.secondary.is_none());
         assert!(!result.pace_authoritative);

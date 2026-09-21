@@ -40,6 +40,12 @@ const POLICIES: Readonly<Record<string, UsageSourcePolicy>> = {
       },
     ],
   },
+  muse: {
+    options: [
+      { value: "auto", label: "Auto", description: "Uses the local Muse Code device login." },
+      { value: "oauth", label: "Muse Code login", description: "Uses the local Muse Code device-code login only." },
+    ],
+  },
 };
 
 export function usageSourcePolicy(providerId: string): UsageSourcePolicy | null {
