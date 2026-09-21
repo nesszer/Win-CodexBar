@@ -796,7 +796,7 @@ mod tests {
         assert!(!result.pace_authoritative);
         assert_eq!(result.cost.as_ref().unwrap().used, 12.5);
         assert_eq!(result.cost.as_ref().unwrap().balance, Some(4.25));
-        let details: Vec<_> = result.display_details().collect();
+        let details = result.display_details();
         assert_eq!(details.len(), 2);
         assert_eq!(details[0].title(), "Spent this month");
         assert_eq!(details[1].title(), "Credit balance");

@@ -1049,7 +1049,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::Xai => "#8E8E93",
         ProviderId::Fireworks => "#F25B1C",
         ProviderId::Meta => "#0467DF",
-        ProviderId::Muse => "#0688E1",
+        ProviderId::Muse => "#0668E1",
         ProviderId::Replicate => "#000000",
     }
 }
