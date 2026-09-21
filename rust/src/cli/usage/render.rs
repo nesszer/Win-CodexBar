@@ -7,8 +7,8 @@ use chrono::Utc;
 
 use super::UsageOutput;
 use crate::core::{
-    CostSnapshot, ProviderFetchResult, ProviderId, ProviderInventoryItem, RateWindow, UsagePace,
-    UsageSnapshot, instantiate_provider,
+    CostSnapshot, ProviderDisplayDetail, ProviderFetchResult, ProviderId, ProviderInventoryItem,
+    RateWindow, UsagePace, UsageSnapshot, instantiate_provider,
 };
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel};
 
@@ -70,10 +70,11 @@ pub fn render_json_result(
         );
     }
 
-    if result.display_details().next().is_some() {
+    if !result.display_details().is_empty() {
         json_result["details"] = serde_json::Value::Array(
             result
                 .display_details()
+                .iter()
                 .map(|detail| {
                     serde_json::json!({
                         "id": detail.id(),
@@ -277,29 +278,6 @@ fn append_usage_window_lines(
     }
 }
 
-fn append_display_detail_lines<'a>(
-    lines: &mut Vec<String>,
-    details: impl IntoIterator<Item = &'a crate::core::ProviderDisplayDetail>,
-) {
-    for detail in details {
-        let secondary = detail
-            .secondary_value()
-            .map(|value| format!(" ({value})"))
-            .unwrap_or_default();
-        let progress = detail
-            .progress()
-            .map(|value| format!(" [{:.2}/{:.2}]", value.used(), value.total()))
-            .unwrap_or_default();
-        lines.push(format!(
-            "  {}: {}{}{}",
-            detail.title(),
-            detail.value(),
-            secondary,
-            progress
-        ));
-    }
-}
-
 fn append_inventory_lines(lines: &mut Vec<String>, inventory: &[ProviderInventoryItem]) {
     if inventory.is_empty() {
         return;
@@ -316,6 +294,26 @@ fn append_inventory_lines(lines: &mut Vec<String>, inventory: &[ProviderInventor
                 crate::core::format_countdown_until(expires_at, now)
             ));
         }
+    }
+}
+
+fn append_display_detail_lines(lines: &mut Vec<String>, details: &[ProviderDisplayDetail]) {
+    for detail in details {
+        let secondary = detail
+            .secondary_value()
+            .map(|value| format!(" ({value})"))
+            .unwrap_or_default();
+        let progress = detail
+            .progress()
+            .map(|value| format!(" [{:.2}/{:.2}]", value.used(), value.total()))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  {}: {}{}{}",
+            detail.title(),
+            detail.value(),
+            secondary,
+            progress
+        ));
     }
 }
 

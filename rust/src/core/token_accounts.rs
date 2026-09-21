@@ -352,7 +352,8 @@ impl TokenAccountSupport {
             | ProviderId::Wayfinder
             | ProviderId::QwenCloud
             | ProviderId::Fireworks
-            | ProviderId::Meta => None,
+            | ProviderId::Meta
+            | ProviderId::Muse => None,
         }
     }
 

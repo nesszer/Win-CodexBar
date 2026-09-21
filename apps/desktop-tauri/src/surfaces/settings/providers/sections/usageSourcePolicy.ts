@@ -40,23 +40,10 @@ const POLICIES: Readonly<Record<string, UsageSourcePolicy>> = {
       },
     ],
   },
-  venice: {
+  muse: {
     options: [
-      {
-        value: "auto",
-        label: "Auto",
-        description: "Uses the Venice API key or token account; browser sessions are used only when Web is selected.",
-      },
-      {
-        value: "oauth",
-        label: "API",
-        description: "Uses the Venice API key or token account only.",
-      },
-      {
-        value: "web",
-        label: "Browser session",
-        description: "Reads Venice subscription credits from the selected browser session or manual cookie header.",
-      },
+      { value: "auto", label: "Auto", description: "Uses the local Muse Code device login." },
+      { value: "oauth", label: "Muse Code login", description: "Uses the local Muse Code device-code login only." },
     ],
   },
 };

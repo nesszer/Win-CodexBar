@@ -325,7 +325,7 @@ fn snapshot_from_web_claims(
     let tier_cap = finite_non_negative(usage.get("tierCap"));
     let next_refill_at = epoch_value_to_datetime(usage.get("nextRefillAt"));
 
-    let mut details = Vec::new();
+    let mut details: Vec<Option<ProviderDisplayDetail>> = Vec::new();
     if let Some(available) = available_credits {
         details.push(ProviderDisplayDetail::new(
             "subscription-credits",
@@ -346,11 +346,13 @@ fn snapshot_from_web_claims(
             "Used this cycle",
             format_credits(used_this_cycle),
         )
-        .with_secondary_value(format!(
-            "Monthly refill: {}",
-            format_credits(monthly_refill_credits)
-        ))
-        .with_progress(used_this_cycle, monthly_refill_credits),
+        .and_then(|row| {
+            row.with_secondary_value(format!(
+                "Monthly refill: {}",
+                format_credits(monthly_refill_credits)
+            ))
+        })
+        .and_then(|row| row.with_progress(used_this_cycle, monthly_refill_credits)),
     );
     if let Some(cap) = tier_cap {
         details.push(ProviderDisplayDetail::new(
@@ -523,7 +525,7 @@ mod tests {
         .unwrap();
 
         assert!(result.usage.primary.is_informational);
-        let details: Vec<_> = result.display_details().collect();
+        let details: Vec<_> = result.display_details().iter().collect();
         assert_eq!(details.len(), 6);
         assert_eq!(details[0].value(), "88");
         assert_eq!(
