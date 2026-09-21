@@ -17,7 +17,10 @@ pub(super) struct CodexParserState {
     previous_token_timestamp_parsed: Option<DateTime<chrono::FixedOffset>>,
     pub(super) token_timestamps_monotonic: Option<bool>,
     pub(super) token_timestamp_comparisons: u64,
-    fork_baseline: Option<CodexTotals>,
+    pub(super) fork_baseline: Option<CodexTotals>,
+    pub(super) remaining_inherited_totals: Option<CodexTotals>,
+    paginated_continuation: bool,
+    paginated_baseline_checked: bool,
     pub(super) fork_baseline_ambiguous: bool,
 }
 
@@ -48,10 +51,33 @@ impl CodexParserState {
         token_timestamps_monotonic: Option<bool>,
         fork_baseline_mode: bool,
     ) -> Self {
+        Self::with_timestamp_state_and_fork_options(
+            initial_model,
+            initial_totals,
+            previous_token_timestamp,
+            token_timestamps_monotonic,
+            fork_baseline_mode,
+            false,
+            None,
+        )
+    }
+
+    pub(super) fn with_timestamp_state_and_fork_options(
+        initial_model: Option<String>,
+        initial_totals: Option<CodexTotals>,
+        previous_token_timestamp: Option<String>,
+        token_timestamps_monotonic: Option<bool>,
+        fork_baseline_mode: bool,
+        paginated_continuation: bool,
+        remaining_inherited_totals: Option<CodexTotals>,
+    ) -> Self {
         let previous_token_timestamp_parsed = previous_token_timestamp
             .as_deref()
             .and_then(parse_rfc3339_timestamp);
         let fork_baseline = fork_baseline_mode.then(|| initial_totals.clone()).flatten();
+        let remaining_inherited_totals = fork_baseline
+            .as_ref()
+            .and_then(|baseline| remaining_inherited_totals.or_else(|| Some(baseline.clone())));
         Self {
             current_model: initial_model,
             previous_totals: initial_totals.clone(),
@@ -65,6 +91,9 @@ impl CodexParserState {
             token_timestamps_monotonic: Some(token_timestamps_monotonic.unwrap_or(true)),
             token_timestamp_comparisons: 0,
             fork_baseline,
+            remaining_inherited_totals,
+            paginated_continuation,
+            paginated_baseline_checked: false,
             fork_baseline_ambiguous: false,
         }
     }
@@ -380,11 +409,17 @@ impl CodexParserState {
     fn token_deltas(&mut self, payload: &Value) -> Option<(i64, i64, i64, Option<i64>)> {
         let info = payload.get("info");
         if let Some(total) = info.and_then(|i| i.get("total_token_usage")) {
+            if let Some(last) = info.and_then(|i| i.get("last_token_usage")) {
+                self.raise_inherited_baseline_if_continued_counter(
+                    read_token_totals(total),
+                    read_token_totals(last),
+                );
+            }
             return Some(self.total_usage_delta(total));
         }
 
         if let Some(last) = info.and_then(|i| i.get("last_token_usage")) {
-            return Some(last_usage_delta(last));
+            return Some(self.last_usage_delta(read_token_totals(last)));
         }
 
         let direct = read_token_totals(payload);
@@ -405,11 +440,17 @@ impl CodexParserState {
             .as_ref()
             .and_then(|info| info.total_token_usage)
         {
+            if let Some(last) = payload.info.as_ref().and_then(|info| info.last_token_usage) {
+                self.raise_inherited_baseline_if_continued_counter(
+                    codex_totals_from_fast(total),
+                    codex_totals_from_fast(last),
+                );
+            }
             return Some(self.fast_total_usage_delta(total));
         }
 
         if let Some(last) = payload.info.as_ref().and_then(|info| info.last_token_usage) {
-            return Some(fast_last_usage_delta(last));
+            return Some(self.last_usage_delta(codex_totals_from_fast(last)));
         }
 
         let direct = fast_totals_from_payload(payload);
@@ -458,7 +499,71 @@ impl CodexParserState {
 
         self.previous_totals = Some(totals.clone());
         self.raise_watermark(&totals);
+        self.remaining_inherited_totals = None;
         (delta.input, delta.cached, delta.output, delta.reasoning)
+    }
+
+    fn last_usage_delta(&mut self, raw: CodexTotals) -> (i64, i64, i64, Option<i64>) {
+        let adjusted = if let Some(mut remaining) = self.remaining_inherited_totals.take() {
+            let adjusted = CodexTotals {
+                input: raw.input.saturating_sub(remaining.input).max(0),
+                cached: raw.cached.saturating_sub(remaining.cached).max(0),
+                output: raw.output.saturating_sub(remaining.output).max(0),
+                reasoning: subtract_optional(raw.reasoning, remaining.reasoning),
+            };
+            remaining.input = remaining.input.saturating_sub(raw.input).max(0);
+            remaining.cached = remaining.cached.saturating_sub(raw.cached).max(0);
+            remaining.output = remaining.output.saturating_sub(raw.output).max(0);
+            remaining.reasoning = subtract_optional(remaining.reasoning, raw.reasoning);
+            if remaining.input > 0 || remaining.cached > 0 || remaining.output > 0 {
+                self.remaining_inherited_totals = Some(remaining);
+            }
+            adjusted
+        } else {
+            raw
+        };
+        (
+            adjusted.input,
+            adjusted.cached,
+            adjusted.output,
+            adjusted.reasoning,
+        )
+    }
+
+    fn raise_inherited_baseline_if_continued_counter(
+        &mut self,
+        total: CodexTotals,
+        last: CodexTotals,
+    ) {
+        if !self.paginated_continuation || self.paginated_baseline_checked {
+            return;
+        }
+        self.paginated_baseline_checked = true;
+        let Some(current_inherited) = self.fork_baseline.clone() else {
+            return;
+        };
+        if total.input < last.input || total.cached < last.cached || total.output < last.output {
+            return;
+        }
+        let local_inherited = CodexTotals {
+            input: total.input.saturating_sub(last.input),
+            cached: total.cached.saturating_sub(last.cached),
+            output: total.output.saturating_sub(last.output),
+            reasoning: subtract_optional(total.reasoning, last.reasoning),
+        };
+        let has_positive_usage =
+            local_inherited.input > 0 || local_inherited.cached > 0 || local_inherited.output > 0;
+        let at_least_current = local_inherited.input >= current_inherited.input
+            && local_inherited.cached >= current_inherited.cached
+            && local_inherited.output >= current_inherited.output;
+        if !has_positive_usage || !at_least_current || local_inherited == current_inherited {
+            return;
+        }
+        self.fork_baseline = Some(local_inherited.clone());
+        self.remaining_inherited_totals = Some(local_inherited.clone());
+        self.previous_totals = Some(local_inherited.clone());
+        self.totals_watermark = Some(local_inherited);
+        self.saw_interleaved_totals = false;
     }
 
     fn observe_token_timestamp(
@@ -526,4 +631,8 @@ impl CodexParserState {
             None => totals.clone(),
         });
     }
+}
+
+fn subtract_optional(current: Option<i64>, inherited: Option<i64>) -> Option<i64> {
+    current.map(|current| current.saturating_sub(inherited.unwrap_or(0)).max(0))
 }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::CodexSessionLineage;
+use crate::core::{CodexForkAccountingState, CodexSessionLineage};
 
 mod cache_days;
 mod logical_target;
@@ -405,11 +405,25 @@ impl CostScanner {
                 .then(|| cached.as_ref()?.codex_forked_from_id.clone())
                 .flatten()
         });
+        let cached_fork_accounting_state = cached
+            .as_ref()
+            .and_then(|entry| entry.codex_fork_accounting_state.clone());
         let codex_fork_timestamp = session_metadata.fork_timestamp.clone().or_else(|| {
             cached_identity_matches
                 .then(|| cached.as_ref()?.codex_fork_timestamp.clone())
                 .flatten()
         });
+        let history_base_thread_id =
+            session_metadata.history_base_thread_id.clone().or_else(|| {
+                cached_identity_matches
+                    .then(|| {
+                        cached_fork_accounting_state
+                            .as_ref()?
+                            .history_base_thread_id
+                            .clone()
+                    })
+                    .flatten()
+            });
         let codex_lineage = if session_metadata.session_id.is_some() {
             session_metadata.lineage
         } else if cached_identity_matches {
@@ -436,14 +450,40 @@ impl CostScanner {
                     && entry.codex_forked_from_id.is_some())
                 || (session_metadata.session_id.is_some()
                     && session_metadata.lineage != entry.codex_lineage)
+                || (session_metadata.session_id.is_some()
+                    && cached_fork_accounting_state.as_ref().is_some_and(|state| {
+                        state.history_base_thread_id != session_metadata.history_base_thread_id
+                    }))
         });
         let is_fork = codex_lineage.uses_parent_baseline();
-        let fork_baseline = is_fork
-            .then_some(codex_forked_from_id.as_deref())
-            .flatten()
-            .and_then(|parent_id| {
-                codex_parent_baseline(cache, parent_id, codex_fork_timestamp.as_deref())
+        let cached_fork_state_matches =
+            cached_fork_accounting_state.as_ref().is_some_and(|state| {
+                state.session_id == codex_session_id
+                    && state.forked_from_id == codex_forked_from_id
+                    && state.history_base_thread_id == history_base_thread_id
+                    && state.fork_timestamp == codex_fork_timestamp
             });
+        let fork_baseline = cached_fork_accounting_state
+            .as_ref()
+            .filter(|_| cached_fork_state_matches)
+            .and_then(|state| state.inherited_totals.clone())
+            .or_else(|| {
+                is_fork
+                    .then_some(codex_forked_from_id.as_deref())
+                    .flatten()
+                    .and_then(|parent_id| {
+                        codex_parent_baseline(cache, parent_id, codex_fork_timestamp.as_deref())
+                    })
+            });
+        let remaining_inherited_totals = cached_fork_accounting_state
+            .as_ref()
+            .filter(|_| cached_fork_state_matches)
+            .and_then(|state| state.remaining_inherited_totals.clone());
+        let paginated_continuation = is_fork
+            && codex_forked_from_id.is_some()
+            && history_base_thread_id
+                .as_deref()
+                .is_some_and(|history_base| Some(history_base) != codex_forked_from_id.as_deref());
 
         if is_fork && fork_baseline.is_none() {
             cache.files.insert(
@@ -461,6 +501,7 @@ impl CostScanner {
                     codex_last_token_timestamp: None,
                     codex_session_id,
                     codex_forked_from_id,
+                    codex_fork_accounting_state: None,
                     codex_lineage,
                     codex_fork_timestamp,
                     codex_unresolved_fork_parent: true,
@@ -571,6 +612,7 @@ impl CostScanner {
                             .or_else(|| entry.codex_last_token_timestamp.clone()),
                         codex_session_id: codex_session_id.clone(),
                         codex_forked_from_id: codex_forked_from_id.clone(),
+                        codex_fork_accounting_state: None,
                         codex_lineage,
                         codex_fork_timestamp: codex_fork_timestamp.clone(),
                         codex_unresolved_fork_parent: false,
@@ -585,10 +627,12 @@ impl CostScanner {
             .as_ref()
             .and_then(|entry| codex_resumable_scan_target_size(size, entry));
         let parse_result = match if let Some(baseline) = fork_baseline.clone() {
-            JsonlScanner::parse_codex_file_with_state_bounded_fork_target(
+            JsonlScanner::parse_codex_file_with_state_bounded_fork_target_with_accounting(
                 path,
                 range,
                 baseline,
+                paginated_continuation,
+                remaining_inherited_totals.clone(),
                 cancel,
                 parse_target_size,
                 max_bytes_to_read,
@@ -628,6 +672,7 @@ impl CostScanner {
                     codex_last_token_timestamp: None,
                     codex_session_id,
                     codex_forked_from_id,
+                    codex_fork_accounting_state: None,
                     codex_lineage,
                     codex_fork_timestamp,
                     codex_unresolved_fork_parent: true,
@@ -651,6 +696,21 @@ impl CostScanner {
             bytes_read: parse_result.bytes_read,
             is_complete: parse_result.is_complete,
         };
+        let codex_fork_accounting_state = if is_fork {
+            parse_result
+                .fork_baseline
+                .clone()
+                .map(|inherited_totals| CodexForkAccountingState {
+                    session_id: codex_session_id.clone(),
+                    forked_from_id: codex_forked_from_id.clone(),
+                    history_base_thread_id: history_base_thread_id.clone(),
+                    fork_timestamp: codex_fork_timestamp.clone(),
+                    inherited_totals: Some(inherited_totals),
+                    remaining_inherited_totals: parse_result.remaining_inherited_totals.clone(),
+                })
+        } else {
+            None
+        };
         cache.files.insert(
             path_key,
             CostUsageFileUsage {
@@ -666,6 +726,7 @@ impl CostScanner {
                 codex_last_token_timestamp: parse_result.last_token_timestamp,
                 codex_session_id,
                 codex_forked_from_id,
+                codex_fork_accounting_state,
                 codex_lineage,
                 codex_fork_timestamp,
                 codex_unresolved_fork_parent: false,

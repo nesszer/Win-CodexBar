@@ -328,6 +328,10 @@ pub struct CostUsageFileUsage {
     /// Native Codex parent session identity for forked rollouts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_forked_from_id: Option<String>,
+    /// Native Codex fork accounting state. This preserves the normalized
+    /// inherited baseline across bounded scans and process restarts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_fork_accounting_state: Option<CodexForkAccountingState>,
     /// Native Codex session lineage. This distinguishes a root session from a
     /// paginated subagent whose ancestry is independent for billing purposes.
     #[serde(default, skip_serializing_if = "CodexSessionLineage::is_root")]
@@ -368,16 +372,30 @@ pub(crate) struct CodexSessionMetadata {
     pub forked_from_id: Option<String>,
     pub lineage: CodexSessionLineage,
     pub fork_timestamp: Option<String>,
+    pub history_base_thread_id: Option<String>,
 }
 
 /// Running totals for Codex token counting
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodexTotals {
     pub input: i64,
     pub cached: i64,
     pub output: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<i64>,
+}
+
+/// Persisted accounting state for a Codex fork whose cumulative counters may
+/// include a paginated continuation of an earlier thread.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexForkAccountingState {
+    pub session_id: Option<String>,
+    pub forked_from_id: Option<String>,
+    pub history_base_thread_id: Option<String>,
+    pub fork_timestamp: Option<String>,
+    pub inherited_totals: Option<CodexTotals>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining_inherited_totals: Option<CodexTotals>,
 }
 
 /// Snapshot of the last validated cost report, persisted so spend surfaces keep
@@ -434,6 +452,10 @@ pub struct CodexParseResult {
     /// A fork-baseline parse observed a cumulative component below the inherited
     /// parent baseline. The child must be discarded rather than billed as fresh.
     pub fork_baseline_ambiguous: bool,
+    /// Effective inherited baseline after normalizing a paginated continuation.
+    pub fork_baseline: Option<CodexTotals>,
+    /// Remaining inherited counters used when a fork emits last-only rows.
+    pub remaining_inherited_totals: Option<CodexTotals>,
 }
 
 /// A billable Codex token-count delta.

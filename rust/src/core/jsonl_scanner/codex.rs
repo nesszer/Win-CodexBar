@@ -12,8 +12,9 @@ use parser::CodexParserState;
 
 /// Persisted Codex cache schema version. Version 0 predates 64-bit totals;
 /// version 1 can retain a terminal pause after treating a paginated v2
-/// subagent's independent counters as an inherited fork. Rebuild both.
-pub(crate) const CODEX_CACHE_SCHEMA_VERSION: u32 = 2;
+/// subagent's independent counters as an inherited fork. Version 3 adds
+/// persisted paginated-fork accounting state. Rebuild older artifacts.
+pub(crate) const CODEX_CACHE_SCHEMA_VERSION: u32 = 3;
 
 /// Whether a persisted Codex cache artifact matches the current schema.
 /// A mismatched artifact (e.g. a pre-64-bit cache from an older release) is
@@ -185,6 +186,10 @@ impl JsonlScanner {
                             .pointer("/source/subagent/thread_spawn")
                             .is_some_and(Value::is_object))
             });
+            let history_base_thread_id = payload
+                .and_then(|value| value.get("history_base"))
+                .filter(|value| value.is_object())
+                .and_then(|value| session_meta_field(value, None, &["thread_id", "threadId"]));
             let forked_from_id = (!independent_subagent)
                 .then(|| {
                     session_meta_field(
@@ -214,6 +219,7 @@ impl JsonlScanner {
                 fork_timestamp: nonempty_json_string(obj.get("timestamp")).or_else(|| {
                     payload.and_then(|value| nonempty_json_string(value.get("timestamp")))
                 }),
+                history_base_thread_id,
             });
         }
 
@@ -354,6 +360,8 @@ impl JsonlScanner {
             token_timestamps_monotonic,
             cancel,
             false,
+            false,
+            None,
             None,
             max_bytes_to_read,
         )
@@ -388,6 +396,8 @@ impl JsonlScanner {
             token_timestamps_monotonic,
             cancel,
             false,
+            false,
+            None,
             scan_target_size,
             max_bytes_to_read,
         )
@@ -417,6 +427,8 @@ impl JsonlScanner {
             None,
             cancel,
             true,
+            false,
+            None,
             None,
             max_bytes_to_read,
         )
@@ -435,6 +447,33 @@ impl JsonlScanner {
         scan_target_size: Option<i64>,
         max_bytes_to_read: Option<i64>,
     ) -> std::io::Result<CodexParseResult> {
+        Self::parse_codex_file_with_state_bounded_fork_target_with_accounting(
+            file_path,
+            range,
+            initial_totals,
+            false,
+            None,
+            cancel,
+            scan_target_size,
+            max_bytes_to_read,
+        )
+    }
+
+    /// Fork equivalent with persisted paginated-continuation accounting.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "fork parse state mirrors the persisted parser cache"
+    )]
+    pub(crate) fn parse_codex_file_with_state_bounded_fork_target_with_accounting(
+        file_path: &Path,
+        range: &CostUsageDayRange,
+        initial_totals: CodexTotals,
+        paginated_continuation: bool,
+        remaining_inherited_totals: Option<CodexTotals>,
+        cancel: Option<&AtomicBool>,
+        scan_target_size: Option<i64>,
+        max_bytes_to_read: Option<i64>,
+    ) -> std::io::Result<CodexParseResult> {
         Self::parse_codex_file_with_state_bounded_internal(
             file_path,
             range,
@@ -445,6 +484,8 @@ impl JsonlScanner {
             None,
             cancel,
             true,
+            paginated_continuation,
+            remaining_inherited_totals,
             scan_target_size,
             max_bytes_to_read,
         )
@@ -464,6 +505,8 @@ impl JsonlScanner {
         token_timestamps_monotonic: Option<bool>,
         cancel: Option<&AtomicBool>,
         fork_baseline_mode: bool,
+        paginated_continuation: bool,
+        remaining_inherited_totals: Option<CodexTotals>,
         scan_target_size: Option<i64>,
         max_bytes_to_read: Option<i64>,
     ) -> std::io::Result<CodexParseResult> {
@@ -486,12 +529,14 @@ impl JsonlScanner {
             reader.seek(SeekFrom::Start(safe_start_offset as u64))?;
         }
 
-        let mut parser = CodexParserState::with_timestamp_state_and_fork_mode(
+        let mut parser = CodexParserState::with_timestamp_state_and_fork_options(
             initial_model,
             initial_totals,
             previous_token_timestamp,
             token_timestamps_monotonic,
             fork_baseline_mode,
+            paginated_continuation,
+            remaining_inherited_totals,
         );
         let mut parsed_bytes = safe_start_offset;
         let mut committed_bytes = safe_start_offset;
@@ -597,6 +642,8 @@ impl JsonlScanner {
             bytes_read,
             is_complete,
             fork_baseline_ambiguous: parser.fork_baseline_ambiguous,
+            fork_baseline: parser.fork_baseline,
+            remaining_inherited_totals: parser.remaining_inherited_totals,
         })
     }
 

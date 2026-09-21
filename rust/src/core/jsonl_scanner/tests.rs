@@ -1030,7 +1030,7 @@ fn session_meta_pre_read_accepts_snake_and_camel_fork_identity() {
     std::fs::write(
         &snake,
         concat!(
-            r#"{"type":"session_meta","timestamp":"2026-05-31T10:00:00Z","payload":{"session_id":"child-snake","forked_from_id":"parent-snake"}}"#,
+            r#"{"type":"session_meta","timestamp":"2026-05-31T10:00:00Z","payload":{"session_id":"child-snake","forked_from_id":"parent-snake","history_base":{"thread_id":"history-snake"}}}"#,
             "\n"
         ),
     )
@@ -1042,6 +1042,7 @@ fn session_meta_pre_read_accepts_snake_and_camel_fork_identity() {
             forked_from_id: Some("parent-snake".to_string()),
             lineage: CodexSessionLineage::Child,
             fork_timestamp: Some("2026-05-31T10:00:00Z".to_string()),
+            history_base_thread_id: Some("history-snake".to_string()),
         }
     );
 
@@ -1160,6 +1161,7 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
             codex_last_token_timestamp: None,
             codex_session_id: None,
             codex_forked_from_id: None,
+            codex_fork_accounting_state: None,
             codex_lineage: CodexSessionLineage::Root,
             codex_fork_timestamp: None,
             codex_unresolved_fork_parent: false,
@@ -1180,6 +1182,7 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
             codex_last_token_timestamp: None,
             codex_session_id: None,
             codex_forked_from_id: None,
+            codex_fork_accounting_state: None,
             codex_lineage: CodexSessionLineage::Root,
             codex_fork_timestamp: None,
             codex_unresolved_fork_parent: false,
@@ -1228,6 +1231,7 @@ fn ranged_catch_up_snapshot_excludes_historical_days_and_keeps_measurement_time(
         codex_last_token_timestamp: None,
         codex_session_id: None,
         codex_forked_from_id: None,
+        codex_fork_accounting_state: None,
         codex_lineage: CodexSessionLineage::Root,
         codex_fork_timestamp: None,
         codex_unresolved_fork_parent: false,
@@ -1416,6 +1420,7 @@ fn save_cache_persists_small_codex_artifact() {
                 codex_last_token_timestamp: None,
                 codex_session_id: None,
                 codex_forked_from_id: None,
+                codex_fork_accounting_state: None,
                 codex_lineage: CodexSessionLineage::Root,
                 codex_fork_timestamp: None,
                 codex_unresolved_fork_parent: false,
@@ -1485,6 +1490,7 @@ fn save_cache_refuses_non_bounded_provider_oversize() {
             codex_last_token_timestamp: None,
             codex_session_id: None,
             codex_forked_from_id: None,
+            codex_fork_accounting_state: None,
             codex_lineage: CodexSessionLineage::Root,
             codex_fork_timestamp: None,
             codex_unresolved_fork_parent: false,
@@ -1523,6 +1529,7 @@ fn save_cache_refusal_removes_preexisting_destination_artifact() {
             codex_last_token_timestamp: None,
             codex_session_id: None,
             codex_forked_from_id: None,
+            codex_fork_accounting_state: None,
             codex_lineage: CodexSessionLineage::Root,
             codex_fork_timestamp: None,
             codex_unresolved_fork_parent: false,

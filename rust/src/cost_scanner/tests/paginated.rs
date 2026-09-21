@@ -71,6 +71,177 @@ fn write_codex_paginated_subagent_fixture(
     path
 }
 
+fn write_codex_paginated_continuation_fixture(
+    sessions_root: &Path,
+    name: &str,
+    session_id: &str,
+    parent_id: &str,
+    history_base_thread_id: &str,
+    base: DateTime<Utc>,
+) -> PathBuf {
+    let day = base.with_timezone(&Local).date_naive();
+    let day_dir = sessions_root
+        .join(day.format("%Y").to_string())
+        .join(day.format("%m").to_string())
+        .join(day.format("%d").to_string());
+    std::fs::create_dir_all(&day_dir).unwrap();
+    let path = day_dir.join(name);
+    let metadata = serde_json::json!({
+        "type": "session_meta",
+        "timestamp": base.to_rfc3339(),
+        "payload": {
+            "id": session_id,
+            "session_id": session_id,
+            "forked_from_id": parent_id,
+            "history_mode": "paginated",
+            "history_base": {"thread_id": history_base_thread_id}
+        }
+    });
+    let pages = [
+        (
+            [740_012_153, 725_510_144, 1_564_472],
+            [188_393, 188_288, 1_616],
+        ),
+        (
+            [757_818_385, 742_942_720, 1_616_068],
+            [138_824, 136_192, 1_200],
+        ),
+    ];
+    let mut body = format!("{metadata}\n");
+    for (index, (total, last)) in pages.into_iter().enumerate() {
+        let row = serde_json::json!({
+            "type": "event_msg",
+            "timestamp": (base + Duration::seconds(i64::try_from(index + 1).unwrap())).to_rfc3339(),
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "model": "gpt-5",
+                    "total_token_usage": {
+                        "input_tokens": total[0],
+                        "cached_input_tokens": total[1],
+                        "output_tokens": total[2]
+                    },
+                    "last_token_usage": {
+                        "input_tokens": last[0],
+                        "cached_input_tokens": last[1],
+                        "output_tokens": last[2]
+                    }
+                }
+            }
+        });
+        body.push_str(&format!("{row}\n"));
+    }
+    std::fs::write(&path, body).unwrap();
+    path
+}
+
+#[test]
+fn paginated_continuation_raises_inherited_baseline_from_total_last() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let cache_root = root.path().join("cache");
+    let base = Utc::now() - Duration::hours(1);
+    write_codex_fork_session_fixture(
+        &sessions,
+        "ancestor.jsonl",
+        "original-ancestor",
+        None,
+        base,
+        base,
+        &[1_539_046],
+    );
+    let continuation = write_codex_paginated_continuation_fixture(
+        &sessions,
+        "continuation.jsonl",
+        "thread-session",
+        "original-ancestor",
+        "thread-session",
+        base + Duration::seconds(10),
+    );
+    let mut options = CostScanOptions::app_driven();
+    options.prefer_newest_codex_sessions_first = false;
+    let scanner = CostScanner::new(7)
+        .with_options(options)
+        .with_cache_root(&cache_root)
+        .with_sessions_dirs(vec![sessions]);
+
+    let (summary, _, cache) = scanner.scan_codex_detailed_with_cache(None);
+    assert_eq!(summary.input_tokens, 19_533_671);
+    assert_eq!(summary.cached_tokens, 17_620_864);
+    assert_eq!(summary.output_tokens, 53_217);
+    assert_eq!(summary.sessions_count, 2);
+    let usage = &cache.files[&continuation.to_string_lossy().to_string()];
+    let state = usage.codex_fork_accounting_state.as_ref().unwrap();
+    assert_eq!(state.session_id.as_deref(), Some("thread-session"));
+    assert_eq!(
+        state.history_base_thread_id.as_deref(),
+        Some("thread-session")
+    );
+    assert_eq!(state.inherited_totals.as_ref().unwrap().input, 739_823_760);
+    assert_eq!(cached_input_total(usage), 17_994_625);
+
+    let (cached_summary, stats, reloaded) = scanner.scan_codex_detailed_with_cache(None);
+    assert_eq!(cached_summary.input_tokens, summary.input_tokens);
+    assert!(stats.codex_history_read_paths.is_empty());
+    assert_eq!(
+        reloaded.files[&continuation.to_string_lossy().to_string()]
+            .codex_fork_accounting_state
+            .as_ref()
+            .unwrap()
+            .inherited_totals
+            .as_ref()
+            .unwrap()
+            .input,
+        739_823_760
+    );
+}
+
+#[test]
+fn paginated_history_base_equal_parent_keeps_true_fork_subtraction() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let cache_root = root.path().join("cache");
+    let base = Utc::now() - Duration::hours(1);
+    write_codex_fork_session_fixture(
+        &sessions,
+        "parent.jsonl",
+        "parent-id",
+        None,
+        base,
+        base,
+        &[1_000],
+    );
+    let child = write_codex_paginated_continuation_fixture(
+        &sessions,
+        "true-fork.jsonl",
+        "child-id",
+        "parent-id",
+        "parent-id",
+        base + Duration::seconds(10),
+    );
+    let mut options = CostScanOptions::app_driven();
+    options.prefer_newest_codex_sessions_first = false;
+    let scanner = CostScanner::new(7)
+        .with_options(options)
+        .with_cache_root(&cache_root)
+        .with_sessions_dirs(vec![sessions]);
+    let (summary, _, cache) = scanner.scan_codex_detailed_with_cache(None);
+    let usage = &cache.files[&child.to_string_lossy().to_string()];
+    assert_eq!(summary.input_tokens, 757_818_385);
+    assert_eq!(cached_input_total(usage), 757_817_385);
+    assert_eq!(
+        usage
+            .codex_fork_accounting_state
+            .as_ref()
+            .unwrap()
+            .inherited_totals
+            .as_ref()
+            .unwrap()
+            .input,
+        1_000
+    );
+}
+
 #[test]
 fn paginated_v2_subagent_counts_own_usage_without_parent() {
     let root = tempfile::tempdir().unwrap();
