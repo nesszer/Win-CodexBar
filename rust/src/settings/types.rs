@@ -388,6 +388,10 @@ pub struct ProviderConfig {
     /// Codex-only: show or hide Codex Spark quota rows in presentation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spark_usage_visible: Option<bool>,
+    /// Presentation-only usage rows hidden by the user. `None` preserves the
+    /// legacy visibility flags until the new visibility controls are used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_usage_item_ids: Option<Vec<String>>,
     /// Codex-only: enable historical usage tracking in UI.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub historical_tracking: bool,

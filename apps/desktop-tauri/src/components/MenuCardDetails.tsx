@@ -4,7 +4,6 @@ import type {
   DailyCostPoint,
   ProviderDisplayDetail,
   PaceSnapshot,
-  ProviderInventoryItem,
   ProviderChartData,
   ProviderLocalUsageSummary,
   ProviderUsageSnapshot,
@@ -22,7 +21,6 @@ import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
 import { InventoryItemRow } from "./InventoryRows";
-import { ProviderDisplayRow } from "./ProviderDisplayRow";
 import { getPaceBudget, type PaceBudget } from "../lib/paceBudget";
 import PaceDetailsChart from "./PaceDetailsChart";
 
@@ -580,23 +578,10 @@ export default function MenuCardDetails({
           ))}
         </section>
       )}
-
-      {!provider.error && hasDisplayDetails && (
+      {!provider.error && hasDisplayDetails && !compactOverview && (
         <section className="menu-card__group menu-card__provider-details">
-<<<<<<< HEAD
           {provider.displayDetails?.map((detail, index) => (
             <DisplayDetailRow key={`${detail.id}-${index}`} detail={detail} />
-=======
-          {provider.displayDetails?.map((detail) => (
-            <ProviderDisplayRow
-              key={detail.id}
-              detail={detail}
-              lineClassName="menu-card__cost-line"
-              secondaryClassName="menu-card__cost-line--muted"
-              trackClassName="menu-metric__bar"
-              fillClassName="menu-metric__bar-fill"
-            />
->>>>>>> origin/main
           ))}
         </section>
       )}
@@ -774,7 +759,6 @@ export default function MenuCardDetails({
   );
 }
 
-<<<<<<< HEAD
 function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
   const progress = detail.progress;
   const progressPercent = progress && Number.isFinite(progress.used) && Number.isFinite(progress.total) && progress.total > 0
@@ -797,6 +781,3 @@ function DisplayDetailRow({ detail }: { detail: ProviderDisplayDetail }) {
     </div>
   );
 }
-=======
-
->>>>>>> origin/main

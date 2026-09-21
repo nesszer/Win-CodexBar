@@ -16,6 +16,7 @@ import GrokAccountsMenu from "./GrokAccountsMenu";
 import { DEEPSEEK_PRICING_EVENT } from "../hooks/useDeepSeekPricingStatus";
 import { getDeepSeekPricingStatus } from "../lib/tauri";
 import type { DeepSeekPricingStatus } from "../types/bridge";
+import { isUsageItemVisible } from "../lib/usageItemVisibility";
 
 /** Small copy-to-clipboard button matching macOS CopyIconButton (doc.on.doc → checkmark). */
 function CopyIconButton({ text }: { text: string }) {
@@ -237,7 +238,9 @@ export default function MenuCard({
       resetFormatMode: extra.id === "reset-credits" ? "expires" : "reset",
     });
   }
-  const visibleMetrics = compactOverview ? metrics.slice(0, 2) : metrics;
+  const visibleMetrics = metrics
+    .filter((metric) => isUsageItemVisible(provider.hiddenUsageItemIds, metric.id))
+    .slice(0, compactOverview ? 2 : metrics.length);
 
   const presence = describeCard(
     provider,
