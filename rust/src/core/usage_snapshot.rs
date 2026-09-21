@@ -4,8 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::RateWindow;
-use crate::core::ProviderDisplayDetail;
-
+use super::ProviderDisplayDetail;
 /// Subscription dates explicitly reported by an authenticated provider
 /// dashboard or subscription endpoint.
 ///
@@ -104,99 +103,6 @@ pub struct ProviderInventoryItem {
     pub title: String,
     pub available_count: u32,
     pub next_expires_at: Option<DateTime<Utc>>,
-}
-
-/// One transient provider detail row for display surfaces.
-///
-/// These rows are intentionally separate from quota windows and inventory:
-/// providers may report credit balances, subscription metadata, or other
-/// values that must be shown without becoming quota math or persisted core
-/// fetch state. The builder validates compact, display-safe values before a
-/// row enters a fetch result; the desktop bridge may then export those rows
-/// as part of its current display snapshot.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProviderDisplayDetail {
-    id: String,
-    title: String,
-    value: String,
-    secondary_value: Option<String>,
-    progress: Option<ProviderDisplayProgress>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ProviderDisplayProgress {
-    used: f64,
-    total: f64,
-}
-
-impl ProviderDisplayDetail {
-    pub fn new(id: impl Into<String>, title: impl Into<String>, value: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            title: title.into(),
-            value: value.into(),
-            secondary_value: None,
-            progress: None,
-        }
-    }
-
-    pub fn with_secondary_value(mut self, value: impl Into<String>) -> Self {
-        self.secondary_value = Some(value.into());
-        self
-    }
-
-    pub fn with_progress(mut self, used: f64, total: f64) -> Self {
-        if used.is_finite() && total.is_finite() && used >= 0.0 && total > 0.0 {
-            self.progress = Some(ProviderDisplayProgress { used, total });
-        }
-        self
-    }
-
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub fn title(&self) -> &str {
-        &self.title
-    }
-
-    pub fn value(&self) -> &str {
-        &self.value
-    }
-
-    pub fn secondary_value(&self) -> Option<&str> {
-        self.secondary_value.as_deref()
-    }
-
-    pub fn progress(&self) -> Option<ProviderDisplayProgress> {
-        self.progress
-    }
-
-    fn is_display_safe(&self) -> bool {
-        is_display_safe_text(&self.id, 64)
-            && is_display_safe_text(&self.title, 128)
-            && is_display_safe_text(&self.value, 512)
-            && self
-                .secondary_value
-                .as_deref()
-                .is_none_or(|value| is_display_safe_text(value, 512))
-            && self.progress.is_none_or(|progress| {
-                progress.used.is_finite()
-                    && progress.total.is_finite()
-                    && progress.used >= 0.0
-                    && progress.total > 0.0
-            })
-    }
-}
-
-impl ProviderDisplayProgress {
-    pub fn used(&self) -> f64 {
-        self.used
-    }
-
-    pub fn total(&self) -> f64 {
-        self.total
-    }
 }
 
 fn is_display_safe_text(value: &str, max_len: usize) -> bool {
@@ -818,22 +724,7 @@ impl ProviderFetchResult {
     pub fn with_inventory_item(mut self, item: ProviderInventoryItem) -> Self {
         self.inventory.push(item);
         self
-    }
-
-    /// Attach one transient provider-specific detail row without persisting it.
-    pub fn with_display_detail(mut self, detail: ProviderDisplayDetail) -> Self {
-        if detail.is_display_safe() && !self.display_details.iter().any(|row| row.id == detail.id) {
-            self.display_details.push(detail);
-        }
-        self
-    }
-
-    pub fn display_details(&self) -> impl Iterator<Item = &ProviderDisplayDetail> {
-        self.display_details
-            .iter()
-            .filter(|detail| detail.is_display_safe())
-    }
-}
+    }}
 
 #[cfg(test)]
 mod tests {
@@ -869,27 +760,6 @@ mod tests {
 
         let decoded: ProviderFetchResult = serde_json::from_value(encoded).unwrap();
         assert!(decoded.inventory.is_empty());
-    }
-
-    #[test]
-    fn fetch_result_display_details_are_transient_and_validate_progress() {
-        let usage = UsageSnapshot::new(RateWindow::new(25.0));
-        let result = ProviderFetchResult::new(usage, "web").with_display_detail(
-            ProviderDisplayDetail::new("credits", "Used this cycle", "12")
-                .and_then(|row| row.with_secondary_value("Monthly refill: 100"))
-                .and_then(|row| row.with_progress(12.0, 100.0)),
-        );
-
-        let details = result.display_details();
-        assert_eq!(details.len(), 1);
-        assert!(details[0].progress().is_some());
-        assert!(
-            ProviderDisplayDetail::new("invalid", "Invalid", "value")
-                .and_then(|row| row.with_progress(f64::NAN, 1.0))
-                .is_none()
-        );
-        let encoded = serde_json::to_value(&result).unwrap();
-        assert!(encoded.get("display_details").is_none());
     }
 
     #[test]
