@@ -9,7 +9,7 @@ use crate::providers::claude::claude_swap::ClaudeSwapAccount;
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel};
 use chrono::Utc;
 use fetch_helpers::find_token_account;
-use render::render_json_result;
+use render::{render_json_result, render_text_with_status};
 
 fn fetch_result(usage: UsageSnapshot) -> ProviderFetchResult {
     ProviderFetchResult::new(usage, "test")
