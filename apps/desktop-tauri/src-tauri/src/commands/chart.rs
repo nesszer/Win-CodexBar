@@ -143,7 +143,7 @@ fn build_provider_chart_data_with_cancel(
                     tokens: day.total_tokens,
                 })
                 .collect();
-            let local_usage = muse_local_usage_summary(&report);
+            let local_usage = muse_local_usage_summary(&report, lang);
             (
                 Vec::new(),
                 tokens_history,
@@ -233,7 +233,7 @@ fn load_local_usage_summary_with_unknown_models(
             None
         } else {
             let report = muse_local_usage::scan(30, cancel);
-            muse_local_usage_summary(&report)
+            muse_local_usage_summary(&report, lang)
         };
         return (summary, HashSet::new());
     }
@@ -275,6 +275,7 @@ fn load_local_usage_summary_with_unknown_models(
 
 fn muse_local_usage_summary(
     report: &muse_local_usage::Report,
+    lang: codexbar::settings::Language,
 ) -> Option<ProviderLocalUsageSummary> {
     if !report.is_available() || !report.is_complete() {
         return None;
@@ -284,9 +285,9 @@ fn muse_local_usage_summary(
         today_cost: None,
         thirty_day_cost: None,
         thirty_day_tokens: Some(total_tokens),
-        latest_tokens: Some(report.today_tokens.unwrap_or(0)),
+        latest_tokens: report.today_tokens,
         top_model: report.top_model.clone(),
-        estimate_note: "Local token history · dollar costs unavailable".to_string(),
+        estimate_note: locale::get_text(lang, LocaleKey::PanelEstimatedFromLocalLogsMuse),
         token_cost_updated_at_ms: current_unix_ms(),
     })
 }
@@ -658,7 +659,8 @@ mod tests {
             top_model: Some("muse-spark-1.3".to_string()),
             coverage: LocalHistoryCoverage::Complete,
         };
-        let summary = muse_local_usage_summary(&report).expect("complete history is visible");
+        let summary = muse_local_usage_summary(&report, codexbar::settings::Language::default())
+            .expect("complete history is visible");
         assert_eq!(summary.today_cost, None);
         assert_eq!(summary.thirty_day_cost, None);
         assert_eq!(summary.thirty_day_tokens, Some(12));
@@ -669,7 +671,7 @@ mod tests {
             coverage: LocalHistoryCoverage::Partial,
             ..report
         };
-        assert!(muse_local_usage_summary(&partial).is_none());
+        assert!(muse_local_usage_summary(&partial, codexbar::settings::Language::default()).is_none());
     }
 
     #[test]

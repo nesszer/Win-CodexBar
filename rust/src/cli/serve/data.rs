@@ -79,11 +79,7 @@ pub async fn cost_response(provider: Option<&str>) -> String {
             let report = crate::providers::muse::local_usage::scan(30, None);
             results.push(crate::spend_contract::local_token_history_json(
                 "muse",
-                crate::spend_contract::LocalTokenHistorySummary {
-                    total_tokens: report.total_tokens.unwrap_or(0),
-                    session_count: report.session_count,
-                    coverage: report.coverage,
-                },
+                report.into(),
                 30,
             ));
             continue;

@@ -162,11 +162,7 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
                     display_name: provider.display_name().to_string(),
                     summary: CostSummary::default(),
                     supported: true,
-                    token_history: Some(crate::spend_contract::LocalTokenHistorySummary {
-                        total_tokens: report.total_tokens.unwrap_or(0),
-                        session_count: report.session_count,
-                        coverage: report.coverage,
-                    }),
+                    token_history: Some(report.into()),
                 });
             }
             _ => {

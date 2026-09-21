@@ -127,7 +127,9 @@ function LocalUsageBlock({
           <span className="menu-card__local-label">{t("PanelToday")}</span>
           <strong>
             {isMuse
-              ? formatCompactCount(summary.latestTokens)
+              ? (summary.latestTokens != null
+                ? formatCompactCount(summary.latestTokens)
+                : "—")
               : summary.todayCost != null
               ? formatCurrency(summary.todayCost, "USD")
               : "—"}
