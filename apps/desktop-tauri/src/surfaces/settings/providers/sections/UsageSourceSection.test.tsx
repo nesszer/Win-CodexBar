@@ -27,6 +27,11 @@ describe("usage source policy", () => {
       "auto",
       "cli",
     ]);
+    expect(usageSourcePolicy("venice")?.options.map((option) => option.value)).toEqual([
+      "auto",
+      "oauth",
+      "web",
+    ]);
     expect(usageSourcePolicy("antigravity")?.options[0].description).toContain(
       "skips agy reports without account identity",
     );

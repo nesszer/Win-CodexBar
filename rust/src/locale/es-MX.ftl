@@ -541,6 +541,7 @@ PanelThirtyDayCostHistogram = Histograma de costos 30 días
 PanelTopModelPrefix = Modelo principal
 PanelEstimatedFromLocalLogs = Estimado desde logs locales; puede diferir de tu factura
 PanelEstimatedFromLocalLogsClaude = Estimado desde logs locales de Claude a tarifas de API; los totales de tokens pueden diferir de tu factura
+PanelEstimatedFromLocalLogsMuse = Historial local de tokens; costos en dólares no disponibles
 PanelExpected = Esperado
 PanelActual = Real
 PanelUsedSuffix = usado

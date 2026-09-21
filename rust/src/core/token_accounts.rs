@@ -233,6 +233,16 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: false,
                 cookie_name: None,
             }),
+            ProviderId::HuggingFace => Some(TokenAccountSupport {
+                title: "API tokens",
+                subtitle: "Store multiple Hugging Face access tokens.",
+                placeholder: "Paste a Hugging Face access token",
+                injection: TokenInjection::Environment {
+                    key: "CODEXBAR_HUGGINGFACE_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
             ProviderId::AiAnd => Some(TokenAccountSupport {
                 title: "API keys",
                 subtitle: "Store multiple ai& API keys.",

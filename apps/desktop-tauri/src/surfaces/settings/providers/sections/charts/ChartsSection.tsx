@@ -89,7 +89,7 @@ export function ChartsSection({ providerId, accountEmail, accentColor, t }: Prop
 
   // Upstream 0.50.0 #2930: Codex defaults to exact local token totals.
   const defaultTab: TabKey =
-    providerId === "codex" && hasTokens ? "tokens" : available[0];
+    (providerId === "codex" || providerId === "muse") && hasTokens ? "tokens" : available[0];
   const current: TabKey =
     active && available.includes(active) ? active : defaultTab;
   const emptyMsg = t("DetailChartEmpty");

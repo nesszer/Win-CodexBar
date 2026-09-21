@@ -99,6 +99,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
   const [state, setState] = useState<ClaudeSwapAccountsState>(EMPTY_STATE);
   const locale = languageLocale(language);
   const [busy, setBusy] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(false);
@@ -131,9 +132,17 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
     };
     load();
     const unlisten = listen("claude-accounts-updated", load);
+    const unlistenReconciling = listen("claude-accounts-reconciling", () => {
+      if (mounted.current) setReconciling(true);
+    });
+    const unlistenReconciled = listen("claude-accounts-reconciled", () => {
+      if (mounted.current) setReconciling(false);
+    });
     return () => {
       mounted.current = false;
       void unlisten.then((fn) => fn()).catch(() => {});
+      void unlistenReconciling.then((fn) => fn()).catch(() => {});
+      void unlistenReconciled.then((fn) => fn()).catch(() => {});
     };
   }, [reload]);
 
@@ -177,7 +186,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
       } else {
         throw new Error("This claude-swap account is not actionable.");
       }
-      // The backend emits `claude-accounts-updated` after invalidating usage;
+      // The backend emits `claude-accounts-updated` after reconciliation;
       // the listener above performs the single reload.
       if (mounted.current) {
         setMessage(
@@ -209,7 +218,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
         <input
           type="checkbox"
           checked={enabled}
-          disabled={busy}
+          disabled={busy || reconciling}
           onChange={(e) => void runSettings({ claudeSwapEnabled: e.target.checked })}
         />
         <span>
@@ -223,7 +232,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
           type="text"
           className="provider-detail-field__input"
           value={pathDraft}
-          disabled={busy}
+          disabled={busy || reconciling}
           placeholder={t("ClaudeSwapExecutablePathPlaceholder")}
           onChange={(e) => setPathDraft(e.target.value)}
           onBlur={() => void savePath()}
@@ -233,6 +242,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
         />
       </label>
       {enabled && <p className="provider-detail-helper">{status}</p>}
+      {reconciling && <p className="provider-detail-helper" role="status">{t("ClaudeSwapReconciling")}</p>}
       {error && (
         <div className="provider-detail-error" role="alert">
           {error}
@@ -287,7 +297,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
                     <button
                       type="button"
                       className="credential-btn credential-btn--primary"
-                      disabled={busy}
+                      disabled={busy || reconciling}
                       onClick={() => void runAccountAction(account)}
                     >
                       {t(

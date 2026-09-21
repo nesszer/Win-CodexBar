@@ -522,6 +522,7 @@ PanelThirtyDayCostHistogram = 30天成本直方图
 PanelTopModelPrefix = 热门模型
 PanelEstimatedFromLocalLogs = 根据本地日志估算；可能与账单不同
 PanelEstimatedFromLocalLogsClaude = 根据本地Claude日志按API费率估算；令牌总数可能与账单不同
+PanelEstimatedFromLocalLogsMuse = 本地令牌历史; 美元费用不可用
 PanelExpected = 预期
 PanelActual = 实际
 PanelUsedSuffix = 已使用

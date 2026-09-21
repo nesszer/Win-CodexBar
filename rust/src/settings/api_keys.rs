@@ -351,6 +351,19 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://deepinfra.com/dash"),
         },
         ProviderConfigInfo {
+            id: ProviderId::HuggingFace,
+            name: "Hugging Face",
+            requires_api_key: true,
+            api_key_env_var: Some(
+                "CODEXBAR_HUGGINGFACE_API_KEY / HF_TOKEN / HUGGING_FACE_HUB_TOKEN",
+            ),
+            api_key_help: Some(
+                "Add a Hugging Face access token here, set HF_TOKEN, or run `hf auth login`.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://huggingface.co/settings/billing"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Fireworks,
             name: "Fireworks",
             requires_api_key: true,
