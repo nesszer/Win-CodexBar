@@ -1,10 +1,14 @@
 use super::{ProviderRefreshOutcome, ProviderRefreshSkipReason};
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::sync::{LazyLock, Mutex, MutexGuard};
+use std::time::Duration;
 use tauri::Emitter;
 
 static COORDINATOR: LazyLock<Mutex<ClaudeReconciliationCoordinator>> =
     LazyLock::new(|| Mutex::new(ClaudeReconciliationCoordinator::default()));
+const REPLAY_DELAY_MIN: Duration = Duration::from_millis(250);
+const REPLAY_DELAY_MAX: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ClaudeReconciliationToken(u64);
@@ -23,6 +27,31 @@ struct ClaudeReconciliationTerminal {
     status: ClaudeReconciliationStatus,
     provider_refresh_generation: Option<u64>,
     detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeReconciliationStarted {
+    generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PendingEvent {
+    Reconciling(ClaudeReconciliationStarted),
+    Reconciled(ClaudeReconciliationTerminal),
+}
+
+impl PendingEvent {
+    fn publish(&self, app: &tauri::AppHandle) -> Result<(), String> {
+        match self {
+            Self::Reconciling(payload) => app
+                .emit("claude-accounts-reconciling", payload)
+                .map_err(|error| error.to_string()),
+            Self::Reconciled(payload) => app
+                .emit("claude-accounts-reconciled", payload)
+                .map_err(|error| error.to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -103,6 +132,9 @@ enum CompletionDisposition {
 struct ClaudeReconciliationCoordinator {
     next_generation: u64,
     active_generation: Option<u64>,
+    pending_events: VecDeque<PendingEvent>,
+    publisher_active: bool,
+    replay_scheduled: bool,
 }
 
 impl ClaudeReconciliationCoordinator {
@@ -110,6 +142,10 @@ impl ClaudeReconciliationCoordinator {
         self.next_generation = self.next_generation.wrapping_add(1);
         let token = ClaudeReconciliationToken(self.next_generation);
         self.active_generation = Some(token.0);
+        self.pending_events
+            .push_back(PendingEvent::Reconciling(ClaudeReconciliationStarted {
+                generation: token.0,
+            }));
         token
     }
 
@@ -128,12 +164,50 @@ impl ClaudeReconciliationCoordinator {
             });
         }
         self.active_generation = None;
-        CompletionDisposition::Current(ClaudeReconciliationTerminal {
+        let terminal = ClaudeReconciliationTerminal {
             generation: token.0,
             status: result.status,
             provider_refresh_generation: result.provider_refresh_generation,
             detail: result.detail,
-        })
+        };
+        self.pending_events
+            .push_back(PendingEvent::Reconciled(terminal.clone()));
+        CompletionDisposition::Current(terminal)
+    }
+
+    fn claim_pending_event(&mut self) -> Option<PendingEvent> {
+        if self.publisher_active {
+            return None;
+        }
+        let event = self.pending_events.front()?.clone();
+        self.publisher_active = true;
+        Some(event)
+    }
+
+    fn finish_publish(&mut self, event: &PendingEvent, succeeded: bool) {
+        debug_assert!(self.publisher_active);
+        self.publisher_active = false;
+        if succeeded {
+            let published = self.pending_events.pop_front();
+            debug_assert_eq!(published.as_ref(), Some(event));
+        }
+    }
+
+    fn schedule_replay(&mut self) -> bool {
+        if self.replay_scheduled {
+            return false;
+        }
+        self.replay_scheduled = true;
+        true
+    }
+
+    fn finish_replay_if_idle(&mut self) -> bool {
+        if self.pending_events.is_empty() && !self.publisher_active {
+            self.replay_scheduled = false;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -143,33 +217,90 @@ fn coordinator() -> MutexGuard<'static, ClaudeReconciliationCoordinator> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Begin a Claude reconciliation and publish its token while holding the same
-/// lock used by terminal publication. This prevents an old detached worker's
-/// terminal event from being interleaved after a newer reconciling event.
+fn publish_pending_with<F>(
+    state: &Mutex<ClaudeReconciliationCoordinator>,
+    mut publish: F,
+) -> Result<(), String>
+where
+    F: FnMut(&PendingEvent) -> Result<(), String>,
+{
+    loop {
+        let Some(event) = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .claim_pending_event()
+        else {
+            return Ok(());
+        };
+
+        let result = publish(&event);
+        state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .finish_publish(&event, result.is_ok());
+        result?;
+    }
+}
+
+fn publish_pending(app: &tauri::AppHandle) -> Result<(), String> {
+    publish_pending_with(&COORDINATOR, |event| event.publish(app))
+}
+
+fn schedule_replay(app: tauri::AppHandle) {
+    if !coordinator().schedule_replay() {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        let mut delay = REPLAY_DELAY_MIN;
+        loop {
+            tokio::time::sleep(delay).await;
+            match publish_pending(&app) {
+                Ok(()) => {
+                    if coordinator().finish_replay_if_idle() {
+                        break;
+                    }
+                    delay = REPLAY_DELAY_MIN;
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        %error,
+                        "Claude reconciliation event replay remains pending"
+                    );
+                    delay = delay.saturating_mul(2).min(REPLAY_DELAY_MAX);
+                }
+            }
+        }
+    });
+}
+
+fn publish_or_schedule_replay(app: &tauri::AppHandle) {
+    if let Err(error) = publish_pending(app) {
+        tracing::warn!(%error, "Claude reconciliation event queued for replay");
+        schedule_replay(app.clone());
+    }
+}
+
+/// Begin a Claude reconciliation and queue its event in generation order.
+/// Publication occurs after releasing the coordinator lock. Failed events stay
+/// at the front of the queue and are retried before newer generations.
 pub(super) fn begin(app: &tauri::AppHandle) -> ClaudeReconciliationToken {
-    let mut coordinator = coordinator();
-    let token = coordinator.begin();
-    let _ = app.emit(
-        "claude-accounts-reconciling",
-        serde_json::json!({ "generation": token.0 }),
-    );
+    let token = coordinator().begin();
+    publish_or_schedule_replay(app);
     token
 }
 
-/// Publish a terminal event only when `token` still owns the current Claude
-/// reconciliation. The ownership check and event emission are serialized with
-/// `begin`, so a stale worker cannot settle a newer operation.
+/// Queue a terminal event only when `token` still owns the current Claude
+/// reconciliation. The coordinator orders state transitions; the outbox orders
+/// external publication without holding the global mutex across `app.emit`.
 pub(super) fn complete(
     app: &tauri::AppHandle,
     token: ClaudeReconciliationToken,
     result: ClaudeReconciliationResult,
 ) -> bool {
-    let mut coordinator = coordinator();
-    match coordinator.complete(token, result) {
-        CompletionDisposition::Current(terminal) => {
-            let _ = app.emit("claude-accounts-reconciled", terminal);
-            true
-        }
+    let disposition = coordinator().complete(token, result);
+    let is_current = match disposition {
+        CompletionDisposition::Current(_) => true,
         CompletionDisposition::Superseded(terminal) => {
             tracing::debug!(
                 generation = terminal.generation,
@@ -178,7 +309,9 @@ pub(super) fn complete(
             );
             false
         }
-    }
+    };
+    publish_or_schedule_replay(app);
+    is_current
 }
 
 #[cfg(test)]
@@ -206,6 +339,83 @@ mod tests {
                 status: ClaudeReconciliationStatus::Succeeded,
                 ..
             }) if generation == second.0
+        ));
+    }
+
+    #[test]
+    fn failed_terminal_publish_is_retained_and_replayed_before_a_new_generation() {
+        let state = Mutex::new(ClaudeReconciliationCoordinator::default());
+        let first = state.lock().unwrap().begin();
+        publish_pending_with(&state, |_| Ok(())).expect("begin event should publish");
+        state.lock().unwrap().complete(
+            first,
+            ClaudeReconciliationResult::succeeded(Some(7), "published"),
+        );
+
+        assert_eq!(
+            publish_pending_with(&state, |_| Err("event transport unavailable".into())),
+            Err("event transport unavailable".into())
+        );
+        {
+            let coordinator = state.lock().unwrap();
+            assert_eq!(coordinator.pending_events.len(), 1);
+            assert!(!coordinator.publisher_active);
+        }
+
+        let second = state.lock().unwrap().begin();
+        let mut replayed = Vec::new();
+        publish_pending_with(&state, |event| {
+            replayed.push(event.clone());
+            Ok(())
+        })
+        .expect("queued events should replay");
+
+        assert!(matches!(
+            replayed.as_slice(),
+            [
+                PendingEvent::Reconciled(ClaudeReconciliationTerminal {
+                    generation: first_generation,
+                    ..
+                }),
+                PendingEvent::Reconciling(ClaudeReconciliationStarted {
+                    generation: second_generation,
+                }),
+            ] if *first_generation == first.0 && *second_generation == second.0
+        ));
+        assert!(state.lock().unwrap().pending_events.is_empty());
+    }
+
+    #[test]
+    fn publisher_runs_without_the_coordinator_lock_and_drains_reentrant_work_in_order() {
+        let state = Mutex::new(ClaudeReconciliationCoordinator::default());
+        let first = state.lock().unwrap().begin();
+        let mut injected = false;
+        let mut published = Vec::new();
+
+        publish_pending_with(&state, |event| {
+            let guard = state
+                .try_lock()
+                .expect("external publisher must run outside the coordinator lock");
+            drop(guard);
+            published.push(event.clone());
+            if !injected {
+                injected = true;
+                state.lock().unwrap().begin();
+            }
+            Ok(())
+        })
+        .expect("reentrant enqueue should drain");
+
+        assert!(matches!(
+            published.as_slice(),
+            [
+                PendingEvent::Reconciling(ClaudeReconciliationStarted {
+                    generation: first_generation,
+                }),
+                PendingEvent::Reconciling(ClaudeReconciliationStarted {
+                    generation: second_generation,
+                }),
+            ] if *first_generation == first.0 && *second_generation == first.0.wrapping_add(1)
         ));
     }
 

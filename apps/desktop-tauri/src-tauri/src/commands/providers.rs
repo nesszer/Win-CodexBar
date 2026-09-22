@@ -1,3 +1,8 @@
+use super::provider_refresh::{
+    ProviderRefreshCompletion, ProviderRefreshReservation, complete_provider_refresh,
+    reserve_provider_refresh,
+};
+use super::warning_identity::WarningIdentity;
 use super::*;
 use chrono::{Local, Utc};
 use codexbar::core::HookUsageWindow;
@@ -6,163 +11,10 @@ use std::sync::Arc;
 
 const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 8;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum WarningSourceLane {
-    ClaudeOauth,
-    ClaudeCli,
-    Named(String),
-}
-
-impl WarningSourceLane {
-    fn from_label(provider: ProviderId, source_label: &str) -> Option<Self> {
-        let source = source_label.trim().to_ascii_lowercase();
-        if source.is_empty() {
-            return None;
-        }
-        if provider == ProviderId::Claude {
-            if source == "oauth" {
-                return Some(Self::ClaudeOauth);
-            }
-            if source == "cli" || source.starts_with("cli ") {
-                return Some(Self::ClaudeCli);
-            }
-        }
-        Some(Self::Named(source))
-    }
-
-    fn key(&self) -> &str {
-        match self {
-            Self::ClaudeOauth => "oauth",
-            Self::ClaudeCli => "cli",
-            Self::Named(source) => source,
-        }
-    }
-
-    fn supports_unresolved_account(&self) -> bool {
-        matches!(self, Self::ClaudeOauth | Self::ClaudeCli)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum WarningAccountState {
-    Token(uuid::Uuid),
-    Email(String),
-    Organization(String),
-    Unresolved,
-    Missing,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct WarningIdentity {
-    provider: ProviderId,
-    source_lane: Option<WarningSourceLane>,
-    account: WarningAccountState,
-}
-
-impl WarningIdentity {
-    fn new(
-        provider: ProviderId,
-        source_label: &str,
-        account_email: Option<&str>,
-        account_organization: Option<&str>,
-        token_account_id: Option<uuid::Uuid>,
-    ) -> Self {
-        let source_lane = WarningSourceLane::from_label(provider, source_label);
-        let normalized = |value: Option<&str>| {
-            value
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_ascii_lowercase)
-        };
-        let account = if let Some(id) = token_account_id {
-            WarningAccountState::Token(id)
-        } else if let Some(email) = normalized(account_email) {
-            WarningAccountState::Email(email)
-        } else if let Some(organization) = normalized(account_organization) {
-            WarningAccountState::Organization(organization)
-        } else if provider == ProviderId::Claude
-            && source_lane
-                .as_ref()
-                .is_some_and(WarningSourceLane::supports_unresolved_account)
-        {
-            WarningAccountState::Unresolved
-        } else {
-            WarningAccountState::Missing
-        };
-        Self {
-            provider,
-            source_lane,
-            account,
-        }
-    }
-
-    fn unresolved_key(&self) -> Option<String> {
-        let lane = self.source_lane.as_ref()?;
-        (self.provider == ProviderId::Claude && lane.supports_unresolved_account())
-            .then(|| format!("{}:{}:unknown", self.provider.cli_name(), lane.key()))
-    }
-
-    fn threshold_key(&self) -> String {
-        match &self.account {
-            WarningAccountState::Token(id) => format!("token-account:{}", id.as_hyphenated()),
-            WarningAccountState::Email(email) => email.clone(),
-            WarningAccountState::Organization(organization) => format!("org:{organization}"),
-            WarningAccountState::Unresolved => self.unresolved_key().unwrap_or_default(),
-            WarningAccountState::Missing => String::new(),
-        }
-    }
-
-    fn predictive_key(&self) -> Option<String> {
-        match &self.account {
-            WarningAccountState::Token(id) => Some(format!("token-account:{}", id.as_hyphenated())),
-            WarningAccountState::Email(email) => self
-                .source_lane
-                .as_ref()
-                .map(|lane| format!("{}:{email}", lane.key())),
-            WarningAccountState::Unresolved => self.unresolved_key(),
-            WarningAccountState::Organization(_) | WarningAccountState::Missing => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RefreshScope {
     AllEnabled,
     AutoResume,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProviderRefreshOutcome {
-    Skipped {
-        reason: ProviderRefreshSkipReason,
-    },
-    Published {
-        generation: u64,
-    },
-    Superseded {
-        generation: u64,
-        current_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProviderRefreshSkipReason {
-    NoEnabledProviders,
-    Active { generation: u64 },
-    InputSuperseded { expected: u64, current: u64 },
-    CacheFresh { generation: u64 },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProviderRefreshReservation {
-    Reserved { generation: u64 },
-    Skipped(ProviderRefreshSkipReason),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProviderRefreshCompletion {
-    Published { error_count: usize },
-    Superseded { current_generation: u64 },
 }
 
 impl RefreshScope {
@@ -438,15 +290,6 @@ pub(crate) fn provider_fetch_timeout(id: ProviderId, ctx: &FetchContext) -> std:
     provider_timeout.max(context_timeout.min(MAX_CONTEXT_FETCH_TIMEOUT))
 }
 
-pub(crate) fn is_provider_cache_fresh(
-    updated_at: Option<std::time::Instant>,
-    stale_after: std::time::Duration,
-) -> bool {
-    updated_at
-        .map(|updated| updated.elapsed() <= stale_after)
-        .unwrap_or(false)
-}
-
 pub(crate) fn upsert_provider_cache(
     cache: &mut Vec<ProviderUsageSnapshot>,
     snapshot: ProviderUsageSnapshot,
@@ -612,69 +455,12 @@ fn begin_provider_refresh(
     expected_generation: u64,
 ) -> Result<ProviderRefreshReservation, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
-    reserve_provider_refresh(&mut guard, force, provider_ids, expected_generation)
-}
-
-fn reserve_provider_refresh(
-    guard: &mut AppState,
-    force: bool,
-    provider_ids: &[ProviderId],
-    expected_generation: u64,
-) -> Result<ProviderRefreshReservation, String> {
-    if guard.is_refreshing {
-        return Ok(ProviderRefreshReservation::Skipped(
-            ProviderRefreshSkipReason::Active {
-                generation: guard.provider_refresh_generation,
-            },
-        ));
-    }
-    if guard.provider_refresh_generation != expected_generation {
-        return Ok(ProviderRefreshReservation::Skipped(
-            ProviderRefreshSkipReason::InputSuperseded {
-                expected: expected_generation,
-                current: guard.provider_refresh_generation,
-            },
-        ));
-    }
-    if provider_cache_can_skip_refresh(guard, force, provider_ids) {
-        return Ok(ProviderRefreshReservation::Skipped(
-            ProviderRefreshSkipReason::CacheFresh {
-                generation: guard.provider_refresh_generation,
-            },
-        ));
-    }
-
-    guard.provider_refresh_generation = guard.provider_refresh_generation.wrapping_add(1);
-    let generation = guard.provider_refresh_generation;
-    guard.is_refreshing = true;
-    guard.provider_refresh_started_at = Some(std::time::Instant::now());
-    Ok(ProviderRefreshReservation::Reserved { generation })
-}
-
-fn provider_cache_can_skip_refresh(
-    guard: &AppState,
-    force: bool,
-    provider_ids: &[ProviderId],
-) -> bool {
-    let cache_has_all = provider_ids.iter().all(|id| {
-        guard
-            .provider_cache
-            .iter()
-            .any(|snapshot| snapshot.provider_id == id.cli_name())
-    });
-    // Proof-harness seed: pin the synthetic snapshot for the whole run so a
-    // periodic auto-refresh cannot overwrite seeded capture conditions.
-    if !force && crate::proof_harness::seed_usage_json_active() && cache_has_all {
-        return true;
-    }
-    !force
-        && cache_has_all
-        && provider_ids.iter().all(|id| {
-            is_provider_cache_fresh(
-                guard.provider_cache_updated_at_by_provider.get(id).copied(),
-                PROVIDER_CACHE_STALE_AFTER,
-            )
-        })
+    Ok(reserve_provider_refresh(
+        &mut guard,
+        force,
+        provider_ids,
+        expected_generation,
+    ))
 }
 
 struct ProviderRefreshInputs {
@@ -1151,26 +937,6 @@ fn finish_provider_refresh(
     Ok(complete_provider_refresh(&mut guard, generation))
 }
 
-fn complete_provider_refresh(guard: &mut AppState, generation: u64) -> ProviderRefreshCompletion {
-    if !is_current_provider_refresh_generation(guard, generation) {
-        // A newer begin or invalidate owns the lock/generation. Do not clear
-        // is_refreshing — that would race a live successor batch.
-        return ProviderRefreshCompletion::Superseded {
-            current_generation: guard.provider_refresh_generation,
-        };
-    }
-    guard.is_refreshing = false;
-    guard.provider_refresh_started_at = None;
-    guard.provider_cache_updated_at = Some(std::time::Instant::now());
-    ProviderRefreshCompletion::Published {
-        error_count: guard
-            .provider_cache
-            .iter()
-            .filter(|s| s.error.is_some())
-            .count(),
-    }
-}
-
 fn update_tray_and_notifications(
     app: &tauri::AppHandle,
     state: &tauri::State<'_, Mutex<AppState>>,
@@ -1467,75 +1233,6 @@ pub fn get_cached_providers(
 mod predictive_warning_tests {
     use super::*;
 
-    #[test]
-    fn predictive_warning_identity_keeps_claude_sources_and_token_accounts_separate() {
-        let account_id = uuid::Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
-
-        assert_eq!(
-            WarningIdentity::new(
-                ProviderId::Claude,
-                "cli",
-                Some("Person@Example.com"),
-                None,
-                None,
-            )
-            .predictive_key()
-            .as_deref(),
-            Some("cli:person@example.com")
-        );
-        assert_eq!(
-            WarningIdentity::new(
-                ProviderId::Claude,
-                "oauth",
-                Some("Person@Example.com"),
-                None,
-                None,
-            )
-            .predictive_key()
-            .as_deref(),
-            Some("oauth:person@example.com")
-        );
-        assert_eq!(
-            WarningIdentity::new(
-                ProviderId::Claude,
-                "oauth",
-                Some("Person@Example.com"),
-                None,
-                Some(account_id),
-            )
-            .predictive_key()
-            .as_deref(),
-            Some("token-account:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-        );
-    }
-
-    #[test]
-    fn predictive_warning_identity_scopes_unresolved_claude_sources() {
-        assert_eq!(
-            WarningIdentity::new(ProviderId::Claude, "oauth", None, None, None).predictive_key(),
-            Some("claude:oauth:unknown".to_string())
-        );
-        assert_eq!(
-            WarningIdentity::new(ProviderId::Codex, "cli", Some("  "), None, None).predictive_key(),
-            None
-        );
-        assert_eq!(
-            WarningIdentity::new(
-                ProviderId::Claude,
-                "cli (reduced fidelity)",
-                None,
-                None,
-                None,
-            )
-            .predictive_key(),
-            Some("claude:cli:unknown".to_string())
-        );
-        assert_eq!(
-            WarningIdentity::new(ProviderId::Claude, "web", None, None, None).predictive_key(),
-            None
-        );
-    }
-
     fn empty_snapshot() -> ProviderUsageSnapshot {
         let metadata = codexbar::core::instantiate_provider(ProviderId::Claude)
             .metadata()
@@ -1583,40 +1280,6 @@ mod predictive_warning_tests {
         assert_eq!(
             quota_notification_account_identity(&snapshot, None),
             "claude:cli:unknown"
-        );
-    }
-
-    #[test]
-    fn claude_unresolved_warning_lanes_adopt_only_the_matching_source() {
-        let oauth = WarningIdentity::new(ProviderId::Claude, "oauth", None, None, None);
-        let cli = WarningIdentity::new(
-            ProviderId::Claude,
-            "cli (reduced fidelity)",
-            None,
-            None,
-            None,
-        );
-        let resolved_cli = WarningIdentity::new(
-            ProviderId::Claude,
-            "cli",
-            Some("person@example.com"),
-            None,
-            None,
-        );
-
-        assert_eq!(
-            oauth.unresolved_key().as_deref(),
-            Some("claude:oauth:unknown")
-        );
-        assert_eq!(cli.unresolved_key().as_deref(), Some("claude:cli:unknown"));
-        assert_eq!(
-            resolved_cli.unresolved_key().as_deref(),
-            Some("claude:cli:unknown")
-        );
-        assert_ne!(oauth.unresolved_key(), resolved_cli.unresolved_key());
-        assert_eq!(
-            resolved_cli.predictive_key().as_deref(),
-            Some("cli:person@example.com")
         );
     }
 
@@ -1776,118 +1439,5 @@ mod reset_backfill_tests {
         let mut fresh = codex_snapshot(win(30.0, None));
         codex_reset_backfill(&mut fresh, None);
         assert!(fresh.primary.resets_at.is_none());
-    }
-}
-
-#[cfg(test)]
-mod refresh_generation_tests {
-    use super::*;
-
-    #[test]
-    fn stale_inputs_cannot_reserve_a_new_generation_after_invalidation() {
-        let mut state = AppState::new();
-        let expected_generation = state.provider_refresh_generation;
-
-        invalidate_account_usage(&mut state, ProviderId::Codex);
-
-        assert_eq!(
-            reserve_provider_refresh(&mut state, true, &[ProviderId::Codex], expected_generation,)
-                .expect("reservation should not fail"),
-            ProviderRefreshReservation::Skipped(ProviderRefreshSkipReason::InputSuperseded {
-                expected: expected_generation,
-                current: state.provider_refresh_generation,
-            })
-        );
-        assert!(!state.is_refreshing);
-    }
-
-    #[test]
-    fn a_matching_generation_reserves_the_next_refresh_generation() {
-        let mut state = AppState::new();
-        let expected_generation = state.provider_refresh_generation;
-
-        let ProviderRefreshReservation::Reserved { generation } =
-            reserve_provider_refresh(&mut state, true, &[ProviderId::Codex], expected_generation)
-                .expect("reservation should succeed")
-        else {
-            panic!("refresh should be reserved");
-        };
-
-        assert_eq!(generation, expected_generation.wrapping_add(1));
-        assert!(state.is_refreshing);
-    }
-
-    #[test]
-    fn superseded_generation_cannot_publish_or_release_its_successor() {
-        let mut state = AppState::new();
-        let initial_generation = state.provider_refresh_generation;
-        let ProviderRefreshReservation::Reserved {
-            generation: first_generation,
-        } = reserve_provider_refresh(&mut state, true, &[ProviderId::Claude], initial_generation)
-            .expect("first reservation should succeed")
-        else {
-            panic!("first refresh should be reserved");
-        };
-
-        invalidate_account_usage(&mut state, ProviderId::Claude);
-        let successor_input_generation = state.provider_refresh_generation;
-        let ProviderRefreshReservation::Reserved {
-            generation: successor_generation,
-        } = reserve_provider_refresh(
-            &mut state,
-            true,
-            &[ProviderId::Claude],
-            successor_input_generation,
-        )
-        .expect("successor reservation should succeed")
-        else {
-            panic!("successor refresh should be reserved");
-        };
-
-        assert_eq!(
-            complete_provider_refresh(&mut state, first_generation),
-            ProviderRefreshCompletion::Superseded {
-                current_generation: successor_generation
-            }
-        );
-        assert!(state.is_refreshing);
-        assert_eq!(state.provider_refresh_generation, successor_generation);
-
-        assert!(matches!(
-            complete_provider_refresh(&mut state, successor_generation),
-            ProviderRefreshCompletion::Published { .. }
-        ));
-        assert!(!state.is_refreshing);
-        assert_eq!(state.provider_refresh_generation, successor_generation);
-    }
-
-    #[test]
-    fn refresh_outcome_preserves_generation_ownership_and_skip_reason() {
-        let published = ProviderRefreshOutcome::Published { generation: 42 };
-        let superseded = ProviderRefreshOutcome::Superseded {
-            generation: 41,
-            current_generation: 42,
-        };
-        let active = ProviderRefreshOutcome::Skipped {
-            reason: ProviderRefreshSkipReason::Active { generation: 42 },
-        };
-
-        assert_eq!(
-            published,
-            ProviderRefreshOutcome::Published { generation: 42 }
-        );
-        assert_eq!(
-            superseded,
-            ProviderRefreshOutcome::Superseded {
-                generation: 41,
-                current_generation: 42
-            }
-        );
-        assert_eq!(
-            active,
-            ProviderRefreshOutcome::Skipped {
-                reason: ProviderRefreshSkipReason::Active { generation: 42 }
-            }
-        );
     }
 }

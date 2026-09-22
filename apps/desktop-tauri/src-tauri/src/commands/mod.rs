@@ -42,6 +42,7 @@ mod diagnostics;
 mod grok_accounts;
 mod locale_cmd;
 mod provider_detail;
+mod provider_refresh;
 mod provider_settings;
 mod providers;
 mod settings;
@@ -49,6 +50,7 @@ mod shortcuts;
 mod surface;
 mod system;
 mod usage_items;
+mod warning_identity;
 
 pub use agent_sessions::*;
 pub(crate) use bridge::*;
@@ -62,6 +64,9 @@ pub use diagnostics::*;
 pub use grok_accounts::*;
 pub use locale_cmd::*;
 pub use provider_detail::*;
+pub(crate) use provider_refresh::{
+    ProviderRefreshOutcome, ProviderRefreshSkipReason, is_provider_cache_fresh,
+};
 pub use provider_settings::*;
 pub use providers::*;
 pub use settings::*;
