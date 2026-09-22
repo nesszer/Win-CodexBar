@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn resolved_identity_adopts_only_its_matching_unresolved_lane() {
+    fn unresolved_and_resolved_accounts_keep_separate_warning_history() {
         let oauth = WarningIdentity::new(ProviderId::Claude, "oauth", None, None, None);
         let cli = WarningIdentity::new(
             ProviderId::Claude,
@@ -215,11 +215,9 @@ mod tests {
             Some("claude:oauth:unknown")
         );
         assert_eq!(cli.unresolved_key().as_deref(), Some("claude:cli:unknown"));
-        assert_eq!(
-            resolved_cli.unresolved_key().as_deref(),
-            Some("claude:cli:unknown")
-        );
-        assert_ne!(oauth.unresolved_key(), resolved_cli.unresolved_key());
+        assert_ne!(cli.threshold_key(), resolved_cli.threshold_key());
+        assert_ne!(cli.predictive_key(), resolved_cli.predictive_key());
+        assert_ne!(oauth.predictive_key(), resolved_cli.predictive_key());
         assert_eq!(
             resolved_cli.predictive_key().as_deref(),
             Some("cli:person@example.com")

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   claudeSwapAccountsList: vi.fn(),
   claudeSwapAccountSwitch: vi.fn(),
   claudeSwapAccountReauthenticate: vi.fn(),
+  claudeReconciliationState: vi.fn(),
   getSettingsSnapshot: vi.fn(),
   updateSettings: vi.fn(),
 }));
@@ -65,6 +66,7 @@ describe("ClaudeSwapAccountsSection", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     events.listen.mockResolvedValue(() => {});
+    mocks.claudeReconciliationState.mockResolvedValue(null);
     mocks.getSettingsSnapshot.mockResolvedValue({
       claudeSwapEnabled: false,
       claudeSwapExecutablePath: "",
@@ -97,7 +99,9 @@ describe("ClaudeSwapAccountsSection", () => {
     mocks.claudeSwapAccountsList.mockResolvedValue(
       enabledState([active, switchable, blocked]),
     );
-    mocks.claudeSwapAccountSwitch.mockResolvedValue(undefined);
+    mocks.claudeSwapAccountSwitch.mockResolvedValue({
+      generation: 1, status: "succeeded", providerRefreshGeneration: 1, detail: "published",
+    });
     render(<ClaudeSwapAccountsSection t={t} />);
     await screen.findByText("work@example.com");
 
@@ -179,7 +183,9 @@ describe("ClaudeSwapAccountsSection", () => {
       claudeSwapExecutablePath: "~/bin/cswap",
     });
     mocks.claudeSwapAccountsList.mockResolvedValue(enabledState([foreign]));
-    mocks.claudeSwapAccountReauthenticate.mockResolvedValue(undefined);
+    mocks.claudeSwapAccountReauthenticate.mockResolvedValue({
+      generation: 2, status: "succeeded", providerRefreshGeneration: 2, detail: "published",
+    });
     render(<ClaudeSwapAccountsSection t={t} />);
     await screen.findByText("work@example.com");
     await act(async () =>

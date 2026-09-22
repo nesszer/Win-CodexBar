@@ -33,7 +33,7 @@ mod agent_sessions;
 mod bridge;
 mod browser_import;
 mod claude_accounts;
-mod claude_reconciliation;
+pub(crate) mod claude_reconciliation;
 mod codex_accounts;
 mod codex_workspaces;
 mod credential_detection;

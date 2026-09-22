@@ -1082,6 +1082,13 @@ export interface ClaudeAccount {
   isSaved: boolean;
 }
 
+export interface ClaudeReconciliationSnapshot {
+  generation: number;
+  status: "pending" | "succeeded" | "failed";
+  providerRefreshGeneration: number | null;
+  detail: string;
+}
+
 export interface GrokAccount {
   id: string;
   email: string;

@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClaudeAccount } from "../types/bridge";
 
 const mocks = vi.hoisted(() => {
-  const listeners = new Map<string, () => void>();
+  const listeners = new Map<string, (event: { payload: unknown }) => void>();
   return {
     claudeAccountsList: vi.fn(),
     claudeAccountSwitch: vi.fn(),
+    claudeReconciliationState: vi.fn(),
     refreshProviders: vi.fn(),
     listeners,
-    listen: vi.fn((event: string, callback: () => void) => {
+    listen: vi.fn((event: string, callback: (event: { payload: unknown }) => void) => {
       listeners.set(event, callback);
       return Promise.resolve(() => listeners.delete(event));
     }),
@@ -22,13 +23,17 @@ import ClaudeAccountsMenu from "./ClaudeAccountsMenu";
 
 const first: ClaudeAccount = { id: "first:org", email: "first@example.com", organization: "Personal", plan: "max", isActive: true, isSaved: true };
 const second: ClaudeAccount = { ...first, id: "second:org", email: "second@example.com", organization: "Work", isActive: false };
+const reconciliation = (generation: number, status: "pending" | "succeeded" | "failed", detail: string = status) => ({
+  generation, status, detail, providerRefreshGeneration: null,
+});
 
 describe("ClaudeAccountsMenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listeners.clear();
     mocks.claudeAccountsList.mockResolvedValue([first, second]);
-    mocks.claudeAccountSwitch.mockResolvedValue(undefined);
+    mocks.claudeReconciliationState.mockResolvedValue(null);
+    mocks.claudeAccountSwitch.mockResolvedValue(reconciliation(1, "succeeded"));
     mocks.refreshProviders.mockResolvedValue(undefined);
   });
 
@@ -54,8 +59,8 @@ describe("ClaudeAccountsMenu", () => {
   });
 
   it("keeps the menu in activating and reconciling phases until the switch settles", async () => {
-    let resolveSwitch: (() => void) | undefined;
-    mocks.claudeAccountSwitch.mockImplementation(() => new Promise<void>(resolve => {
+    let resolveSwitch: ((value: ReturnType<typeof reconciliation>) => void) | undefined;
+    mocks.claudeAccountSwitch.mockImplementation(() => new Promise(resolve => {
       resolveSwitch = resolve;
     }));
     render(<ClaudeAccountsMenu hideEmail={false} />);
@@ -69,18 +74,18 @@ describe("ClaudeAccountsMenu", () => {
     expect(details()).toHaveAttribute("aria-busy", "true");
 
     await act(async () => {
-      mocks.listeners.get("claude-accounts-reconciling")?.();
+      mocks.listeners.get("claude-reconciliation-changed")?.({ payload: reconciliation(1, "pending") });
     });
     expect(details().dataset.claudeAccountPhase).toBe("reconciling");
 
     await act(async () => {
-      resolveSwitch?.();
+      resolveSwitch?.(reconciliation(1, "pending"));
     });
     // Settling is event-driven; the resolving switch promise alone stays in
     // the reconciling phase until the backend emits the terminal event.
     await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("reconciling"));
     await act(async () => {
-      mocks.listeners.get("claude-accounts-reconciled")?.();
+      mocks.listeners.get("claude-reconciliation-changed")?.({ payload: reconciliation(1, "succeeded") });
     });
     await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("settled"));
     expect(details()).toHaveAttribute("aria-busy", "false");
@@ -94,14 +99,14 @@ describe("ClaudeAccountsMenu", () => {
     const button = within(row).getByRole("button");
 
     await act(async () => {
-      mocks.listeners.get("claude-accounts-reconciling")?.();
+      mocks.listeners.get("claude-reconciliation-changed")?.({ payload: reconciliation(2, "pending") });
     });
     expect(details().dataset.claudeAccountPhase).toBe("reconciling");
     expect(details()).toHaveAttribute("aria-busy", "true");
     expect(button).toBeDisabled();
 
     await act(async () => {
-      mocks.listeners.get("claude-accounts-reconciled")?.();
+      mocks.listeners.get("claude-reconciliation-changed")?.({ payload: reconciliation(2, "succeeded") });
     });
     expect(details().dataset.claudeAccountPhase).toBe("settled");
     expect(details()).toHaveAttribute("aria-busy", "false");
@@ -109,8 +114,8 @@ describe("ClaudeAccountsMenu", () => {
   });
 
   it("waits for the reconciled event before settling a local switch", async () => {
-    let resolveSwitch: (() => void) | undefined;
-    mocks.claudeAccountSwitch.mockImplementation(() => new Promise<void>(resolve => {
+    let resolveSwitch: ((value: ReturnType<typeof reconciliation>) => void) | undefined;
+    mocks.claudeAccountSwitch.mockImplementation(() => new Promise(resolve => {
       resolveSwitch = resolve;
     }));
     render(<ClaudeAccountsMenu hideEmail={false} />);
@@ -121,17 +126,38 @@ describe("ClaudeAccountsMenu", () => {
     const button = within(row).getByRole("button");
     await act(async () => fireEvent.click(button));
     await act(async () => {
-      mocks.listeners.get("claude-accounts-reconciling")?.();
+      mocks.listeners.get("claude-reconciliation-changed")?.({ payload: reconciliation(3, "pending") });
     });
     await act(async () => {
-      resolveSwitch?.();
+      resolveSwitch?.(reconciliation(3, "pending"));
     });
     // The switch promise resolving is not enough: settling is event-driven.
     await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("reconciling"));
     await act(async () => {
-      mocks.listeners.get("claude-accounts-reconciled")?.();
+      mocks.listeners.get("claude-reconciliation-changed")?.({ payload: reconciliation(3, "succeeded") });
     });
     await waitFor(() => expect(details().dataset.claudeAccountPhase).toBe("settled"));
+  });
+
+  it("surfaces a late failure for the matching pending generation", async () => {
+    mocks.claudeAccountSwitch.mockResolvedValue(reconciliation(8, "pending"));
+    render(<ClaudeAccountsMenu hideEmail={false} />);
+    await screen.findByText(second.email);
+    const row = screen.getByText(second.email).closest("li") as HTMLElement;
+    await act(async () => fireEvent.click(within(row).getByRole("button")));
+    await waitFor(() => {
+      expect(document.querySelector("details")?.dataset.claudeAccountPhase).toBe("reconciling");
+    });
+
+    await act(async () => {
+      mocks.listeners.get("claude-reconciliation-changed")?.({
+        payload: reconciliation(8, "failed", "late refresh failed"),
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain("late refresh failed");
+    });
+    expect(screen.queryByText("ClaudeAccountsSwitched")).toBeNull();
   });
 
   it("uses stable opaque account labels and redacts tooltips when hideEmail is enabled", async () => {

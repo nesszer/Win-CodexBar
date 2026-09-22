@@ -5,6 +5,7 @@ import type { ClaudeAccount } from "../../../../../types/bridge";
 const mocks = vi.hoisted(() => ({
   claudeAccountsList: vi.fn(), claudeAccountAdd: vi.fn(), claudeAccountCancelLogin: vi.fn(),
   claudeAccountSaveCurrent: vi.fn(), claudeAccountRemove: vi.fn(), claudeAccountSwitch: vi.fn(),
+  claudeReconciliationState: vi.fn(),
   claudeSwapAccountsList: vi.fn(), claudeSwapAccountSwitch: vi.fn(),
   getSettingsSnapshot: vi.fn(), updateSettings: vi.fn(),
 }));
@@ -21,6 +22,10 @@ describe("ClaudeAccountsSection", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     events.listen.mockResolvedValue(() => {});
+    mocks.claudeReconciliationState.mockResolvedValue(null);
+    mocks.claudeAccountSwitch.mockResolvedValue({
+      generation: 1, status: "succeeded", providerRefreshGeneration: 1, detail: "published",
+    });
     mocks.claudeAccountsList.mockResolvedValue([current, other]);
     mocks.claudeSwapAccountsList.mockResolvedValue({
       enabled: false,
@@ -52,7 +57,7 @@ describe("ClaudeAccountsSection", () => {
     render(<ClaudeAccountsSection t={t} />);
     await screen.findByText(current.email);
     fireEvent.click(screen.getByText("CodexAccountsAddButton"));
-    const eventCallback = events.listen.mock.calls[0][1] as unknown as () => void;
+    const eventCallback = events.listen.mock.calls.find(([event]) => event === "claude-accounts-updated")?.[1] as unknown as () => void;
     await act(async () => eventCallback());
     expect((screen.getByText("CodexAccountsSwitchButton") as HTMLButtonElement).disabled).toBe(true);
     await act(async () => fireEvent.click(screen.getByText("ClaudeAccountsCancelLogin")));

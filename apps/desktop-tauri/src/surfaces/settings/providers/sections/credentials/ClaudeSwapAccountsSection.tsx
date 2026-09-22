@@ -15,6 +15,7 @@ import {
   getSettingsSnapshot,
   updateSettings,
 } from "../../../../../lib/tauri";
+import { useClaudeReconciliation } from "../../../../../hooks/useClaudeReconciliation";
 
 interface Props {
   t: (key: LocaleKey) => string;
@@ -99,7 +100,8 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
   const [state, setState] = useState<ClaudeSwapAccountsState>(EMPTY_STATE);
   const locale = languageLocale(language);
   const [busy, setBusy] = useState(false);
-  const [reconciling, setReconciling] = useState(false);
+  const [operation, setOperation] = useState<{ generation: number; success: LocaleKey } | null>(null);
+  const { snapshot, accept, reconciling } = useClaudeReconciliation();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(false);
@@ -132,19 +134,24 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
     };
     load();
     const unlisten = listen("claude-accounts-updated", load);
-    const unlistenReconciling = listen("claude-accounts-reconciling", () => {
-      if (mounted.current) setReconciling(true);
-    });
-    const unlistenReconciled = listen("claude-accounts-reconciled", () => {
-      if (mounted.current) setReconciling(false);
-    });
     return () => {
       mounted.current = false;
       void unlisten.then((fn) => fn()).catch(() => {});
-      void unlistenReconciling.then((fn) => fn()).catch(() => {});
-      void unlistenReconciled.then((fn) => fn()).catch(() => {});
     };
   }, [reload]);
+
+  useEffect(() => {
+    if (!snapshot || snapshot.status === "pending") {
+      return;
+    }
+    if (snapshot.status === "failed") {
+      setMessage(null);
+      setError(snapshot.detail);
+    } else if (operation && snapshot.generation === operation.generation) {
+      setMessage(t(operation.success));
+      setError(null);
+    }
+  }, [operation, snapshot, t]);
 
   const runSettings = async (
     patch: { claudeSwapEnabled?: boolean; claudeSwapExecutablePath?: string },
@@ -179,24 +186,19 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
     setError(null);
     setMessage(null);
     try {
+      const success = account.action === "reauthenticate"
+        ? "ClaudeSwapReauthenticated"
+        : "ClaudeSwapSwitched";
+      let result;
       if (account.action === "reauthenticate") {
-        await claudeSwapAccountReauthenticate(account.slot);
+        result = await claudeSwapAccountReauthenticate(account.slot);
       } else if (account.action === "switch") {
-        await claudeSwapAccountSwitch(account.slot);
+        result = await claudeSwapAccountSwitch(account.slot);
       } else {
         throw new Error("This claude-swap account is not actionable.");
       }
-      // The backend emits `claude-accounts-updated` after reconciliation;
-      // the listener above performs the single reload.
-      if (mounted.current) {
-        setMessage(
-          t(
-            account.action === "reauthenticate"
-              ? "ClaudeSwapReauthenticated"
-              : "ClaudeSwapSwitched",
-          ),
-        );
-      }
+      setOperation({ generation: result.generation, success });
+      accept(result);
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {

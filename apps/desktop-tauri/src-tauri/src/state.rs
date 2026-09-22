@@ -131,6 +131,9 @@ pub struct AppState {
     /// refresh starts or enablement changes so superseded results are ignored.
     pub provider_refresh_generation: u64,
     pub is_refreshing: bool,
+    /// Authoritative Claude account reconciliation state for mounted and
+    /// newly-mounted frontend surfaces.
+    pub claude_reconciliation: crate::commands::claude_reconciliation::ClaudeReconciliationState,
     pub update_state: UpdateState,
     /// Full update metadata from the last successful check.
     pub update_info: Option<codexbar::updater::UpdateInfo>,
@@ -195,6 +198,7 @@ impl AppState {
             provider_refresh_started_at: None,
             provider_refresh_generation: 0,
             is_refreshing: false,
+            claude_reconciliation: Default::default(),
             update_state: UpdateState::Idle,
             update_info: None,
             last_update_check_ms: None,

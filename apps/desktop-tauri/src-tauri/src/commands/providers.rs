@@ -977,15 +977,6 @@ fn notify_usage_thresholds(
                     token_account_id,
                 );
                 let account = warning_identity.threshold_key();
-                if let Some(unresolved) = warning_identity.unresolved_key()
-                    && unresolved != account
-                {
-                    guard.notification_manager.adopt_threshold_account_identity(
-                        provider,
-                        &unresolved,
-                        &account,
-                    );
-                }
                 // Skip all session consumers for synthetic/no-session
                 // placeholders (e.g. Claude OAuth five_hour: null).
                 if guard.notification_manager.check_session_lane(
@@ -1107,11 +1098,6 @@ fn notify_predictive_pace(
     let Some(identity) = warning_identity.predictive_key() else {
         return;
     };
-    if let Some(unresolved) = warning_identity.unresolved_key()
-        && unresolved != identity
-    {
-        manager.adopt_predictive_account_identity(provider, &unresolved, &identity);
-    }
     let observed_at = chrono::DateTime::parse_from_rfc3339(&snapshot.updated_at)
         .ok()
         .map(|date| date.with_timezone(&chrono::Utc));

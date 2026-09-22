@@ -3,12 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import type { ClaudeAccount } from "../types/bridge";
 import { claudeAccountsList, claudeAccountSwitch } from "../lib/tauri";
 import { useLocale } from "../hooks/useLocale";
+import { useClaudeReconciliation } from "../hooks/useClaudeReconciliation";
 import {
   buildClaudeAccountOrdinals,
   buildPrivateClaudeAccountLabel,
 } from "./claudeAccountDisplay";
-
-type ClaudeAccountPhase = "idle" | "activating" | "reconciling" | "settled";
 
 export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
   hideEmail: boolean;
@@ -18,7 +17,9 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
   const [accounts, setAccounts] = useState<ClaudeAccount[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [switched, setSwitched] = useState(false);
-  const [phase, setPhase] = useState<ClaudeAccountPhase>("idle");
+  const [activating, setActivating] = useState(false);
+  const [operationGeneration, setOperationGeneration] = useState<number | null>(null);
+  const { snapshot, accept, reconciling } = useClaudeReconciliation();
   const mounted = useRef(false);
   const load = useCallback(async () => {
     const next = await claudeAccountsList();
@@ -35,25 +36,31 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
     reload();
     window.addEventListener("focus", reload);
     const unlisten = listen("claude-accounts-updated", reload);
-    const unlistenReconciling = listen("claude-accounts-reconciling", () => {
-      if (mounted.current) {
-        setPhase("reconciling");
-        setSwitched(false);
-      }
-    });
-    const unlistenReconciled = listen("claude-accounts-reconciled", () => {
-      if (mounted.current) {
-        setPhase("settled");
-      }
-    });
     return () => {
       mounted.current = false;
       window.removeEventListener("focus", reload);
       void unlisten.then(fn => fn()).catch(() => {});
-      void unlistenReconciling.then(fn => fn()).catch(() => {});
-      void unlistenReconciled.then(fn => fn()).catch(() => {});
     };
   }, [load]);
+  useEffect(() => {
+    if (!snapshot || snapshot.status === "pending") {
+      return;
+    }
+    if (snapshot.status === "failed") {
+      setSwitched(false);
+      setError(snapshot.detail);
+    } else if (snapshot.generation === operationGeneration) {
+      setSwitched(true);
+      setError(null);
+    }
+  }, [operationGeneration, snapshot]);
+  const phase = reconciling
+    ? "reconciling"
+    : activating
+      ? "activating"
+      : snapshot
+        ? "settled"
+        : "idle";
   useEffect(() => {
     onLayoutChange?.();
   }, [accounts.length, error, phase, switched, onLayoutChange]);
@@ -61,20 +68,21 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
   const accountOrdinals = buildClaudeAccountOrdinals(accounts);
 
   const switchAccount = async (id: string) => {
-    setPhase("activating");
+    setActivating(true);
+    setOperationGeneration(null);
     setError(null);
     setSwitched(false);
     try {
-      await claudeAccountSwitch(id);
+      const result = await claudeAccountSwitch(id);
+      setOperationGeneration(result.generation);
+      accept(result);
       await load();
-      // Settling is event-driven: the backend emits claude-accounts-reconciled
-      // after the awaited refresh. The promise resolving does not settle.
-      if (mounted.current) setSwitched(true);
     } catch (e) {
       if (mounted.current) {
-        setPhase("idle");
         setError(String(e));
       }
+    } finally {
+      if (mounted.current) setActivating(false);
     }
   };
 

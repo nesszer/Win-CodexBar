@@ -101,45 +101,64 @@ fn account_row_for_slot(
         .ok_or_else(|| "claude-swap did not report that account slot.".to_string())
 }
 
-/// Emitted when a Claude account change needs a provider refresh before the
-/// settle. Event order is load-bearing for every listener:
-///
-/// 1. `claude-accounts-reconciling` — listeners show the reconciling phase.
-/// 2. the bounded provider refresh runs with a typed ownership outcome.
-/// 3. `claude-accounts-reconciled` — the success/failure terminal marker;
-///    settling must be event-driven, never inferred from a switch promise.
-/// 4. `claude-accounts-updated` + tray rebuild — the settled reload.
-///
-/// The Claude reconciliation coordinator serializes begin/terminal emission.
-/// Detached stale workers become superseded terminals internally and cannot
-/// settle a newer operation. Every current outcome clears the reconciling UI.
-async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String> {
-    let pending = {
+fn grace_outcome(
+    completed: Option<claude_reconciliation::ClaudeReconciliationSnapshot>,
+    pending: &claude_reconciliation::ClaudeReconciliationSnapshot,
+) -> claude_reconciliation::ClaudeReconciliationSnapshot {
+    completed.unwrap_or_else(|| pending.clone())
+}
+
+/// Start a generation-owned provider refresh and return its authoritative
+/// snapshot. A slow refresh returns `pending`; its detached worker later
+/// updates application state and emits one best-effort state-change event.
+async fn refresh_after_claude_change(
+    app: tauri::AppHandle,
+) -> Result<claude_reconciliation::ClaudeReconciliationSnapshot, String> {
+    let (usage_pending, reconciliation, reconciliation_pending) = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().map_err(|e| e.to_string())?;
-        invalidate_account_usage(&mut state, ProviderId::Claude)
+        let usage_pending = invalidate_account_usage(&mut state, ProviderId::Claude);
+        let (token, snapshot) = state.claude_reconciliation.begin();
+        (usage_pending, token, snapshot)
     };
-    crate::events::emit_provider_updated(&app, &pending);
-    let reconciliation = claude_reconciliation::begin(&app);
+    crate::events::emit_provider_updated(&app, &usage_pending);
+    claude_reconciliation::emit(&app, &reconciliation_pending);
     let refresh_app = app.clone();
     let mut ambient = tauri::async_runtime::spawn(async move {
-        let terminal = claude_reconciliation::ClaudeReconciliationResult::from_refresh(
+        let result = claude_reconciliation::ClaudeReconciliationResult::from_refresh(
             super::do_refresh_providers_with_outcome(&refresh_app).await,
         );
-        let command_result = terminal.command_result();
-        if claude_reconciliation::complete(&refresh_app, reconciliation, terminal) {
+        let (is_current, snapshot) = {
+            let state = refresh_app.state::<Mutex<AppState>>();
+            let mut state = state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.claude_reconciliation.complete(reconciliation, result)
+        };
+        if is_current {
+            claude_reconciliation::emit(&refresh_app, &snapshot);
             changed(&refresh_app);
+        } else {
+            tracing::debug!(
+                generation = snapshot.generation,
+                detail = %snapshot.detail,
+                "Claude reconciliation completed after a newer generation"
+            );
         }
-        command_result
+        snapshot
     });
     match tokio::time::timeout(AMBIENT_RECONCILIATION_GRACE, &mut ambient).await {
-        Ok(joined) => joined.map_err(|error| error.to_string())?,
-        Err(_) => {
-            // Dropping only the JoinHandle waiter detaches the owning refresh.
-            // The task emits the terminal event only after its refresh settles.
-            Ok(())
-        }
+        Ok(joined) => joined.map_err(|error| error.to_string()),
+        Err(_) => Ok(grace_outcome(None, &reconciliation_pending)),
     }
+}
+
+#[tauri::command]
+pub fn claude_reconciliation_state(
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Result<Option<claude_reconciliation::ClaudeReconciliationSnapshot>, String> {
+    let state = state.lock().map_err(|error| error.to_string())?;
+    Ok(state.claude_reconciliation.snapshot())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -246,18 +265,16 @@ fn run_claude_swap_operation(
 async fn finish_claude_swap_mutation(
     app: tauri::AppHandle,
     outcome: ClaudeSwapMutationOutcome,
-) -> Result<(), String> {
+) -> Result<claude_reconciliation::ClaudeReconciliationSnapshot, String> {
     if !outcome.applied {
-        return outcome.error.map_or(Ok(()), Err);
+        return Err(outcome
+            .error
+            .unwrap_or_else(|| "Claude account operation was not applied.".to_string()));
     }
-    let refresh_error = refresh_after_claude_change(app).await.err();
-    match (outcome.error, refresh_error) {
-        (None, None) => Ok(()),
-        (Some(operation_error), None) => Err(operation_error),
-        (None, Some(refresh_error)) => Err(refresh_error),
-        (Some(operation_error), Some(refresh_error)) => Err(format!(
-            "{operation_error} Refresh also failed: {refresh_error}"
-        )),
+    let reconciliation = refresh_after_claude_change(app).await?;
+    match outcome.error {
+        Some(operation_error) => Err(operation_error),
+        None => Ok(reconciliation),
     }
 }
 
@@ -269,7 +286,10 @@ pub async fn claude_swap_accounts_list() -> Result<ClaudeSwapAccountsState, Stri
 }
 
 #[tauri::command]
-pub async fn claude_swap_account_switch(app: tauri::AppHandle, slot: u32) -> Result<(), String> {
+pub async fn claude_swap_account_switch(
+    app: tauri::AppHandle,
+    slot: u32,
+) -> Result<claude_reconciliation::ClaudeReconciliationSnapshot, String> {
     // MUTATION is held for the whole command body, including
     // `finish_claude_swap_mutation`'s awaited provider refresh below. This is
     // deliberate: it serializes account mutations across the full
@@ -297,7 +317,7 @@ pub async fn claude_swap_account_switch(app: tauri::AppHandle, slot: u32) -> Res
 pub async fn claude_swap_account_reauthenticate(
     app: tauri::AppHandle,
     slot: u32,
-) -> Result<(), String> {
+) -> Result<claude_reconciliation::ClaudeReconciliationSnapshot, String> {
     let _mutation = MUTATION
         .try_lock()
         .map_err(|_| "A Claude account operation is already in progress.")?;
@@ -370,7 +390,10 @@ pub async fn claude_account_remove(app: tauri::AppHandle, id: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn claude_account_switch(app: tauri::AppHandle, id: String) -> Result<(), String> {
+pub async fn claude_account_switch(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<claude_reconciliation::ClaudeReconciliationSnapshot, String> {
     let _mutation = MUTATION
         .try_lock()
         .map_err(|_| "A Claude account operation is already in progress.")?;
@@ -445,6 +468,17 @@ mod tests {
         assert!(outcome.applied);
         assert_eq!(outcome.error.as_deref(), Some("confirmation unavailable"));
         assert_eq!(ClaudeSwapMutationOutcome::confirmed().error, None);
+    }
+
+    #[test]
+    fn grace_timeout_returns_the_explicit_pending_snapshot() {
+        let pending = claude_reconciliation::ClaudeReconciliationSnapshot {
+            generation: 7,
+            status: claude_reconciliation::ClaudeReconciliationStatus::Pending,
+            provider_refresh_generation: None,
+            detail: "refreshing".to_string(),
+        };
+        assert_eq!(grace_outcome(None, &pending), pending);
     }
 
     #[test]
