@@ -3,7 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import type { ClaudeAccount } from "../types/bridge";
 import { claudeAccountsList, claudeAccountSwitch } from "../lib/tauri";
 import { useLocale } from "../hooks/useLocale";
-import { useClaudeReconciliation } from "../hooks/useClaudeReconciliation";
+import {
+  localClaudeReconciliationOutcome,
+  useClaudeReconciliation,
+} from "../hooks/useClaudeReconciliation";
 import {
   buildClaudeAccountOrdinals,
   buildPrivateClaudeAccountLabel,
@@ -43,13 +46,12 @@ export default function ClaudeAccountsMenu({ hideEmail, onLayoutChange }: {
     };
   }, [load]);
   useEffect(() => {
-    if (!snapshot || snapshot.status === "pending") {
-      return;
-    }
-    if (snapshot.status === "failed") {
+    const outcome = localClaudeReconciliationOutcome(snapshot, operationGeneration);
+    if (!outcome) return;
+    if (outcome.status === "failed") {
       setSwitched(false);
-      setError(snapshot.detail);
-    } else if (snapshot.generation === operationGeneration) {
+      setError(outcome.detail);
+    } else {
       setSwitched(true);
       setError(null);
     }

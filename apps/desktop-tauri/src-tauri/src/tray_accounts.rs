@@ -184,7 +184,9 @@ pub(crate) fn handle_action(app: &AppHandle, action: AccountMenuAction) {
                         "Current Claude Code account saved.",
                     ),
                     AccountMenuAction::SwitchClaudeAccount(id) => (
-                        crate::commands::claude_account_switch(handle.clone(), id).await,
+                        crate::commands::claude_account_switch(handle.clone(), id)
+                            .await
+                            .map(|_| ()),
                         "Claude Code account switched. Reopen the Claude Code CLI to use it.",
                     ),
                     _ => unreachable!(),

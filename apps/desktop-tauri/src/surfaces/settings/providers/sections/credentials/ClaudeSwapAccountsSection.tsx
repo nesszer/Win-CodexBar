@@ -15,7 +15,10 @@ import {
   getSettingsSnapshot,
   updateSettings,
 } from "../../../../../lib/tauri";
-import { useClaudeReconciliation } from "../../../../../hooks/useClaudeReconciliation";
+import {
+  localClaudeReconciliationOutcome,
+  useClaudeReconciliation,
+} from "../../../../../hooks/useClaudeReconciliation";
 
 interface Props {
   t: (key: LocaleKey) => string;
@@ -141,13 +144,12 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
   }, [reload]);
 
   useEffect(() => {
-    if (!snapshot || snapshot.status === "pending") {
-      return;
-    }
-    if (snapshot.status === "failed") {
+    const outcome = localClaudeReconciliationOutcome(snapshot, operation?.generation ?? null);
+    if (!outcome) return;
+    if (outcome.status === "failed") {
       setMessage(null);
-      setError(snapshot.detail);
-    } else if (operation && snapshot.generation === operation.generation) {
+      setError(outcome.detail);
+    } else if (operation) {
       setMessage(t(operation.success));
       setError(null);
     }

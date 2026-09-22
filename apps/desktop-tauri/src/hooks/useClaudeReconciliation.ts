@@ -5,6 +5,20 @@ import type { ClaudeReconciliationSnapshot } from "../types/bridge";
 
 const isTerminal = (snapshot: ClaudeReconciliationSnapshot) => snapshot.status !== "pending";
 
+export function localClaudeReconciliationOutcome(
+  snapshot: ClaudeReconciliationSnapshot | null,
+  operationGeneration: number | null,
+): ClaudeReconciliationSnapshot | null {
+  if (
+    !snapshot
+    || snapshot.status === "pending"
+    || snapshot.generation !== operationGeneration
+  ) {
+    return null;
+  }
+  return snapshot;
+}
+
 export function selectClaudeReconciliation(
   current: ClaudeReconciliationSnapshot | null,
   candidate: ClaudeReconciliationSnapshot,

@@ -13,7 +13,10 @@ import {
   claudeAccountSwitch,
 } from "../../../../../lib/tauri";
 import { ClaudeSwapAccountsSection } from "./ClaudeSwapAccountsSection";
-import { useClaudeReconciliation } from "../../../../../hooks/useClaudeReconciliation";
+import {
+  localClaudeReconciliationOutcome,
+  useClaudeReconciliation,
+} from "../../../../../hooks/useClaudeReconciliation";
 
 export function ClaudeAccountsSection({
   t,
@@ -49,13 +52,12 @@ export function ClaudeAccountsSection({
     };
   }, [load]);
   useEffect(() => {
-    if (!snapshot || snapshot.status === "pending") {
-      return;
-    }
-    if (snapshot.status === "failed") {
+    const outcome = localClaudeReconciliationOutcome(snapshot, operation?.generation ?? null);
+    if (!outcome) return;
+    if (outcome.status === "failed") {
       setMessage(null);
-      setError(snapshot.detail);
-    } else if (operation && snapshot.generation === operation.generation) {
+      setError(outcome.detail);
+    } else if (operation) {
       if (operation.success) setMessage(t(operation.success));
       setError(null);
     }

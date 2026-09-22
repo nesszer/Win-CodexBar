@@ -11,6 +11,7 @@ vi.mock("../lib/tauri", () => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
 import {
+  localClaudeReconciliationOutcome,
   selectClaudeReconciliation,
   useClaudeReconciliation,
 } from "./useClaudeReconciliation";
@@ -62,5 +63,24 @@ describe("selectClaudeReconciliation", () => {
     expect(
       selectClaudeReconciliation(snapshot(4, "failed"), snapshot(5, "pending")),
     ).toEqual(snapshot(5, "pending"));
+  });
+});
+
+describe("localClaudeReconciliationOutcome", () => {
+  it("ignores an old hydrated failure when no local operation owns it", () => {
+    expect(
+      localClaudeReconciliationOutcome(snapshot(7, "failed", "old failure"), null),
+    ).toBeNull();
+  });
+
+  it("ignores a terminal failure from a different generation", () => {
+    expect(
+      localClaudeReconciliationOutcome(snapshot(8, "failed", "other failure"), 9),
+    ).toBeNull();
+  });
+
+  it("returns a matching late failure", () => {
+    const failure = snapshot(10, "failed", "late failure");
+    expect(localClaudeReconciliationOutcome(failure, 10)).toBe(failure);
   });
 });
