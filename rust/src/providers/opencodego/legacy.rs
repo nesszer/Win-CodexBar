@@ -12,194 +12,162 @@ const WORKSPACES_SERVER_ID: &str =
     "def39973159c7f0483d8793a822b8dbb10d067e12c65455fcb4608459ba0234f";
 const BILLING_SERVER_ID: &str = "c83b78a614689c38ebee981f9b39a8b377716db85c1fd7dbab604adc02d3313d";
 
-/// Authenticated legacy transport. Workspace discovery stays inside this
-/// session so Console workspace IDs never cross into the independent legacy
-/// cookie session.
-pub(super) struct LegacySession<'a> {
-    client: &'a Client,
-    cookie_header: &'a str,
-}
-
 /// Parsed legacy usage response returned to the provider orchestrator.
 pub(super) struct LegacyUsage {
     pub(super) usage: UsageSnapshot,
     pub(super) embedded_balance: Option<f64>,
 }
 
-/// Whether a failed Console request is eligible for the legacy route.
-pub(super) fn can_recover(cookie_header: &str, error: &ProviderError) -> bool {
-    if !super::console::has_legacy_cookie(cookie_header) {
-        return false;
-    }
-    matches!(
-        error,
-        ProviderError::AuthRequired
-            | ProviderError::Parse(_)
-            | ProviderError::Other(_)
-            | ProviderError::Timeout
-    ) || error.is_transport_failure()
-}
-
-/// Resolve competing route failures without hiding a useful Console error.
-pub(super) fn select_result<T>(
+/// Discover the workspace owned by the legacy cookie session. The provider
+/// orchestrator resolves this once and carries the resulting typed session
+/// through every legacy operation.
+pub(super) async fn discover_workspace_id(
+    client: &Client,
     cookie_header: &str,
-    console_error: ProviderError,
-    legacy_result: Result<T, ProviderError>,
-) -> Result<T, ProviderError> {
-    match legacy_result {
-        Ok(value) => Ok(value),
-        Err(_legacy_error)
-            if super::console::has_console_cookie(cookie_header)
-                && !matches!(console_error, ProviderError::AuthRequired) =>
-        {
-            Err(console_error)
-        }
-        Err(legacy_error) => Err(legacy_error),
-    }
+) -> Result<String, ProviderError> {
+    let text = fetch_server_text(
+        client,
+        cookie_header,
+        WORKSPACES_SERVER_ID,
+        None,
+        BASE_URL,
+        None,
+        "workspace API",
+    )
+    .await?;
+    parse_workspace_ids(&text)
+        .into_iter()
+        .next()
+        .ok_or_else(|| ProviderError::Parse("No workspace ID found".to_string()))
 }
 
-impl<'a> LegacySession<'a> {
-    pub(super) fn new(client: &'a Client, cookie_header: &'a str) -> Self {
-        Self {
-            client,
-            cookie_header,
-        }
+pub(super) async fn fetch_usage(
+    client: &Client,
+    cookie_header: &str,
+    workspace_id: &str,
+) -> Result<LegacyUsage, ProviderError> {
+    let url = format!("{BASE_URL}/workspace/{workspace_id}/go");
+    let page = fetch_page_text(client, cookie_header, &url, None, "usage page").await?;
+    Ok(LegacyUsage {
+        usage: parse_usage_text(&page)?,
+        embedded_balance: parse_zen_balance(&page),
+    })
+}
+
+pub(super) async fn fetch_balance(
+    client: &Client,
+    cookie_header: &str,
+    workspace_id: &str,
+    timeout: Duration,
+) -> Result<Option<f64>, ProviderError> {
+    let referer = format!("{BASE_URL}/workspace/{workspace_id}");
+    let page = fetch_page_text(
+        client,
+        cookie_header,
+        &referer,
+        Some(timeout),
+        "Zen dashboard page",
+    )
+    .await?;
+    if let Some(balance) = parse_zen_balance(&page) {
+        return Ok(Some(balance));
     }
 
-    /// Discover the workspace owned by this legacy cookie session.
-    pub(super) async fn discover_workspace_id(&self) -> Result<String, ProviderError> {
-        let text = self
-            .fetch_server_text(WORKSPACES_SERVER_ID, None, BASE_URL, None, "workspace API")
-            .await?;
-        parse_workspace_ids(&text)
-            .into_iter()
-            .next()
-            .ok_or_else(|| ProviderError::Parse("No workspace ID found".to_string()))
+    let args = serde_json::json!([workspace_id]).to_string();
+    let billing = fetch_server_text(
+        client,
+        cookie_header,
+        BILLING_SERVER_ID,
+        Some(&args),
+        &referer,
+        Some(timeout),
+        "billing API",
+    )
+    .await?;
+    Ok(parse_billing_server_balance(&billing))
+}
+
+async fn fetch_page_text(
+    client: &Client,
+    cookie_header: &str,
+    url: &str,
+    timeout: Option<Duration>,
+    what: &str,
+) -> Result<String, ProviderError> {
+    let mut request = client
+        .get(url)
+        .header("Cookie", cookie_header)
+        .header("User-Agent", USER_AGENT)
+        .header("Referer", BASE_URL)
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        );
+    if let Some(timeout) = timeout {
+        request = request.timeout(timeout);
     }
-
-    /// Execute the complete legacy usage route, including route-local
-    /// workspace discovery.
-    pub(super) async fn fetch_usage(&self) -> Result<LegacyUsage, ProviderError> {
-        let workspace_id = self.discover_workspace_id().await?;
-        let url = format!("{BASE_URL}/workspace/{workspace_id}/go");
-        let page = self.fetch_page_text(&url, None, "usage page").await?;
-        Ok(LegacyUsage {
-            usage: parse_usage_text(&page)?,
-            embedded_balance: parse_zen_balance(&page),
-        })
-    }
-
-    /// Execute the complete legacy balance route with a workspace discovered
-    /// from the legacy cookie rather than the Console session.
-    pub(super) async fn fetch_balance(
-        &self,
-        timeout: Duration,
-    ) -> Result<Option<f64>, ProviderError> {
-        let workspace_id = self.discover_workspace_id().await?;
-        let referer = format!("{BASE_URL}/workspace/{workspace_id}");
-        let page = self
-            .fetch_page_text(&referer, Some(timeout), "Zen dashboard page")
-            .await?;
-        if let Some(balance) = parse_zen_balance(&page) {
-            return Ok(Some(balance));
-        }
-
-        let args = serde_json::json!([workspace_id]).to_string();
-        let billing = self
-            .fetch_server_text(
-                BILLING_SERVER_ID,
-                Some(&args),
-                &referer,
-                Some(timeout),
-                "billing API",
-            )
-            .await?;
-        Ok(parse_billing_server_balance(&billing))
-    }
-
-    async fn fetch_page_text(
-        &self,
-        url: &str,
-        timeout: Option<Duration>,
-        what: &str,
-    ) -> Result<String, ProviderError> {
-        let mut request = self
-            .client
-            .get(url)
-            .header("Cookie", self.cookie_header)
-            .header("User-Agent", USER_AGENT)
-            .header("Referer", BASE_URL)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            );
-        if let Some(timeout) = timeout {
-            request = request.timeout(timeout);
-        }
-        let response = request.send().await?;
-        let status = response.status();
-        if !status.is_success() {
-            if status.as_u16() == 401 || status.as_u16() == 403 {
-                return Err(ProviderError::AuthRequired);
-            }
-            return Err(ProviderError::Other(format!(
-                "OpenCode Go {what} returned {status}"
-            )));
-        }
-        let text = response.text().await?;
-        if looks_signed_out(&text) {
+    let response = request.send().await?;
+    let status = response.status();
+    if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ProviderError::AuthRequired);
         }
-        Ok(text)
+        return Err(ProviderError::Other(format!(
+            "OpenCode Go {what} returned {status}"
+        )));
     }
+    let text = response.text().await?;
+    if looks_signed_out(&text) {
+        return Err(ProviderError::AuthRequired);
+    }
+    Ok(text)
+}
 
-    async fn fetch_server_text(
-        &self,
-        server_id: &str,
-        args: Option<&str>,
-        referer: &str,
-        timeout: Option<Duration>,
-        what: &str,
-    ) -> Result<String, ProviderError> {
-        let mut url = reqwest::Url::parse(SERVER_URL).map_err(|error| {
-            ProviderError::Parse(format!("Invalid OpenCode server URL: {error}"))
-        })?;
-        url.query_pairs_mut().append_pair("id", server_id);
-        if let Some(args) = args {
-            url.query_pairs_mut().append_pair("args", args);
-        }
-        let mut request = self
-            .client
-            .get(url)
-            .header("Cookie", self.cookie_header)
-            .header("X-Server-Id", server_id)
-            .header("X-Server-Instance", format!("server-fn:{}", Uuid::new_v4()))
-            .header("User-Agent", USER_AGENT)
-            .header("Origin", BASE_URL)
-            .header("Referer", referer)
-            .header(
-                "Accept",
-                "text/javascript, application/json;q=0.9, */*;q=0.8",
-            );
-        if let Some(timeout) = timeout {
-            request = request.timeout(timeout);
-        }
-        let response = request.send().await?;
-        let status = response.status();
-        if !status.is_success() {
-            if status.as_u16() == 401 || status.as_u16() == 403 {
-                return Err(ProviderError::AuthRequired);
-            }
-            return Err(ProviderError::Other(format!(
-                "OpenCode Go {what} returned {status}"
-            )));
-        }
-        let text = response.text().await?;
-        if looks_signed_out(&text) {
+async fn fetch_server_text(
+    client: &Client,
+    cookie_header: &str,
+    server_id: &str,
+    args: Option<&str>,
+    referer: &str,
+    timeout: Option<Duration>,
+    what: &str,
+) -> Result<String, ProviderError> {
+    let mut url = reqwest::Url::parse(SERVER_URL)
+        .map_err(|error| ProviderError::Parse(format!("Invalid OpenCode server URL: {error}")))?;
+    url.query_pairs_mut().append_pair("id", server_id);
+    if let Some(args) = args {
+        url.query_pairs_mut().append_pair("args", args);
+    }
+    let mut request = client
+        .get(url)
+        .header("Cookie", cookie_header)
+        .header("X-Server-Id", server_id)
+        .header("X-Server-Instance", format!("server-fn:{}", Uuid::new_v4()))
+        .header("User-Agent", USER_AGENT)
+        .header("Origin", BASE_URL)
+        .header("Referer", referer)
+        .header(
+            "Accept",
+            "text/javascript, application/json;q=0.9, */*;q=0.8",
+        );
+    if let Some(timeout) = timeout {
+        request = request.timeout(timeout);
+    }
+    let response = request.send().await?;
+    let status = response.status();
+    if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ProviderError::AuthRequired);
         }
-        Ok(text)
+        return Err(ProviderError::Other(format!(
+            "OpenCode Go {what} returned {status}"
+        )));
     }
+    let text = response.text().await?;
+    if looks_signed_out(&text) {
+        return Err(ProviderError::AuthRequired);
+    }
+    Ok(text)
 }
 
 fn parse_workspace_ids(text: &str) -> Vec<String> {
@@ -425,43 +393,6 @@ fn billing_numeric_value(value: &serde_json::Value) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn console_recovery_requires_an_independent_legacy_cookie() {
-        assert!(can_recover(
-            "auth=legacy; __Host-console_session=console",
-            &ProviderError::AuthRequired
-        ));
-        assert!(!can_recover(
-            "__Host-console_session=console",
-            &ProviderError::AuthRequired
-        ));
-        assert!(!can_recover(
-            "auth=legacy",
-            &ProviderError::NotInstalled("terminal".to_string())
-        ));
-    }
-
-    #[test]
-    fn failed_legacy_read_preserves_non_auth_console_failure() {
-        let error = select_result::<()>(
-            "auth=legacy; __Host-console_session=console",
-            ProviderError::Other("console unavailable".to_string()),
-            Err(ProviderError::AuthRequired),
-        )
-        .unwrap_err();
-        assert!(matches!(error, ProviderError::Other(message) if message == "console unavailable"));
-
-        let error = select_result::<()>(
-            "auth=legacy; __Host-console_session=console",
-            ProviderError::AuthRequired,
-            Err(ProviderError::Parse("legacy payload missing".to_string())),
-        )
-        .unwrap_err();
-        assert!(
-            matches!(error, ProviderError::Parse(message) if message == "legacy payload missing")
-        );
-    }
 
     #[test]
     fn parses_workspace_ids_without_duplicates() {

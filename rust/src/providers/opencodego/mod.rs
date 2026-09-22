@@ -38,6 +38,102 @@ pub struct OpenCodeGoProvider {
     client: Client,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CookieCapabilities {
+    console: bool,
+    legacy: bool,
+}
+
+#[derive(Clone, Debug)]
+struct WebCookieSession {
+    header: String,
+    capabilities: CookieCapabilities,
+}
+
+impl WebCookieSession {
+    fn new(header: &str) -> Self {
+        let has_cookie = |names: &[&str]| {
+            header.split(';').any(|part| {
+                let Some((name, value)) = part.trim().split_once('=') else {
+                    return false;
+                };
+                names.contains(&name.trim()) && !value.trim().is_empty()
+            })
+        };
+        Self {
+            header: header.to_string(),
+            capabilities: CookieCapabilities {
+                console: has_cookie(&["__Host-console_session"]),
+                legacy: has_cookie(&["auth", "__Host-auth"]),
+            },
+        }
+    }
+
+    fn header(&self) -> &str {
+        &self.header
+    }
+
+    fn can_recover_with_legacy(&self, error: &ProviderError) -> bool {
+        self.capabilities.legacy
+            && (matches!(
+                error,
+                ProviderError::AuthRequired
+                    | ProviderError::Parse(_)
+                    | ProviderError::Other(_)
+                    | ProviderError::Timeout
+            ) || error.is_transport_failure())
+    }
+
+    fn select_legacy_result<T>(
+        &self,
+        console_error: ProviderError,
+        legacy_result: Result<T, ProviderError>,
+    ) -> Result<T, ProviderError> {
+        match legacy_result {
+            Ok(value) => Ok(value),
+            Err(_legacy_error)
+                if self.capabilities.console
+                    && !matches!(console_error, ProviderError::AuthRequired) =>
+            {
+                Err(console_error)
+            }
+            Err(legacy_error) => Err(legacy_error),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct LegacyWorkspaceSession {
+    client: Client,
+    cookie_header: String,
+    workspace_id: String,
+}
+
+impl LegacyWorkspaceSession {
+    async fn resolve(client: &Client, cookies: &WebCookieSession) -> Result<Self, ProviderError> {
+        let workspace_id = legacy::discover_workspace_id(client, cookies.header()).await?;
+        Ok(Self {
+            client: client.clone(),
+            cookie_header: cookies.header.clone(),
+            workspace_id,
+        })
+    }
+
+    async fn fetch_usage(&self) -> Result<legacy::LegacyUsage, ProviderError> {
+        legacy::fetch_usage(&self.client, &self.cookie_header, &self.workspace_id).await
+    }
+
+    async fn fetch_balance(&self, timeout: Duration) -> Result<Option<f64>, ProviderError> {
+        legacy::fetch_balance(
+            &self.client,
+            &self.cookie_header,
+            &self.workspace_id,
+            timeout,
+        )
+        .await
+    }
+}
+
 impl OpenCodeGoProvider {
     pub fn new() -> Self {
         Self {
@@ -79,16 +175,19 @@ impl OpenCodeGoProvider {
     async fn fetch_zen_balance(
         client: &Client,
         workspace_id: &str,
-        cookie_header: &str,
+        cookies: &WebCookieSession,
         timeout: Duration,
     ) -> Option<f64> {
         let request_timeout = timeout.min(ZEN_BALANCE_TIMEOUT);
-        match console::fetch_balance(client, workspace_id, cookie_header, request_timeout).await {
+        match console::fetch_balance(client, workspace_id, cookies.header(), request_timeout).await
+        {
             Ok(balance) => return balance,
-            Err(error) if legacy::can_recover(cookie_header, &error) => {}
+            Err(error) if cookies.can_recover_with_legacy(&error) => {}
             Err(_) => return None,
         }
-        legacy::LegacySession::new(client, cookie_header)
+        LegacyWorkspaceSession::resolve(client, cookies)
+            .await
+            .ok()?
             .fetch_balance(request_timeout)
             .await
             .unwrap_or(None)
@@ -99,12 +198,12 @@ impl OpenCodeGoProvider {
     /// inside the task when no override is pinned.
     fn spawn_zen_balance_task(
         &self,
-        cookie_header: &str,
+        cookies: &WebCookieSession,
         workspace_id_override: Option<&str>,
         web_timeout: u64,
     ) -> (tokio::task::JoinHandle<Option<f64>>, std::time::Instant) {
         let client = self.client.clone();
-        let cookie_header = cookie_header.to_string();
+        let cookies = cookies.clone();
         let workspace_id_override = workspace_id_override.map(str::to_string);
         let timeout = Duration::from_secs(web_timeout.max(1));
         let started_at = std::time::Instant::now();
@@ -112,10 +211,12 @@ impl OpenCodeGoProvider {
             tokio::time::sleep(ZEN_BALANCE_START_DELAY).await;
             let workspace_id = match workspace_id_override {
                 Some(id) => id,
-                None => match Self::fetch_workspace_id(&client, &cookie_header).await {
+                None => match Self::fetch_workspace_id(&client, cookies.header()).await {
                     Ok(id) => id,
-                    Err(error) if legacy::can_recover(&cookie_header, &error) => {
-                        return legacy::LegacySession::new(&client, &cookie_header)
+                    Err(error) if cookies.can_recover_with_legacy(&error) => {
+                        return LegacyWorkspaceSession::resolve(&client, &cookies)
+                            .await
+                            .ok()?
                             .fetch_balance(timeout.min(ZEN_BALANCE_TIMEOUT))
                             .await
                             .unwrap_or(None);
@@ -123,26 +224,20 @@ impl OpenCodeGoProvider {
                     Err(_) => return None,
                 },
             };
-            Self::fetch_zen_balance(&client, &workspace_id, &cookie_header, timeout).await
+            Self::fetch_zen_balance(&client, &workspace_id, &cookies, timeout).await
         });
         (task, started_at)
     }
 
     fn spawn_legacy_balance_task(
-        &self,
-        cookie_header: &str,
+        session: LegacyWorkspaceSession,
         web_timeout: u64,
     ) -> (tokio::task::JoinHandle<Option<f64>>, std::time::Instant) {
-        let client = self.client.clone();
-        let cookie_header = cookie_header.to_string();
         let timeout = Duration::from_secs(web_timeout.max(1)).min(ZEN_BALANCE_TIMEOUT);
         let started_at = std::time::Instant::now();
         let task = tokio::spawn(async move {
             tokio::time::sleep(ZEN_BALANCE_START_DELAY).await;
-            legacy::LegacySession::new(&client, &cookie_header)
-                .fetch_balance(timeout)
-                .await
-                .unwrap_or(None)
+            session.fetch_balance(timeout).await.unwrap_or(None)
         });
         (task, started_at)
     }
@@ -169,13 +264,14 @@ impl OpenCodeGoProvider {
         ctx: &FetchContext,
         cookie_header: &str,
     ) -> Result<ProviderFetchResult, ProviderError> {
+        let cookies = WebCookieSession::new(cookie_header);
         let workspace_id = match Self::workspace_id_from_context(ctx.workspace_id.as_deref()) {
             Some(workspace_id) => workspace_id,
-            None => match Self::fetch_workspace_id(&self.client, cookie_header).await {
+            None => match Self::fetch_workspace_id(&self.client, cookies.header()).await {
                 Ok(workspace_id) => workspace_id,
-                Err(console_error) if legacy::can_recover(cookie_header, &console_error) => {
+                Err(console_error) if cookies.can_recover_with_legacy(&console_error) => {
                     return self
-                        .fetch_legacy_with_cookies(ctx, cookie_header, console_error)
+                        .fetch_legacy_with_cookies(ctx, &cookies, console_error)
                         .await;
                 }
                 Err(error) => return Err(error),
@@ -185,11 +281,11 @@ impl OpenCodeGoProvider {
         // usage page and bound the join from task creation, so a slow balance
         // still lands in CLI/serve usage reads without stacking a second wait.
         let (zen_task, zen_started) =
-            self.spawn_zen_balance_task(cookie_header, Some(&workspace_id), ctx.web_timeout);
+            self.spawn_zen_balance_task(&cookies, Some(&workspace_id), ctx.web_timeout);
         let console_result = console::fetch_usage(
             &self.client,
             &workspace_id,
-            cookie_header,
+            cookies.header(),
             Duration::from_secs(ctx.web_timeout.max(1)),
         )
         .await;
@@ -201,18 +297,11 @@ impl OpenCodeGoProvider {
                     "No OpenCode Go subscription is available".to_string(),
                 ));
             }
-            Err(console_error) if legacy::can_recover(cookie_header, &console_error) => {
-                let legacy_result = legacy::LegacySession::new(&self.client, cookie_header)
-                    .fetch_usage()
-                    .await
-                    .map(|result| (result.usage, result.embedded_balance));
-                match legacy::select_result(cookie_header, console_error, legacy_result) {
-                    Ok(result) => result,
-                    Err(error) => {
-                        zen_task.abort();
-                        return Err(error);
-                    }
-                }
+            Err(console_error) if cookies.can_recover_with_legacy(&console_error) => {
+                zen_task.abort();
+                return self
+                    .fetch_legacy_with_cookies(ctx, &cookies, console_error)
+                    .await;
             }
             Err(error) => {
                 zen_task.abort();
@@ -239,15 +328,17 @@ impl OpenCodeGoProvider {
     async fn fetch_legacy_with_cookies(
         &self,
         ctx: &FetchContext,
-        cookie_header: &str,
+        cookies: &WebCookieSession,
         console_error: ProviderError,
     ) -> Result<ProviderFetchResult, ProviderError> {
+        let session = match LegacyWorkspaceSession::resolve(&self.client, cookies).await {
+            Ok(session) => session,
+            Err(error) => return cookies.select_legacy_result(console_error, Err(error)),
+        };
         let (zen_task, zen_started) =
-            self.spawn_legacy_balance_task(cookie_header, ctx.web_timeout);
-        let legacy_result = legacy::LegacySession::new(&self.client, cookie_header)
-            .fetch_usage()
-            .await;
-        let result = match legacy::select_result(cookie_header, console_error, legacy_result) {
+            Self::spawn_legacy_balance_task(session.clone(), ctx.web_timeout);
+        let result = match cookies.select_legacy_result(console_error, session.fetch_usage().await)
+        {
             Ok(result) => result,
             Err(error) => {
                 zen_task.abort();
@@ -433,11 +524,9 @@ impl OpenCodeGoProvider {
         let Some(cookie_header) = cookie_header else {
             return Ok(result);
         };
-        let (task, started) = self.spawn_zen_balance_task(
-            &cookie_header,
-            ctx.workspace_id.as_deref(),
-            ctx.web_timeout,
-        );
+        let cookies = WebCookieSession::new(&cookie_header);
+        let (task, started) =
+            self.spawn_zen_balance_task(&cookies, ctx.workspace_id.as_deref(), ctx.web_timeout);
         if let Some(balance) =
             Self::join_zen_balance(task, started, ctx.requires_optional_usage_completeness).await
         {
@@ -479,6 +568,63 @@ fn zen_balance_join_budget(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cookie_session_classifies_transport_capabilities_once() {
+        let both = WebCookieSession::new("auth=legacy; __Host-console_session=console");
+        assert_eq!(
+            both.capabilities,
+            CookieCapabilities {
+                console: true,
+                legacy: true,
+            }
+        );
+        assert_eq!(
+            WebCookieSession::new("__Host-console_session=console").capabilities,
+            CookieCapabilities {
+                console: true,
+                legacy: false,
+            }
+        );
+        assert_eq!(
+            WebCookieSession::new("auth=; __Host-console_session=").capabilities,
+            CookieCapabilities {
+                console: false,
+                legacy: false,
+            }
+        );
+    }
+
+    #[test]
+    fn legacy_recovery_and_error_precedence_follow_cookie_capabilities() {
+        let both = WebCookieSession::new("auth=legacy; __Host-console_session=console");
+        assert!(both.can_recover_with_legacy(&ProviderError::AuthRequired));
+        assert!(
+            !WebCookieSession::new("__Host-console_session=console")
+                .can_recover_with_legacy(&ProviderError::AuthRequired)
+        );
+        assert!(
+            !both.can_recover_with_legacy(&ProviderError::NotInstalled("terminal".to_string()))
+        );
+
+        let error = both
+            .select_legacy_result::<()>(
+                ProviderError::Other("console unavailable".to_string()),
+                Err(ProviderError::AuthRequired),
+            )
+            .unwrap_err();
+        assert!(matches!(error, ProviderError::Other(message) if message == "console unavailable"));
+
+        let error = both
+            .select_legacy_result::<()>(
+                ProviderError::AuthRequired,
+                Err(ProviderError::Parse("legacy payload missing".to_string())),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, ProviderError::Parse(message) if message == "legacy payload missing")
+        );
+    }
 
     #[test]
     fn uses_context_workspace_id_before_discovery() {

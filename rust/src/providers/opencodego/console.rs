@@ -18,23 +18,6 @@ pub(super) enum ConsoleUsage {
     NoSubscription,
 }
 
-pub(super) fn has_legacy_cookie(cookie_header: &str) -> bool {
-    has_cookie(cookie_header, &["auth", "__Host-auth"])
-}
-
-pub(super) fn has_console_cookie(cookie_header: &str) -> bool {
-    has_cookie(cookie_header, &["__Host-console_session"])
-}
-
-fn has_cookie(cookie_header: &str, names: &[&str]) -> bool {
-    cookie_header.split(';').any(|part| {
-        let Some((name, value)) = part.trim().split_once('=') else {
-            return false;
-        };
-        names.contains(&name.trim()) && !value.trim().is_empty()
-    })
-}
-
 pub(super) fn normalize_workspace_id(raw: Option<&str>) -> Option<String> {
     let raw = raw?.trim();
     if is_workspace_id(raw) {
@@ -331,15 +314,6 @@ mod tests {
             normalize_workspace_id(Some("https://example.com/console/org_TWO/go")),
             None
         );
-    }
-
-    #[test]
-    fn detects_independent_console_and_legacy_sessions() {
-        let header = "auth=legacy; __Host-console_session=console";
-        assert!(has_legacy_cookie(header));
-        assert!(has_console_cookie(header));
-        assert!(!has_legacy_cookie("__Host-console_session=console"));
-        assert!(!has_console_cookie("auth=legacy"));
     }
 
     #[test]
