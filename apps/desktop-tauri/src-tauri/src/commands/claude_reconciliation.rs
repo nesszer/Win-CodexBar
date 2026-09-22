@@ -103,7 +103,7 @@ impl ClaudeReconciliationState {
         (token, snapshot)
     }
 
-    pub(crate) fn complete(
+    pub(super) fn complete(
         &mut self,
         token: ClaudeReconciliationToken,
         result: ClaudeReconciliationResult,
