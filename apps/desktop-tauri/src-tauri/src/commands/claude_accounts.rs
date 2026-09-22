@@ -1,4 +1,4 @@
-use super::invalidate_account_usage;
+use super::{claude_reconciliation, invalidate_account_usage};
 use crate::state::AppState;
 use codexbar::core::ProviderId;
 use codexbar::providers::claude::accounts::{self, AccountManager, ClaudeAccount};
@@ -105,14 +105,14 @@ fn account_row_for_slot(
 /// settle. Event order is load-bearing for every listener:
 ///
 /// 1. `claude-accounts-reconciling` — listeners show the reconciling phase.
-/// 2. the bounded provider refresh runs; superseded batches are detected below.
-/// 3. `claude-accounts-reconciled` — the terminal marker; settling must be
-///    event-driven, never inferred from a switch promise resolving.
+/// 2. the bounded provider refresh runs with a typed ownership outcome.
+/// 3. `claude-accounts-reconciled` — the success/failure terminal marker;
+///    settling must be event-driven, never inferred from a switch promise.
 /// 4. `claude-accounts-updated` + tray rebuild — the settled reload.
 ///
-/// Do not reorder these emits. A refresh that never started or was superseded
-/// mid-flight keeps the reconciling phase armed instead of settling, so no
-/// surface shows "settled" while a refresh is still in flight.
+/// The Claude reconciliation coordinator serializes begin/terminal emission.
+/// Detached stale workers become superseded terminals internally and cannot
+/// settle a newer operation. Every current outcome clears the reconciling UI.
 async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String> {
     let pending = {
         let state = app.state::<Mutex<AppState>>();
@@ -120,15 +120,17 @@ async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String
         invalidate_account_usage(&mut state, ProviderId::Claude)
     };
     crate::events::emit_provider_updated(&app, &pending);
-    let _emit = app.emit("claude-accounts-reconciling", ());
+    let reconciliation = claude_reconciliation::begin(&app);
     let refresh_app = app.clone();
     let mut ambient = tauri::async_runtime::spawn(async move {
-        let refresh_outcome = super::do_refresh_providers_with_outcome(&refresh_app).await?;
-        if refresh_outcome.published_generation().is_some() {
-            let _reconciled = refresh_app.emit("claude-accounts-reconciled", ());
+        let terminal = claude_reconciliation::ClaudeReconciliationResult::from_refresh(
+            super::do_refresh_providers_with_outcome(&refresh_app).await,
+        );
+        let command_result = terminal.command_result();
+        if claude_reconciliation::complete(&refresh_app, reconciliation, terminal) {
             changed(&refresh_app);
         }
-        Ok::<(), String>(())
+        command_result
     });
     match tokio::time::timeout(AMBIENT_RECONCILIATION_GRACE, &mut ambient).await {
         Ok(joined) => joined.map_err(|error| error.to_string())?,

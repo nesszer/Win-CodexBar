@@ -133,18 +133,36 @@ enum RefreshScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProviderRefreshOutcome {
-    Skipped,
-    Published { generation: u64 },
-    Superseded { generation: u64 },
+    Skipped {
+        reason: ProviderRefreshSkipReason,
+    },
+    Published {
+        generation: u64,
+    },
+    Superseded {
+        generation: u64,
+        current_generation: u64,
+    },
 }
 
-impl ProviderRefreshOutcome {
-    pub(crate) fn published_generation(self) -> Option<u64> {
-        match self {
-            Self::Published { generation } => Some(generation),
-            Self::Skipped | Self::Superseded { .. } => None,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderRefreshSkipReason {
+    NoEnabledProviders,
+    Active { generation: u64 },
+    InputSuperseded { expected: u64, current: u64 },
+    CacheFresh { generation: u64 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderRefreshReservation {
+    Reserved { generation: u64 },
+    Skipped(ProviderRefreshSkipReason),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderRefreshCompletion {
+    Published { error_count: usize },
+    Superseded { current_generation: u64 },
 }
 
 impl RefreshScope {
@@ -526,16 +544,20 @@ async fn do_refresh_providers_with_policy(
     let enabled_ids = settings.get_enabled_provider_ids();
     let refresh_ids = scope.provider_ids(&settings, &enabled_ids);
     if refresh_ids.is_empty() {
-        return Ok(ProviderRefreshOutcome::Skipped);
+        return Ok(ProviderRefreshOutcome::Skipped {
+            reason: ProviderRefreshSkipReason::NoEnabledProviders,
+        });
     }
 
     let inputs = ProviderRefreshInputs::load(settings, enabled_ids);
-    let Some(generation) =
-        begin_provider_refresh(&state, force, &refresh_ids, expected_generation)?
-    else {
-        // Settings or account identity changed while inputs were loading, or a
-        // newer batch already owns the refresh. Discard this input snapshot.
-        return Ok(ProviderRefreshOutcome::Skipped);
+    let generation = match begin_provider_refresh(&state, force, &refresh_ids, expected_generation)?
+    {
+        ProviderRefreshReservation::Reserved { generation } => generation,
+        ProviderRefreshReservation::Skipped(reason) => {
+            // Settings or account identity changed while inputs were loading,
+            // another batch owns the refresh, or the cache is already fresh.
+            return Ok(ProviderRefreshOutcome::Skipped { reason });
+        }
     };
 
     // Ensure cache only contains currently enabled providers for this generation.
@@ -564,10 +586,16 @@ async fn do_refresh_providers_with_policy(
     );
     await_provider_refreshes(handles).await;
 
-    let Some(error_count) = finish_provider_refresh(&state, generation)? else {
-        // Superseded by a newer generation (or invalidate). Do not clear UI
-        // "refreshing" for a dead batch or stamp tray from incomplete work.
-        return Ok(ProviderRefreshOutcome::Superseded { generation });
+    let error_count = match finish_provider_refresh(&state, generation)? {
+        ProviderRefreshCompletion::Published { error_count } => error_count,
+        ProviderRefreshCompletion::Superseded { current_generation } => {
+            // Superseded by a newer generation (or invalidate). Do not clear UI
+            // "refreshing" for dead work or stamp tray from incomplete work.
+            return Ok(ProviderRefreshOutcome::Superseded {
+                generation,
+                current_generation,
+            });
+        }
     };
     update_tray_and_notifications(app, &state, &inputs.settings, &inputs.token_accounts)?;
 
@@ -582,7 +610,7 @@ fn begin_provider_refresh(
     force: bool,
     provider_ids: &[ProviderId],
     expected_generation: u64,
-) -> Result<Option<u64>, String> {
+) -> Result<ProviderRefreshReservation, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     reserve_provider_refresh(&mut guard, force, provider_ids, expected_generation)
 }
@@ -592,22 +620,35 @@ fn reserve_provider_refresh(
     force: bool,
     provider_ids: &[ProviderId],
     expected_generation: u64,
-) -> Result<Option<u64>, String> {
+) -> Result<ProviderRefreshReservation, String> {
     if guard.is_refreshing {
-        return Ok(None);
+        return Ok(ProviderRefreshReservation::Skipped(
+            ProviderRefreshSkipReason::Active {
+                generation: guard.provider_refresh_generation,
+            },
+        ));
     }
     if guard.provider_refresh_generation != expected_generation {
-        return Ok(None);
+        return Ok(ProviderRefreshReservation::Skipped(
+            ProviderRefreshSkipReason::InputSuperseded {
+                expected: expected_generation,
+                current: guard.provider_refresh_generation,
+            },
+        ));
     }
     if provider_cache_can_skip_refresh(guard, force, provider_ids) {
-        return Ok(None);
+        return Ok(ProviderRefreshReservation::Skipped(
+            ProviderRefreshSkipReason::CacheFresh {
+                generation: guard.provider_refresh_generation,
+            },
+        ));
     }
 
     guard.provider_refresh_generation = guard.provider_refresh_generation.wrapping_add(1);
     let generation = guard.provider_refresh_generation;
     guard.is_refreshing = true;
     guard.provider_refresh_started_at = Some(std::time::Instant::now());
-    Ok(Some(generation))
+    Ok(ProviderRefreshReservation::Reserved { generation })
 }
 
 fn provider_cache_can_skip_refresh(
@@ -1105,27 +1146,29 @@ async fn await_provider_refreshes(handles: Vec<tokio::task::JoinHandle<()>>) {
 fn finish_provider_refresh(
     state: &tauri::State<'_, Mutex<AppState>>,
     generation: u64,
-) -> Result<Option<usize>, String> {
+) -> Result<ProviderRefreshCompletion, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     Ok(complete_provider_refresh(&mut guard, generation))
 }
 
-fn complete_provider_refresh(guard: &mut AppState, generation: u64) -> Option<usize> {
+fn complete_provider_refresh(guard: &mut AppState, generation: u64) -> ProviderRefreshCompletion {
     if !is_current_provider_refresh_generation(guard, generation) {
         // A newer begin or invalidate owns the lock/generation. Do not clear
         // is_refreshing — that would race a live successor batch.
-        return None;
+        return ProviderRefreshCompletion::Superseded {
+            current_generation: guard.provider_refresh_generation,
+        };
     }
     guard.is_refreshing = false;
     guard.provider_refresh_started_at = None;
     guard.provider_cache_updated_at = Some(std::time::Instant::now());
-    Some(
-        guard
+    ProviderRefreshCompletion::Published {
+        error_count: guard
             .provider_cache
             .iter()
             .filter(|s| s.error.is_some())
             .count(),
-    )
+    }
 }
 
 fn update_tray_and_notifications(
@@ -1750,7 +1793,10 @@ mod refresh_generation_tests {
         assert_eq!(
             reserve_provider_refresh(&mut state, true, &[ProviderId::Codex], expected_generation,)
                 .expect("reservation should not fail"),
-            None
+            ProviderRefreshReservation::Skipped(ProviderRefreshSkipReason::InputSuperseded {
+                expected: expected_generation,
+                current: state.provider_refresh_generation,
+            })
         );
         assert!(!state.is_refreshing);
     }
@@ -1760,10 +1806,12 @@ mod refresh_generation_tests {
         let mut state = AppState::new();
         let expected_generation = state.provider_refresh_generation;
 
-        let generation =
+        let ProviderRefreshReservation::Reserved { generation } =
             reserve_provider_refresh(&mut state, true, &[ProviderId::Codex], expected_generation)
                 .expect("reservation should succeed")
-                .expect("refresh should be reserved");
+        else {
+            panic!("refresh should be reserved");
+        };
 
         assert_eq!(generation, expected_generation.wrapping_add(1));
         assert!(state.is_refreshing);
@@ -1773,41 +1821,73 @@ mod refresh_generation_tests {
     fn superseded_generation_cannot_publish_or_release_its_successor() {
         let mut state = AppState::new();
         let initial_generation = state.provider_refresh_generation;
-        let first_generation =
-            reserve_provider_refresh(&mut state, true, &[ProviderId::Claude], initial_generation)
-                .expect("first reservation should succeed")
-                .expect("first refresh should be reserved");
+        let ProviderRefreshReservation::Reserved {
+            generation: first_generation,
+        } = reserve_provider_refresh(&mut state, true, &[ProviderId::Claude], initial_generation)
+            .expect("first reservation should succeed")
+        else {
+            panic!("first refresh should be reserved");
+        };
 
         invalidate_account_usage(&mut state, ProviderId::Claude);
         let successor_input_generation = state.provider_refresh_generation;
-        let successor_generation = reserve_provider_refresh(
+        let ProviderRefreshReservation::Reserved {
+            generation: successor_generation,
+        } = reserve_provider_refresh(
             &mut state,
             true,
             &[ProviderId::Claude],
             successor_input_generation,
         )
         .expect("successor reservation should succeed")
-        .expect("successor refresh should be reserved");
+        else {
+            panic!("successor refresh should be reserved");
+        };
 
         assert_eq!(
             complete_provider_refresh(&mut state, first_generation),
-            None
+            ProviderRefreshCompletion::Superseded {
+                current_generation: successor_generation
+            }
         );
         assert!(state.is_refreshing);
         assert_eq!(state.provider_refresh_generation, successor_generation);
 
-        assert!(complete_provider_refresh(&mut state, successor_generation).is_some());
+        assert!(matches!(
+            complete_provider_refresh(&mut state, successor_generation),
+            ProviderRefreshCompletion::Published { .. }
+        ));
         assert!(!state.is_refreshing);
         assert_eq!(state.provider_refresh_generation, successor_generation);
     }
 
     #[test]
-    fn refresh_outcome_reports_only_the_generation_that_published() {
+    fn refresh_outcome_preserves_generation_ownership_and_skip_reason() {
         let published = ProviderRefreshOutcome::Published { generation: 42 };
-        let superseded = ProviderRefreshOutcome::Superseded { generation: 41 };
+        let superseded = ProviderRefreshOutcome::Superseded {
+            generation: 41,
+            current_generation: 42,
+        };
+        let active = ProviderRefreshOutcome::Skipped {
+            reason: ProviderRefreshSkipReason::Active { generation: 42 },
+        };
 
-        assert_eq!(published.published_generation(), Some(42));
-        assert_eq!(superseded.published_generation(), None);
-        assert_eq!(ProviderRefreshOutcome::Skipped.published_generation(), None);
+        assert_eq!(
+            published,
+            ProviderRefreshOutcome::Published { generation: 42 }
+        );
+        assert_eq!(
+            superseded,
+            ProviderRefreshOutcome::Superseded {
+                generation: 41,
+                current_generation: 42
+            }
+        );
+        assert_eq!(
+            active,
+            ProviderRefreshOutcome::Skipped {
+                reason: ProviderRefreshSkipReason::Active { generation: 42 }
+            }
+        );
     }
 }
