@@ -123,40 +123,21 @@ async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String
     let _emit = app.emit("claude-accounts-reconciling", ());
     let refresh_app = app.clone();
     let mut ambient = tauri::async_runtime::spawn(async move {
-        let refresh_result = super::refresh_providers(refresh_app.clone()).await;
-        if refresh_providers_ran(&refresh_app) {
+        let refresh_outcome = super::do_refresh_providers_with_outcome(&refresh_app).await?;
+        if refresh_outcome.published_generation().is_some() {
             let _reconciled = refresh_app.emit("claude-accounts-reconciled", ());
             changed(&refresh_app);
         }
-        refresh_result
+        Ok::<(), String>(())
     });
-    let refresh_result =
-        match tokio::time::timeout(AMBIENT_RECONCILIATION_GRACE, &mut ambient).await {
-            Ok(joined) => joined.map_err(|error| error.to_string())?,
-            Err(_) => {
-                // Dropping only the JoinHandle waiter detaches the owning refresh.
-                // The task emits the terminal event only after its refresh settles.
-                return Ok(());
-            }
-        };
-    if !refresh_providers_ran(&app) {
-        // begin_provider_refresh skipped (another batch owns the refresh) or
-        // finish_provider_refresh dropped a superseded generation: a refresh
-        // is still in flight, so stay in the reconciling phase and let the
-        // owning batch's completion settle listeners.
-        return refresh_result;
+    match tokio::time::timeout(AMBIENT_RECONCILIATION_GRACE, &mut ambient).await {
+        Ok(joined) => joined.map_err(|error| error.to_string())?,
+        Err(_) => {
+            // Dropping only the JoinHandle waiter detaches the owning refresh.
+            // The task emits the terminal event only after its refresh settles.
+            Ok(())
+        }
     }
-    refresh_result
-}
-
-/// Whether the completed refresh batch owned the generation it published
-/// under. A skipped or superseded batch must not settle account listeners.
-fn refresh_providers_ran(app: &tauri::AppHandle) -> bool {
-    let state = app.state::<Mutex<AppState>>();
-    state
-        .lock()
-        .map(|guard| !guard.is_refreshing)
-        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Copy)]
