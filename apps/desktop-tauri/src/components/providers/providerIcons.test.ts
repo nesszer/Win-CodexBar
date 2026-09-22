@@ -8,4 +8,8 @@ describe("provider icon registry", () => {
       expect(PROVIDER_ICON_REGISTRY[id], id).toBeDefined();
     }
   });
+
+  it("does not expose the retired Crof provider", () => {
+    expect(PROVIDER_ICON_REGISTRY).not.toHaveProperty("crof");
+  });
 });

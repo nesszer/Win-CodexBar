@@ -1045,6 +1045,78 @@ fn test_new_format_provider_configs_only() {
     assert_eq!(settings.api_region(ProviderId::Zai), "global");
 }
 
+#[test]
+fn retired_provider_config_is_ignored_until_explicit_save() {
+    let original = r#"{
+            "enabled_providers": ["codex", "crof"],
+            "refresh_interval_secs": 300,
+            "provider_metrics": { "codex": "weekly", "crof": "session" },
+            "float_bar_provider_ids": ["codex", "crof"],
+            "provider_configs": {
+                "crof": { "api_token": "retired-fixture-key" },
+                "codex": { "cookie_source": "manual", "openai_web_extras": false },
+                "alibaba": { "api_region": "cn", "manual_cookie_header": "ali=PLACEHOLDER" }
+            }
+        }"#;
+    let original_bytes = original.as_bytes().to_vec();
+
+    let settings: Settings =
+        serde_json::from_str(original).expect("load settings with retired key");
+
+    assert_eq!(original.as_bytes(), original_bytes);
+    assert_eq!(settings.cookie_source(ProviderId::Codex), "manual");
+    assert!(!settings.openai_web_extras(ProviderId::Codex));
+    assert_eq!(
+        settings.enabled_providers,
+        HashSet::from(["codex".to_string()])
+    );
+    assert_eq!(settings.provider_metrics.len(), 1);
+    assert_eq!(settings.float_bar_provider_ids, ["codex"]);
+    assert_eq!(settings.api_region(ProviderId::Alibaba), "cn");
+    assert_eq!(
+        settings.manual_cookie_header(ProviderId::Alibaba),
+        "ali=PLACEHOLDER"
+    );
+
+    let saved = serde_json::to_string(&settings).expect("serialize sanitized settings");
+    let saved_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    let saved_configs = saved_value["provider_configs"].as_object().unwrap();
+    assert!(!saved_configs.contains_key("crof"));
+    assert!(saved_configs.contains_key("codex"));
+    assert!(saved_configs.contains_key("alibaba"));
+    assert!(
+        !saved.contains("\"crof\""),
+        "saved settings retained Crof: {saved}"
+    );
+}
+
+#[test]
+fn provider_aliases_are_canonicalized_at_the_load_boundary() {
+    let settings: Settings = serde_json::from_str(
+        r#"{
+            "enabled_providers": ["openai", "ClAuDe", "not-a-provider"],
+            "provider_metrics": {
+                "openai": "weekly",
+                "CoDeX": "session",
+                "not-a-provider": "weekly"
+            },
+            "float_bar_provider_ids": ["OPENAI", "codex", "ClAuDe", "unknown"]
+        }"#,
+    )
+    .expect("load settings containing provider aliases");
+
+    assert_eq!(
+        settings.enabled_providers,
+        HashSet::from(["claude".to_string(), "codex".to_string()])
+    );
+    assert_eq!(
+        settings.provider_metrics.get("codex"),
+        Some(&MetricPreference::Session)
+    );
+    assert_eq!(settings.provider_metrics.len(), 1);
+    assert_eq!(settings.float_bar_provider_ids, ["codex", "claude"]);
+}
+
 /// Default `Settings` should serialize WITHOUT a `provider_configs`
 /// field (empty map skipped).
 #[test]

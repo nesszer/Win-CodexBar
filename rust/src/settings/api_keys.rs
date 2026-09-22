@@ -429,15 +429,6 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://console.volcengine.com/ark/region:ark+cn-beijing/usage"),
         },
         ProviderConfigInfo {
-            id: ProviderId::Crof,
-            name: "Crof",
-            requires_api_key: true,
-            api_key_env_var: Some("CROF_API_KEY"),
-            api_key_help: Some("Get your API key from Crof."),
-            config_file_path: None,
-            dashboard_url: Some("https://crof.ai"),
-        },
-        ProviderConfigInfo {
             id: ProviderId::StepFun,
             name: "StepFun",
             requires_api_key: true,

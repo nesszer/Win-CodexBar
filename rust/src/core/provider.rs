@@ -55,7 +55,6 @@ pub enum ProviderId {
     MiMo,
     Doubao,
     CommandCode,
-    Crof,
     StepFun,
     Venice,
     OpenAIApi,
@@ -139,7 +138,6 @@ impl ProviderId {
             ProviderId::MiMo,
             ProviderId::Doubao,
             ProviderId::CommandCode,
-            ProviderId::Crof,
             ProviderId::StepFun,
             ProviderId::Venice,
             ProviderId::OpenAIApi,
@@ -226,7 +224,6 @@ impl ProviderId {
             ProviderId::MiMo => "mimo",
             ProviderId::Doubao => "doubao",
             ProviderId::CommandCode => "commandcode",
-            ProviderId::Crof => "crof",
             ProviderId::StepFun => "stepfun",
             ProviderId::Venice => "venice",
             ProviderId::OpenAIApi => "openaiapi",
@@ -310,7 +307,6 @@ impl ProviderId {
             ProviderId::MiMo => "Xiaomi MiMo",
             ProviderId::Doubao => "Doubao",
             ProviderId::CommandCode => "Command Code",
-            ProviderId::Crof => "Crof",
             ProviderId::StepFun => "StepFun",
             ProviderId::Venice => "Venice",
             ProviderId::OpenAIApi => "OpenAI API",
@@ -406,7 +402,6 @@ impl ProviderId {
             ProviderId::AiAnd => None,
             ProviderId::Windsurf => None,
             ProviderId::Doubao => None,
-            ProviderId::Crof => None,
             ProviderId::StepFun => None,
             ProviderId::OpenAIApi => None,
             ProviderId::ElevenLabs => None,
@@ -490,7 +485,6 @@ impl ProviderId {
             }
             "doubao" | "ark" | "volcengine" => Some(ProviderId::Doubao),
             "commandcode" | "command-code" | "command code" => Some(ProviderId::CommandCode),
-            "crof" => Some(ProviderId::Crof),
             "stepfun" | "step-fun" | "step fun" => Some(ProviderId::StepFun),
             "venice" => Some(ProviderId::Venice),
             "openaiapi" | "openai-api" | "openai api" | "openai-balance" => {
@@ -1048,7 +1042,6 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::MiMo => "#FF6900",
         ProviderId::Doubao => "#2563EB",
         ProviderId::CommandCode => "#44FF00",
-        ProviderId::Crof => "#7C3AED",
         ProviderId::StepFun => "#999999",
         ProviderId::Venice => "#111827",
         ProviderId::OpenAIApi => "#10A37F",
@@ -1096,7 +1089,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 77);
+        assert_eq!(all.len(), 76);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Pi));
@@ -1121,7 +1114,6 @@ mod tests {
         assert!(all.contains(&ProviderId::MiMo));
         assert!(all.contains(&ProviderId::Doubao));
         assert!(all.contains(&ProviderId::CommandCode));
-        assert!(all.contains(&ProviderId::Crof));
         assert!(all.contains(&ProviderId::StepFun));
         assert!(all.contains(&ProviderId::Venice));
         assert!(all.contains(&ProviderId::OpenAIApi));
@@ -1231,6 +1223,7 @@ mod tests {
             Some(ProviderId::Antigravity)
         );
         assert_eq!(ProviderId::from_cli_name("zed"), Some(ProviderId::Zed));
+        assert_eq!(ProviderId::from_cli_name("crof"), None);
         assert_eq!(ProviderId::from_cli_name("unknown"), None);
         assert_eq!(
             ProviderId::from_cli_name("code-rabbit"),
