@@ -188,9 +188,12 @@ fn render_codex_host_report(report: &CodexHostCostReport) -> String {
         "\nPartial history; scan is incomplete.".to_string()
     };
     format!(
-        "{title} — Codex API-equivalent estimate (not billed)\n{}{}\nDay boundaries: {}{}",
+        "{title} — Codex API-equivalent estimate (not billed)\n{}{}\nSnapshot updated: {}\nDay boundaries: {}{}",
         window_line("Today", &summary.today),
         history,
+        summary
+            .updated_at
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         summary.bucket_time_zone,
         coverage
     )
@@ -198,4 +201,31 @@ fn render_codex_host_report(report: &CodexHostCostReport) -> String {
 
 fn format_tokens(value: u64) -> String {
     value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cost_scanner::CostSummary;
+
+    #[test]
+    fn ssh_cost_text_shows_source_snapshot_timestamp_in_utc() {
+        let complete = CostSummary {
+            history_coverage_established: true,
+            ..CostSummary::default()
+        };
+        let summary = CodexCostSummary::from_summaries_at(
+            &complete,
+            &complete,
+            30,
+            chrono::DateTime::from_timestamp(946_684_800, 0).unwrap(),
+            "Asia/Tokyo",
+        );
+
+        let text =
+            render_codex_host_report(&CodexHostCostReport::success("qa-windows", "ssh", summary));
+
+        assert!(text.contains("Snapshot updated: 2000-01-01T00:00:00Z"));
+        assert!(text.contains("Day boundaries: Asia/Tokyo"));
+    }
 }
