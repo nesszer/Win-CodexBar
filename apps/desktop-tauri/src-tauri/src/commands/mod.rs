@@ -64,6 +64,8 @@ pub use diagnostics::*;
 pub use grok_accounts::*;
 pub use locale_cmd::*;
 pub use provider_detail::*;
+#[cfg(test)]
+pub(crate) use provider_refresh::is_provider_cache_fresh;
 pub(crate) use provider_refresh::{ProviderRefreshOutcome, ProviderRefreshSkipReason};
 pub use provider_settings::*;
 pub use providers::*;
