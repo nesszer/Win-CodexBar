@@ -8,12 +8,16 @@
 mod console;
 mod legacy;
 pub(crate) mod local;
+mod transport;
 mod usage_api;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use reqwest::Client;
+use std::sync::Arc;
 use std::time::Duration;
+
+use transport::{HttpWebTransport, WebTransport};
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
@@ -108,38 +112,6 @@ impl WebCookieSession {
     }
 }
 
-#[derive(Clone)]
-struct LegacyWorkspaceSession {
-    client: Client,
-    cookie_header: String,
-    workspace_id: String,
-}
-
-impl LegacyWorkspaceSession {
-    async fn resolve(client: &Client, cookies: &WebCookieSession) -> Result<Self, ProviderError> {
-        let workspace_id = legacy::discover_workspace_id(client, cookies.header()).await?;
-        Ok(Self {
-            client: client.clone(),
-            cookie_header: cookies.header.clone(),
-            workspace_id,
-        })
-    }
-
-    async fn fetch_usage(&self) -> Result<legacy::LegacyUsage, ProviderError> {
-        legacy::fetch_usage(&self.client, &self.cookie_header, &self.workspace_id).await
-    }
-
-    async fn fetch_balance(&self, timeout: Duration) -> Result<Option<f64>, ProviderError> {
-        legacy::fetch_balance(
-            &self.client,
-            &self.cookie_header,
-            &self.workspace_id,
-            timeout,
-        )
-        .await
-    }
-}
-
 impl OpenCodeGoProvider {
     pub fn new() -> Self {
         Self {
@@ -167,25 +139,20 @@ impl OpenCodeGoProvider {
         console::normalize_workspace_id(workspace_id)
     }
 
-    async fn fetch_workspace_id(
-        client: &Client,
-        cookie_header: &str,
-    ) -> Result<String, ProviderError> {
-        console::fetch_workspace_id(client, cookie_header, Duration::from_secs(30)).await
-    }
-
     /// Upstream `fetchZenBalance`: the dashboard HTML embeds the balance for
     /// some page states; the dedicated billing server-fn report (raw 1e-8 USD
     /// units behind a customerID marker) is the fallback. Optional enrichment
     /// — every failure degrades to `None`, never to a fetch error.
-    async fn fetch_zen_balance(
-        client: &Client,
+    async fn fetch_zen_balance<T: WebTransport>(
+        transport: &T,
         workspace_id: &str,
         cookies: &WebCookieSession,
         timeout: Duration,
     ) -> OptionalZenBalance {
         let request_timeout = timeout.min(ZEN_BALANCE_TIMEOUT);
-        match console::fetch_balance(client, workspace_id, cookies.header(), request_timeout).await
+        match transport
+            .fetch_console_balance(workspace_id, cookies.header(), request_timeout)
+            .await
         {
             Ok(balance) => OptionalZenBalance::Resolved(balance),
             Err(error) if cookies.can_recover_with_legacy(&error) => {
@@ -198,8 +165,8 @@ impl OpenCodeGoProvider {
     /// Spawn the optional Zen balance task (25 ms start delay so the usage
     /// fetch gets the head start, per upstream). Resolves the workspace id
     /// inside the task when no override is pinned.
-    fn spawn_zen_balance_task(
-        &self,
+    fn spawn_zen_balance_task<T: WebTransport>(
+        transport: Arc<T>,
         cookies: &WebCookieSession,
         workspace_id_override: Option<&str>,
         web_timeout: u64,
@@ -207,7 +174,6 @@ impl OpenCodeGoProvider {
         tokio::task::JoinHandle<OptionalZenBalance>,
         std::time::Instant,
     ) {
-        let client = self.client.clone();
         let cookies = cookies.clone();
         let workspace_id_override = workspace_id_override.map(str::to_string);
         let timeout = Duration::from_secs(web_timeout.max(1));
@@ -216,7 +182,10 @@ impl OpenCodeGoProvider {
             tokio::time::sleep(ZEN_BALANCE_START_DELAY).await;
             let workspace_id = match workspace_id_override {
                 Some(id) => id,
-                None => match Self::fetch_workspace_id(&client, cookies.header()).await {
+                None => match transport
+                    .fetch_workspace_id(cookies.header(), Duration::from_secs(30))
+                    .await
+                {
                     Ok(id) => id,
                     Err(error) if cookies.can_recover_with_legacy(&error) => {
                         return OptionalZenBalance::LegacyBalanceRequired;
@@ -224,13 +193,14 @@ impl OpenCodeGoProvider {
                     Err(_) => return OptionalZenBalance::Resolved(None),
                 },
             };
-            Self::fetch_zen_balance(&client, &workspace_id, &cookies, timeout).await
+            Self::fetch_zen_balance(transport.as_ref(), &workspace_id, &cookies, timeout).await
         });
         (task, started_at)
     }
 
-    fn spawn_legacy_balance_task(
-        session: LegacyWorkspaceSession,
+    fn spawn_legacy_balance_task<T: WebTransport>(
+        transport: Arc<T>,
+        session: T::LegacySession,
         web_timeout: u64,
     ) -> (
         tokio::task::JoinHandle<OptionalZenBalance>,
@@ -240,17 +210,14 @@ impl OpenCodeGoProvider {
         let started_at = std::time::Instant::now();
         let task = tokio::spawn(async move {
             tokio::time::sleep(ZEN_BALANCE_START_DELAY).await;
-            OptionalZenBalance::Resolved(session.fetch_balance(timeout).await.unwrap_or(None))
+            OptionalZenBalance::Resolved(
+                transport
+                    .fetch_legacy_balance(&session, timeout)
+                    .await
+                    .unwrap_or(None),
+            )
         });
         (task, started_at)
-    }
-
-    async fn abort_optional_balance_and_resolve<T>(
-        task: tokio::task::JoinHandle<OptionalZenBalance>,
-        resolution: impl std::future::Future<Output = Result<T, ProviderError>>,
-    ) -> Result<T, ProviderError> {
-        task.abort();
-        resolution.await
     }
 
     /// Join the optional Zen balance task within the policy budget. A budget
@@ -270,8 +237,8 @@ impl OpenCodeGoProvider {
         }
     }
 
-    async fn resolve_legacy_balance(
-        client: &Client,
+    async fn resolve_legacy_balance<T: WebTransport>(
+        transport: Arc<T>,
         cookies: &WebCookieSession,
         started_at: std::time::Instant,
         requires_optional_usage_completeness: bool,
@@ -281,11 +248,9 @@ impl OpenCodeGoProvider {
             return None;
         }
         tokio::time::timeout(budget, async {
-            let session = LegacyWorkspaceSession::resolve(client, cookies)
-                .await
-                .ok()?;
-            session
-                .fetch_balance(budget.min(ZEN_BALANCE_TIMEOUT))
+            let session = transport.resolve_legacy_session(cookies).await.ok()?;
+            transport
+                .fetch_legacy_balance(&session, budget.min(ZEN_BALANCE_TIMEOUT))
                 .await
                 .unwrap_or(None)
         })
@@ -294,8 +259,8 @@ impl OpenCodeGoProvider {
         .flatten()
     }
 
-    async fn finish_zen_balance(
-        client: &Client,
+    async fn finish_zen_balance<T: WebTransport>(
+        transport: Arc<T>,
         cookies: &WebCookieSession,
         task: tokio::task::JoinHandle<OptionalZenBalance>,
         started_at: std::time::Instant,
@@ -306,7 +271,7 @@ impl OpenCodeGoProvider {
             OptionalZenBalance::Resolved(balance) => balance,
             OptionalZenBalance::LegacyBalanceRequired => {
                 Self::resolve_legacy_balance(
-                    client,
+                    transport,
                     cookies,
                     started_at,
                     requires_optional_usage_completeness,
@@ -321,15 +286,31 @@ impl OpenCodeGoProvider {
         ctx: &FetchContext,
         cookie_header: &str,
     ) -> Result<ProviderFetchResult, ProviderError> {
+        let transport = Arc::new(HttpWebTransport::new(self.client.clone()));
+        Self::fetch_with_transport(ctx, cookie_header, transport).await
+    }
+
+    async fn fetch_with_transport<T: WebTransport>(
+        ctx: &FetchContext,
+        cookie_header: &str,
+        transport: Arc<T>,
+    ) -> Result<ProviderFetchResult, ProviderError> {
         let cookies = WebCookieSession::new(cookie_header);
         let workspace_id = match Self::workspace_id_from_context(ctx.workspace_id.as_deref()) {
             Some(workspace_id) => workspace_id,
-            None => match Self::fetch_workspace_id(&self.client, cookies.header()).await {
+            None => match transport
+                .fetch_workspace_id(cookies.header(), Duration::from_secs(30))
+                .await
+            {
                 Ok(workspace_id) => workspace_id,
                 Err(console_error) if cookies.can_recover_with_legacy(&console_error) => {
-                    return self
-                        .fetch_legacy_with_cookies(ctx, &cookies, console_error)
-                        .await;
+                    return Self::fetch_legacy_with_cookies(
+                        ctx,
+                        &cookies,
+                        console_error,
+                        transport,
+                    )
+                    .await;
                 }
                 Err(error) => return Err(error),
             },
@@ -337,15 +318,19 @@ impl OpenCodeGoProvider {
         // F15 (#2583): start the optional Zen balance fetch in parallel with the
         // usage page and bound the join from task creation, so a slow balance
         // still lands in CLI/serve usage reads without stacking a second wait.
-        let (zen_task, zen_started) =
-            self.spawn_zen_balance_task(&cookies, Some(&workspace_id), ctx.web_timeout);
-        let console_result = console::fetch_usage(
-            &self.client,
-            &workspace_id,
-            cookies.header(),
-            Duration::from_secs(ctx.web_timeout.max(1)),
-        )
-        .await;
+        let (zen_task, zen_started) = Self::spawn_zen_balance_task(
+            Arc::clone(&transport),
+            &cookies,
+            Some(&workspace_id),
+            ctx.web_timeout,
+        );
+        let console_result = transport
+            .fetch_console_usage(
+                &workspace_id,
+                cookies.header(),
+                Duration::from_secs(ctx.web_timeout.max(1)),
+            )
+            .await;
         let (usage, embedded_balance) = match console_result {
             Ok(console::ConsoleUsage::Snapshot(usage)) => (*usage, None),
             Ok(console::ConsoleUsage::NoSubscription) => {
@@ -355,20 +340,21 @@ impl OpenCodeGoProvider {
                 ));
             }
             Err(console_error) if cookies.can_recover_with_legacy(&console_error) => {
-                let session = match Self::abort_optional_balance_and_resolve(
-                    zen_task,
-                    LegacyWorkspaceSession::resolve(&self.client, &cookies),
-                )
-                .await
-                {
+                zen_task.abort();
+                let session = match transport.resolve_legacy_session(&cookies).await {
                     Ok(session) => session,
                     Err(error) => {
                         return cookies.select_legacy_result(console_error, Err(error));
                     }
                 };
-                return self
-                    .fetch_legacy_with_session(ctx, &cookies, console_error, session)
-                    .await;
+                return Self::fetch_legacy_with_session(
+                    ctx,
+                    &cookies,
+                    console_error,
+                    transport,
+                    session,
+                )
+                .await;
             }
             Err(error) => {
                 zen_task.abort();
@@ -382,7 +368,7 @@ impl OpenCodeGoProvider {
             }
             None => {
                 Self::finish_zen_balance(
-                    &self.client,
+                    transport,
                     &cookies,
                     zen_task,
                     zen_started,
@@ -394,30 +380,33 @@ impl OpenCodeGoProvider {
         Ok(Self::with_zen_balance(usage, "web", balance))
     }
 
-    async fn fetch_legacy_with_cookies(
-        &self,
+    async fn fetch_legacy_with_cookies<T: WebTransport>(
         ctx: &FetchContext,
         cookies: &WebCookieSession,
         console_error: ProviderError,
+        transport: Arc<T>,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let session = match LegacyWorkspaceSession::resolve(&self.client, cookies).await {
+        let session = match transport.resolve_legacy_session(cookies).await {
             Ok(session) => session,
             Err(error) => return cookies.select_legacy_result(console_error, Err(error)),
         };
-        self.fetch_legacy_with_session(ctx, cookies, console_error, session)
-            .await
+        Self::fetch_legacy_with_session(ctx, cookies, console_error, transport, session).await
     }
 
-    async fn fetch_legacy_with_session(
-        &self,
+    async fn fetch_legacy_with_session<T: WebTransport>(
         ctx: &FetchContext,
         cookies: &WebCookieSession,
         console_error: ProviderError,
-        session: LegacyWorkspaceSession,
+        transport: Arc<T>,
+        session: T::LegacySession,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let (zen_task, zen_started) =
-            Self::spawn_legacy_balance_task(session.clone(), ctx.web_timeout);
-        let result = match cookies.select_legacy_result(console_error, session.fetch_usage().await)
+        let (zen_task, zen_started) = Self::spawn_legacy_balance_task(
+            Arc::clone(&transport),
+            session.clone(),
+            ctx.web_timeout,
+        );
+        let result = match cookies
+            .select_legacy_result(console_error, transport.fetch_legacy_usage(&session).await)
         {
             Ok(result) => result,
             Err(error) => {
@@ -609,10 +598,15 @@ impl OpenCodeGoProvider {
             return Ok(result);
         };
         let cookies = WebCookieSession::new(&cookie_header);
-        let (task, started) =
-            self.spawn_zen_balance_task(&cookies, ctx.workspace_id.as_deref(), ctx.web_timeout);
+        let transport = Arc::new(HttpWebTransport::new(self.client.clone()));
+        let (task, started) = Self::spawn_zen_balance_task(
+            Arc::clone(&transport),
+            &cookies,
+            ctx.workspace_id.as_deref(),
+            ctx.web_timeout,
+        );
         if let Some(balance) = Self::finish_zen_balance(
-            &self.client,
+            transport,
             &cookies,
             task,
             started,
@@ -656,164 +650,4 @@ fn zen_balance_join_budget(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
-
-    #[test]
-    fn cookie_session_classifies_transport_capabilities_once() {
-        let both = WebCookieSession::new("auth=legacy; __Host-console_session=console");
-        assert_eq!(
-            both.capabilities,
-            CookieCapabilities {
-                console: true,
-                legacy: true,
-            }
-        );
-        assert_eq!(
-            WebCookieSession::new("__Host-console_session=console").capabilities,
-            CookieCapabilities {
-                console: true,
-                legacy: false,
-            }
-        );
-        assert_eq!(
-            WebCookieSession::new("auth=; __Host-console_session=").capabilities,
-            CookieCapabilities {
-                console: false,
-                legacy: false,
-            }
-        );
-    }
-
-    #[test]
-    fn legacy_recovery_and_error_precedence_follow_cookie_capabilities() {
-        let both = WebCookieSession::new("auth=legacy; __Host-console_session=console");
-        assert!(both.can_recover_with_legacy(&ProviderError::AuthRequired));
-        assert!(
-            !WebCookieSession::new("__Host-console_session=console")
-                .can_recover_with_legacy(&ProviderError::AuthRequired)
-        );
-        assert!(
-            !both.can_recover_with_legacy(&ProviderError::NotInstalled("terminal".to_string()))
-        );
-
-        let error = both
-            .select_legacy_result::<()>(
-                ProviderError::Other("console unavailable".to_string()),
-                Err(ProviderError::AuthRequired),
-            )
-            .unwrap_err();
-        assert!(matches!(error, ProviderError::Other(message) if message == "console unavailable"));
-
-        let error = both
-            .select_legacy_result::<()>(
-                ProviderError::AuthRequired,
-                Err(ProviderError::Parse("legacy payload missing".to_string())),
-            )
-            .unwrap_err();
-        assert!(
-            matches!(error, ProviderError::Parse(message) if message == "legacy payload missing")
-        );
-    }
-
-    #[test]
-    fn uses_context_workspace_id_before_discovery() {
-        assert_eq!(
-            OpenCodeGoProvider::workspace_id_from_context(Some("wrk_override")),
-            Some("wrk_override".to_string())
-        );
-        assert_eq!(
-            OpenCodeGoProvider::workspace_id_from_context(Some("")),
-            None
-        );
-    }
-
-    #[test]
-    fn selected_token_auth_failure_does_not_fall_back_to_local_estimate() {
-        let mut selected = FetchContext {
-            auto_prefer_web: true,
-            ..FetchContext::default()
-        };
-        assert!(!OpenCodeGoProvider::web_error_allows_local_fallback(
-            &selected,
-            &ProviderError::AuthRequired
-        ));
-
-        selected.auto_prefer_web = false;
-        selected.workspace_id = Some("wrk_example".to_string());
-        assert!(OpenCodeGoProvider::web_error_allows_local_fallback(
-            &selected,
-            &ProviderError::AuthRequired
-        ));
-    }
-
-    // ── F15: bounded optional Zen balance wait (upstream #2583) ───
-
-    #[test]
-    fn zen_join_budget_grace_vs_completeness() {
-        let started = std::time::Instant::now();
-        // Background/UI reads keep the short join grace.
-        assert_eq!(
-            zen_balance_join_budget(started, false),
-            Duration::from_millis(250)
-        );
-        // Completeness reads get the remainder of the 5 s optional-balance
-        // budget measured from task creation.
-        let budget = zen_balance_join_budget(started, true);
-        assert!(budget <= ZEN_BALANCE_TIMEOUT, "{budget:?}");
-        assert!(budget > Duration::from_secs(4), "{budget:?}");
-        // An already-exhausted budget joins immediately.
-        let stale = std::time::Instant::now()
-            .checked_sub(Duration::from_secs(60))
-            .unwrap();
-        assert_eq!(zen_balance_join_budget(stale, true), Duration::ZERO);
-    }
-
-    #[tokio::test]
-    async fn slow_zen_task_is_abandoned_within_grace() {
-        let started = std::time::Instant::now();
-        let task = tokio::spawn(async {
-            tokio::time::sleep(Duration::from_secs(30)).await;
-            OptionalZenBalance::Resolved(Some(42.5))
-        });
-        // UI grace (250 ms) never waits out a 30 s balance fetch.
-        let balance = OpenCodeGoProvider::join_zen_balance(task, started, false).await;
-        assert_eq!(balance, None);
-    }
-
-    #[tokio::test]
-    async fn fast_zen_task_lands_in_completeness_budget() {
-        let started = std::time::Instant::now();
-        let task = tokio::spawn(async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            OptionalZenBalance::Resolved(Some(42.5))
-        });
-        let balance = OpenCodeGoProvider::join_zen_balance(task, started, true).await;
-        assert_eq!(balance, Some(OptionalZenBalance::Resolved(Some(42.5))));
-    }
-
-    #[tokio::test]
-    async fn simultaneous_console_failures_resolve_one_legacy_session() {
-        let resolver_calls = Arc::new(AtomicUsize::new(0));
-        let balance_task = tokio::spawn(async {
-            tokio::task::yield_now().await;
-            OptionalZenBalance::LegacyBalanceRequired
-        });
-        let calls = Arc::clone(&resolver_calls);
-
-        let resolved =
-            OpenCodeGoProvider::abort_optional_balance_and_resolve(balance_task, async move {
-                calls.fetch_add(1, Ordering::SeqCst);
-                Ok::<_, ProviderError>("shared legacy session")
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(resolved, "shared legacy session");
-        assert_eq!(resolver_calls.load(Ordering::SeqCst), 1);
-    }
-}
+mod tests;
