@@ -1,6 +1,81 @@
 use super::*;
 use chrono::TimeZone;
 
+fn billing_response_with_percent(percent: f32) -> Vec<u8> {
+    let mut payload = vec![0x0a, 0x05, 0x0d];
+    payload.extend(percent.to_le_bytes());
+
+    let mut response = vec![0x00];
+    response.extend(
+        u32::try_from(payload.len())
+            .expect("test gRPC-web payload length fits u32")
+            .to_be_bytes(),
+    );
+    response.extend(payload);
+    response
+}
+
+#[tokio::test]
+async fn billing_request_encodes_explicit_false_in_a_nonempty_grpc_web_frame() {
+    let mut server = mockito::Server::new_async().await;
+    let endpoint = format!("{}/billing", server.url());
+    let request = server
+        .mock("POST", "/billing")
+        .match_body(BILLING_REQUEST_BODY.to_vec())
+        .with_status(200)
+        .with_body(billing_response_with_percent(37.0))
+        .create_async()
+        .await;
+    let provider = GrokProvider::new().with_billing_endpoint_for_tests(endpoint);
+
+    let snapshot = provider
+        .fetch_billing(Some("Bearer local-token".to_string()), None)
+        .await
+        .unwrap();
+
+    request.assert_async().await;
+    assert_eq!(BILLING_REQUEST_BODY, [0, 0, 0, 0, 2, 0x08, 0]);
+    assert_eq!(snapshot.used_percent, Some(37.0));
+}
+
+#[tokio::test]
+async fn oauth_billing_auth_failure_falls_back_to_configured_local_token() {
+    let mut server = mockito::Server::new_async().await;
+    let endpoint = format!("{}/billing", server.url());
+    let rejected = server
+        .mock("POST", "/billing")
+        .match_header("authorization", "Bearer expired-token")
+        .match_body(BILLING_REQUEST_BODY.to_vec())
+        .with_status(401)
+        .create_async()
+        .await;
+    let fallback = server
+        .mock("POST", "/billing")
+        .match_header("authorization", "Bearer local-token")
+        .match_body(BILLING_REQUEST_BODY.to_vec())
+        .with_status(200)
+        .with_body(billing_response_with_percent(42.0))
+        .create_async()
+        .await;
+    let provider = GrokProvider::new().with_billing_endpoint_for_tests(endpoint);
+    let credentials = GrokCredentials::from_bearer("expired-token");
+    let context = FetchContext {
+        include_credits: false,
+        api_key: Some("local-token".to_string()),
+        ..FetchContext::default()
+    };
+
+    let result = provider
+        .fetch_with_oauth_fallback(&credentials, &context)
+        .await
+        .unwrap();
+
+    rejected.assert_async().await;
+    fallback.assert_async().await;
+    assert_eq!(result.source_label, "grok-oauth");
+    assert_eq!(result.usage.primary.used_percent, 42.0);
+}
+
 #[test]
 fn grok_plan_prefers_subscription_tier_display_names() {
     assert_eq!(

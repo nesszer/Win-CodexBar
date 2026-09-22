@@ -26,6 +26,7 @@ use self::accounts::{GrokAuthKind, ParsedGrokAuthFile};
 use self::billing::GrokBillingSnapshot;
 
 const BILLING_ENDPOINT: &str = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
+const BILLING_REQUEST_BODY: [u8; 7] = [0, 0, 0, 0, 2, 0x08, 0];
 const REMAINING_RESETS_ENDPOINT: &str =
     "https://grok.com/prod_mc_billing.ConsumerUiSvc/GetRemainingResets";
 const CLI_SETTINGS_ENDPOINT: &str = "https://cli-chat-proxy.grok.com/v1/settings";
@@ -35,6 +36,7 @@ const RESET_CREDITS_JOIN_GRACE: Duration = Duration::from_millis(250);
 pub struct GrokProvider {
     metadata: ProviderMetadata,
     client: Client,
+    billing_endpoint: String,
 }
 
 impl GrokProvider {
@@ -57,6 +59,7 @@ impl GrokProvider {
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+            billing_endpoint: BILLING_ENDPOINT.to_string(),
         }
     }
 
@@ -72,6 +75,12 @@ impl GrokProvider {
     #[cfg(test)]
     fn client_for_tests(&self) -> Client {
         self.client.clone()
+    }
+
+    #[cfg(test)]
+    fn with_billing_endpoint_for_tests(mut self, endpoint: String) -> Self {
+        self.billing_endpoint = endpoint;
+        self
     }
 
     fn load_credentials(kind: GrokAuthKind) -> Result<GrokCredentials, ProviderError> {
@@ -210,6 +219,29 @@ impl GrokProvider {
         })
     }
 
+    async fn fetch_with_oauth_fallback(
+        &self,
+        credentials: &GrokCredentials,
+        ctx: &FetchContext,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        match self
+            .fetch_with_auth(credentials, GrokAuthKind::OAuth, ctx)
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(ProviderError::AuthRequired) => {
+                if let Some(token) = ctx.api_key.as_deref() {
+                    let fallback = GrokCredentials::from_bearer(token);
+                    self.fetch_with_auth(&fallback, GrokAuthKind::OAuth, ctx)
+                        .await
+                } else {
+                    Err(ProviderError::AuthRequired)
+                }
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn fetch_auto(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         let allow_browser_cookie_fallback = !ctx.auto_prefer_web;
         for step in grok_auto_steps(
@@ -304,8 +336,8 @@ impl GrokProvider {
     ) -> Result<GrokBillingSnapshot, ProviderError> {
         let mut request = self
             .client
-            .post(BILLING_ENDPOINT)
-            .body(vec![0, 0, 0, 0, 0])
+            .post(&self.billing_endpoint)
+            .body(BILLING_REQUEST_BODY.to_vec())
             .header("Origin", "https://grok.com")
             .header("Referer", "https://grok.com/?_s=usage")
             .header("Accept", "*/*")
@@ -534,22 +566,7 @@ impl Provider for GrokProvider {
                         GrokCredentials::from_bearer(token)
                     }
                 };
-                match self
-                    .fetch_with_auth(&credentials, GrokAuthKind::OAuth, ctx)
-                    .await
-                {
-                    Ok(result) => Ok(result),
-                    Err(ProviderError::AuthRequired) => {
-                        if let Some(token) = ctx.api_key.as_deref() {
-                            let fallback = GrokCredentials::from_bearer(token);
-                            self.fetch_with_auth(&fallback, GrokAuthKind::OAuth, ctx)
-                                .await
-                        } else {
-                            Err(ProviderError::AuthRequired)
-                        }
-                    }
-                    Err(error) => Err(error),
-                }
+                self.fetch_with_oauth_fallback(&credentials, ctx).await
             }
         }
     }
