@@ -5,11 +5,124 @@ use serde::Serialize;
 use std::sync::Arc;
 
 const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 8;
-const CLAUDE_UNRESOLVED_WARNING_IDENTITY: &str = "claude-account:unknown";
 
-fn is_claude_warning_source(source_label: &str) -> bool {
-    let source = source_label.trim().to_ascii_lowercase();
-    source == "oauth" || source == "cli" || source.starts_with("cli ")
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WarningSourceLane {
+    ClaudeOauth,
+    ClaudeCli,
+    Named(String),
+}
+
+impl WarningSourceLane {
+    fn from_label(provider: ProviderId, source_label: &str) -> Option<Self> {
+        let source = source_label.trim().to_ascii_lowercase();
+        if source.is_empty() {
+            return None;
+        }
+        if provider == ProviderId::Claude {
+            if source == "oauth" {
+                return Some(Self::ClaudeOauth);
+            }
+            if source == "cli" || source.starts_with("cli ") {
+                return Some(Self::ClaudeCli);
+            }
+        }
+        Some(Self::Named(source))
+    }
+
+    fn key(&self) -> &str {
+        match self {
+            Self::ClaudeOauth => "oauth",
+            Self::ClaudeCli => "cli",
+            Self::Named(source) => source,
+        }
+    }
+
+    fn supports_unresolved_account(&self) -> bool {
+        matches!(self, Self::ClaudeOauth | Self::ClaudeCli)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WarningAccountState {
+    Token(uuid::Uuid),
+    Email(String),
+    Organization(String),
+    Unresolved,
+    Missing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WarningIdentity {
+    provider: ProviderId,
+    source_lane: Option<WarningSourceLane>,
+    account: WarningAccountState,
+}
+
+impl WarningIdentity {
+    fn new(
+        provider: ProviderId,
+        source_label: &str,
+        account_email: Option<&str>,
+        account_organization: Option<&str>,
+        token_account_id: Option<uuid::Uuid>,
+    ) -> Self {
+        let source_lane = WarningSourceLane::from_label(provider, source_label);
+        let normalized = |value: Option<&str>| {
+            value
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_ascii_lowercase)
+        };
+        let account = if let Some(id) = token_account_id {
+            WarningAccountState::Token(id)
+        } else if let Some(email) = normalized(account_email) {
+            WarningAccountState::Email(email)
+        } else if let Some(organization) = normalized(account_organization) {
+            WarningAccountState::Organization(organization)
+        } else if provider == ProviderId::Claude
+            && source_lane
+                .as_ref()
+                .is_some_and(WarningSourceLane::supports_unresolved_account)
+        {
+            WarningAccountState::Unresolved
+        } else {
+            WarningAccountState::Missing
+        };
+        Self {
+            provider,
+            source_lane,
+            account,
+        }
+    }
+
+    fn unresolved_key(&self) -> Option<String> {
+        let lane = self.source_lane.as_ref()?;
+        (self.provider == ProviderId::Claude && lane.supports_unresolved_account())
+            .then(|| format!("{}:{}:unknown", self.provider.cli_name(), lane.key()))
+    }
+
+    fn threshold_key(&self) -> String {
+        match &self.account {
+            WarningAccountState::Token(id) => format!("token-account:{}", id.as_hyphenated()),
+            WarningAccountState::Email(email) => email.clone(),
+            WarningAccountState::Organization(organization) => format!("org:{organization}"),
+            WarningAccountState::Unresolved => self.unresolved_key().unwrap_or_default(),
+            WarningAccountState::Missing => String::new(),
+        }
+    }
+
+    fn predictive_key(&self) -> Option<String> {
+        match &self.account {
+            WarningAccountState::Token(id) => Some(format!("token-account:{}", id.as_hyphenated())),
+            WarningAccountState::Email(email) => self
+                .source_lane
+                .as_ref()
+                .map(|lane| format!("{}:{email}", lane.key())),
+            WarningAccountState::Unresolved => self.unresolved_key(),
+            WarningAccountState::Organization(_) | WarningAccountState::Missing => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1017,11 +1130,20 @@ fn notify_usage_thresholds(
                     .get(&provider)
                     .and_then(ProviderAccountData::active_account)
                     .map(|account| account.id);
-                let account = quota_notification_account_identity(snapshot, token_account_id);
-                if provider == ProviderId::Claude && account != CLAUDE_UNRESOLVED_WARNING_IDENTITY {
+                let warning_identity = WarningIdentity::new(
+                    provider,
+                    &snapshot.source_label,
+                    snapshot.account_email.as_deref(),
+                    snapshot.account_organization.as_deref(),
+                    token_account_id,
+                );
+                let account = warning_identity.threshold_key();
+                if let Some(unresolved) = warning_identity.unresolved_key()
+                    && unresolved != account
+                {
                     guard.notification_manager.adopt_threshold_account_identity(
                         provider,
-                        CLAUDE_UNRESOLVED_WARNING_IDENTITY,
+                        &unresolved,
                         &account,
                     );
                 }
@@ -1105,33 +1227,18 @@ fn quota_notification_account_identity(
     snapshot: &ProviderUsageSnapshot,
     token_account_id: Option<uuid::Uuid>,
 ) -> String {
-    if let Some(id) = token_account_id {
-        return format!("token-account:{}", id.as_hyphenated());
-    }
-    if let Some(email) = snapshot
-        .account_email
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return email.to_ascii_lowercase();
-    }
-    if let Some(org) = snapshot
-        .account_organization
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return format!("org:{}", org.to_ascii_lowercase());
-    }
-    if snapshot.provider_id == ProviderId::Claude.cli_name()
-        && is_claude_warning_source(&snapshot.source_label)
-    {
-        return CLAUDE_UNRESOLVED_WARNING_IDENTITY.to_string();
-    }
-    // Do not fall back to plan_name/login_method — those are display tiers and
-    // flicker across refreshes, re-arming still-hot windows for a new identity.
-    String::new()
+    ProviderId::from_cli_name(&snapshot.provider_id)
+        .map(|provider| {
+            WarningIdentity::new(
+                provider,
+                &snapshot.source_label,
+                snapshot.account_email.as_deref(),
+                snapshot.account_organization.as_deref(),
+                token_account_id,
+            )
+            .threshold_key()
+        })
+        .unwrap_or_default()
 }
 
 fn notify_predictive_pace(
@@ -1151,20 +1258,20 @@ fn notify_predictive_pace(
         .get(&provider)
         .and_then(ProviderAccountData::active_account)
         .map(|account| account.id);
-    let Some(identity) = predictive_warning_identity(
+    let warning_identity = WarningIdentity::new(
         provider,
         &snapshot.source_label,
         snapshot.account_email.as_deref(),
+        None,
         token_account_id,
-    ) else {
+    );
+    let Some(identity) = warning_identity.predictive_key() else {
         return;
     };
-    if provider == ProviderId::Claude && identity != CLAUDE_UNRESOLVED_WARNING_IDENTITY {
-        manager.adopt_predictive_account_identity(
-            provider,
-            CLAUDE_UNRESOLVED_WARNING_IDENTITY,
-            &identity,
-        );
+    if let Some(unresolved) = warning_identity.unresolved_key()
+        && unresolved != identity
+    {
+        manager.adopt_predictive_account_identity(provider, &unresolved, &identity);
     }
     let observed_at = chrono::DateTime::parse_from_rfc3339(&snapshot.updated_at)
         .ok()
@@ -1223,21 +1330,14 @@ fn predictive_warning_identity(
     if !matches!(provider, ProviderId::Claude | ProviderId::Codex) {
         return None;
     }
-    if let Some(id) = token_account_id {
-        return Some(format!("token-account:{}", id.as_hyphenated()));
-    }
-    let source = source_label.trim().to_ascii_lowercase();
-    let account = account_email
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if provider == ProviderId::Claude && account.is_empty() && is_claude_warning_source(&source) {
-        return Some(CLAUDE_UNRESOLVED_WARNING_IDENTITY.to_string());
-    }
-    if source.is_empty() || account.is_empty() {
-        return None;
-    }
-    Some(format!("{source}:{account}"))
+    WarningIdentity::new(
+        provider,
+        source_label,
+        account_email,
+        None,
+        token_account_id,
+    )
+    .predictive_key()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1353,7 +1453,7 @@ mod predictive_warning_tests {
     fn predictive_warning_identity_scopes_unresolved_claude_sources() {
         assert_eq!(
             predictive_warning_identity(ProviderId::Claude, "oauth", None, None),
-            Some(CLAUDE_UNRESOLVED_WARNING_IDENTITY.to_string())
+            Some("claude:oauth:unknown".to_string())
         );
         assert_eq!(
             predictive_warning_identity(ProviderId::Codex, "cli", Some("  "), None),
@@ -1361,7 +1461,7 @@ mod predictive_warning_tests {
         );
         assert_eq!(
             predictive_warning_identity(ProviderId::Claude, "cli (reduced fidelity)", None, None,),
-            Some(CLAUDE_UNRESOLVED_WARNING_IDENTITY.to_string())
+            Some("claude:cli:unknown".to_string())
         );
         assert_eq!(
             predictive_warning_identity(ProviderId::Claude, "web", None, None),
@@ -1408,13 +1508,48 @@ mod predictive_warning_tests {
         snapshot.source_label = "oauth".to_string();
         assert_eq!(
             quota_notification_account_identity(&snapshot, None),
-            CLAUDE_UNRESOLVED_WARNING_IDENTITY
+            "claude:oauth:unknown"
         );
 
         snapshot.plan_name = None;
+        snapshot.source_label = "cli (reduced fidelity)".to_string();
         assert_eq!(
             quota_notification_account_identity(&snapshot, None),
-            CLAUDE_UNRESOLVED_WARNING_IDENTITY
+            "claude:cli:unknown"
+        );
+    }
+
+    #[test]
+    fn claude_unresolved_warning_lanes_adopt_only_the_matching_source() {
+        let oauth = WarningIdentity::new(ProviderId::Claude, "oauth", None, None, None);
+        let cli = WarningIdentity::new(
+            ProviderId::Claude,
+            "cli (reduced fidelity)",
+            None,
+            None,
+            None,
+        );
+        let resolved_cli = WarningIdentity::new(
+            ProviderId::Claude,
+            "cli",
+            Some("person@example.com"),
+            None,
+            None,
+        );
+
+        assert_eq!(
+            oauth.unresolved_key().as_deref(),
+            Some("claude:oauth:unknown")
+        );
+        assert_eq!(cli.unresolved_key().as_deref(), Some("claude:cli:unknown"));
+        assert_eq!(
+            resolved_cli.unresolved_key().as_deref(),
+            Some("claude:cli:unknown")
+        );
+        assert_ne!(oauth.unresolved_key(), resolved_cli.unresolved_key());
+        assert_eq!(
+            resolved_cli.predictive_key().as_deref(),
+            Some("cli:person@example.com")
         );
     }
 

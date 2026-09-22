@@ -122,16 +122,20 @@ async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String
     crate::events::emit_provider_updated(&app, &pending);
     let _emit = app.emit("claude-accounts-reconciling", ());
     let refresh_app = app.clone();
-    let mut ambient =
-        tauri::async_runtime::spawn(async move { super::refresh_providers(refresh_app).await });
+    let mut ambient = tauri::async_runtime::spawn(async move {
+        let refresh_result = super::refresh_providers(refresh_app.clone()).await;
+        if refresh_providers_ran(&refresh_app) {
+            let _reconciled = refresh_app.emit("claude-accounts-reconciled", ());
+            changed(&refresh_app);
+        }
+        refresh_result
+    });
     let refresh_result =
         match tokio::time::timeout(AMBIENT_RECONCILIATION_GRACE, &mut ambient).await {
             Ok(joined) => joined.map_err(|error| error.to_string())?,
             Err(_) => {
-                // Dropping only the JoinHandle waiter detaches the ambient refresh;
-                // it keeps ownership of its provider request and can publish later.
-                let _reconciled = app.emit("claude-accounts-reconciled", ());
-                changed(&app);
+                // Dropping only the JoinHandle waiter detaches the owning refresh.
+                // The task emits the terminal event only after its refresh settles.
                 return Ok(());
             }
         };
@@ -142,8 +146,6 @@ async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String
         // owning batch's completion settle listeners.
         return refresh_result;
     }
-    let _reconciled = app.emit("claude-accounts-reconciled", ());
-    changed(&app);
     refresh_result
 }
 
