@@ -50,6 +50,12 @@ struct WebCookieSession {
     capabilities: CookieCapabilities,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum OptionalZenBalance {
+    Resolved(Option<f64>),
+    LegacyBalanceRequired,
+}
+
 impl WebCookieSession {
     fn new(header: &str) -> Self {
         let has_cookie = |names: &[&str]| {
@@ -177,20 +183,16 @@ impl OpenCodeGoProvider {
         workspace_id: &str,
         cookies: &WebCookieSession,
         timeout: Duration,
-    ) -> Option<f64> {
+    ) -> OptionalZenBalance {
         let request_timeout = timeout.min(ZEN_BALANCE_TIMEOUT);
         match console::fetch_balance(client, workspace_id, cookies.header(), request_timeout).await
         {
-            Ok(balance) => return balance,
-            Err(error) if cookies.can_recover_with_legacy(&error) => {}
-            Err(_) => return None,
+            Ok(balance) => OptionalZenBalance::Resolved(balance),
+            Err(error) if cookies.can_recover_with_legacy(&error) => {
+                OptionalZenBalance::LegacyBalanceRequired
+            }
+            Err(_) => OptionalZenBalance::Resolved(None),
         }
-        LegacyWorkspaceSession::resolve(client, cookies)
-            .await
-            .ok()?
-            .fetch_balance(request_timeout)
-            .await
-            .unwrap_or(None)
     }
 
     /// Spawn the optional Zen balance task (25 ms start delay so the usage
@@ -201,7 +203,10 @@ impl OpenCodeGoProvider {
         cookies: &WebCookieSession,
         workspace_id_override: Option<&str>,
         web_timeout: u64,
-    ) -> (tokio::task::JoinHandle<Option<f64>>, std::time::Instant) {
+    ) -> (
+        tokio::task::JoinHandle<OptionalZenBalance>,
+        std::time::Instant,
+    ) {
         let client = self.client.clone();
         let cookies = cookies.clone();
         let workspace_id_override = workspace_id_override.map(str::to_string);
@@ -214,14 +219,9 @@ impl OpenCodeGoProvider {
                 None => match Self::fetch_workspace_id(&client, cookies.header()).await {
                     Ok(id) => id,
                     Err(error) if cookies.can_recover_with_legacy(&error) => {
-                        return LegacyWorkspaceSession::resolve(&client, &cookies)
-                            .await
-                            .ok()?
-                            .fetch_balance(timeout.min(ZEN_BALANCE_TIMEOUT))
-                            .await
-                            .unwrap_or(None);
+                        return OptionalZenBalance::LegacyBalanceRequired;
                     }
-                    Err(_) => return None,
+                    Err(_) => return OptionalZenBalance::Resolved(None),
                 },
             };
             Self::fetch_zen_balance(&client, &workspace_id, &cookies, timeout).await
@@ -232,29 +232,86 @@ impl OpenCodeGoProvider {
     fn spawn_legacy_balance_task(
         session: LegacyWorkspaceSession,
         web_timeout: u64,
-    ) -> (tokio::task::JoinHandle<Option<f64>>, std::time::Instant) {
+    ) -> (
+        tokio::task::JoinHandle<OptionalZenBalance>,
+        std::time::Instant,
+    ) {
         let timeout = Duration::from_secs(web_timeout.max(1)).min(ZEN_BALANCE_TIMEOUT);
         let started_at = std::time::Instant::now();
         let task = tokio::spawn(async move {
             tokio::time::sleep(ZEN_BALANCE_START_DELAY).await;
-            session.fetch_balance(timeout).await.unwrap_or(None)
+            OptionalZenBalance::Resolved(session.fetch_balance(timeout).await.unwrap_or(None))
         });
         (task, started_at)
+    }
+
+    async fn abort_optional_balance_and_resolve<T>(
+        task: tokio::task::JoinHandle<OptionalZenBalance>,
+        resolution: impl std::future::Future<Output = Result<T, ProviderError>>,
+    ) -> Result<T, ProviderError> {
+        task.abort();
+        resolution.await
     }
 
     /// Join the optional Zen balance task within the policy budget. A budget
     /// expiry cancels the in-flight HTTP work instead of leaking it.
     async fn join_zen_balance(
-        mut task: tokio::task::JoinHandle<Option<f64>>,
+        mut task: tokio::task::JoinHandle<OptionalZenBalance>,
+        started_at: std::time::Instant,
+        requires_optional_usage_completeness: bool,
+    ) -> Option<OptionalZenBalance> {
+        let budget = zen_balance_join_budget(started_at, requires_optional_usage_completeness);
+        match tokio::time::timeout(budget, &mut task).await {
+            Ok(Ok(balance)) => Some(balance),
+            Ok(Err(_)) | Err(_) => {
+                task.abort();
+                None
+            }
+        }
+    }
+
+    async fn resolve_legacy_balance(
+        client: &Client,
+        cookies: &WebCookieSession,
         started_at: std::time::Instant,
         requires_optional_usage_completeness: bool,
     ) -> Option<f64> {
         let budget = zen_balance_join_budget(started_at, requires_optional_usage_completeness);
-        match tokio::time::timeout(budget, &mut task).await {
-            Ok(Ok(balance)) => balance,
-            Ok(Err(_)) | Err(_) => {
-                task.abort();
-                None
+        if budget.is_zero() {
+            return None;
+        }
+        tokio::time::timeout(budget, async {
+            let session = LegacyWorkspaceSession::resolve(client, cookies)
+                .await
+                .ok()?;
+            session
+                .fetch_balance(budget.min(ZEN_BALANCE_TIMEOUT))
+                .await
+                .unwrap_or(None)
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    async fn finish_zen_balance(
+        client: &Client,
+        cookies: &WebCookieSession,
+        task: tokio::task::JoinHandle<OptionalZenBalance>,
+        started_at: std::time::Instant,
+        requires_optional_usage_completeness: bool,
+    ) -> Option<f64> {
+        match Self::join_zen_balance(task, started_at, requires_optional_usage_completeness).await?
+        {
+            OptionalZenBalance::Resolved(balance) => balance,
+            OptionalZenBalance::LegacyBalanceRequired => {
+                Self::resolve_legacy_balance(
+                    client,
+                    cookies,
+                    started_at,
+                    requires_optional_usage_completeness,
+                )
+                .await
             }
         }
     }
@@ -298,9 +355,19 @@ impl OpenCodeGoProvider {
                 ));
             }
             Err(console_error) if cookies.can_recover_with_legacy(&console_error) => {
-                zen_task.abort();
+                let session = match Self::abort_optional_balance_and_resolve(
+                    zen_task,
+                    LegacyWorkspaceSession::resolve(&self.client, &cookies),
+                )
+                .await
+                {
+                    Ok(session) => session,
+                    Err(error) => {
+                        return cookies.select_legacy_result(console_error, Err(error));
+                    }
+                };
                 return self
-                    .fetch_legacy_with_cookies(ctx, &cookies, console_error)
+                    .fetch_legacy_with_session(ctx, &cookies, console_error, session)
                     .await;
             }
             Err(error) => {
@@ -314,7 +381,9 @@ impl OpenCodeGoProvider {
                 Some(balance)
             }
             None => {
-                Self::join_zen_balance(
+                Self::finish_zen_balance(
+                    &self.client,
+                    &cookies,
                     zen_task,
                     zen_started,
                     ctx.requires_optional_usage_completeness,
@@ -335,6 +404,17 @@ impl OpenCodeGoProvider {
             Ok(session) => session,
             Err(error) => return cookies.select_legacy_result(console_error, Err(error)),
         };
+        self.fetch_legacy_with_session(ctx, cookies, console_error, session)
+            .await
+    }
+
+    async fn fetch_legacy_with_session(
+        &self,
+        ctx: &FetchContext,
+        cookies: &WebCookieSession,
+        console_error: ProviderError,
+        session: LegacyWorkspaceSession,
+    ) -> Result<ProviderFetchResult, ProviderError> {
         let (zen_task, zen_started) =
             Self::spawn_legacy_balance_task(session.clone(), ctx.web_timeout);
         let result = match cookies.select_legacy_result(console_error, session.fetch_usage().await)
@@ -351,12 +431,16 @@ impl OpenCodeGoProvider {
                 Some(balance)
             }
             None => {
-                Self::join_zen_balance(
+                match Self::join_zen_balance(
                     zen_task,
                     zen_started,
                     ctx.requires_optional_usage_completeness,
                 )
                 .await
+                {
+                    Some(OptionalZenBalance::Resolved(balance)) => balance,
+                    Some(OptionalZenBalance::LegacyBalanceRequired) | None => None,
+                }
             }
         };
         Ok(Self::with_zen_balance(result.usage, "web", balance))
@@ -527,8 +611,14 @@ impl OpenCodeGoProvider {
         let cookies = WebCookieSession::new(&cookie_header);
         let (task, started) =
             self.spawn_zen_balance_task(&cookies, ctx.workspace_id.as_deref(), ctx.web_timeout);
-        if let Some(balance) =
-            Self::join_zen_balance(task, started, ctx.requires_optional_usage_completeness).await
+        if let Some(balance) = Self::finish_zen_balance(
+            &self.client,
+            &cookies,
+            task,
+            started,
+            ctx.requires_optional_usage_completeness,
+        )
+        .await
         {
             result =
                 Self::with_zen_balance(result.usage, &result.source_label.clone(), Some(balance));
@@ -568,6 +658,10 @@ fn zen_balance_join_budget(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     #[test]
     fn cookie_session_classifies_transport_capabilities_once() {
@@ -684,7 +778,7 @@ mod tests {
         let started = std::time::Instant::now();
         let task = tokio::spawn(async {
             tokio::time::sleep(Duration::from_secs(30)).await;
-            Some(42.5)
+            OptionalZenBalance::Resolved(Some(42.5))
         });
         // UI grace (250 ms) never waits out a 30 s balance fetch.
         let balance = OpenCodeGoProvider::join_zen_balance(task, started, false).await;
@@ -696,9 +790,30 @@ mod tests {
         let started = std::time::Instant::now();
         let task = tokio::spawn(async {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            Some(42.5)
+            OptionalZenBalance::Resolved(Some(42.5))
         });
         let balance = OpenCodeGoProvider::join_zen_balance(task, started, true).await;
-        assert_eq!(balance, Some(42.5));
+        assert_eq!(balance, Some(OptionalZenBalance::Resolved(Some(42.5))));
+    }
+
+    #[tokio::test]
+    async fn simultaneous_console_failures_resolve_one_legacy_session() {
+        let resolver_calls = Arc::new(AtomicUsize::new(0));
+        let balance_task = tokio::spawn(async {
+            tokio::task::yield_now().await;
+            OptionalZenBalance::LegacyBalanceRequired
+        });
+        let calls = Arc::clone(&resolver_calls);
+
+        let resolved =
+            OpenCodeGoProvider::abort_optional_balance_and_resolve(balance_task, async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, ProviderError>("shared legacy session")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resolved, "shared legacy session");
+        assert_eq!(resolver_calls.load(Ordering::SeqCst), 1);
     }
 }
