@@ -233,6 +233,7 @@ function renderPopOut(
 describe("PopOutPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    tauriMocks.claudeReconciliationState.mockResolvedValue(null);
     tauriMocks.refreshProviders.mockResolvedValue(undefined);
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
     tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());

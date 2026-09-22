@@ -229,6 +229,7 @@ describe("TrayPanel provider grid", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     eventMocks.listeners.clear();
+    tauriMocks.claudeReconciliationState.mockResolvedValue(null);
     tauriMocks.getDeepSeekPricingStatus.mockResolvedValue(null);
     tauriMocks.getUsageSpendSummary.mockResolvedValue({ rows: [], models: [] });
     tauriMocks.flyoutStoredSize.mockResolvedValue(null);
