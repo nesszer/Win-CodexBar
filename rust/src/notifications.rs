@@ -229,6 +229,65 @@ impl NotificationManager {
         }
     }
 
+    /// Move threshold and session-transition history from a temporary account
+    /// discriminator to a verified one. This is intentionally explicit: the
+    /// caller must establish provider-owned account continuity first.
+    pub fn adopt_threshold_account_identity(&mut self, provider: ProviderId, from: &str, to: &str) {
+        if from.is_empty() || to.is_empty() || from == to {
+            return;
+        }
+
+        let moved = self
+            .sent_notifications
+            .iter()
+            .filter(|(key_provider, account, _, _)| *key_provider == provider && account == from)
+            .cloned()
+            .collect::<Vec<_>>();
+        self.sent_notifications
+            .retain(|(key_provider, account, _, _)| *key_provider != provider || account != from);
+        self.sent_notifications.extend(
+            moved.into_iter().map(|(key_provider, _, window, kind)| {
+                (key_provider, to.to_string(), window, kind)
+            }),
+        );
+
+        if let Some(previous) = self
+            .previous_session_percent
+            .remove(&(provider, from.to_string()))
+        {
+            self.previous_session_percent
+                .insert((provider, to.to_string()), previous);
+        }
+    }
+
+    /// Move predictive warning history independently from threshold history.
+    /// Predictive identities include the fetch source, so callers must never
+    /// use this to collapse OAuth and CLI histories into one known-account key.
+    pub fn adopt_predictive_account_identity(
+        &mut self,
+        provider: ProviderId,
+        from: &str,
+        to: &str,
+    ) {
+        if from.is_empty() || to.is_empty() || from == to {
+            return;
+        }
+
+        let moved = self
+            .predictive_warning_keys
+            .iter()
+            .filter(|key| key.provider == provider && key.identity == from)
+            .cloned()
+            .collect::<Vec<_>>();
+        self.predictive_warning_keys
+            .retain(|key| key.provider != provider || key.identity != from);
+        self.predictive_warning_keys
+            .extend(moved.into_iter().map(|mut key| {
+                key.identity = to.to_string();
+                key
+            }));
+    }
+
     pub fn check_predictive_pace(
         &mut self,
         provider: ProviderId,
@@ -853,6 +912,63 @@ mod tests {
             &reset,
             &pace(false, Some(3600.0)),
         ));
+    }
+
+    #[test]
+    fn unresolved_warning_history_adopts_verified_identity_without_crossing_providers() {
+        let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let reset = window(now, Duration::hours(3), 300);
+        let risk = pace(false, Some(3600.0));
+        let settings = Settings::default();
+        let mut manager = NotificationManager::new();
+
+        manager.check_and_notify(
+            ProviderId::Claude,
+            "claude-account:unknown",
+            "session",
+            80.0,
+            &settings,
+        );
+        assert!(manager.record_predictive_observation(
+            true,
+            ProviderId::Claude,
+            "claude-account:unknown",
+            PredictiveWarningWindow::Session,
+            &reset,
+            &risk,
+        ));
+
+        manager.adopt_threshold_account_identity(
+            ProviderId::Claude,
+            "claude-account:unknown",
+            "person@example.com",
+        );
+        manager.adopt_predictive_account_identity(
+            ProviderId::Claude,
+            "claude-account:unknown",
+            "oauth:person@example.com",
+        );
+
+        assert!(manager.sent_notifications.contains(&(
+            ProviderId::Claude,
+            "person@example.com".to_string(),
+            "session".to_string(),
+            NotificationType::HighUsage,
+        )));
+        assert!(!manager.record_predictive_observation(
+            true,
+            ProviderId::Claude,
+            "oauth:person@example.com",
+            PredictiveWarningWindow::Session,
+            &reset,
+            &risk,
+        ));
+        assert!(
+            manager
+                .predictive_warning_keys
+                .iter()
+                .all(|key| key.identity != "claude-account:unknown")
+        );
     }
 
     #[test]

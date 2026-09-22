@@ -5,6 +5,12 @@ use serde::Serialize;
 use std::sync::Arc;
 
 const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 8;
+const CLAUDE_UNRESOLVED_WARNING_IDENTITY: &str = "claude-account:unknown";
+
+fn is_claude_warning_source(source_label: &str) -> bool {
+    let source = source_label.trim().to_ascii_lowercase();
+    source == "oauth" || source == "cli" || source.starts_with("cli ")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RefreshScope {
@@ -1012,6 +1018,13 @@ fn notify_usage_thresholds(
                     .and_then(ProviderAccountData::active_account)
                     .map(|account| account.id);
                 let account = quota_notification_account_identity(snapshot, token_account_id);
+                if provider == ProviderId::Claude && account != CLAUDE_UNRESOLVED_WARNING_IDENTITY {
+                    guard.notification_manager.adopt_threshold_account_identity(
+                        provider,
+                        CLAUDE_UNRESOLVED_WARNING_IDENTITY,
+                        &account,
+                    );
+                }
                 // Skip all session consumers for synthetic/no-session
                 // placeholders (e.g. Claude OAuth five_hour: null).
                 if guard.notification_manager.check_session_lane(
@@ -1111,6 +1124,11 @@ fn quota_notification_account_identity(
     {
         return format!("org:{}", org.to_ascii_lowercase());
     }
+    if snapshot.provider_id == ProviderId::Claude.cli_name()
+        && is_claude_warning_source(&snapshot.source_label)
+    {
+        return CLAUDE_UNRESOLVED_WARNING_IDENTITY.to_string();
+    }
     // Do not fall back to plan_name/login_method — those are display tiers and
     // flicker across refreshes, re-arming still-hot windows for a new identity.
     String::new()
@@ -1141,6 +1159,13 @@ fn notify_predictive_pace(
     ) else {
         return;
     };
+    if provider == ProviderId::Claude && identity != CLAUDE_UNRESOLVED_WARNING_IDENTITY {
+        manager.adopt_predictive_account_identity(
+            provider,
+            CLAUDE_UNRESOLVED_WARNING_IDENTITY,
+            &identity,
+        );
+    }
     let observed_at = chrono::DateTime::parse_from_rfc3339(&snapshot.updated_at)
         .ok()
         .map(|date| date.with_timezone(&chrono::Utc));
@@ -1202,7 +1227,13 @@ fn predictive_warning_identity(
         return Some(format!("token-account:{}", id.as_hyphenated()));
     }
     let source = source_label.trim().to_ascii_lowercase();
-    let account = account_email?.trim().to_ascii_lowercase();
+    let account = account_email
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if provider == ProviderId::Claude && account.is_empty() && is_claude_warning_source(&source) {
+        return Some(CLAUDE_UNRESOLVED_WARNING_IDENTITY.to_string());
+    }
     if source.is_empty() || account.is_empty() {
         return None;
     }
@@ -1319,13 +1350,21 @@ mod predictive_warning_tests {
     }
 
     #[test]
-    fn predictive_warning_identity_skips_unidentified_accounts() {
+    fn predictive_warning_identity_scopes_unresolved_claude_sources() {
         assert_eq!(
             predictive_warning_identity(ProviderId::Claude, "oauth", None, None),
-            None
+            Some(CLAUDE_UNRESOLVED_WARNING_IDENTITY.to_string())
         );
         assert_eq!(
             predictive_warning_identity(ProviderId::Codex, "cli", Some("  "), None),
+            None
+        );
+        assert_eq!(
+            predictive_warning_identity(ProviderId::Claude, "cli (reduced fidelity)", None, None,),
+            Some(CLAUDE_UNRESOLVED_WARNING_IDENTITY.to_string())
+        );
+        assert_eq!(
+            predictive_warning_identity(ProviderId::Claude, "web", None, None),
             None
         );
     }
@@ -1366,11 +1405,17 @@ mod predictive_warning_tests {
         );
 
         snapshot.account_organization = None;
-        // plan_name/login_method is not a stable ownership key — fall through to "".
-        assert_eq!(quota_notification_account_identity(&snapshot, None), "");
+        snapshot.source_label = "oauth".to_string();
+        assert_eq!(
+            quota_notification_account_identity(&snapshot, None),
+            CLAUDE_UNRESOLVED_WARNING_IDENTITY
+        );
 
         snapshot.plan_name = None;
-        assert_eq!(quota_notification_account_identity(&snapshot, None), "");
+        assert_eq!(
+            quota_notification_account_identity(&snapshot, None),
+            CLAUDE_UNRESOLVED_WARNING_IDENTITY
+        );
     }
 
     /// The forecast scope key and the notification identity must never disagree.

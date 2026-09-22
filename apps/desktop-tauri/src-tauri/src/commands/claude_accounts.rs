@@ -8,10 +8,12 @@ use codexbar::providers::claude::claude_swap::{
 };
 use serde::Serialize;
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
 
 static MUTATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+const AMBIENT_RECONCILIATION_GRACE: Duration = Duration::from_secs(5);
 
 #[tauri::command]
 pub fn claude_accounts_list() -> Result<Vec<ClaudeAccount>, String> {
@@ -119,7 +121,20 @@ async fn refresh_after_claude_change(app: tauri::AppHandle) -> Result<(), String
     };
     crate::events::emit_provider_updated(&app, &pending);
     let _emit = app.emit("claude-accounts-reconciling", ());
-    let refresh_result = super::refresh_providers(app.clone()).await;
+    let refresh_app = app.clone();
+    let mut ambient =
+        tauri::async_runtime::spawn(async move { super::refresh_providers(refresh_app).await });
+    let refresh_result =
+        match tokio::time::timeout(AMBIENT_RECONCILIATION_GRACE, &mut ambient).await {
+            Ok(joined) => joined.map_err(|error| error.to_string())?,
+            Err(_) => {
+                // Dropping only the JoinHandle waiter detaches the ambient refresh;
+                // it keeps ownership of its provider request and can publish later.
+                let _reconciled = app.emit("claude-accounts-reconciled", ());
+                changed(&app);
+                return Ok(());
+            }
+        };
     if !refresh_providers_ran(&app) {
         // begin_provider_refresh skipped (another batch owns the refresh) or
         // finish_provider_refresh dropped a superseded generation: a refresh
@@ -198,6 +213,10 @@ fn reauthentication_is_repaired(account: &ClaudeSwapAccountRow) -> bool {
     account.is_active && account.usage_status == ClaudeSwapUsageStatus::Ok
 }
 
+fn switch_is_reconciled(account: &ClaudeSwapAccountRow) -> bool {
+    account.is_active
+}
+
 fn run_claude_swap_operation(
     config: &ClaudeSwapConfig,
     slot: u32,
@@ -214,15 +233,11 @@ fn run_claude_swap_operation(
     if !result.switched {
         return Err(result.reason);
     }
-    if matches!(operation, ClaudeSwapAccountOperation::Switch) {
-        return Ok(ClaudeSwapMutationOutcome::confirmed());
-    }
-
     let after = match claude_swap::read_account_list(&config.executable_path) {
         Ok(list) => list,
         Err(error) => {
             return Ok(ClaudeSwapMutationOutcome::applied_unconfirmed(format!(
-                "claude-swap re-authentication was applied, but confirmation failed: {error}"
+                "claude-swap account change was applied, but confirmation failed: {error}"
             )));
         }
     };
@@ -230,11 +245,15 @@ fn run_claude_swap_operation(
         Ok(account) => account,
         Err(error) => return Ok(ClaudeSwapMutationOutcome::applied_unconfirmed(error)),
     };
-    if reauthentication_is_repaired(account) {
+    let confirmed = match operation {
+        ClaudeSwapAccountOperation::Switch => switch_is_reconciled(account),
+        ClaudeSwapAccountOperation::Reauthenticate => reauthentication_is_repaired(account),
+    };
+    if confirmed {
         Ok(ClaudeSwapMutationOutcome::confirmed())
     } else {
         Ok(ClaudeSwapMutationOutcome::applied_unconfirmed(
-            "claude-swap re-authentication completed without a confirmed account repair.",
+            "claude-swap account change completed without a confirmed active account.",
         ))
     }
 }
@@ -427,6 +446,12 @@ mod tests {
             "no_credentials"
         )));
         assert!(!reauthentication_is_repaired(&account_row(true, "unknown")));
+    }
+
+    #[test]
+    fn switch_reconciliation_requires_the_requested_slot_to_be_active() {
+        assert!(switch_is_reconciled(&account_row(true, "ok")));
+        assert!(!switch_is_reconciled(&account_row(false, "ok")));
     }
 
     #[test]
