@@ -5,6 +5,7 @@
 //! unless a workspace override scopes the fetch to web first; Web is cookie
 //! scrape only; Cli is local-only.
 
+mod console;
 pub(crate) mod local;
 mod usage_api;
 
@@ -64,11 +65,27 @@ impl OpenCodeGoProvider {
         }
     }
 
-    fn workspace_id_from_context(workspace_id: Option<&str>) -> Option<&str> {
-        workspace_id.filter(|id| !id.is_empty())
+    fn workspace_id_from_context(workspace_id: Option<&str>) -> Option<String> {
+        console::normalize_workspace_id(workspace_id)
     }
 
     async fn fetch_workspace_id(
+        client: &Client,
+        cookie_header: &str,
+    ) -> Result<String, ProviderError> {
+        let console_result =
+            console::fetch_workspace_id(client, cookie_header, Duration::from_secs(30)).await;
+        match console_result {
+            Ok(workspace_id) => Ok(workspace_id),
+            Err(console_error) if Self::should_try_legacy(cookie_header, &console_error) => {
+                let legacy_result = Self::fetch_legacy_workspace_id(client, cookie_header).await;
+                Self::select_legacy_result(cookie_header, console_error, legacy_result)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn fetch_legacy_workspace_id(
         client: &Client,
         cookie_header: &str,
     ) -> Result<String, ProviderError> {
@@ -117,6 +134,36 @@ impl OpenCodeGoProvider {
     ) -> Result<String, ProviderError> {
         let url = format!("{}/workspace/{}/go", BASE_URL, workspace_id);
         Self::fetch_page_text(client, &url, cookie_header, None, "usage page").await
+    }
+
+    fn should_try_legacy(cookie_header: &str, error: &ProviderError) -> bool {
+        if !console::has_legacy_cookie(cookie_header) {
+            return false;
+        }
+        matches!(
+            error,
+            ProviderError::AuthRequired
+                | ProviderError::Parse(_)
+                | ProviderError::Other(_)
+                | ProviderError::Timeout
+        ) || error.is_transport_failure()
+    }
+
+    fn select_legacy_result<T>(
+        cookie_header: &str,
+        console_error: ProviderError,
+        legacy_result: Result<T, ProviderError>,
+    ) -> Result<T, ProviderError> {
+        match legacy_result {
+            Ok(value) => Ok(value),
+            Err(_legacy_error)
+                if console::has_console_cookie(cookie_header)
+                    && !matches!(console_error, ProviderError::AuthRequired) =>
+            {
+                Err(console_error)
+            }
+            Err(legacy_error) => Err(legacy_error),
+        }
     }
 
     /// GET a page with the standard browser-ish headers; `timeout` overrides
@@ -404,6 +451,11 @@ impl OpenCodeGoProvider {
         timeout: Duration,
     ) -> Option<f64> {
         let request_timeout = timeout.min(ZEN_BALANCE_TIMEOUT);
+        match console::fetch_balance(client, workspace_id, cookie_header, request_timeout).await {
+            Ok(balance) => return balance,
+            Err(error) if Self::should_try_legacy(cookie_header, &error) => {}
+            Err(_) => return None,
+        }
         let referer = Self::zen_dashboard_url(workspace_id);
 
         let page = Self::fetch_page_text(
@@ -483,7 +535,7 @@ impl OpenCodeGoProvider {
         cookie_header: &str,
     ) -> Result<ProviderFetchResult, ProviderError> {
         let workspace_id = match Self::workspace_id_from_context(ctx.workspace_id.as_deref()) {
-            Some(workspace_id) => workspace_id.to_string(),
+            Some(workspace_id) => workspace_id,
             None => Self::fetch_workspace_id(&self.client, cookie_header).await?,
         };
         // F15 (#2583): start the optional Zen balance fetch in parallel with the
@@ -491,23 +543,45 @@ impl OpenCodeGoProvider {
         // still lands in CLI/serve usage reads without stacking a second wait.
         let (zen_task, zen_started) =
             self.spawn_zen_balance_task(cookie_header, Some(&workspace_id), ctx.web_timeout);
-        let page = match Self::fetch_usage_page(&self.client, &workspace_id, cookie_header).await {
-            Ok(page) => page,
-            Err(err) => {
-                zen_task.abort();
-                return Err(err);
-            }
-        };
-        let usage = match Self::parse_usage_text(&page) {
-            Ok(usage) => usage,
-            Err(err) => {
-                zen_task.abort();
-                return Err(err);
-            }
-        };
-        // The /go page states embed the balance for some deployments — the
-        // zero-cost parse wins over the dedicated fetch when it works.
-        let balance = match Self::parse_zen_balance(&page) {
+        let console_result = console::fetch_usage(
+            &self.client,
+            &workspace_id,
+            cookie_header,
+            Duration::from_secs(ctx.web_timeout.max(1)),
+        )
+        .await;
+        let (usage, embedded_balance) =
+            match console_result {
+                Ok(console::ConsoleUsage::Snapshot(usage)) => (*usage, None),
+                Ok(console::ConsoleUsage::NoSubscription) => {
+                    zen_task.abort();
+                    return Err(ProviderError::Parse(
+                        "No OpenCode Go subscription is available".to_string(),
+                    ));
+                }
+                Err(console_error) if Self::should_try_legacy(cookie_header, &console_error) => {
+                    let legacy_result =
+                        match Self::fetch_usage_page(&self.client, &workspace_id, cookie_header)
+                            .await
+                        {
+                            Ok(page) => Self::parse_usage_text(&page)
+                                .map(|usage| (usage, Self::parse_zen_balance(&page))),
+                            Err(error) => Err(error),
+                        };
+                    match Self::select_legacy_result(cookie_header, console_error, legacy_result) {
+                        Ok(result) => result,
+                        Err(error) => {
+                            zen_task.abort();
+                            return Err(error);
+                        }
+                    }
+                }
+                Err(error) => {
+                    zen_task.abort();
+                    return Err(error);
+                }
+            };
+        let balance = match embedded_balance {
             Some(balance) => {
                 zen_task.abort();
                 Some(balance)
@@ -808,7 +882,7 @@ mod tests {
     fn uses_context_workspace_id_before_discovery() {
         assert_eq!(
             OpenCodeGoProvider::workspace_id_from_context(Some("wrk_override")),
-            Some("wrk_override")
+            Some("wrk_override".to_string())
         );
         assert_eq!(
             OpenCodeGoProvider::workspace_id_from_context(Some("")),
@@ -844,6 +918,43 @@ mod tests {
             &selected,
             &ProviderError::AuthRequired
         ));
+    }
+
+    #[test]
+    fn console_recovery_requires_an_independent_legacy_cookie() {
+        assert!(OpenCodeGoProvider::should_try_legacy(
+            "auth=legacy; __Host-console_session=console",
+            &ProviderError::AuthRequired
+        ));
+        assert!(!OpenCodeGoProvider::should_try_legacy(
+            "__Host-console_session=console",
+            &ProviderError::AuthRequired
+        ));
+        assert!(!OpenCodeGoProvider::should_try_legacy(
+            "auth=legacy",
+            &ProviderError::NotInstalled("terminal".to_string())
+        ));
+    }
+
+    #[test]
+    fn failed_legacy_read_preserves_non_auth_console_failure() {
+        let error = OpenCodeGoProvider::select_legacy_result::<()>(
+            "auth=legacy; __Host-console_session=console",
+            ProviderError::Other("console unavailable".to_string()),
+            Err(ProviderError::AuthRequired),
+        )
+        .unwrap_err();
+        assert!(matches!(error, ProviderError::Other(message) if message == "console unavailable"));
+
+        let error = OpenCodeGoProvider::select_legacy_result::<()>(
+            "auth=legacy; __Host-console_session=console",
+            ProviderError::AuthRequired,
+            Err(ProviderError::Parse("legacy payload missing".to_string())),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, ProviderError::Parse(message) if message == "legacy payload missing")
+        );
     }
 
     #[test]
