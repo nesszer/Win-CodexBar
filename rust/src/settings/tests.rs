@@ -32,6 +32,13 @@ fn test_settings_default() {
 }
 
 #[test]
+fn kimi_cookie_source_defaults_to_automatic_discovery() {
+    let settings = Settings::default();
+    assert_eq!(settings.cookie_source(ProviderId::Kimi), "auto");
+    assert_eq!(settings.cookie_source(ProviderId::Claude), "manual");
+}
+
+#[test]
 fn overview_layout_defaults_to_compact_and_round_trips() {
     let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
         .expect("missing overview layout defaults to compact");

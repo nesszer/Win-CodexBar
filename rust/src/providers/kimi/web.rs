@@ -26,16 +26,17 @@ pub(crate) fn cookie_source() -> String {
         .to_string()
 }
 
-/// Upstream `KimiBrowserImportPolicy.allowsImport`: everything but `off`.
+/// Upstream `KimiBrowserImportPolicy.allowsImport`: automatic discovery is
+/// allowed only when the user selected the automatic source.
 fn browser_import_allowed(cookie_source: &str) -> bool {
-    !cookie_source.eq_ignore_ascii_case("off")
+    cookie_source.eq_ignore_ascii_case("auto") || cookie_source.eq_ignore_ascii_case("browser")
 }
 
 /// Web auth token chain for both the web fetch and the Code-API enrichment
 /// (upstream `KimiWebEnrichmentTokenResolver.resolve`):
 /// 1. Manual cookie header (its `kimi-auth`/auth cookie), source-independent.
-/// 2. Kimi Desktop session token (skipped when cookie source is `off`).
-/// 3. Browser cookie import (skipped when cookie source is `off`).
+/// 2. Kimi Desktop session token (automatic source only).
+/// 3. Browser cookie import (automatic source only).
 pub(crate) fn web_auth_tokens(manual_header: Option<&str>) -> Vec<String> {
     resolve_web_tokens(WebTokenInput {
         manual_header,
@@ -369,22 +370,17 @@ mod tests {
     }
 
     #[test]
-    fn cookie_source_off_blocks_desktop_and_browser_but_not_manual() {
-        assert_eq!(
-            resolve_web_tokens(input(None, "off", static_desktop, static_browser)),
-            Vec::new()
-        );
-        assert_eq!(
-            resolve_web_tokens(input(None, "off", no_token, static_browser)),
-            Vec::new()
-        );
-        assert_eq!(
-            resolve_web_tokens(input(Some("kimi-auth=manual"), "off", no_token, no_token)),
-            vec![WebTokenCandidate {
-                token: "manual".to_string(),
-                source: WebTokenSource::Manual,
-            }]
-        );
+    fn off_and_manual_sources_block_automatic_discovery() {
+        for source in ["off", "manual"] {
+            assert_eq!(
+                resolve_web_tokens(input(None, source, static_desktop, static_browser)),
+                Vec::new()
+            );
+            assert_eq!(
+                resolve_web_tokens(input(Some("not-a-token"), source, no_token, static_browser)),
+                Vec::new()
+            );
+        }
     }
 
     #[test]
@@ -400,15 +396,18 @@ mod tests {
     }
 
     #[test]
-    fn manual_default_source_still_allows_desktop_token() {
-        // Upstream: desktop-session token applies for any non-off source;
-        // the local default ("manual") must keep desktop sessions working.
-        let candidates = resolve_web_tokens(input(None, "manual", static_desktop, no_token));
+    fn explicit_manual_token_stays_authoritative() {
+        let candidates = resolve_web_tokens(input(
+            Some("kimi-auth=manual-token"),
+            "manual",
+            static_desktop,
+            static_browser,
+        ));
         assert_eq!(
             candidates,
             vec![WebTokenCandidate {
-                token: "desktop-token".to_string(),
-                source: WebTokenSource::Desktop,
+                token: "manual-token".to_string(),
+                source: WebTokenSource::Manual,
             }]
         );
     }
@@ -429,7 +428,8 @@ mod tests {
     fn browser_import_gate_is_case_insensitive() {
         assert!(!browser_import_allowed("OFF"));
         assert!(browser_import_allowed("browser"));
-        assert!(browser_import_allowed("manual"));
+        assert!(browser_import_allowed("AUTO"));
+        assert!(!browser_import_allowed("manual"));
     }
 
     #[test]
