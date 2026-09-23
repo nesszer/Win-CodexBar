@@ -395,7 +395,7 @@ fn counts_claude_usage_once_across_duplicate_records() {
     assert_eq!(record.output, 50);
     assert_eq!(record.cache_create, 10);
     assert_eq!(record.cache_read, 20);
-    assert!(record.cost > 0.0);
+    assert!(record.cost.is_some_and(|cost| cost > 0.0));
 
     let cutoff = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
         .unwrap()
@@ -496,6 +496,157 @@ fn malformed_claude_history_stays_unknown_while_valid_empty_history_is_known_zer
 }
 
 #[test]
+fn claude_daily_token_coverage_requires_a_complete_valid_scan() {
+    let root = tempfile::tempdir().unwrap();
+    let cutoff = Utc::now() - Duration::days(1);
+    let valid_path = root.path().join("valid.jsonl");
+    let timestamp = Utc::now() - Duration::hours(1);
+    let today = timestamp
+        .with_timezone(&Local)
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
+    std::fs::write(
+        &valid_path,
+        format!(
+            "{}\n",
+            claude_transcript_line(
+                &timestamp.to_rfc3339(),
+                "requestId",
+                "req_valid",
+                "msg_valid"
+            )
+        ),
+    )
+    .unwrap();
+
+    let mut valid_tokens = HashMap::from([(today.clone(), 0)]);
+    let valid_result = scan_claude_file_for_daily_tokens(
+        &valid_path,
+        &cutoff,
+        &mut HashSet::new(),
+        &mut ClaudeScanPricingResolver::default(),
+        &mut valid_tokens,
+    );
+    assert!(valid_result.is_complete());
+    let mut covered_days = HashSet::new();
+    mark_claude_daily_token_coverage(&mut covered_days, &valid_tokens, valid_result);
+    assert!(covered_days.contains(&today));
+
+    let assert_uncovered = |path: &Path| {
+        let mut daily_tokens = HashMap::from([(today.clone(), 0)]);
+        let result = scan_claude_file_for_daily_tokens(
+            path,
+            &cutoff,
+            &mut HashSet::new(),
+            &mut ClaudeScanPricingResolver::default(),
+            &mut daily_tokens,
+        );
+        assert!(!result.is_complete());
+        let mut covered_days = HashSet::from(["stale-coverage".to_string()]);
+        mark_claude_daily_token_coverage(&mut covered_days, &daily_tokens, result);
+        assert!(covered_days.is_empty());
+        result
+    };
+
+    let malformed_path = root.path().join("malformed.jsonl");
+    std::fs::write(&malformed_path, b"{malformed\n").unwrap();
+    assert_eq!(assert_uncovered(&malformed_path).malformed_lines, 1);
+
+    let incomplete_path = root.path().join("incomplete.jsonl");
+    std::fs::write(
+        &incomplete_path,
+        r#"{"type":"assistant","message":{"id":"msg_preliminary","model":"gpt-5.6-sol","stop_reason":null,"usage":{"input_tokens":1000}}}"#,
+    )
+    .unwrap();
+    assert_eq!(assert_uncovered(&incomplete_path).incomplete_requests, 1);
+
+    let missing_timestamp_path = root.path().join("missing-timestamp.jsonl");
+    std::fs::write(
+        &missing_timestamp_path,
+        r#"{"type":"assistant","requestId":"req_no_timestamp","message":{"id":"msg_no_timestamp","model":"claude-sonnet-4-6","usage":{"input_tokens":1000,"output_tokens":500}}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        assert_uncovered(&missing_timestamp_path).aggregation_failures,
+        1
+    );
+
+    let unreadable_path = root.path().join("missing.jsonl");
+    assert_eq!(assert_uncovered(&unreadable_path).read_failures, 1);
+
+    let scanner = CostScanner::new(1);
+    let missing_directory = root.path().join("missing-directory");
+    let traversal_read_failures =
+        scanner.walk_claude_files(&missing_directory, &cutoff, None, &mut |_| {});
+    assert_eq!(traversal_read_failures, 1);
+    let mut covered_days = HashSet::from([today]);
+    mark_claude_daily_token_coverage(
+        &mut covered_days,
+        &valid_tokens,
+        ClaudeFileScanResult {
+            read_failures: traversal_read_failures,
+            ..ClaudeFileScanResult::default()
+        },
+    );
+    assert!(covered_days.is_empty());
+}
+
+#[test]
+fn public_claude_daily_token_dispatch_reports_incomplete_fixture_scans() {
+    const CHILD_MARKER: &str = "CODEXBAR_CLAUDE_DAILY_TOKEN_TEST_CHILD";
+    const CHILD_DONE: &str = "isolated Claude daily-history fixture verified";
+    if std::env::var_os(CHILD_MARKER).is_some() {
+        let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+            .map(PathBuf::from)
+            .expect("child receives isolated Claude config directory");
+        let projects_dir = config_dir.join("projects");
+        let project_dir = projects_dir.join("fixture-project");
+        let (complete_history, incomplete) = get_daily_token_history("claude", 1);
+        assert!(!incomplete, "valid fixture scan should establish coverage");
+        assert!(complete_history.iter().any(|(_, tokens)| *tokens > 0));
+
+        std::fs::write(project_dir.join("malformed.jsonl"), b"{malformed\n").unwrap();
+        let (partial_history, incomplete) = get_daily_token_history("claude", 1);
+        assert!(
+            incomplete,
+            "malformed fixture should leave coverage incomplete"
+        );
+        assert_eq!(partial_history, complete_history);
+        println!("{CHILD_DONE}");
+        return;
+    }
+
+    let config_dir = tempfile::tempdir().unwrap();
+    let project_dir = config_dir.path().join("projects").join("fixture-project");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    let timestamp = Utc::now().to_rfc3339();
+    std::fs::write(
+        project_dir.join("valid.jsonl"),
+        format!(
+            "{}\n",
+            claude_transcript_line(&timestamp, "requestId", "req_public", "msg_public")
+        ),
+    )
+    .unwrap();
+
+    let test_thread = std::thread::current();
+    let test_name = test_thread.name().expect("test harness names this thread");
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test_name, "--nocapture", "--test-threads=1"])
+        .env(CHILD_MARKER, "1")
+        .env("CLAUDE_CONFIG_DIR", config_dir.path())
+        .output()
+        .expect("spawn isolated exact-test child");
+    assert!(
+        output.status.success() && String::from_utf8_lossy(&output.stdout).contains(CHILD_DONE),
+        "fixture child failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn classifies_vertex_ai_claude_metadata_without_changing_anthropic_rows() {
     let cases = [
         (
@@ -552,9 +703,17 @@ fn shared_claude_reader_excludes_vertex_rows_but_keeps_anthropic_usage() {
     let anthropic = format!(
         r#"{{"type":"assistant","timestamp":"{timestamp}","requestId":"req_anthropic","message":{{"id":"msg_anthropic","model":"claude-sonnet-4-6","usage":{{"input_tokens":10,"output_tokens":5}}}}}}"#
     );
-    let vertex = format!(
-        r#"{{"type":"assistant","timestamp":"{timestamp}","requestId":"req_vrtx_123","message":{{"id":"msg_vrtx_123","model":"claude-sonnet-4-6","usage":{{"input_tokens":1000,"output_tokens":500}}}}}}"#
-    );
+    let vertex = serde_json::json!({
+        "type": "assistant",
+        "timestamp": timestamp,
+        "requestId": "req_vrtx_123",
+        "message": {
+            "id": "msg_vrtx_123",
+            "model": "claude-sonnet-4-6",
+            "usage": {"input_tokens": u64::MAX, "output_tokens": u64::MAX}
+        }
+    })
+    .to_string();
     std::fs::write(&path, format!("{anthropic}\n{vertex}\n")).unwrap();
 
     let cutoff = Utc::now() - Duration::days(30);
@@ -567,6 +726,86 @@ fn shared_claude_reader_excludes_vertex_rows_but_keeps_anthropic_usage() {
     assert_eq!(counted, 1);
     assert_eq!(records, vec![(10, 5)]);
     let _removed = std::fs::remove_file(&path);
+}
+
+#[test]
+fn oversized_claude_history_preserves_independent_components_and_fails_closed() {
+    let first: ClaudeEvent = serde_json::from_str(&format!(
+        r#"{{"type":"assistant","timestamp":"2026-09-20T12:00:00Z","requestId":"req_overflow_1","message":{{"id":"msg_overflow_1","model":"claude-sonnet-4-6","usage":{{"input_tokens":{},"output_tokens":2}}}}}}"#,
+        u64::MAX
+    ))
+    .unwrap();
+    let second: ClaudeEvent = serde_json::from_str(
+        r#"{"type":"assistant","timestamp":"2026-09-20T12:01:00Z","requestId":"req_overflow_2","message":{"id":"msg_overflow_2","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":3}}}"#,
+    )
+    .unwrap();
+    let first = claude_usage_record_from_event(&first).expect("first usage row");
+    let second = claude_usage_record_from_event(&second).expect("second usage row");
+    let mut summary = CostSummary::default();
+
+    assert!(add_claude_record_to_summary(&mut summary, &first));
+    assert!(!add_claude_record_to_summary(&mut summary, &second));
+    assert_eq!(summary.input_tokens, u64::MAX);
+    assert_eq!(summary.output_tokens, 5);
+    assert!(summary.total_cost_usd.is_finite());
+
+    finalize_claude_summary(
+        &mut summary,
+        true,
+        ClaudeFileScanResult {
+            counted: 2,
+            aggregation_failures: 1,
+            ..ClaudeFileScanResult::default()
+        },
+        false,
+    );
+    assert!(!summary.history_coverage_established);
+    assert!(!summary.known_zero);
+}
+
+#[test]
+fn oversized_single_claude_row_keeps_cost_but_marks_combined_quota_tokens_unknown() {
+    let event: ClaudeEvent = serde_json::from_str(&format!(
+        r#"{{"type":"assistant","timestamp":"2026-09-20T12:00:00Z","requestId":"req_combined_overflow","message":{{"id":"msg_combined_overflow","model":"claude-sonnet-4-6","usage":{{"input_tokens":{},"output_tokens":1}}}}}}"#,
+        u64::MAX
+    ))
+    .unwrap();
+    let record = claude_usage_record_from_event(&event).expect("usage row");
+    let quota = quota_history_record_from_usage(&record).expect("timestamped quota row");
+
+    assert!(record.cost.is_some_and(f64::is_finite));
+    assert_eq!(quota.tokens, None);
+    assert!(!quota.tokens_are_complete);
+    assert!(quota.cost_usd.is_some_and(f64::is_finite));
+    assert!(quota.cost_is_complete);
+}
+
+#[test]
+fn nonfinite_claude_price_is_unknown_instead_of_zero() {
+    let snapshot = crate::core::ModelsDevPricingSnapshot::from_catalog_json_for_tests(
+        r#"{
+            "anthropic": {"models": {"claude-test-extreme-price": {
+                "id": "claude-test-extreme-price", "cost": {"input": 1e308, "output": 1}
+            }}}
+        }"#,
+    )
+    .expect("pricing fixture");
+    let mut pricing = ClaudeScanPricingResolver::with_snapshot(snapshot);
+    let event: ClaudeEvent = serde_json::from_str(&format!(
+        r#"{{"type":"assistant","timestamp":"2026-09-20T12:00:00Z","requestId":"req_nonfinite","message":{{"id":"msg_nonfinite","model":"claude-test-extreme-price","usage":{{"input_tokens":{},"output_tokens":1}}}}}}"#,
+        u64::MAX
+    ))
+    .unwrap();
+    let record =
+        claude_usage_record_from_event_with_pricing(&event, &mut pricing).expect("usage row");
+    let mut summary = CostSummary::default();
+
+    assert_eq!(record.cost, None);
+    assert!(!add_claude_record_to_summary(&mut summary, &record));
+    assert_eq!(summary.input_tokens, u64::MAX);
+    assert_eq!(summary.output_tokens, 1);
+    assert_eq!(summary.total_cost_usd, 0.0);
+    assert!(!summary.known_zero);
 }
 
 fn claude_transcript_line(

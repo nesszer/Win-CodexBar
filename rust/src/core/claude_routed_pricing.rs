@@ -147,13 +147,52 @@ pub fn cost_usd_from_pricing_with_threshold(
     cache_write: i32,
     output: i32,
 ) -> f64 {
-    let input = input.max(0);
-    let cache_read = cache_read.max(0);
-    let cache_write = cache_write.max(0);
-    let output = output.max(0);
+    cost_usd_from_u64_counts_with_threshold(
+        pricing,
+        threshold_tokens,
+        input.max(0) as u64,
+        cache_read.max(0) as u64,
+        cache_write.max(0) as u64,
+        output.max(0) as u64,
+    )
+}
+
+/// Calculate routed cost for local history counters without narrowing them to
+/// the signed API token-count type.
+pub(crate) fn cost_usd_from_u64_counts_with_threshold(
+    pricing: models_dev_pricing::DynamicModelPricing,
+    threshold_tokens: Option<u64>,
+    input: u64,
+    cache_read: u64,
+    cache_write: u64,
+    output: u64,
+) -> f64 {
     let use_tier = threshold_tokens.is_some_and(|threshold| {
-        (input as u64) + (cache_read as u64) + (cache_write as u64) > threshold
+        input
+            .checked_add(cache_read)
+            .and_then(|total| total.checked_add(cache_write))
+            .is_none_or(|total| total > threshold)
     });
+    let rates = selected_cost_rates(pricing, use_tier);
+
+    (input as f64) * rates.input
+        + (cache_read as f64) * rates.cache_read
+        + (cache_write as f64) * rates.cache_write
+        + (output as f64) * rates.output
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SelectedCostRates {
+    input: f64,
+    cache_read: f64,
+    cache_write: f64,
+    output: f64,
+}
+
+fn selected_cost_rates(
+    pricing: models_dev_pricing::DynamicModelPricing,
+    use_tier: bool,
+) -> SelectedCostRates {
     let pick = |base: f64, above: Option<f64>| {
         if use_tier {
             above.unwrap_or(base)
@@ -161,39 +200,34 @@ pub fn cost_usd_from_pricing_with_threshold(
             base
         }
     };
-    let input_rate = pick(
+    let input = pick(
         pricing.input_cost_per_token,
         pricing.input_cost_per_token_above_threshold,
     );
-    let cache_read_rate = if use_tier {
-        pricing
-            .cache_read_input_cost_per_token_above_threshold
-            .or(pricing.cache_read_input_cost_per_token)
-            .unwrap_or(input_rate)
-    } else {
-        pricing
-            .cache_read_input_cost_per_token
-            .unwrap_or(input_rate)
-    };
-    let cache_write_rate = if use_tier {
-        pricing
-            .cache_write_input_cost_per_token_above_threshold
-            .or(pricing.cache_write_input_cost_per_token)
-            .unwrap_or(input_rate)
-    } else {
-        pricing
-            .cache_write_input_cost_per_token
-            .unwrap_or(input_rate)
-    };
-    let output_rate = pick(
-        pricing.output_cost_per_token,
-        pricing.output_cost_per_token_above_threshold,
-    );
 
-    (input as f64) * input_rate
-        + (cache_read as f64) * cache_read_rate
-        + (cache_write as f64) * cache_write_rate
-        + (output as f64) * output_rate
+    SelectedCostRates {
+        input,
+        cache_read: if use_tier {
+            pricing
+                .cache_read_input_cost_per_token_above_threshold
+                .or(pricing.cache_read_input_cost_per_token)
+                .unwrap_or(input)
+        } else {
+            pricing.cache_read_input_cost_per_token.unwrap_or(input)
+        },
+        cache_write: if use_tier {
+            pricing
+                .cache_write_input_cost_per_token_above_threshold
+                .or(pricing.cache_write_input_cost_per_token)
+                .unwrap_or(input)
+        } else {
+            pricing.cache_write_input_cost_per_token.unwrap_or(input)
+        },
+        output: pick(
+            pricing.output_cost_per_token,
+            pricing.output_cost_per_token_above_threshold,
+        ),
+    }
 }
 
 fn effective_threshold(provider: &str, model: &str, catalog_threshold: Option<u64>) -> Option<u64> {
