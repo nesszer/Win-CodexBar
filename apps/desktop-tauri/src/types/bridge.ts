@@ -12,7 +12,7 @@ export type SettingsTabId =
 
 // ── Narrowed string-literal unions (persisted settings enums) ─────────
 
-export type TrayIconMode = "single" | "perProvider";
+export type TrayIconMode = "single" | "perProvider" | "stacked";
 
 export type NotificationSoundTheme = "windows" | "codexBar";
 
@@ -190,6 +190,8 @@ export interface SettingsSnapshot {
   predictivePaceWarningEnabled: boolean;
   showPace?: boolean;
   trayIconMode: TrayIconMode;
+  stackedTrayTopProvider?: string | null;
+  stackedTrayBottomProvider?: string | null;
   switcherShowsIcons: boolean;
   menuBarShowsHighestUsage: boolean;
   menuBarShowsPercent: boolean;
@@ -299,6 +301,8 @@ export interface SettingsUpdate {
   predictivePaceWarningEnabled?: boolean;
   showPace?: boolean;
   trayIconMode?: TrayIconMode;
+  stackedTrayTopProvider?: string;
+  stackedTrayBottomProvider?: string;
   switcherShowsIcons?: boolean;
   menuBarShowsHighestUsage?: boolean;
   menuBarShowsPercent?: boolean;

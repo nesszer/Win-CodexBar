@@ -772,6 +772,27 @@ fn test_settings_with_utf8_bom_parses_perprovider_tray_mode() {
 }
 
 #[test]
+fn stacked_tray_mode_preserves_provider_preferences() {
+    let json = r#"{
+        "tray_icon_mode": "stacked",
+        "stacked_tray_top_provider": "claude",
+        "stacked_tray_bottom_provider": "codex"
+    }"#;
+
+    let settings: Settings = serde_json::from_str(json).unwrap();
+
+    assert_eq!(settings.tray_icon_mode, TrayIconMode::Stacked);
+    assert_eq!(
+        settings.stacked_tray_top_provider.as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        settings.stacked_tray_bottom_provider.as_deref(),
+        Some("codex")
+    );
+}
+
+#[test]
 fn test_language_serde_serialization() {
     // Test that Language serializes to lowercase string
     let english = Language::English;

@@ -19,6 +19,7 @@ mod surface_target;
 mod tray_accounts;
 mod tray_bridge;
 mod tray_menu;
+mod tray_presentation;
 mod tray_visibility;
 mod usage_metric;
 mod window_positioner;

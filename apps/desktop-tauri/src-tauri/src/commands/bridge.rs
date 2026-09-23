@@ -661,6 +661,8 @@ pub struct SettingsSnapshot {
     predictive_pace_warning_enabled: bool,
     show_pace: bool,
     tray_icon_mode: &'static str,
+    stacked_tray_top_provider: Option<String>,
+    stacked_tray_bottom_provider: Option<String>,
     switcher_shows_icons: bool,
     menu_bar_shows_highest_usage: bool,
     menu_bar_shows_percent: bool,
@@ -783,6 +785,8 @@ impl From<Settings> for SettingsSnapshot {
             predictive_pace_warning_enabled: settings.predictive_pace_warning_enabled,
             show_pace: settings.show_pace,
             tray_icon_mode: tray_icon_mode_label(settings.tray_icon_mode),
+            stacked_tray_top_provider: settings.stacked_tray_top_provider,
+            stacked_tray_bottom_provider: settings.stacked_tray_bottom_provider,
             switcher_shows_icons: settings.switcher_shows_icons,
             menu_bar_shows_highest_usage: settings.menu_bar_shows_highest_usage,
             menu_bar_shows_percent: settings.menu_bar_shows_percent,
@@ -876,6 +880,7 @@ fn tray_icon_mode_label(mode: TrayIconMode) -> &'static str {
     match mode {
         TrayIconMode::Single => "single",
         TrayIconMode::PerProvider => "perProvider",
+        TrayIconMode::Stacked => "stacked",
     }
 }
 

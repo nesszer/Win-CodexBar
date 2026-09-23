@@ -247,6 +247,8 @@ pub enum TrayIconMode {
     Single,
     /// One tray icon per enabled provider
     PerProvider,
+    /// One tray icon with the selected metrics for two providers stacked vertically
+    Stacked,
 }
 
 impl TrayIconMode {
@@ -255,6 +257,7 @@ impl TrayIconMode {
         match self {
             TrayIconMode::Single => "Single Icon",
             TrayIconMode::PerProvider => "Per Provider",
+            TrayIconMode::Stacked => "Stacked Providers",
         }
     }
 
@@ -263,6 +266,7 @@ impl TrayIconMode {
         match self {
             TrayIconMode::Single => "Show one tray icon for all providers",
             TrayIconMode::PerProvider => "Show a separate tray icon for each enabled provider",
+            TrayIconMode::Stacked => "Show two providers as stacked usage meters",
         }
     }
 }
