@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useLocale } from "../../../hooks/useLocale";
+import { useCurrency } from "../../../hooks/CurrencyProvider";
+import { convertCurrencyAmount, normalizePreferredCurrency } from "../../../lib/currency";
 import {
   getSettingsSnapshot,
   getUsageSpendSummary,
@@ -9,8 +11,6 @@ import {
   writeUsageSpendExport,
 } from "../../../lib/tauri";
 import {
-  formatSpendMetric,
-  formatUsd,
   shareUsageSpendPng,
 } from "../../../lib/usageSpendSharing";
 import type { CostSummaryDisplayStyle, SettingsSnapshot, SpendContract, UsageSpendSummary } from "../../../types/bridge";
@@ -19,6 +19,7 @@ import type { TabProps } from "../settingsTabs";
 
 export default function UsageSpendTab(_props: TabProps) {
   const { t } = useLocale();
+  const { format, preferredCode, rates } = useCurrency();
   const [summary, setSummary] = useState<UsageSpendSummary | null>(null);
   const [selectedDays, setSelectedDays] = useState<0 | 7 | 30>(30);
   const [loading, setLoading] = useState(true);
@@ -90,9 +91,14 @@ export default function UsageSpendTab(_props: TabProps) {
       summary,
       t("UsageSpendTitle"),
       `codexbar-usage-spend-${summary?.reportingDay ?? "unknown"}.png`,
+      {
+        formatMetric: (cost, tokens, currency, tokenLabel) =>
+          formatSpendDisplayMetric(cost, tokens, currency, tokenLabel, format),
+        displayCurrency: (sourceCurrency) => spendDisplayCurrency(sourceCurrency, preferredCode, rates),
+      },
     );
     if (error) setShareError(t(error as LocaleKey));
-  }, [summary, t]);
+  }, [format, preferredCode, rates, summary, t]);
 
   const onCopyJson = useCallback(async () => {
     setShareError(null);
@@ -234,9 +240,9 @@ export default function UsageSpendTab(_props: TabProps) {
             {(summary?.rows ?? []).map((row) => (
               <tr key={row.providerId}>
                 <td>{row.displayName}</td>
-                <td>{formatSpendMetric(row.sevenDay, row.sevenDayTokens, row.currency, t("UsageSpendTokens"))}</td>
-                <td>{formatSpendMetric(row.thirtyDay, row.thirtyDayTokens, row.currency, t("UsageSpendTokens"))}</td>
-                <td>{row.currency || "USD"}</td>
+                <td>{formatSpendDisplayMetric(row.sevenDay, row.sevenDayTokens, row.currency, t("UsageSpendTokens"), format)}</td>
+                <td>{formatSpendDisplayMetric(row.thirtyDay, row.thirtyDayTokens, row.currency, t("UsageSpendTokens"), format)}</td>
+                <td>{spendDisplayCurrency(row.currency || "USD", preferredCode, rates)}</td>
                 <td className="usage-spend-table__source">
                   {row.source}
                   {row.refreshing && (
@@ -283,9 +289,29 @@ export default function UsageSpendTab(_props: TabProps) {
   );
 }
 
+function formatSpendDisplayMetric(
+  cost: number | null | undefined,
+  tokens: number | null | undefined,
+  currency: string,
+  tokenLabel: string,
+  format: (amount: number | null | undefined, sourceCode: string, sourceSymbol?: string | null) => string,
+): string {
+  const parts: string[] = [];
+  if (cost != null && Number.isFinite(cost)) parts.push(format(cost, currency || "USD"));
+  if (tokens != null && Number.isFinite(tokens)) parts.push(`${Math.max(0, tokens).toLocaleString()} ${tokenLabel}`);
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
+function spendDisplayCurrency(source: string, preferred: string, rates: Record<string, number>): string {
+  const target = normalizePreferredCurrency(preferred);
+  if (target !== "AUTO" && convertCurrencyAmount(1, source, target, rates) != null) return target;
+  return source;
+}
+
 
 
 function SpendContractOverview({ contract, t }: { contract: SpendContract; t: (key: LocaleKey) => string }) {
+  const { format } = useCurrency();
   const coverage = contract.priceCoverageRatio == null
     ? t("UsageSpendUnknown")
     : `${Math.round(contract.priceCoverageRatio * 100)}%`;
@@ -298,7 +324,7 @@ function SpendContractOverview({ contract, t }: { contract: SpendContract; t: (k
         : t("UsageSpendUnknown");
   const total = contract.knownCostUsd == null
     ? "—"
-    : `${contract.priceCoverage.unpriced > 0 ? "~" : ""}${formatUsd(contract.knownCostUsd, "USD")}`;
+    : `${contract.priceCoverage.unpriced > 0 ? "~" : ""}${format(contract.knownCostUsd, "USD")}`;
   const tokenParts = [
     contract.tokenMix.inputTokens == null ? null : `${contract.tokenMix.inputTokens.toLocaleString()} input`,
     contract.tokenMix.outputTokens == null ? null : `${contract.tokenMix.outputTokens.toLocaleString()} output`,
@@ -362,6 +388,7 @@ function ActivityHeatmap({ cells, t }: { cells: SpendContract["hourlyActivity"];
 }
 
 function ContractModelsPanel({ contract, showAll, onToggleAll, t }: { contract: SpendContract; showAll: boolean; onToggleAll: () => void; t: (key: LocaleKey) => string }) {
+  const { format } = useCurrency();
   const visible = showAll ? contract.models : contract.models.slice(0, 8);
   return (
     <div className="settings-section__group" style={{ marginTop: 20 }}>
@@ -388,7 +415,7 @@ function ContractModelsPanel({ contract, showAll, onToggleAll, t }: { contract: 
                   {model.totalTokens.toLocaleString()} {t("UsageSpendTokens")}{model.customPricing ? " · " + t("UsageSpendCustomPricing") : ""}
                 </span>
               </span>
-              <span>{model.costUsd == null ? t("UsageSpendUnpriced") : formatUsd(model.costUsd, "USD")}</span>
+              <span>{model.costUsd == null ? t("UsageSpendUnpriced") : format(model.costUsd, "USD")}</span>
             </div>
           ))}
         </div>
@@ -412,6 +439,7 @@ function ProjectsPanel({
   onToggleProject: (id: string) => void;
   t: (key: LocaleKey) => string;
 }) {
+  const { format } = useCurrency();
   const projects = showAll ? contract.projects : contract.projects.slice(0, 8);
   const partial = contract.projectSourceStatus != null && contract.projectSourceStatus !== "complete";
 
@@ -466,7 +494,7 @@ function ProjectsPanel({
                       {project.topModel ? ` · ${project.topModel}` : ""}
                     </span>
                   </span>
-                  <span>{partialCost ? "~" : ""}${project.costEstimate.knownUsd.toFixed(2)}</span>
+                  <span>{partialCost ? "~" : ""}{format(project.costEstimate.knownUsd, "USD")}</span>
                   <span aria-hidden="true">{isExpanded ? "▾" : "▸"}</span>
                 </button>
 
@@ -484,7 +512,7 @@ function ProjectsPanel({
                           </span>
                           <span>
                             {session.costEstimate.unknownTokens > 0 ? "~" : ""}
-                            ${session.costEstimate.knownUsd.toFixed(2)}
+                            {format(session.costEstimate.knownUsd, "USD")}
                           </span>
                         </div>
                       ))}

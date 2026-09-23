@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   formatUsageSpendReportingDay,
@@ -103,5 +103,42 @@ describe("usage spend sharing", () => {
     // UsageSpendRow field may carry account-identity data (no email/org).
     expect(Object.keys(row).filter((key) => /email|org|token|account/i.test(key))).toEqual([]);
     expect(unsafeKeys).toEqual(["providerId", "includedInOverview"]);
+  });
+
+  it("uses the supplied display formatter and currency resolver for PNG cells", () => {
+    const canvas = document.createElement("canvas");
+    const context = {
+      scale: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(), fillText: vi.fn(),
+      beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
+      measureText: vi.fn(() => ({ width: 1 })),
+    } as unknown as CanvasRenderingContext2D;
+    vi.spyOn(canvas, "getContext").mockReturnValue(context);
+    vi.spyOn(canvas, "toDataURL").mockReturnValue("data:image/png;base64,test");
+    const createElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tagName, options) =>
+      tagName === "canvas" ? canvas : createElement(tagName, options),
+    );
+    const formatMetric = vi.fn(() => "₺32.00 · 10 tokens");
+    const displayCurrency = vi.fn(() => "TRY");
+    const summary: UsageSpendSummary = {
+      contract: {} as SpendContract,
+      reportingDay: "2026-09-19",
+      dashboardTimezone: "UTC",
+      rows: [{
+        providerId: "codex", displayName: "Codex", sevenDay: 1, thirtyDay: 2,
+        currency: "USD", source: "local", includedInOverview: true,
+      }],
+    };
+
+    try {
+      renderUsageSpendSharePng(summary, "Usage & Spend", { formatMetric, displayCurrency });
+      expect(formatMetric).toHaveBeenCalledWith(1, undefined, "USD", "tokens");
+      expect(formatMetric).toHaveBeenCalledWith(2, undefined, "USD", "tokens");
+      expect(displayCurrency).toHaveBeenCalledWith("USD");
+      expect(context.fillText).toHaveBeenCalledWith("₺32.00 · 10 tokens", expect.any(Number), expect.any(Number));
+      expect(context.fillText).toHaveBeenCalledWith("TRY", expect.any(Number), expect.any(Number));
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

@@ -7,6 +7,7 @@ use super::*;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SettingsUpdate {
+    pub preferred_currency_code: Option<String>,
     pub enabled_providers: Option<Vec<String>>,
     pub refresh_interval_secs: Option<u64>,
     pub adaptive_refresh: Option<bool>,
@@ -130,6 +131,7 @@ impl SettingsUpdate {
             || self.overview_layout.is_some()
             || self.provider_metrics.is_some()
             || self.provider_hidden_usage_item_ids.is_some()
+            || self.preferred_currency_code.is_some()
             || self.codex_spark_usage_visible.is_some()
             || self.copilot_seat_credit_entitlement.is_some()
             || self.enabled_providers.is_some()
@@ -200,6 +202,13 @@ impl SettingsUpdate {
     }
 
     fn apply_general_settings(self, settings: &mut Settings) -> Result<Self, String> {
+        if let Some(value) = self.preferred_currency_code.as_deref() {
+            let normalized = codexbar::currency::normalize_preferred_currency(value);
+            if !value.trim().eq_ignore_ascii_case("AUTO") && normalized == "AUTO" {
+                return Err(format!("Unsupported preferred currency: {value}"));
+            }
+            settings.preferred_currency_code = normalized;
+        }
         if let Some(v) = self.start_at_login {
             settings.set_start_at_login(v).map_err(|e| e.to_string())?;
         }
@@ -571,6 +580,25 @@ pub async fn update_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preferred_currency_patch_accepts_supported_codes_and_rejects_unknown_codes() {
+        let mut settings = Settings::default();
+        SettingsUpdate {
+            preferred_currency_code: Some("try".to_string()),
+            ..SettingsUpdate::default()
+        }
+        .apply_to(&mut settings)
+        .expect("TRY is supported");
+        assert_eq!(settings.preferred_currency_code, "TRY");
+
+        let result = SettingsUpdate {
+            preferred_currency_code: Some("BTC".to_string()),
+            ..SettingsUpdate::default()
+        }
+        .apply_to(&mut settings);
+        assert!(matches!(result, Err(error) if error.contains("Unsupported preferred currency")));
+    }
 
     #[test]
     fn only_data_affecting_settings_refresh_providers() {

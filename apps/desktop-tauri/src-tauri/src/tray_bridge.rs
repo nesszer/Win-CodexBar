@@ -564,11 +564,7 @@ fn provider_status_label(
     if preference == MetricPreference::MonthlyPlan
         && let Some(cost) = snapshot.cost.as_ref()
     {
-        let amount = if !cost.formatted_used.is_empty() {
-            cost.formatted_used.clone()
-        } else {
-            crate::commands::format_cost_amount(cost)
-        };
+        let amount = crate::commands::format_cost_amount(cost);
         return (
             snapshot.provider_id.clone(),
             format!("{} {}", snapshot.display_name, amount),

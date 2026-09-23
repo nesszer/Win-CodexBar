@@ -82,6 +82,10 @@ impl LowPowerModePreference {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(from = "RawSettings", default)]
 pub struct Settings {
+    /// Preferred display currency for supported spend amounts; AUTO keeps provider currencies.
+    #[serde(default = "default_preferred_currency_code")]
+    pub preferred_currency_code: String,
+
     /// Enabled provider IDs (by CLI name)
     pub enabled_providers: HashSet<String>,
 
@@ -525,6 +529,7 @@ impl Default for Settings {
         enabled.insert("codex".to_string());
 
         Self {
+            preferred_currency_code: "AUTO".to_string(),
             enabled_providers: enabled,
             refresh_interval_secs: 300, // 5 minutes
             adaptive_refresh: false,
@@ -597,6 +602,10 @@ impl Default for Settings {
             hide_native_codex_cost_when_open_codex_present: false,
         }
     }
+}
+
+fn default_preferred_currency_code() -> String {
+    "AUTO".to_string()
 }
 
 fn default_overview_layout() -> String {

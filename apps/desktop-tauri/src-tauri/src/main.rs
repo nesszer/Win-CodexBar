@@ -146,6 +146,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(Mutex::new(initial_state))
+        .manage(commands::CurrencyRateCache::default())
         .plugin(shortcut_bridge::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -159,6 +160,7 @@ fn main() {
             commands::get_bootstrap_state,
             commands::get_provider_catalog,
             commands::get_settings_snapshot,
+            commands::get_currency_rates,
             commands::list_agent_sessions,
             commands::focus_agent_session,
             commands::update_settings,

@@ -45,6 +45,7 @@ import type {
   CodexAccountsStateBridge,
   CodexSwitchResult,
   DeepSeekPricingStatus,
+  CurrencyRatesSnapshot,
 } from "../types/bridge";
 
 export const claudeAccountsList = () => invoke<ClaudeAccount[]>("claude_accounts_list");
@@ -85,6 +86,10 @@ export function reorderProviders(ids: string[]): Promise<ProviderSummary[]> {
 
 export function getSettingsSnapshot(): Promise<SettingsSnapshot> {
   return invoke<SettingsSnapshot>("get_settings_snapshot");
+}
+
+export function getCurrencyRates(preferredCurrencyCode: string): Promise<CurrencyRatesSnapshot> {
+  return invoke<CurrencyRatesSnapshot>("get_currency_rates", { preferredCurrencyCode });
 }
 
 export function updateSettings(

@@ -14,6 +14,7 @@ import type {
   UsageThresholdOverride,
 } from "../../../types/bridge";
 import type { LocaleKey } from "../../../i18n/keys";
+import { SUPPORTED_CURRENCIES } from "../../../lib/currency";
 import type { TabProps } from "../settingsTabs";
 
 const FALLBACK_LANGUAGE_OPTIONS: LanguageOption[] = [
@@ -264,6 +265,21 @@ export default function GeneralTab({
                 label: opt.display,
               }))}
               onChange={(v) => set({ uiLanguage: v as Language })}
+            />
+          </Field>
+          <Field label={t("PreferredCurrencyLabel")} description={t("PreferredCurrencyHelper")}>
+            <Select
+              value={settings.preferredCurrencyCode ?? "AUTO"}
+              disabled={saving}
+              ariaLabel={t("PreferredCurrencyLabel")}
+              options={[
+                { value: "AUTO", label: "AUTO" },
+                ...SUPPORTED_CURRENCIES.map((code) => ({
+                  value: code,
+                  label: code === "TRY" ? "TRY (₺)" : code,
+                })),
+              ]}
+              onChange={(value) => set({ preferredCurrencyCode: value })}
             />
           </Field>
         </div>

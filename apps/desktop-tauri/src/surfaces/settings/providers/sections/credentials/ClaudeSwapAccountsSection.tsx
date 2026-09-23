@@ -19,6 +19,7 @@ import {
   localClaudeReconciliationOutcome,
   useClaudeReconciliation,
 } from "../../../../../hooks/useClaudeReconciliation";
+import { useCurrency } from "../../../../../hooks/CurrencyProvider";
 
 interface Props {
   t: (key: LocaleKey) => string;
@@ -45,27 +46,30 @@ function spendLabel(
   t: (key: LocaleKey) => string,
   spend: ClaudeSwapSpendWindow | null,
   locale: string,
+  formatCurrency: (amount: number | null | undefined, sourceCode: string) => string,
 ): string | null {
   if (!spend) return null;
   const formatter = new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  const currency = spend.currencyCode ? ` ${spend.currencyCode}` : "";
-  return `${t("ClaudeSwapSpend")} ${formatter.format(spend.used)} / ${formatter.format(spend.limit)}${currency} (${Math.round(spend.usedPercent)}%)`;
+  const used = spend.currencyCode ? formatCurrency(spend.used, spend.currencyCode) : formatter.format(spend.used);
+  const limit = spend.currencyCode ? formatCurrency(spend.limit, spend.currencyCode) : formatter.format(spend.limit);
+  return `${t("ClaudeSwapSpend")} ${used} / ${limit} (${Math.round(spend.usedPercent)}%)`;
 }
 
 function historicalLabel(
   t: (key: LocaleKey) => string,
   history: ClaudeSwapHistoricalUsage | null,
   locale: string,
+  formatCurrency: (amount: number | null | undefined, sourceCode: string) => string,
 ): string | null {
   if (!history) return null;
   const windows = [
     usageLabel(t, "ProviderSession", history.fiveHour),
     usageLabel(t, "ProviderWeekly", history.sevenDay),
     ...history.scoped.map((window) => `${window.name} ${Math.round(window.usedPercent)}%`),
-    spendLabel(t, history.spend, locale),
+    spendLabel(t, history.spend, locale, formatCurrency),
   ].filter(Boolean);
   const captured = new Intl.DateTimeFormat(locale, {
     dateStyle: "short",
@@ -102,6 +106,7 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
   const [pathDraft, setPathDraft] = useState("");
   const [state, setState] = useState<ClaudeSwapAccountsState>(EMPTY_STATE);
   const locale = languageLocale(language);
+  const { format: formatCurrency } = useCurrency();
   const [busy, setBusy] = useState(false);
   const [operation, setOperation] = useState<{ generation: number; success: LocaleKey } | null>(null);
   const { snapshot, accept, reconciling } = useClaudeReconciliation();
@@ -272,8 +277,8 @@ export function ClaudeSwapAccountsSection({ t, language = "english" }: Props) {
           const scoped = account.scoped
             .map((window) => `${window.name} ${Math.round(window.usedPercent)}%`)
             .join(" \u00b7 ");
-          const spend = spendLabel(t, account.spend, locale);
-          const historical = historicalLabel(t, account.historicalUsage, locale);
+          const spend = spendLabel(t, account.spend, locale, formatCurrency);
+          const historical = historicalLabel(t, account.historicalUsage, locale, formatCurrency);
           return (
             <li className="credential-card" key={account.id}>
               <div className="credential-card__header">

@@ -139,6 +139,11 @@ export function formatSpendMetric(
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
+export interface UsageSpendSharePresentation {
+  formatMetric?: (cost: number | null | undefined, tokens: number | null | undefined, sourceCurrency: string, tokenLabel: string) => string;
+  displayCurrency?: (sourceCurrency: string) => string;
+}
+
 /**
  * Render the sanitized share-card PNG.
  *
@@ -148,7 +153,11 @@ export function formatSpendMetric(
  * states the guarantee. Keep it that way — do not add account fields to the
  * drawn cells or the footer.
  */
-export function renderUsageSpendSharePng(summary: UsageSpendSummary, title: string): string {
+export function renderUsageSpendSharePng(
+  summary: UsageSpendSummary,
+  title: string,
+  presentation: UsageSpendSharePresentation = {},
+): string {
   const rows = summary.rows;
   const pad = 24;
   const rowH = 28;
@@ -202,9 +211,11 @@ export function renderUsageSpendSharePng(summary: UsageSpendSummary, title: stri
       const y = y0 + (index + 1) * rowH;
       const cells = [
         row.displayName,
-        formatSpendMetric(row.sevenDay, row.sevenDayTokens, row.currency, "tokens"),
-        formatSpendMetric(row.thirtyDay, row.thirtyDayTokens, row.currency, "tokens"),
-        row.currency || "USD",
+        presentation.formatMetric?.(row.sevenDay, row.sevenDayTokens, row.currency || "USD", "tokens")
+          ?? formatSpendMetric(row.sevenDay, row.sevenDayTokens, row.currency, "tokens"),
+        presentation.formatMetric?.(row.thirtyDay, row.thirtyDayTokens, row.currency || "USD", "tokens")
+          ?? formatSpendMetric(row.thirtyDay, row.thirtyDayTokens, row.currency, "tokens"),
+        presentation.displayCurrency?.(row.currency || "USD") ?? (row.currency || "USD"),
         row.source,
       ];
       let cellX = pad;
@@ -250,10 +261,11 @@ export function shareUsageSpendPng(
   summary: UsageSpendSummary | null,
   title: string,
   filename: string,
+  presentation: UsageSpendSharePresentation = {},
 ): string | null {
   if (!summary) return "UsageSpendShareEmpty";
   try {
-    const dataUrl = renderUsageSpendSharePng(summary, title);
+    const dataUrl = renderUsageSpendSharePng(summary, title, presentation);
     if (!dataUrl) return "UsageSpendShareFailed";
     downloadPng(dataUrl, filename);
     return null;

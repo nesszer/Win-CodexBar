@@ -199,6 +199,8 @@ locale_keys! {
 
     // General settings (Preferences)
     InterfaceLanguage,
+    PreferredCurrencyLabel,
+    PreferredCurrencyHelper,
     StartupSettings,
     StartAtLogin,
     StartMinimized,

@@ -508,6 +508,8 @@ export const ALL_LOCALE_KEYS = [
   "SectionUsageRendering",
   "SectionTime",
   "SectionLanguage",
+  "PreferredCurrencyLabel",
+  "PreferredCurrencyHelper",
   "SectionCredentialsSecurity",
   "SectionDebug",
   "SectionApiKeys",

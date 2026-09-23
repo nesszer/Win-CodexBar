@@ -2,6 +2,8 @@ import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot, UsageSpendSummary } from "../types/bridge";
 import type { LocaleKey } from "../i18n/keys";
+import { useCurrency } from "../hooks/CurrencyProvider";
+import { normalizePreferredCurrency, sumDisplayCurrencyAmounts } from "../lib/currency";
 import {
   beginFlyoutGesture,
   getUsageSpendSummary,
@@ -337,6 +339,7 @@ function TrayResizeHandles() {
 }
 
 function OverviewSpendSummary({ providerIds, t }: { providerIds: string[]; t: (key: LocaleKey) => string }) {
+  const { preferredCode, rates, format } = useCurrency();
   const [summary, setSummary] = useState<UsageSpendSummary | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
 
@@ -364,21 +367,25 @@ function OverviewSpendSummary({ providerIds, t }: { providerIds: string[]; t: (k
   };
 
   const rows = overviewSummary.rows;
-  const summable = rows.filter((row) => (row.currency || "USD") === "USD");
-  const known = summable.filter((row) => row.thirtyDay != null && Number.isFinite(row.thirtyDay));
-  if (known.length === 0) return null;
-  const total = known.reduce((sum, row) => sum + (row.thirtyDay ?? 0), 0);
-  const partial = known.length < rows.length;
-  const formatter = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  const target = normalizePreferredCurrency(preferredCode);
+  const aggregate = sumDisplayCurrencyAmounts(
+    rows.map((row) => ({ amount: row.thirtyDay, currency: row.currency || "USD" })),
+    target,
+    rates,
+  );
+  const partial = aggregate.included < aggregate.considered;
+  const displayedTotal = aggregate.total == null
+    ? "—"
+    : `${partial ? "~" : ""}${format(aggregate.total, target === "AUTO" ? "USD" : target)}`;
 
   return (
     <div className="provider-detail-section" style={{ margin: "8px 8px 10px", padding: "10px 12px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
         <strong>{t("OverviewSpendTitle")}</strong>
-        <strong>{partial ? "~" : ""}{formatter.format(total)}</strong>
+        <strong>{displayedTotal}</strong>
       </div>
       <div className="settings-section__caption" style={{ marginTop: 4 }}>
-        {known.length} of {rows.length} {t("OverviewSpendProviderCoverage")} · {t("OverviewSpendEstimate")}
+        {aggregate.included} of {aggregate.considered} {t("OverviewSpendProviderCoverage")} · {t("OverviewSpendEstimate")}
       </div>
       <button
         type="button"

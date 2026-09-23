@@ -12,6 +12,7 @@ import type {
   SessionEquivalentForecastSnapshot,
 } from "../types/bridge";
 import { useLocale } from "../hooks/useLocale";
+import { useCurrency } from "../hooks/CurrencyProvider";
 import { providerAllowsPace } from "../lib/providerPace";
 import {
   useFormattedResetTime,
@@ -63,7 +64,6 @@ function formatSessionEquivalentEstimate(
   return `Estimated: ${display} ${unit} left`;
 }
 
-const currencyFormatters = new Map<string, Intl.NumberFormat>();
 const compactCountFormat0 = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 0,
@@ -72,22 +72,6 @@ const compactCountFormat1 = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
-
-function formatCurrency(amount: number, code: string): string {
-  try {
-    let formatter = currencyFormatters.get(code);
-    if (!formatter) {
-      formatter = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: code,
-      });
-      currencyFormatters.set(code, formatter);
-    }
-    return formatter.format(amount);
-  } catch {
-    return `${code} ${amount.toFixed(2)}`;
-  }
-}
 
 function formatCompactCount(value: number | null): string {
   if (value == null || value <= 0) return "—";
@@ -112,6 +96,7 @@ function LocalUsageBlock({
   costHistory: DailyCostPoint[];
 }) {
   const { t } = useLocale();
+  const { format } = useCurrency();
   const isCodex = providerId === "codex";
   const isMuse = providerId === "muse";
   const visibleHistory = costHistory.slice(-30);
@@ -131,7 +116,7 @@ function LocalUsageBlock({
                 ? formatCompactCount(summary.latestTokens)
                 : "—")
               : summary.todayCost != null
-              ? formatCurrency(summary.todayCost, "USD")
+              ? format(summary.todayCost, "USD")
               : "—"}
           </strong>
         </div>
@@ -140,7 +125,7 @@ function LocalUsageBlock({
             <span className="menu-card__local-label">{t("PanelThirtyDayCost")}</span>
             <strong>
               {summary.thirtyDayCost != null
-                ? formatCurrency(summary.thirtyDayCost, "USD")
+                ? format(summary.thirtyDayCost, "USD")
                 : "—"}
             </strong>
           </div>
@@ -166,7 +151,7 @@ function LocalUsageBlock({
                 height: `${point.value == null || maxCost <= 0 ? 1 : Math.max(4, Math.round((point.value / maxCost) * 64))}px`,
                 opacity: point.value == null ? 0 : undefined,
               }}
-              title={point.value == null ? point.date : `${point.date}: ${formatCurrency(point.value, "USD")}`}
+              title={point.value == null ? point.date : `${point.date}: ${format(point.value, "USD")}`}
             />
           ))}
         </div>
@@ -528,6 +513,15 @@ export default function MenuCardDetails({
   onLayoutChange,
 }: MenuCardDetailsProps) {
   const { t } = useLocale();
+  const { format, preferredCode } = useCurrency();
+  const formatProviderCost = (
+    amount: number | null | undefined,
+    currencyCode: string,
+    sourceSymbol?: string | null,
+    sourceFormatted?: string | null,
+  ) => preferredCode === "AUTO" && sourceFormatted
+    ? sourceFormatted
+    : format(amount, currencyCode, sourceSymbol);
   const paceEnabled =
     display.showPace !== false &&
     providerAllowsPace(provider.providerId, provider.sourceLabel);
@@ -626,49 +620,30 @@ export default function MenuCardDetails({
           </div>
           {provider.cost.balance != null && provider.cost.limit == null ? (
             <div className="menu-card__cost-line">
-              {provider.cost.formattedBalance ||
-                formatCurrency(
-                  provider.cost.balance,
-                  provider.cost.currencyCode,
-                )}
+              {formatProviderCost(provider.cost.balance, provider.cost.currencyCode, provider.cost.currencySymbol, provider.cost.formattedBalance)}
             </div>
           ) : (
             <>
               <div className="menu-card__cost-line">
                 {t("DetailCostUsed")}:{" "}
-                {provider.cost.formattedUsed ||
-                  formatCurrency(
-                    provider.cost.used,
-                    provider.cost.currencyCode,
-                  )}
+                {formatProviderCost(provider.cost.used, provider.cost.currencyCode, provider.cost.currencySymbol, provider.cost.formattedUsed)}
                 {provider.cost.limit != null && (
                   <>
                     {" / "}
-                    {provider.cost.formattedLimit ||
-                      formatCurrency(
-                        provider.cost.limit,
-                        provider.cost.currencyCode,
-                      )}
+                    {formatProviderCost(provider.cost.limit, provider.cost.currencyCode, provider.cost.currencySymbol, provider.cost.formattedLimit)}
                   </>
                 )}
               </div>
               {costStyle === "detailed" && provider.cost.balance != null && (
                 <div className="menu-card__cost-line menu-card__cost-line--muted">
                   {t("DetailCostBalance")}:{" "}
-                  {provider.cost.formattedBalance ||
-                    formatCurrency(
-                      provider.cost.balance,
-                      provider.cost.currencyCode,
-                    )}
+                  {formatProviderCost(provider.cost.balance, provider.cost.currencyCode, provider.cost.currencySymbol, provider.cost.formattedBalance)}
                 </div>
               )}
               {costStyle === "detailed" && provider.cost.remaining != null && (
                 <div className="menu-card__cost-line menu-card__cost-line--muted">
                   {t("DetailCostRemaining")}:{" "}
-                  {formatCurrency(
-                    provider.cost.remaining,
-                    provider.cost.currencyCode,
-                  )}
+                  {format(provider.cost.remaining, provider.cost.currencyCode, provider.cost.currencySymbol)}
                 </div>
               )}
               {costStyle === "detailed" && formattedCostReset && (
@@ -681,9 +656,7 @@ export default function MenuCardDetails({
           {provider.providerId === "mistral" && provider.cost && (
             <div className="menu-card__cost-line menu-card__monthly-spend">
               {t("MistralMonthlySpend")}:{" "}
-              {provider.cost.currencySymbol
-                ? `${provider.cost.currencySymbol}${provider.cost.used.toFixed(2)}`
-                : provider.cost.formattedUsed}
+              {formatProviderCost(provider.cost.used, provider.cost.currencyCode, provider.cost.currencySymbol, provider.cost.formattedUsed)}
             </div>
           )}
         </section>

@@ -171,6 +171,7 @@ export interface ProviderSummary {
 }
 
 export interface SettingsSnapshot {
+  preferredCurrencyCode?: string;
   enabledProviders: string[];
   providerOrder?: string[];
   refreshIntervalSecs: number;
@@ -279,8 +280,13 @@ export interface SettingsSnapshot {
   providerAccentColors: Record<string, string>;
 }
 
+export interface CurrencyRatesSnapshot {
+  rates: Record<string, number>;
+}
+
 /** Partial settings object — only include fields you want to change. */
 export interface SettingsUpdate {
+  preferredCurrencyCode?: string;
   enabledProviders?: string[];
   refreshIntervalSecs?: number;
   adaptiveRefresh?: boolean;
