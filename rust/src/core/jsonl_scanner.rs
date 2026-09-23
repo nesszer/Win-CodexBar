@@ -373,6 +373,8 @@ pub(crate) struct CodexSessionMetadata {
     pub lineage: CodexSessionLineage,
     pub fork_timestamp: Option<String>,
     pub history_base_thread_id: Option<String>,
+    pub is_subagent: bool,
+    pub subagent_history_start_ordinal: Option<i64>,
 }
 
 /// Running totals for Codex token counting
@@ -396,6 +398,10 @@ pub struct CodexForkAccountingState {
     pub inherited_totals: Option<CodexTotals>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remaining_inherited_totals: Option<CodexTotals>,
+    /// True when the child log itself supplied enough copied-prefix history to
+    /// establish the inherited baseline without consulting a parent cache row.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locally_resolved: bool,
 }
 
 /// Snapshot of the last validated cost report, persisted so spend surfaces keep
@@ -456,6 +462,7 @@ pub struct CodexParseResult {
     pub fork_baseline: Option<CodexTotals>,
     /// Remaining inherited counters used when a fork emits last-only rows.
     pub remaining_inherited_totals: Option<CodexTotals>,
+    pub fork_baseline_locally_resolved: bool,
 }
 
 /// A billable Codex token-count delta.

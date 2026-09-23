@@ -1449,10 +1449,16 @@ fn cost_scan_second_pass_skips_unchanged_files_via_cache() {
 
     // Second pass with default debounce still inspects files but skips re-parse.
     // Use app_driven so we exercise per-file mtime skip rather than whole-scan debounce.
+    CodexLineagePlanner::reset_graph_build_count();
     let (summary2, stats2) = scanner.scan_codex_detailed(None);
     assert_eq!(stats2.files_seen, 2);
     assert_eq!(stats2.files_skipped, 2, "cache hit skips re-parse");
     assert_eq!(stats2.files_parsed, 0);
+    assert_eq!(
+        CodexLineagePlanner::graph_build_count(),
+        0,
+        "warm root-only scan must bypass lineage graph construction"
+    );
     assert!(stats2.codex_metadata_read_paths.is_empty());
     assert!(stats2.codex_history_read_paths.is_empty());
     assert_eq!(stats2.codex_read_receipt, Default::default());
@@ -3036,6 +3042,12 @@ fn incomplete_or_buffered_empty_codex_fragment_is_not_marked_complete() {
     assert!(buffered_cache.codex_pending_paths.contains(&buffered_key));
 }
 
+#[cfg(test)]
+#[path = "tests/copied_prefix.rs"]
+mod copied_prefix;
+#[cfg(test)]
+#[path = "tests/lineage_cache.rs"]
+mod lineage_cache;
 #[cfg(test)]
 #[path = "tests/paginated.rs"]
 mod paginated;

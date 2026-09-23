@@ -22,62 +22,255 @@ pub(super) struct CodexParserState {
     paginated_continuation: bool,
     paginated_baseline_checked: bool,
     pub(super) fork_baseline_ambiguous: bool,
+    fork_baseline_inference: Option<ForkBaselineInference>,
+}
+
+pub(super) enum CodexParseMode {
+    Standard {
+        start_offset: i64,
+        initial_model: Option<String>,
+        initial_totals: Option<CodexTotals>,
+        previous_token_timestamp: Option<String>,
+        token_timestamps_monotonic: Option<bool>,
+    },
+    ParentBaseline {
+        baseline: CodexTotals,
+        paginated_continuation: bool,
+        remaining_inherited_totals: Option<CodexTotals>,
+    },
+    InferSubagent {
+        start_ordinal: Option<i64>,
+    },
+}
+
+impl CodexParseMode {
+    pub(super) fn start_offset(&self) -> i64 {
+        match self {
+            Self::Standard { start_offset, .. } => *start_offset,
+            Self::ParentBaseline { .. } | Self::InferSubagent { .. } => 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ForkBaselineInference {
+    explicit_start_ordinal: Option<i64>,
+    baseline: Option<CodexTotals>,
+    boundary_open: bool,
+    inherited_opening: bool,
+    missing_explicit_ordinal: bool,
+    locally_confirmed: bool,
+    resolved: bool,
+}
+
+enum ForkBaselineDecision {
+    SkipCopiedPrefix,
+    ProcessWithBaseline(CodexTotals),
+}
+
+impl ForkBaselineInference {
+    fn new(explicit_start_ordinal: Option<i64>) -> Self {
+        Self {
+            explicit_start_ordinal,
+            baseline: explicit_start_ordinal.map(|_| CodexTotals {
+                input: 0,
+                cached: 0,
+                output: 0,
+                reasoning: None,
+            }),
+            boundary_open: false,
+            inherited_opening: false,
+            missing_explicit_ordinal: false,
+            locally_confirmed: false,
+            resolved: false,
+        }
+    }
+
+    fn confirm_local_resolution(&mut self) {
+        if !self.missing_explicit_ordinal {
+            self.locally_confirmed = true;
+        }
+    }
+
+    fn mark_missing_explicit_ordinal(&mut self) {
+        self.missing_explicit_ordinal = true;
+        self.locally_confirmed = false;
+    }
+
+    fn observe_non_token(&mut self, obj: &Value) {
+        if obj.get("type").and_then(Value::as_str) == Some("turn_context") && self.inherited_opening
+        {
+            self.boundary_open = true;
+        }
+    }
+
+    fn observe_token(&mut self, obj: &Value) -> ForkBaselineDecision {
+        let Some(payload) = token_count_payload(obj) else {
+            return ForkBaselineDecision::SkipCopiedPrefix;
+        };
+        let Some(info) = payload.get("info") else {
+            return ForkBaselineDecision::SkipCopiedPrefix;
+        };
+        let Some(total_usage) = info.get("total_token_usage") else {
+            return ForkBaselineDecision::SkipCopiedPrefix;
+        };
+        let Some(last_usage) = info.get("last_token_usage") else {
+            return ForkBaselineDecision::SkipCopiedPrefix;
+        };
+        let total = read_token_totals(total_usage);
+        let last = read_token_totals(last_usage);
+        let ordinal = obj.get("ordinal").and_then(Value::as_i64);
+
+        if self.explicit_start_ordinal.is_some() && ordinal.is_none() {
+            self.mark_missing_explicit_ordinal();
+            if !self.boundary_open {
+                self.baseline = Some(total);
+            }
+            return ForkBaselineDecision::SkipCopiedPrefix;
+        }
+
+        if let Some(start) = self.explicit_start_ordinal
+            && !self.boundary_open
+        {
+            let ordinal = ordinal.expect("missing explicit ordinals return above");
+            if ordinal < start {
+                self.baseline = Some(total);
+                return ForkBaselineDecision::SkipCopiedPrefix;
+            }
+            self.boundary_open = true;
+        } else if self.baseline.is_none() {
+            if totals_contain_usage(&total) && !totals_contain_usage(&last) {
+                self.baseline = Some(total);
+                self.inherited_opening = true;
+                self.confirm_local_resolution();
+            }
+            return ForkBaselineDecision::SkipCopiedPrefix;
+        } else if !self.boundary_open {
+            let changed = self
+                .baseline
+                .as_ref()
+                .is_some_and(|baseline| baseline != &total);
+            if self.inherited_opening && changed && totals_contain_usage(&last) {
+                self.boundary_open = true;
+            } else {
+                return ForkBaselineDecision::SkipCopiedPrefix;
+            }
+        }
+
+        let baseline = self.baseline.clone().unwrap_or(CodexTotals {
+            input: 0,
+            cached: 0,
+            output: 0,
+            reasoning: None,
+        });
+        if total == baseline {
+            return ForkBaselineDecision::SkipCopiedPrefix;
+        }
+        let copied_snapshot =
+            totals_contain_usage(&baseline) && total == last && totals_at_least(&total, &baseline);
+        if copied_snapshot {
+            self.baseline = Some(total);
+            self.confirm_local_resolution();
+            return ForkBaselineDecision::SkipCopiedPrefix;
+        }
+
+        let owned_baseline = totals_delta(&last, &total);
+        self.baseline = Some(owned_baseline.clone());
+        self.confirm_local_resolution();
+        self.resolved = true;
+        ForkBaselineDecision::ProcessWithBaseline(owned_baseline)
+    }
+}
+
+fn totals_contain_usage(totals: &CodexTotals) -> bool {
+    totals.input > 0 || totals.cached > 0 || totals.output > 0
+}
+
+fn totals_at_least(total: &CodexTotals, baseline: &CodexTotals) -> bool {
+    total.input >= baseline.input
+        && total.cached >= baseline.cached
+        && total.output >= baseline.output
+}
+
+fn totals_delta(last: &CodexTotals, total: &CodexTotals) -> CodexTotals {
+    CodexTotals {
+        input: total.input.saturating_sub(last.input).max(0),
+        cached: total.cached.saturating_sub(last.cached).max(0),
+        output: total.output.saturating_sub(last.output).max(0),
+        reasoning: subtract_optional(total.reasoning, last.reasoning),
+    }
 }
 
 impl CodexParserState {
     pub(super) fn new(initial_model: Option<String>, initial_totals: Option<CodexTotals>) -> Self {
-        Self::with_timestamp_state(initial_model, initial_totals, None, None)
+        Self::from_mode(CodexParseMode::Standard {
+            start_offset: 0,
+            initial_model,
+            initial_totals,
+            previous_token_timestamp: None,
+            token_timestamps_monotonic: None,
+        })
     }
 
-    fn with_timestamp_state(
-        initial_model: Option<String>,
-        initial_totals: Option<CodexTotals>,
-        previous_token_timestamp: Option<String>,
-        token_timestamps_monotonic: Option<bool>,
-    ) -> Self {
-        Self::with_timestamp_state_and_fork_mode(
+    pub(super) fn from_mode(mode: CodexParseMode) -> Self {
+        let (
             initial_model,
             initial_totals,
             previous_token_timestamp,
             token_timestamps_monotonic,
-            false,
-        )
-    }
-
-    pub(super) fn with_timestamp_state_and_fork_mode(
-        initial_model: Option<String>,
-        initial_totals: Option<CodexTotals>,
-        previous_token_timestamp: Option<String>,
-        token_timestamps_monotonic: Option<bool>,
-        fork_baseline_mode: bool,
-    ) -> Self {
-        Self::with_timestamp_state_and_fork_options(
-            initial_model,
-            initial_totals,
-            previous_token_timestamp,
-            token_timestamps_monotonic,
-            fork_baseline_mode,
-            false,
-            None,
-        )
-    }
-
-    pub(super) fn with_timestamp_state_and_fork_options(
-        initial_model: Option<String>,
-        initial_totals: Option<CodexTotals>,
-        previous_token_timestamp: Option<String>,
-        token_timestamps_monotonic: Option<bool>,
-        fork_baseline_mode: bool,
-        paginated_continuation: bool,
-        remaining_inherited_totals: Option<CodexTotals>,
-    ) -> Self {
+            fork_baseline,
+            paginated_continuation,
+            remaining_inherited_totals,
+            fork_baseline_inference,
+        ) = match mode {
+            CodexParseMode::Standard {
+                initial_model,
+                initial_totals,
+                previous_token_timestamp,
+                token_timestamps_monotonic,
+                ..
+            } => (
+                initial_model,
+                initial_totals,
+                previous_token_timestamp,
+                token_timestamps_monotonic,
+                None,
+                false,
+                None,
+                None,
+            ),
+            CodexParseMode::ParentBaseline {
+                baseline,
+                paginated_continuation,
+                remaining_inherited_totals,
+            } => {
+                let remaining_inherited_totals =
+                    remaining_inherited_totals.or_else(|| Some(baseline.clone()));
+                (
+                    None,
+                    Some(baseline.clone()),
+                    None,
+                    None,
+                    Some(baseline),
+                    paginated_continuation,
+                    remaining_inherited_totals,
+                    None,
+                )
+            }
+            CodexParseMode::InferSubagent { start_ordinal } => (
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                Some(ForkBaselineInference::new(start_ordinal)),
+            ),
+        };
         let previous_token_timestamp_parsed = previous_token_timestamp
             .as_deref()
             .and_then(parse_rfc3339_timestamp);
-        let fork_baseline = fork_baseline_mode.then(|| initial_totals.clone()).flatten();
-        let remaining_inherited_totals = fork_baseline
-            .as_ref()
-            .and_then(|baseline| remaining_inherited_totals.or_else(|| Some(baseline.clone())));
         Self {
             current_model: initial_model,
             previous_totals: initial_totals.clone(),
@@ -95,7 +288,14 @@ impl CodexParserState {
             paginated_continuation,
             paginated_baseline_checked: false,
             fork_baseline_ambiguous: false,
+            fork_baseline_inference,
         }
+    }
+
+    pub(super) fn fork_baseline_locally_resolved(&self) -> bool {
+        self.fork_baseline_inference
+            .as_ref()
+            .is_some_and(|inference| inference.locally_confirmed)
     }
 
     pub(super) fn process_line(&mut self, line: &str, range: &CostUsageDayRange) {
@@ -108,7 +308,61 @@ impl CodexParserState {
         range: &CostUsageDayRange,
         source_end_offset: i64,
     ) {
+        if self
+            .fork_baseline_inference
+            .as_ref()
+            .is_some_and(|inference| !inference.resolved)
+        {
+            let Ok(obj) = serde_json::from_str::<Value>(line) else {
+                return;
+            };
+            if token_count_payload(&obj).is_some() {
+                let decision = self
+                    .fork_baseline_inference
+                    .as_mut()
+                    .expect("inference exists")
+                    .observe_token(&obj);
+                let ForkBaselineDecision::ProcessWithBaseline(baseline) = decision else {
+                    return;
+                };
+                self.fork_baseline = Some(baseline.clone());
+                self.remaining_inherited_totals = Some(baseline.clone());
+                self.previous_totals = Some(baseline.clone());
+                self.totals_watermark = Some(baseline);
+            } else {
+                self.fork_baseline_inference
+                    .as_mut()
+                    .expect("inference exists")
+                    .observe_non_token(&obj);
+                if obj.get("type").and_then(Value::as_str) == Some("turn_context") {
+                    self.update_current_model(&obj);
+                }
+                return;
+            }
+        }
+
         let event_candidate = is_candidate_codex_line(line);
+        if event_candidate
+            && self
+                .fork_baseline_inference
+                .as_ref()
+                .is_some_and(|inference| {
+                    inference.resolved && inference.explicit_start_ordinal.is_some()
+                })
+        {
+            let Ok(obj) = serde_json::from_str::<Value>(line) else {
+                return;
+            };
+            if token_count_payload(&obj).is_some()
+                && obj.get("ordinal").and_then(Value::as_i64).is_none()
+            {
+                self.fork_baseline_inference
+                    .as_mut()
+                    .expect("resolved inference exists")
+                    .mark_missing_explicit_ordinal();
+                return;
+            }
+        }
         let bare_candidate = !event_candidate && line.contains("\"usage\"");
         if !event_candidate && !bare_candidate {
             return;
