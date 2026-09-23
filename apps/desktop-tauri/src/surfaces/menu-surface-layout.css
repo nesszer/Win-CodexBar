@@ -78,9 +78,15 @@
 .menu-metric__budget-header::before {
   content: "›";
   margin-right: 4px;
+  transition: transform 120ms ease;
 }
 .menu-metric__budget-header[aria-expanded="true"]::before {
   transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-metric__budget-header::before {
+    transition: none;
+  }
 }
 
 .codex-menu-accounts {
