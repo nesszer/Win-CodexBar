@@ -130,9 +130,14 @@ export function formatSpendMetric(
   tokens: number | null | undefined,
   currency: string,
   tokenLabel: string,
+  knownSubtotal?: number | null,
 ): string {
   const parts: string[] = [];
-  if (cost != null && Number.isFinite(cost)) parts.push(formatUsd(cost, currency));
+  if (cost != null && Number.isFinite(cost)) {
+    parts.push(formatUsd(cost, currency));
+  } else if (knownSubtotal != null && Number.isFinite(knownSubtotal)) {
+    parts.push(`≥${formatUsd(knownSubtotal, currency)} known`);
+  }
   if (tokens != null && Number.isFinite(tokens)) {
     parts.push(`${Math.max(0, tokens).toLocaleString()} ${tokenLabel}`);
   }
@@ -202,8 +207,20 @@ export function renderUsageSpendSharePng(summary: UsageSpendSummary, title: stri
       const y = y0 + (index + 1) * rowH;
       const cells = [
         row.displayName,
-        formatSpendMetric(row.sevenDay, row.sevenDayTokens, row.currency, "tokens"),
-        formatSpendMetric(row.thirtyDay, row.thirtyDayTokens, row.currency, "tokens"),
+        formatSpendMetric(
+          row.sevenDay,
+          row.sevenDayTokens,
+          row.currency,
+          "tokens",
+          row.sevenDayEstimate?.knownSubtotalUsd,
+        ),
+        formatSpendMetric(
+          row.thirtyDay,
+          row.thirtyDayTokens,
+          row.currency,
+          "tokens",
+          row.thirtyDayEstimate?.knownSubtotalUsd,
+        ),
         row.currency || "USD",
         row.source,
       ];

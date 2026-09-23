@@ -79,24 +79,89 @@ pub enum LocalHistoryCoverage {
     Unavailable,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct LocalTokenHistorySummary {
     pub total_tokens: u64,
     pub session_count: usize,
     pub coverage: LocalHistoryCoverage,
+    pub cost_estimate: LocalCostEstimate,
+}
+
+impl LocalTokenHistorySummary {
+    /// Return a complete list-price total only when both the history scan and
+    /// pricing coverage are complete. A complete scan with no token usage is
+    /// a known zero even though there were no requests to price.
+    pub fn total_usd(&self) -> Option<f64> {
+        if self.coverage != LocalHistoryCoverage::Complete {
+            return None;
+        }
+        if self.total_tokens == 0 {
+            return Some(0.0);
+        }
+        self.cost_estimate.complete_total_usd()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalCostEstimate {
+    /// Sum of requests whose models have public API list prices. This remains
+    /// a subtotal when one or more requests are unpriced.
+    pub known_subtotal_usd: Option<f64>,
+    pub coverage: CostCoverageCounts,
+}
+
+impl LocalCostEstimate {
+    fn complete_total_usd(&self) -> Option<f64> {
+        if self.coverage.unpriced == 0 && self.coverage.unmetered == 0 {
+            self.known_subtotal_usd
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn record_list_price(&mut self, cost: Option<f64>) {
+        let Some(cost) = cost.filter(|value| value.is_finite() && *value >= 0.0) else {
+            self.coverage.unpriced = self.coverage.unpriced.saturating_add(1);
+            return;
+        };
+        let next = self.known_subtotal_usd.unwrap_or(0.0) + cost;
+        if next.is_finite() {
+            self.known_subtotal_usd = Some(next);
+            self.coverage.estimated = self.coverage.estimated.saturating_add(1);
+        } else {
+            self.coverage.unpriced = self.coverage.unpriced.saturating_add(1);
+        }
+    }
 }
 
 pub fn local_token_history_json(
     provider: &str,
-    history: LocalTokenHistorySummary,
+    history: &LocalTokenHistorySummary,
     days: u32,
 ) -> serde_json::Value {
     let complete = history.coverage == LocalHistoryCoverage::Complete;
+    let total_usd = history.total_usd();
+    let known_subtotal_usd = history.cost_estimate.known_subtotal_usd;
+    let note = if total_usd.is_some() {
+        "Local token history estimated at public API list prices; not billed spend"
+    } else if known_subtotal_usd.is_some() && !complete {
+        "Known public API list-price subtotal; local history is incomplete"
+    } else if known_subtotal_usd.is_some() {
+        "Known public API list-price subtotal; some local requests are unpriced"
+    } else {
+        "Local token history; dollar costs unavailable"
+    };
     serde_json::json!({
         "provider": provider,
         "supported": true,
         "days_scanned": days,
-        "cost": {"total_usd": serde_json::Value::Null, "currency": serde_json::Value::Null},
+        "cost": {
+            "total_usd": total_usd,
+            "known_subtotal_usd": known_subtotal_usd,
+            "currency": total_usd.or(known_subtotal_usd).map(|_| "USD"),
+            "pricingCoverage": &history.cost_estimate.coverage,
+        },
         "daily": [],
         "tokens": {"total": complete.then_some(history.total_tokens)},
         "sessions_count": complete.then_some(history.session_count),
@@ -106,7 +171,7 @@ pub fn local_token_history_json(
             LocalHistoryCoverage::Unavailable => "unavailable",
         },
         "knownZero": complete && history.total_tokens == 0,
-        "note": "Local token history; dollar costs unavailable"
+        "note": note,
     })
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

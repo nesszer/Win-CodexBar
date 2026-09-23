@@ -234,8 +234,24 @@ export default function UsageSpendTab(_props: TabProps) {
             {(summary?.rows ?? []).map((row) => (
               <tr key={row.providerId}>
                 <td>{row.displayName}</td>
-                <td>{formatSpendMetric(row.sevenDay, row.sevenDayTokens, row.currency, t("UsageSpendTokens"))}</td>
-                <td>{formatSpendMetric(row.thirtyDay, row.thirtyDayTokens, row.currency, t("UsageSpendTokens"))}</td>
+                <td>
+                  {formatSpendMetric(
+                    row.sevenDay,
+                    row.sevenDayTokens,
+                    row.currency,
+                    t("UsageSpendTokens"),
+                    row.sevenDayEstimate?.knownSubtotalUsd,
+                  )}
+                </td>
+                <td>
+                  {formatSpendMetric(
+                    row.thirtyDay,
+                    row.thirtyDayTokens,
+                    row.currency,
+                    t("UsageSpendTokens"),
+                    row.thirtyDayEstimate?.knownSubtotalUsd,
+                  )}
+                </td>
                 <td>{row.currency || "USD"}</td>
                 <td className="usage-spend-table__source">
                   {row.source}

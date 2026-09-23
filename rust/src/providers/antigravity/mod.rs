@@ -4,9 +4,12 @@
 //! Uses Windows process detection to find CSRF token
 
 mod cli_fallback;
+mod cost;
 mod legacy_status;
+mod local_history;
 mod local_proto;
 pub mod local_sessions;
+mod local_sessions_reader;
 mod local_sqlite;
 mod local_step_resolver;
 mod quota_summary;
@@ -50,6 +53,7 @@ const AGY_READY_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const GET_USER_STATUS_PATH: &str = "/exa.language_server_pb.LanguageServerService/GetUserStatus";
 const QUOTA_SUMMARY_PATH: &str =
     "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary";
+
 /// Serialize task-owned `agy` launches so concurrent app surfaces never start
 /// multiple interactive CLI servers at the same time.
 #[cfg(windows)]
@@ -623,7 +627,7 @@ impl AntigravityProvider {
     }
 
     fn offline_usage_result() -> Option<ProviderFetchResult> {
-        let count = local_sessions::offline_conversation_count();
+        let count = local_history::offline_conversation_count();
         if count == 0 {
             return None;
         }

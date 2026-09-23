@@ -379,6 +379,8 @@ export interface UsageSpendRow {
   displayName: string;
   sevenDay: number | null;
   thirtyDay: number | null;
+  sevenDayEstimate?: LocalCostEstimate;
+  thirtyDayEstimate?: LocalCostEstimate;
   sevenDayTokens?: number | null;
   thirtyDayTokens?: number | null;
   currency: string;
@@ -389,6 +391,11 @@ export interface UsageSpendRow {
   refreshing?: boolean;
   /** ISO 8601 timestamp of the stale snapshot when refreshing. */
   staleUpdatedAt?: string;
+}
+
+export interface LocalCostEstimate {
+  knownSubtotalUsd: number | null;
+  coverage: CostCoverageCounts;
 }
 
 export interface UsageSpendSummary {

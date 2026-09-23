@@ -26,6 +26,10 @@ pub struct UsageSpendRow {
     pub display_name: String,
     pub seven_day: Option<f64>,
     pub thirty_day: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seven_day_estimate: Option<codexbar::spend_contract::LocalCostEstimate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thirty_day_estimate: Option<codexbar::spend_contract::LocalCostEstimate>,
     pub seven_day_tokens: Option<u64>,
     pub thirty_day_tokens: Option<u64>,
     pub currency: String,
@@ -496,6 +500,7 @@ fn build_usage_spend_summary(
             })
             .unwrap_or_else(|| provider_id.clone());
 
+        let mut local_cost_estimates = None;
         let spend = match provider_id.as_str() {
             "codex" => SpendValues {
                 seven_day: codex_7_contract.known_cost_usd,
@@ -586,17 +591,11 @@ fn build_usage_spend_summary(
                 spend
             }
             "antigravity" => {
-                use codexbar::providers::antigravity::local_sessions::LocalHistoryCoverage;
                 let seven = codexbar::providers::antigravity::local_sessions::summarize(7);
                 let thirty = codexbar::providers::antigravity::local_sessions::summarize(30);
-                let mut spend = cached_spend(cached_snapshot);
-                spend.seven_day_tokens = matches!(seven.coverage, LocalHistoryCoverage::Complete)
-                    .then_some(seven.total_tokens);
-                spend.thirty_day_tokens = matches!(thirty.coverage, LocalHistoryCoverage::Complete)
-                    .then_some(thirty.total_tokens);
-                if matches!(thirty.coverage, LocalHistoryCoverage::Complete) {
-                    spend.source = "local Antigravity history".to_string();
-                }
+                let spend =
+                    antigravity_spend_values(cached_spend(cached_snapshot), &seven, &thirty);
+                local_cost_estimates = Some((seven.cost_estimate, thirty.cost_estimate));
                 spend
             }
             _ => cached_spend(cached_snapshot),
@@ -618,11 +617,16 @@ fn build_usage_spend_summary(
                     .collect()
             })
             .unwrap_or_default();
+        let (seven_day_estimate, thirty_day_estimate) = local_cost_estimates
+            .map(|(seven, thirty)| (Some(seven), Some(thirty)))
+            .unwrap_or((None, None));
         rows.push(UsageSpendRow {
             provider_id: provider_id.clone(),
             display_name,
             seven_day: spend.seven_day,
             thirty_day: spend.thirty_day,
+            seven_day_estimate,
+            thirty_day_estimate,
             seven_day_tokens: spend.seven_day_tokens,
             thirty_day_tokens: spend.thirty_day_tokens,
             currency,
@@ -699,6 +703,29 @@ fn total_token_mix(mix: &codexbar::spend_contract::SpendTokenMix) -> Option<u64>
         total = total.saturating_add(value);
     }
     saw.then_some(total)
+}
+
+fn antigravity_spend_values(
+    mut spend: SpendValues,
+    seven: &codexbar::spend_contract::LocalTokenHistorySummary,
+    thirty: &codexbar::spend_contract::LocalTokenHistorySummary,
+) -> SpendValues {
+    use codexbar::spend_contract::LocalHistoryCoverage;
+
+    spend.seven_day = seven.total_usd();
+    spend.thirty_day = thirty.total_usd();
+    spend.seven_day_tokens =
+        (seven.coverage == LocalHistoryCoverage::Complete).then_some(seven.total_tokens);
+    spend.thirty_day_tokens =
+        (thirty.coverage == LocalHistoryCoverage::Complete).then_some(thirty.total_tokens);
+    if spend.thirty_day.is_some() {
+        spend.source = "local Antigravity history · API list-price estimate".to_string();
+    } else if thirty.cost_estimate.known_subtotal_usd.is_some() {
+        spend.source = "local Antigravity history · known API list-price subtotal".to_string();
+    } else if thirty.coverage == LocalHistoryCoverage::Complete {
+        spend.source = "local Antigravity history · unpriced".to_string();
+    }
+    spend
 }
 
 fn cached_spend(snapshot: Option<&ProviderUsageSnapshot>) -> SpendValues {
@@ -778,6 +805,27 @@ fn cached_spend(snapshot: Option<&ProviderUsageSnapshot>) -> SpendValues {
 mod cache_key_tests {
     use super::*;
 
+    fn local_history(
+        total_tokens: u64,
+        coverage: codexbar::spend_contract::LocalHistoryCoverage,
+        known_subtotal_usd: Option<f64>,
+        unpriced: u32,
+    ) -> codexbar::spend_contract::LocalTokenHistorySummary {
+        codexbar::spend_contract::LocalTokenHistorySummary {
+            total_tokens,
+            session_count: if total_tokens > 0 { 1 } else { 0 },
+            coverage,
+            cost_estimate: codexbar::spend_contract::LocalCostEstimate {
+                known_subtotal_usd,
+                coverage: codexbar::spend_contract::CostCoverageCounts {
+                    estimated: if known_subtotal_usd.is_some() { 1 } else { 0 },
+                    unpriced,
+                    ..Default::default()
+                },
+            },
+        }
+    }
+
     #[test]
     fn invalidated_owner_clears_orphaned_indexing_activity() {
         let mut coordinator = UsageSpendCoordinator::default();
@@ -833,5 +881,35 @@ mod cache_key_tests {
         assert!(include_in_shared_overview("codex", true, false));
         assert!(include_in_shared_overview("claude", false, true));
         assert!(!include_in_shared_overview("codex", false, false));
+    }
+
+    #[test]
+    fn antigravity_partial_history_exposes_only_the_known_subtotal() {
+        use codexbar::spend_contract::LocalHistoryCoverage;
+
+        let seven = local_history(100, LocalHistoryCoverage::Partial, Some(1.25), 0);
+        let thirty = local_history(200, LocalHistoryCoverage::Partial, Some(2.50), 0);
+        let spend = antigravity_spend_values(cached_spend(None), &seven, &thirty);
+
+        assert_eq!(spend.seven_day, None);
+        assert_eq!(spend.thirty_day, None);
+        assert_eq!(spend.seven_day_tokens, None);
+        assert_eq!(spend.thirty_day_tokens, None);
+        assert!(spend.source.contains("known API list-price subtotal"));
+    }
+
+    #[test]
+    fn antigravity_complete_empty_history_is_a_known_zero() {
+        use codexbar::spend_contract::LocalHistoryCoverage;
+
+        let seven = local_history(0, LocalHistoryCoverage::Complete, None, 0);
+        let thirty = local_history(0, LocalHistoryCoverage::Complete, None, 0);
+        let spend = antigravity_spend_values(cached_spend(None), &seven, &thirty);
+
+        assert_eq!(spend.seven_day, Some(0.0));
+        assert_eq!(spend.thirty_day, Some(0.0));
+        assert_eq!(spend.seven_day_tokens, Some(0));
+        assert_eq!(spend.thirty_day_tokens, Some(0));
+        assert!(spend.source.contains("API list-price estimate"));
     }
 }
