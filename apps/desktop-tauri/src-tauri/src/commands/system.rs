@@ -205,36 +205,9 @@ pub fn quit_app(app: tauri::AppHandle) {
 }
 
 fn dashboard_url_for_provider(provider_id: &str) -> Option<String> {
-    if provider_id == ProviderId::MiniMax.cli_name() {
-        let settings = Settings::load();
-        return Some(
-            codexbar::providers::MiniMaxProvider::dashboard_url_for_region(Some(
-                settings.api_region(ProviderId::MiniMax),
-            )),
-        );
-    }
-
-    // OpenRouter's Usage Dashboard is the Activity page. Resolve it from the
-    // provider metadata before the legacy API-key catalog entry, which still
-    // points at the credits settings page.
-    if provider_id == ProviderId::OpenRouter.cli_name() {
-        return instantiate_provider(ProviderId::OpenRouter)
-            .metadata()
-            .dashboard_url
-            .map(|s| s.to_string());
-    }
-
-    if let Some(url) = codexbar::settings::get_api_key_providers()
-        .into_iter()
-        .find(|p| p.id.cli_name() == provider_id)
-        .and_then(|p| p.dashboard_url.map(|s| s.to_string()))
-    {
-        return Some(url);
-    }
-
     let id = ProviderId::from_cli_name(provider_id)?;
-    let provider = instantiate_provider(id);
-    provider.metadata().dashboard_url.map(|s| s.to_string())
+    let settings = Settings::load();
+    provider_dashboard_url(id, &settings)
 }
 
 fn status_page_url_for_provider(provider_id: &str) -> Option<String> {

@@ -11,9 +11,9 @@ use reqwest::Client;
 
 use super::desktop_token::KimiDesktopAuthToken;
 use super::{
-    KIMI_COOKIE_DOMAINS, KIMI_SUBSCRIPTION_STATS_URL, KIMI_SUBSCRIPTION_URL, KIMI_WEB_USAGE_URL,
-    KimiProvider, KimiSubscriptionResponse, KimiSubscriptionStatsResponse, KimiWebUsageResponse,
-    apply_subscription_windows, kimi_web_post,
+    KIMI_SUBSCRIPTION_SERVICE, KIMI_SUBSCRIPTION_STATS_SERVICE, KIMI_WEB_USAGE_SERVICE,
+    KimiProvider, KimiRegion, KimiSubscriptionResponse, KimiSubscriptionStatsResponse,
+    KimiWebUsageResponse, apply_subscription_windows, kimi_web_post,
 };
 use crate::browser::cookies::get_cookie_header;
 use crate::core::{ProviderError, ProviderId, UsageSnapshot};
@@ -26,21 +26,23 @@ pub(crate) fn cookie_source() -> String {
         .to_string()
 }
 
-/// Upstream `KimiBrowserImportPolicy.allowsImport`: everything but `off`.
+/// Upstream `KimiBrowserImportPolicy.allowsImport`: automatic discovery is
+/// allowed only when the user selected the automatic source.
 fn browser_import_allowed(cookie_source: &str) -> bool {
-    !cookie_source.eq_ignore_ascii_case("off")
+    cookie_source.eq_ignore_ascii_case("auto") || cookie_source.eq_ignore_ascii_case("browser")
 }
 
 /// Web auth token chain for both the web fetch and the Code-API enrichment
 /// (upstream `KimiWebEnrichmentTokenResolver.resolve`):
 /// 1. Manual cookie header (its `kimi-auth`/auth cookie), source-independent.
-/// 2. Kimi Desktop session token (skipped when cookie source is `off`).
-/// 3. Browser cookie import (skipped when cookie source is `off`).
-pub(crate) fn web_auth_tokens(manual_header: Option<&str>) -> Vec<String> {
+/// 2. Kimi Desktop session token (automatic source only).
+/// 3. Browser cookie import (automatic source only).
+pub(crate) fn web_auth_tokens(manual_header: Option<&str>, region: KimiRegion) -> Vec<String> {
     resolve_web_tokens(WebTokenInput {
         manual_header,
         cookie_source: &cookie_source(),
-        desktop_token: KimiDesktopAuthToken::load,
+        region,
+        desktop_token: KimiDesktopAuthToken::load_for_region,
         browser_token: browser_auth_token,
     })
     .into_iter()
@@ -51,8 +53,9 @@ pub(crate) fn web_auth_tokens(manual_header: Option<&str>) -> Vec<String> {
 struct WebTokenInput<'a> {
     manual_header: Option<&'a str>,
     cookie_source: &'a str,
-    desktop_token: fn() -> Option<String>,
-    browser_token: fn() -> Option<String>,
+    region: KimiRegion,
+    desktop_token: fn(KimiRegion) -> Option<String>,
+    browser_token: fn(KimiRegion) -> Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,7 +86,7 @@ fn resolve_web_tokens(input: WebTokenInput) -> Vec<WebTokenCandidate> {
 
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    if let Some(token) = (input.desktop_token)()
+    if let Some(token) = (input.desktop_token)(input.region)
         && seen.insert(token.clone())
     {
         candidates.push(WebTokenCandidate {
@@ -91,7 +94,7 @@ fn resolve_web_tokens(input: WebTokenInput) -> Vec<WebTokenCandidate> {
             source: WebTokenSource::Desktop,
         });
     }
-    if let Some(token) = (input.browser_token)()
+    if let Some(token) = (input.browser_token)(input.region)
         && seen.insert(token.clone())
     {
         candidates.push(WebTokenCandidate {
@@ -104,8 +107,9 @@ fn resolve_web_tokens(input: WebTokenInput) -> Vec<WebTokenCandidate> {
 
 /// Browser import only: the first usable `kimi-auth`-class token from any of
 /// the registered Kimi cookie domains.
-fn browser_auth_token() -> Option<String> {
-    KIMI_COOKIE_DOMAINS
+fn browser_auth_token(region: KimiRegion) -> Option<String> {
+    region
+        .cookie_domains()
         .iter()
         .find_map(|domain| {
             get_cookie_header(domain)
@@ -118,6 +122,7 @@ fn browser_auth_token() -> Option<String> {
 /// Fetch usage via Kimi web API (weekly quota + rate limit + subscription).
 pub(crate) async fn fetch_via_web(
     cookie_header: Option<&str>,
+    region: KimiRegion,
 ) -> Result<UsageSnapshot, ProviderError> {
     let source = cookie_source();
     if let Some(token) =
@@ -126,7 +131,7 @@ pub(crate) async fn fetch_via_web(
         // An explicit manual credential is authoritative. A rejected manual
         // token must not silently switch accounts underneath the user.
         let client = client()?;
-        return fetch_via_web_token(&client, &token).await;
+        return fetch_via_web_token(&client, &token, region).await;
     }
 
     if !browser_import_allowed(&source) {
@@ -142,20 +147,20 @@ pub(crate) async fn fetch_via_web(
     // Read and try the desktop session first. Browser cookies are intentionally
     // read only after the server rejects this automatic session, so a healthy
     // desktop account never causes another credential store to be touched.
-    if let Some(token) = KimiDesktopAuthToken::load()
+    if let Some(token) = KimiDesktopAuthToken::load_for_region(region)
         && seen.insert(token.clone())
     {
-        match fetch_via_web_token(&client, &token).await {
+        match fetch_via_web_token(&client, &token, region).await {
             Ok(usage) => return Ok(usage),
             Err(ProviderError::AuthRequired) => {}
             Err(error) => return Err(error),
         }
     }
 
-    if let Some(token) = browser_auth_token()
+    if let Some(token) = browser_auth_token(region)
         && seen.insert(token.clone())
     {
-        match fetch_via_web_token(&client, &token).await {
+        match fetch_via_web_token(&client, &token, region).await {
             Ok(usage) => return Ok(usage),
             Err(ProviderError::AuthRequired) => {}
             Err(error) => return Err(error),
@@ -175,10 +180,13 @@ fn client() -> Result<reqwest::Client, ProviderError> {
 async fn fetch_via_web_token(
     client: &reqwest::Client,
     token: &str,
+    region: KimiRegion,
 ) -> Result<UsageSnapshot, ProviderError> {
+    let usage_url = region.web_api_url(KIMI_WEB_USAGE_SERVICE);
     let resp = kimi_web_post(
         client,
-        KIMI_WEB_USAGE_URL,
+        &usage_url,
+        region,
         token,
         serde_json::json!({ "scope": ["FEATURE_CODING"] }),
     )
@@ -197,7 +205,7 @@ async fn fetch_via_web_token(
         .await
         .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
-    let (subscription, plan_name) = fetch_subscription_details(client, token).await;
+    let (subscription, plan_name) = fetch_subscription_details(client, token, region).await;
 
     snapshot_from_web_usage_response_with_plan(usage, subscription, plan_name)
 }
@@ -207,16 +215,17 @@ const SUBSCRIPTION_ENRICHMENT_TIMEOUT: std::time::Duration = std::time::Duration
 async fn fetch_subscription_details(
     client: &reqwest::Client,
     token: &str,
+    region: KimiRegion,
 ) -> (Option<KimiSubscriptionStatsResponse>, Option<String>) {
     // The quota statistics and the optional title are independent. Keep a
     // completed statistics response when the plan endpoint is slow or absent.
     let stats = tokio::time::timeout(
         SUBSCRIPTION_ENRICHMENT_TIMEOUT,
-        fetch_subscription_for_enrichment(client, token),
+        fetch_subscription_for_enrichment(client, token, region),
     );
     let plan = tokio::time::timeout(
         SUBSCRIPTION_ENRICHMENT_TIMEOUT,
-        fetch_subscription_plan(client, token),
+        fetch_subscription_plan(client, token, region),
     );
     let (stats, plan) = tokio::join!(stats, plan);
     (stats.ok().flatten(), plan.ok().flatten())
@@ -259,8 +268,13 @@ fn snapshot_from_web_usage_response_with_plan(
     Ok(usage)
 }
 
-pub(super) async fn fetch_subscription_plan(client: &Client, token: &str) -> Option<String> {
-    match kimi_web_post(client, KIMI_SUBSCRIPTION_URL, token, serde_json::json!({})).await {
+pub(super) async fn fetch_subscription_plan(
+    client: &Client,
+    token: &str,
+    region: KimiRegion,
+) -> Option<String> {
+    let url = region.web_api_url(KIMI_SUBSCRIPTION_SERVICE);
+    match kimi_web_post(client, &url, region, token, serde_json::json!({})).await {
         Ok(response) if response.status().is_success() => response
             .json::<KimiSubscriptionResponse>()
             .await
@@ -275,8 +289,9 @@ pub(super) async fn fetch_subscription_plan(client: &Client, token: &str) -> Opt
 pub(super) async fn fetch_subscription_for_enrichment(
     client: &Client,
     token: &str,
+    region: KimiRegion,
 ) -> Option<KimiSubscriptionStatsResponse> {
-    fetch_subscription_for_enrichment_result(client, token)
+    fetch_subscription_for_enrichment_result(client, token, region)
         .await
         .ok()
         .flatten()
@@ -285,15 +300,10 @@ pub(super) async fn fetch_subscription_for_enrichment(
 pub(super) async fn fetch_subscription_for_enrichment_result(
     client: &Client,
     token: &str,
+    region: KimiRegion,
 ) -> Result<Option<KimiSubscriptionStatsResponse>, ProviderError> {
-    match kimi_web_post(
-        client,
-        KIMI_SUBSCRIPTION_STATS_URL,
-        token,
-        serde_json::json!({}),
-    )
-    .await
-    {
+    let url = region.web_api_url(KIMI_SUBSCRIPTION_STATS_SERVICE);
+    match kimi_web_post(client, &url, region, token, serde_json::json!({})).await {
         Ok(response) if response.status().is_success() => response
             .json()
             .await
@@ -311,33 +321,34 @@ pub(super) async fn fetch_subscription_for_enrichment_result(
 mod tests {
     use super::*;
 
-    fn static_desktop() -> Option<String> {
+    fn static_desktop(_: KimiRegion) -> Option<String> {
         Some("desktop-token".to_string())
     }
 
-    fn static_browser() -> Option<String> {
+    fn static_browser(_: KimiRegion) -> Option<String> {
         Some("browser-token".to_string())
     }
 
-    fn no_token() -> Option<String> {
+    fn no_token(_: KimiRegion) -> Option<String> {
         None
     }
 
     fn input<'a>(
         manual_header: Option<&'a str>,
         cookie_source: &'a str,
-        desktop_token: fn() -> Option<String>,
-        browser_token: fn() -> Option<String>,
+        desktop_token: fn(KimiRegion) -> Option<String>,
+        browser_token: fn(KimiRegion) -> Option<String>,
     ) -> WebTokenInput<'a> {
         WebTokenInput {
             manual_header,
             cookie_source,
+            region: KimiRegion::China,
             desktop_token,
             browser_token,
         }
     }
 
-    fn duplicate_browser() -> Option<String> {
+    fn duplicate_browser(_: KimiRegion) -> Option<String> {
         Some("desktop-token".to_string())
     }
 
@@ -369,22 +380,17 @@ mod tests {
     }
 
     #[test]
-    fn cookie_source_off_blocks_desktop_and_browser_but_not_manual() {
-        assert_eq!(
-            resolve_web_tokens(input(None, "off", static_desktop, static_browser)),
-            Vec::new()
-        );
-        assert_eq!(
-            resolve_web_tokens(input(None, "off", no_token, static_browser)),
-            Vec::new()
-        );
-        assert_eq!(
-            resolve_web_tokens(input(Some("kimi-auth=manual"), "off", no_token, no_token)),
-            vec![WebTokenCandidate {
-                token: "manual".to_string(),
-                source: WebTokenSource::Manual,
-            }]
-        );
+    fn off_and_manual_sources_block_automatic_discovery() {
+        for source in ["off", "manual"] {
+            assert_eq!(
+                resolve_web_tokens(input(None, source, static_desktop, static_browser)),
+                Vec::new()
+            );
+            assert_eq!(
+                resolve_web_tokens(input(Some("not-a-token"), source, no_token, static_browser)),
+                Vec::new()
+            );
+        }
     }
 
     #[test]
@@ -400,15 +406,18 @@ mod tests {
     }
 
     #[test]
-    fn manual_default_source_still_allows_desktop_token() {
-        // Upstream: desktop-session token applies for any non-off source;
-        // the local default ("manual") must keep desktop sessions working.
-        let candidates = resolve_web_tokens(input(None, "manual", static_desktop, no_token));
+    fn explicit_manual_token_stays_authoritative() {
+        let candidates = resolve_web_tokens(input(
+            Some("kimi-auth=manual-token"),
+            "manual",
+            static_desktop,
+            static_browser,
+        ));
         assert_eq!(
             candidates,
             vec![WebTokenCandidate {
-                token: "desktop-token".to_string(),
-                source: WebTokenSource::Desktop,
+                token: "manual-token".to_string(),
+                source: WebTokenSource::Manual,
             }]
         );
     }
@@ -429,7 +438,8 @@ mod tests {
     fn browser_import_gate_is_case_insensitive() {
         assert!(!browser_import_allowed("OFF"));
         assert!(browser_import_allowed("browser"));
-        assert!(browser_import_allowed("manual"));
+        assert!(browser_import_allowed("AUTO"));
+        assert!(!browser_import_allowed("manual"));
     }
 
     #[test]

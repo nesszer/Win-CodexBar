@@ -14,7 +14,10 @@
 
 mod code_api;
 pub mod desktop_token;
+mod region;
 mod web;
+
+pub use region::KimiRegion;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -27,13 +30,11 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
-const KIMI_WEB_USAGE_URL: &str =
-    "https://www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages";
-const KIMI_SUBSCRIPTION_STATS_URL: &str =
-    "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats";
-const KIMI_SUBSCRIPTION_URL: &str =
-    "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscription";
-const KIMI_COOKIE_DOMAINS: [&str; 2] = ["www.kimi.com", "kimi.moonshot.cn"];
+const KIMI_WEB_USAGE_SERVICE: &str = "kimi.gateway.billing.v1.BillingService/GetUsages";
+const KIMI_SUBSCRIPTION_STATS_SERVICE: &str =
+    "kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats";
+const KIMI_SUBSCRIPTION_SERVICE: &str =
+    "kimi.gateway.membership.v2.MembershipService/GetSubscription";
 
 #[derive(Debug, Deserialize)]
 struct KimiCodeApiUsageResponse {
@@ -330,11 +331,12 @@ impl Provider for KimiProvider {
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Fetching Kimi usage");
+        let region = KimiRegion::from_settings(ctx.api_region.as_deref());
 
         match ctx.source_mode {
             SourceMode::Auto => {
                 if code_api::code_api_key(ctx.api_key.as_deref()).is_ok() {
-                    match code_api::fetch_via_code_api(ctx, None, None, "Code API").await {
+                    match code_api::fetch_via_code_api(ctx, region, None, None, "Code API").await {
                         Ok(usage) => {
                             return Ok(ProviderFetchResult::new(usage, "code-api"));
                         }
@@ -347,11 +349,14 @@ impl Provider for KimiProvider {
                     }
                 }
 
-                if let Some(cli_token) = code_api::kimi_code_cli_access_token(unix_now_secs()) {
+                if let Some(cli_token) =
+                    code_api::kimi_code_cli_access_token(region, unix_now_secs())
+                {
                     let home = code_api::kimi_code_home().unwrap_or_default();
                     let headers = code_api::kimi_code_cli_identity_headers(&home);
                     match code_api::fetch_via_code_api(
                         ctx,
+                        region,
                         Some(&cli_token),
                         Some(&headers),
                         "Kimi Code CLI",
@@ -370,15 +375,16 @@ impl Provider for KimiProvider {
                     }
                 }
 
-                let usage = web::fetch_via_web(ctx.manual_cookie_header.as_deref()).await?;
+                let usage = web::fetch_via_web(ctx.manual_cookie_header.as_deref(), region).await?;
                 Ok(ProviderFetchResult::new(usage, "web"))
             }
             SourceMode::OAuth => {
-                let usage = code_api::fetch_via_code_api(ctx, None, None, "Code API").await?;
+                let usage =
+                    code_api::fetch_via_code_api(ctx, region, None, None, "Code API").await?;
                 Ok(ProviderFetchResult::new(usage, "code-api"))
             }
             SourceMode::Web => {
-                let usage = web::fetch_via_web(ctx.manual_cookie_header.as_deref()).await?;
+                let usage = web::fetch_via_web(ctx.manual_cookie_header.as_deref(), region).await?;
                 Ok(ProviderFetchResult::new(usage, "web"))
             }
             SourceMode::Cli => Err(ProviderError::UnsupportedSource(SourceMode::Cli)),
@@ -489,6 +495,7 @@ fn is_equivalent_to_weekly_window(window: &RateWindow, weekly: &RateWindow) -> b
 async fn kimi_web_post(
     client: &Client,
     url: &str,
+    region: KimiRegion,
     token: &str,
     body: serde_json::Value,
 ) -> Result<reqwest::Response, ProviderError> {
@@ -498,6 +505,8 @@ async fn kimi_web_post(
         .header("Cookie", format!("kimi-auth={token}"))
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
+        .header("Origin", region.web_base_url())
+        .header("Referer", region.console_url())
         .header(
             "User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",

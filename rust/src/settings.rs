@@ -933,12 +933,17 @@ impl Settings {
         self.provider_configs.entry(id).or_default()
     }
 
-    /// Cookie source for `id`, or the default `"manual"` if unset.
+    /// Cookie source for `id`. Kimi follows upstream's automatic default;
+    /// providers with no specific default retain the legacy manual default.
     pub fn cookie_source(&self, id: ProviderId) -> &str {
         self.provider_configs
             .get(&id)
             .and_then(|c| c.cookie_source.as_deref())
-            .unwrap_or(DEFAULT_COOKIE_SOURCE)
+            .unwrap_or(if id == ProviderId::Kimi {
+                "auto"
+            } else {
+                DEFAULT_COOKIE_SOURCE
+            })
     }
 
     pub fn set_cookie_source(&mut self, id: ProviderId, source: impl Into<String>) {

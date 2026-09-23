@@ -128,7 +128,7 @@ pub use huggingface::HuggingFaceProvider;
 pub use infini::InfiniProvider;
 pub use jetbrains::JetBrainsProvider;
 pub use kilo::KiloProvider;
-pub use kimi::KimiProvider;
+pub use kimi::{KimiProvider, KimiRegion};
 pub use kimik2::KimiK2Provider;
 pub use kiro::KiroProvider;
 pub use litellm::LiteLLMProvider;

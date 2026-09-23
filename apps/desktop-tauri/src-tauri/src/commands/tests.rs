@@ -264,6 +264,20 @@ fn minimax_region_lookup_normalizes_legacy_china_value() {
 }
 
 #[test]
+fn kimi_region_lookup_defaults_to_china_and_roundtrips_international() {
+    let mut settings = Settings::default();
+    assert_eq!(
+        provider_region_lookup(&settings, "kimi").as_deref(),
+        Some("china")
+    );
+    super::provider_region_set(&mut settings, "kimi", "international".to_string()).unwrap();
+    assert_eq!(
+        provider_region_lookup(&settings, "kimi").as_deref(),
+        Some("international")
+    );
+}
+
+#[test]
 fn minimax_cookie_domain_follows_selected_region() {
     let mut s = Settings::default();
     assert_eq!(
@@ -688,6 +702,22 @@ fn fetch_context_includes_minimax_region() {
     );
 
     assert_eq!(ctx.api_region.as_deref(), Some("cn"));
+}
+
+#[test]
+fn provider_dashboard_url_uses_selected_regional_console() {
+    let mut settings = Settings::default();
+    settings.set_api_region(ProviderId::MiniMax, "cn");
+    settings.set_api_region(ProviderId::Kimi, "international");
+
+    assert_eq!(
+        super::provider_dashboard_url(ProviderId::MiniMax, &settings).as_deref(),
+        Some("https://platform.minimaxi.com/user-center/payment/coding-plan?cycle_type=3")
+    );
+    assert_eq!(
+        super::provider_dashboard_url(ProviderId::Kimi, &settings).as_deref(),
+        Some("https://www.kimi.ai/code/console")
+    );
 }
 
 #[test]
@@ -1822,6 +1852,13 @@ fn minimax_region_options_match_upstream_hosts() {
             "China mainland (platform.minimaxi.com)"
         ]
     );
+}
+
+#[test]
+fn kimi_region_options_match_regional_hosts() {
+    let opts = super::region_options_for("kimi");
+    let values: Vec<_> = opts.iter().map(|option| option.value.as_str()).collect();
+    assert_eq!(values, vec!["china", "international"]);
 }
 
 #[test]
