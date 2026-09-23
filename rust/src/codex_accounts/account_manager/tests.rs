@@ -5,9 +5,13 @@ mod tests {
 
     /// Write an auth.json carrying a JWT identity for the given account id.
     fn write_auth(home_path: &Path, email: &str, account_id: &str) {
+        write_user_auth(home_path, email, account_id, &format!("auth0|{account_id}"));
+    }
+
+    fn write_user_auth(home_path: &Path, email: &str, account_id: &str, subject: &str) {
         let payload = serde_json::json!({
             "email": email,
-            "sub": format!("auth0|{account_id}"),
+            "sub": subject,
             "https://api.openai.com/auth": {
                 "chatgpt_plan_type": "team",
                 "chatgpt_account_id": account_id,
@@ -85,6 +89,50 @@ mod tests {
         assert!(!duplicate_home.exists());
         assert!(other_home.exists());
 
+        super::super::file_locations::clear_app_support_directory_override();
+    }
+
+    #[test]
+    fn shared_team_users_keep_separate_discovery_and_managed_homes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        super::super::file_locations::with_app_support_directory(root.to_path_buf());
+        let first_home = root.join("managed-homes").join("first");
+        let second_home = root.join("managed-homes").join("second");
+        let ambient_home = root.join("ambient");
+        for home in [&first_home, &second_home, &ambient_home] {
+            std::fs::create_dir_all(home).unwrap();
+        }
+        write_user_auth(&first_home, "a@x.test", "shared-team", "user-a");
+        write_user_auth(&second_home, "b@x.test", "shared-team", "user-b");
+        write_user_auth(&ambient_home, "a@x.test", "shared-team", "user-a");
+        let second_auth = std::fs::read(second_home.join("auth.json")).unwrap();
+        let mut first = make_account(first_home.clone(), "a@x.test", "shared-team");
+        first.auth_subject = Some("user-a".into());
+        let manager = CodexAccountManager::new();
+        let discovered = manager
+            .discover_managed_accounts(std::slice::from_ref(&first))
+            .unwrap();
+        assert_eq!(discovered.len(), 2);
+        let second = discovered
+            .iter()
+            .find(|a| a.codex_home_path == second_home)
+            .unwrap();
+        assert_ne!(second.id, first.id);
+        assert!(!first.matches(second));
+
+        let mut ambient = first.clone();
+        ambient.codex_home_path = ambient_home;
+        manager.remove_managed_files_if_owned(&first).unwrap();
+        assert!(!first_home.exists());
+        assert!(second_home.exists());
+        let materialized = manager.materialize_as_managed(&ambient).unwrap();
+        assert_ne!(materialized.codex_home_path, second_home);
+        assert_eq!(
+            std::fs::read(second_home.join("auth.json")).unwrap(),
+            second_auth
+        );
+        assert_eq!(managed_home_count(root), 2);
         super::super::file_locations::clear_app_support_directory_override();
     }
 

@@ -61,6 +61,25 @@ fn normalize_identifier(value: Option<&str>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// A shared workspace or home cannot override conflicting user evidence.
+fn user_identity_conflicts(
+    subject: Option<&str>,
+    other_subject: Option<&str>,
+    email: Option<&str>,
+    other_email: Option<&str>,
+) -> bool {
+    if let (Some(a), Some(b)) = (
+        normalize_identifier(subject),
+        normalize_identifier(other_subject),
+    ) {
+        return a != b;
+    }
+    matches!(
+        (normalize_identifier(email), normalize_identifier(other_email)),
+        (Some(a), Some(b)) if a != b
+    )
+}
+
 /// Where an account's `CODEX_HOME` lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -206,6 +225,14 @@ impl CodexAccount {
 
     /// Whether two accounts refer to the same identity.
     pub fn matches(&self, other: &CodexAccount) -> bool {
+        if user_identity_conflicts(
+            self.auth_subject.as_deref(),
+            other.auth_subject.as_deref(),
+            self.email_hint.as_deref(),
+            other.email_hint.as_deref(),
+        ) {
+            return false;
+        }
         if let (Some(a), Some(b)) = (
             self.effective_workspace_account_id(),
             other.effective_workspace_account_id(),
@@ -323,6 +350,14 @@ impl RemovedAccountIdentity {
     }
 
     pub fn matches(&self, account: &CodexAccount) -> bool {
+        if user_identity_conflicts(
+            self.auth_subject.as_deref(),
+            account.auth_subject.as_deref(),
+            self.email_hint.as_deref(),
+            account.email_hint.as_deref(),
+        ) {
+            return false;
+        }
         if self.standardized_home_path() == account.standardized_home_path() {
             return true;
         }
@@ -571,6 +606,74 @@ mod tests {
             Some("ACCT-1"),
         );
         assert!(a.matches(&b));
+    }
+
+    #[test]
+    fn different_subjects_do_not_match_in_a_shared_workspace_or_home() {
+        let mut a = account(
+            "11111111-1111-1111-1111-111111111111",
+            "/managed/shared",
+            CodexAccountSource::ManagedByApp,
+            Some("shared-team"),
+        );
+        a.auth_subject = Some("user-a".into());
+        a.email_hint = Some("same@x.test".into());
+        let mut b = a.clone();
+        b.id = Uuid::new_v4();
+        b.auth_subject = Some("user-b".into());
+
+        assert!(!a.matches(&b));
+        assert!(!b.matches(&a));
+        assert!(!RemovedAccountIdentity::from_account(&a).matches(&b));
+    }
+
+    #[test]
+    fn different_emails_do_not_match_in_a_shared_workspace_without_subjects() {
+        let mut a = account(
+            "11111111-1111-1111-1111-111111111111",
+            "/managed/a",
+            CodexAccountSource::ManagedByApp,
+            Some("shared-team"),
+        );
+        a.email_hint = Some("user-a@x.test".into());
+        let mut b = a.clone();
+        b.id = Uuid::new_v4();
+        b.codex_home_path = PathBuf::from("/managed/b");
+        b.email_hint = Some("user-b@x.test".into());
+
+        assert!(!a.matches(&b));
+        assert!(!RemovedAccountIdentity::from_account(&a).matches(&b));
+    }
+
+    #[test]
+    fn matching_subject_remains_authoritative_when_email_changes() {
+        let mut a = account(
+            "11111111-1111-1111-1111-111111111111",
+            "/managed/a",
+            CodexAccountSource::ManagedByApp,
+            Some("shared-team"),
+        );
+        a.auth_subject = Some("user-a".into());
+        a.email_hint = Some("old@x.test".into());
+        let mut b = a.clone();
+        b.auth_subject = Some("USER-A".into());
+        b.email_hint = Some("new@x.test".into());
+        assert!(a.matches(&b));
+    }
+
+    #[test]
+    fn same_user_in_different_workspaces_remains_separate() {
+        let mut a = account(
+            "11111111-1111-1111-1111-111111111111",
+            "/managed/a",
+            CodexAccountSource::ManagedByApp,
+            Some("team-a"),
+        );
+        a.auth_subject = Some("same-user".into());
+        let mut b = a.clone();
+        b.provider_account_id = Some("team-b".into());
+        assert!(!a.matches(&b));
+        assert!(!b.matches(&a));
     }
 
     #[test]
