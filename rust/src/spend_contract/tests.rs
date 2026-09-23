@@ -465,6 +465,7 @@ fn spend_contract_serializes_provenance_for_tauri_and_cli() {
         price_coverage_ratio: None,
         history_coverage_established: true,
         token_mix: SpendTokenMix::default(),
+        token_total: None,
         conversation_count: 0,
         models: Vec::new(),
         projects: Vec::new(),

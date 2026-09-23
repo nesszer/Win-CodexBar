@@ -130,6 +130,32 @@ impl ModelTokenCounts {
     pub fn total(&self) -> u64 {
         self.input_tokens.saturating_add(self.output_tokens)
     }
+
+    /// Total for sources that report cache reads/writes as classes separate
+    /// from `input_tokens` (Claude JSONL, OpenCodex imports). Codex already
+    /// includes cached input in `input_tokens`, so use [`Self::total`] there.
+    pub fn total_with_separate_cache(&self) -> u64 {
+        self.total().saturating_add(self.cached_tokens)
+    }
+
+    /// Provider-aware total; see [`cache_is_separate_from_input`].
+    pub fn total_for_provider(&self, provider: &str) -> u64 {
+        if cache_is_separate_from_input(provider) {
+            self.total_with_separate_cache()
+        } else {
+            self.total()
+        }
+    }
+}
+
+/// Local JSONL sources disagree about whether cache reads are already part of
+/// `input_tokens`. Codex reports `input_tokens` with cached input included
+/// (`CodexTokenCounts::from_values` clamps `cached` to `input`, and codex
+/// pricing subtracts it back out); Claude and the OpenCodex imports report
+/// cache read/creation as separate classes. A total must not add the cache
+/// bucket for the former.
+pub fn cache_is_separate_from_input(provider: &str) -> bool {
+    provider != "codex"
 }
 
 impl CostSummary {
@@ -1359,6 +1385,10 @@ fn add_claude_record_to_daily_tokens(
         .format("%Y-%m-%d")
         .to_string();
     if let Some(slot) = daily_tokens.get_mut(&date_str) {
-        *slot += record.input + record.output;
+        *slot = slot
+            .saturating_add(record.input)
+            .saturating_add(record.output)
+            .saturating_add(record.cache_read)
+            .saturating_add(record.cache_create);
     }
 }

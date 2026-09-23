@@ -230,6 +230,11 @@ pub struct SpendContract {
     pub price_coverage_ratio: Option<f64>,
     pub history_coverage_established: bool,
     pub token_mix: SpendTokenMix,
+    /// Window token total with each source's own cache rule applied
+    /// (see [`resolve_token_total`]). Not part of the wire contract: the merged
+    /// `token_mix` above cannot express native and imported rules at once.
+    #[serde(skip)]
+    pub token_total: Option<u64>,
     pub conversation_count: u32,
     pub models: Vec<SpendModelRow>,
     pub projects: Vec<ProjectUsage>,
@@ -400,6 +405,7 @@ pub fn build_local_spend_contract_from_summary(
     let imported = imports.first();
     let replace_native =
         provider_id == "codex" && hide_native_codex_when_opencodex_present && imported.is_some();
+    let token_total = resolve_token_total(&native_token_mix, imported, replace_native);
     let resolved = resolve_spend(
         native_cost,
         native_provenance,
@@ -451,6 +457,7 @@ pub fn build_local_spend_contract_from_summary(
         price_coverage: resolved.price_coverage,
         history_coverage_established: summary.history_coverage_established,
         token_mix: resolved.token_mix,
+        token_total,
         conversation_count,
         models: resolved.models,
         projects: native.projects,
@@ -514,6 +521,51 @@ fn load_native_spend(
     clippy::too_many_arguments,
     reason = "signature mirrors the flat spend-contract config fields one-to-one"
 )]
+/// Window token total for one source. `cache_is_separate` is false for sources
+/// whose `input_tokens` already includes cached input (Codex), true for sources
+/// that report cache read/creation as classes of their own (OpenCodex imports).
+pub fn spend_token_total(mix: &SpendTokenMix, cache_is_separate: bool) -> Option<u64> {
+    let values = [
+        mix.input_tokens,
+        mix.output_tokens,
+        if cache_is_separate {
+            mix.cache_read_tokens
+        } else {
+            None
+        },
+        mix.cache_creation_tokens,
+    ];
+    let mut saw = false;
+    let mut total = 0u64;
+    for value in values.into_iter().flatten() {
+        saw = true;
+        total = total.saturating_add(value);
+    }
+    saw.then_some(total)
+}
+
+/// Totals native and imported sources separately, each with its own cache rule,
+/// then combines them. Codex native rows already include cached input in
+/// `input_tokens`, so adding the cache bucket there would double count; the
+/// OpenCodex imported rows need it added. `replace_native` mirrors
+/// [`resolve_spend`]: the imported source replaces the native one entirely.
+fn resolve_token_total(
+    native_mix: &SpendTokenMix,
+    imported: Option<&ImportedSpendSource>,
+    replace_native: bool,
+) -> Option<u64> {
+    let native_total = if replace_native {
+        None
+    } else {
+        spend_token_total(native_mix, false)
+    };
+    let imported_total = imported.and_then(|source| spend_token_total(&source.token_mix, true));
+    match (native_total, imported_total) {
+        (None, None) => None,
+        (native, imported) => Some(native.unwrap_or(0).saturating_add(imported.unwrap_or(0))),
+    }
+}
+
 fn resolve_spend(
     native_cost: Option<f64>,
     native_provenance: CostProvenance,
@@ -644,7 +696,7 @@ fn model_rows(
                 input_tokens: counts.input_tokens,
                 output_tokens: counts.output_tokens,
                 cache_read_tokens: counts.cached_tokens,
-                total_tokens: counts.total(),
+                total_tokens: counts.total_for_provider(provider_id),
                 custom_pricing: custom_rates.is_some(),
             }
         })

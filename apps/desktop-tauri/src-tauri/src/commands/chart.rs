@@ -410,8 +410,8 @@ fn load_local_usage_summary_with_unknown_models(
         .cloned()
         .collect();
 
-    let thirty_day_tokens = total_tokens(&thirty_day);
-    let latest_tokens = total_tokens(&today);
+    let thirty_day_tokens = total_tokens(provider_id, &thirty_day);
+    let latest_tokens = total_tokens(provider_id, &today);
     let has_usage =
         thirty_day.sessions_count > 0 || thirty_day.total_cost_usd > 0.0 || thirty_day_tokens > 0;
     if !has_usage {
@@ -425,7 +425,7 @@ fn load_local_usage_summary_with_unknown_models(
             thirty_day_cost: non_zero_f64(thirty_day.total_cost_usd),
             thirty_day_tokens: non_zero_u64(thirty_day_tokens),
             latest_tokens: non_zero_u64(latest_tokens),
-            top_model: top_model(&thirty_day),
+            top_model: top_model(provider_id, &thirty_day),
             estimate_note: localized_estimate_note(provider_id, lang),
             token_cost_updated_at_ms: current_unix_ms(),
         }),
@@ -650,8 +650,13 @@ fn scan_local_cost(
     }
 }
 
-fn total_tokens(summary: &CostSummary) -> u64 {
-    summary.input_tokens + summary.output_tokens
+fn total_tokens(provider_id: &str, summary: &CostSummary) -> u64 {
+    let base = summary.input_tokens.saturating_add(summary.output_tokens);
+    if codexbar::cost_scanner::cache_is_separate_from_input(provider_id) {
+        base.saturating_add(summary.cached_tokens)
+    } else {
+        base
+    }
 }
 
 fn non_zero_f64(value: f64) -> Option<f64> {
@@ -662,11 +667,11 @@ fn non_zero_u64(value: u64) -> Option<u64> {
     (value > 0).then_some(value)
 }
 
-fn top_model(summary: &CostSummary) -> Option<String> {
+fn top_model(provider_id: &str, summary: &CostSummary) -> Option<String> {
     summary
         .by_model_tokens
         .iter()
-        .max_by_key(|(_, counts)| counts.total())
+        .max_by_key(|(_, counts)| counts.total_for_provider(provider_id))
         .map(|(model, _)| model.clone())
         .or_else(|| {
             summary

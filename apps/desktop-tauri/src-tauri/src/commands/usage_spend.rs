@@ -500,8 +500,8 @@ fn build_usage_spend_summary(
             "codex" => SpendValues {
                 seven_day: codex_7_contract.known_cost_usd,
                 thirty_day: codex_30_contract.known_cost_usd,
-                seven_day_tokens: total_token_mix(&codex_7_contract.token_mix),
-                thirty_day_tokens: total_token_mix(&codex_30_contract.token_mix),
+                seven_day_tokens: codex_7_contract.token_total,
+                thirty_day_tokens: codex_30_contract.token_total,
                 source: if include_opencodex && !codex_30_contract.imports.is_empty() {
                     "local logs + OpenCodex".to_string()
                 } else {
@@ -516,12 +516,14 @@ fn build_usage_spend_summary(
                 seven_day_tokens: Some(
                     claude_7_summary
                         .input_tokens
-                        .saturating_add(claude_7_summary.output_tokens),
+                        .saturating_add(claude_7_summary.output_tokens)
+                        .saturating_add(claude_7_summary.cached_tokens),
                 ),
                 thirty_day_tokens: Some(
                     claude_30_summary
                         .input_tokens
-                        .saturating_add(claude_30_summary.output_tokens),
+                        .saturating_add(claude_30_summary.output_tokens)
+                        .saturating_add(claude_30_summary.cached_tokens),
                 ),
                 source: "local logs".to_string(),
                 refreshing: false,
@@ -543,8 +545,8 @@ fn build_usage_spend_summary(
                     SpendValues {
                         seven_day: seven.known_cost_usd,
                         thirty_day: thirty.known_cost_usd,
-                        seven_day_tokens: total_token_mix(&seven.token_mix),
-                        thirty_day_tokens: total_token_mix(&thirty.token_mix),
+                        seven_day_tokens: seven.token_total,
+                        thirty_day_tokens: thirty.token_total,
                         source: if provider_id == "opencodego" {
                             "local logs + OpenCodex".to_string()
                         } else {
@@ -684,21 +686,6 @@ fn last_included_reporting_day(contract: &SpendContract) -> String {
         .unwrap_or_else(|| chrono::Local::now().date_naive())
         .format("%Y-%m-%d")
         .to_string()
-}
-
-fn total_token_mix(mix: &codexbar::spend_contract::SpendTokenMix) -> Option<u64> {
-    let values = [
-        mix.input_tokens,
-        mix.output_tokens,
-        mix.cache_creation_tokens,
-    ];
-    let mut saw = false;
-    let mut total = 0u64;
-    for value in values.into_iter().flatten() {
-        saw = true;
-        total = total.saturating_add(value);
-    }
-    saw.then_some(total)
 }
 
 fn cached_spend(snapshot: Option<&ProviderUsageSnapshot>) -> SpendValues {
