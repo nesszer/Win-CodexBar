@@ -6,6 +6,7 @@
 //! this one match arm.
 
 use super::{Provider, ProviderId};
+use crate::providers::AtlasCloudProvider;
 use crate::providers::{
     AbacusProvider, AiAndProvider, AlibabaProvider, AlibabaTokenPlanProvider, AmpProvider,
     AntigravityProvider, AugmentProvider, AzureOpenAIProvider, BedrockProvider, BifrostProvider,
@@ -38,6 +39,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Gemini => Box::new(GeminiProvider::new()),
         ProviderId::Copilot => Box::new(CopilotProvider::new()),
         ProviderId::Antigravity => Box::new(AntigravityProvider::new()),
+        ProviderId::AtlasCloud => Box::new(AtlasCloudProvider::new()),
         ProviderId::Factory => Box::new(FactoryProvider::new()),
         ProviderId::Zai => Box::new(ZaiProvider::new()),
         ProviderId::Kiro => Box::new(KiroProvider::new()),

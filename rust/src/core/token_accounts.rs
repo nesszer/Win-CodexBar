@@ -411,6 +411,7 @@ impl TokenAccountSupport {
             | ProviderId::Meta
             | ProviderId::Nous
             | ProviderId::Muse
+            | ProviderId::AtlasCloud
             | ProviderId::Hyper
             | ProviderId::GitKraken
             | ProviderId::Bifrost => None,
