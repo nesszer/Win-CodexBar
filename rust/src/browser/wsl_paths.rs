@@ -89,21 +89,15 @@ impl WslBrowserDetector {
 }
 
 fn windows_browser_candidates(appdata_local: &std::path::Path) -> Vec<(BrowserType, PathBuf)> {
-    [
-        BrowserType::Chrome,
-        BrowserType::ChromeBeta,
-        BrowserType::ChromeDev,
-        BrowserType::ChromeCanary,
-        BrowserType::ChromeForTesting,
-        BrowserType::Chromium,
-    ]
-    .into_iter()
-    .filter_map(|browser_type| {
-        browser_type
-            .user_data_dir_under(appdata_local)
-            .map(|path| (browser_type, path))
-    })
-    .collect()
+    BrowserType::all()
+        .iter()
+        .copied()
+        .filter_map(|browser_type| {
+            browser_type
+                .user_data_dir_under(appdata_local)
+                .map(|path| (browser_type, path))
+        })
+        .collect()
 }
 
 fn detect_chromium_profiles(user_data_dir: &PathBuf) -> Vec<BrowserProfile> {
