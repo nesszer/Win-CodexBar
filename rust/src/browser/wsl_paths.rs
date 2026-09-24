@@ -17,6 +17,7 @@ use super::detection::{BrowserProfile, BrowserType, DetectedBrowser};
 pub struct WslBrowserDetector;
 
 impl WslBrowserDetector {
+    /// Detect Windows browsers visible from WSL via /mnt/c/ paths.
     pub fn detect_all() -> Vec<DetectedBrowser> {
         if !wsl::is_wsl() {
             return Vec::new();
@@ -88,6 +89,9 @@ impl WslBrowserDetector {
     }
 }
 
+/// Collect profile roots for every browser that resolves one under the given
+/// AppData/Local directory. Browsers without a shared-root mapping (Edge,
+/// Brave, Arc, Firefox) are skipped here and added separately by the caller.
 fn windows_browser_candidates(appdata_local: &std::path::Path) -> Vec<(BrowserType, PathBuf)> {
     BrowserType::all()
         .iter()
@@ -100,6 +104,7 @@ fn windows_browser_candidates(appdata_local: &std::path::Path) -> Vec<(BrowserTy
         .collect()
 }
 
+/// Detect Chromium-based browser profiles
 fn detect_chromium_profiles(user_data_dir: &PathBuf) -> Vec<BrowserProfile> {
     let mut profiles = Vec::new();
 
