@@ -16,6 +16,10 @@ use crate::wsl;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BrowserType {
     Chrome,
+    ChromeBeta,
+    ChromeDev,
+    ChromeCanary,
+    ChromeForTesting,
     Edge,
     Brave,
     Arc,
@@ -28,6 +32,10 @@ impl BrowserType {
     pub fn all() -> &'static [BrowserType] {
         &[
             BrowserType::Chrome,
+            BrowserType::ChromeBeta,
+            BrowserType::ChromeDev,
+            BrowserType::ChromeCanary,
+            BrowserType::ChromeForTesting,
             BrowserType::Edge,
             BrowserType::Brave,
             BrowserType::Arc,
@@ -45,11 +53,53 @@ impl BrowserType {
     pub fn display_name(&self) -> &'static str {
         match self {
             BrowserType::Chrome => "Google Chrome",
+            BrowserType::ChromeBeta => "Google Chrome Beta",
+            BrowserType::ChromeDev => "Google Chrome Dev",
+            BrowserType::ChromeCanary => "Google Chrome Canary",
+            BrowserType::ChromeForTesting => "Chrome for Testing",
             BrowserType::Edge => "Microsoft Edge",
             BrowserType::Brave => "Brave",
             BrowserType::Arc => "Arc",
             BrowserType::Firefox => "Firefox",
             BrowserType::Chromium => "Chromium",
+        }
+    }
+
+    /// Resolve a browser's Windows AppData/Local profile root.
+    pub fn user_data_dir_under(&self, appdata_local: &Path) -> Option<PathBuf> {
+        match self {
+            BrowserType::Chrome => Some(
+                appdata_local
+                    .join("Google")
+                    .join("Chrome")
+                    .join("User Data"),
+            ),
+            BrowserType::ChromeBeta => Some(
+                appdata_local
+                    .join("Google")
+                    .join("Chrome Beta")
+                    .join("User Data"),
+            ),
+            BrowserType::ChromeDev => Some(
+                appdata_local
+                    .join("Google")
+                    .join("Chrome Dev")
+                    .join("User Data"),
+            ),
+            BrowserType::ChromeCanary => Some(
+                appdata_local
+                    .join("Google")
+                    .join("Chrome SxS")
+                    .join("User Data"),
+            ),
+            BrowserType::ChromeForTesting => Some(
+                appdata_local
+                    .join("Google")
+                    .join("Chrome for Testing")
+                    .join("User Data"),
+            ),
+            BrowserType::Chromium => Some(appdata_local.join("Chromium").join("User Data")),
+            _ => None,
         }
     }
 }
@@ -142,12 +192,12 @@ impl BrowserDetector {
             && let Some(appdata_local) = wsl::windows_appdata_local()
         {
             let path = match browser_type {
-                BrowserType::Chrome => Some(
-                    appdata_local
-                        .join("Google")
-                        .join("Chrome")
-                        .join("User Data"),
-                ),
+                BrowserType::Chrome
+                | BrowserType::ChromeBeta
+                | BrowserType::ChromeDev
+                | BrowserType::ChromeCanary
+                | BrowserType::ChromeForTesting
+                | BrowserType::Chromium => browser_type.user_data_dir_under(&appdata_local),
                 BrowserType::Edge => Some(
                     appdata_local
                         .join("Microsoft")
@@ -161,7 +211,6 @@ impl BrowserDetector {
                         .join("User Data"),
                 ),
                 BrowserType::Arc => Some(appdata_local.join("Arc").join("User Data")),
-                BrowserType::Chromium => Some(appdata_local.join("Chromium").join("User Data")),
                 BrowserType::Firefox => wsl::windows_appdata_roaming()
                     .map(|roaming| roaming.join("Mozilla").join("Firefox").join("Profiles")),
             };
@@ -176,10 +225,14 @@ impl BrowserDetector {
         let app_data = dirs::data_dir()?;
 
         let path = match browser_type {
-            BrowserType::Chrome => local_app_data
-                .join("Google")
-                .join("Chrome")
-                .join("User Data"),
+            BrowserType::Chrome
+            | BrowserType::ChromeBeta
+            | BrowserType::ChromeDev
+            | BrowserType::ChromeCanary
+            | BrowserType::ChromeForTesting
+            | BrowserType::Chromium => browser_type
+                .user_data_dir_under(&local_app_data)
+                .expect("matched a Chromium browser"),
             BrowserType::Edge => local_app_data
                 .join("Microsoft")
                 .join("Edge")
@@ -189,7 +242,6 @@ impl BrowserDetector {
                 .join("Brave-Browser")
                 .join("User Data"),
             BrowserType::Arc => local_app_data.join("Arc").join("User Data"),
-            BrowserType::Chromium => local_app_data.join("Chromium").join("User Data"),
             BrowserType::Firefox => app_data.join("Mozilla").join("Firefox").join("Profiles"),
         };
 
@@ -267,6 +319,49 @@ impl BrowserDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chrome_channels_resolve_to_distinct_windows_profile_roots() {
+        let appdata = Path::new("C:/Users/test/AppData/Local");
+        let channels = [
+            (
+                BrowserType::Chrome,
+                "Google/Chrome/User Data",
+                "Google Chrome",
+            ),
+            (
+                BrowserType::ChromeBeta,
+                "Google/Chrome Beta/User Data",
+                "Google Chrome Beta",
+            ),
+            (
+                BrowserType::ChromeDev,
+                "Google/Chrome Dev/User Data",
+                "Google Chrome Dev",
+            ),
+            (
+                BrowserType::ChromeCanary,
+                "Google/Chrome SxS/User Data",
+                "Google Chrome Canary",
+            ),
+            (
+                BrowserType::ChromeForTesting,
+                "Google/Chrome for Testing/User Data",
+                "Chrome for Testing",
+            ),
+            (BrowserType::Chromium, "Chromium/User Data", "Chromium"),
+        ];
+
+        for (browser, relative_path, display_name) in channels {
+            assert_eq!(
+                browser.user_data_dir_under(appdata).unwrap(),
+                appdata.join(relative_path),
+                "wrong profile root for {display_name}"
+            );
+            assert_eq!(browser.display_name(), display_name);
+            assert!(BrowserType::all().contains(&browser));
+        }
+    }
 
     #[test]
     fn test_browser_detection() {

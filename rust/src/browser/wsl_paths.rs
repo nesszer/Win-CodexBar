@@ -17,6 +17,7 @@ use super::detection::{BrowserProfile, BrowserType, DetectedBrowser};
 pub struct WslBrowserDetector;
 
 impl WslBrowserDetector {
+    /// Detect Windows browsers visible from WSL via /mnt/c/ paths.
     pub fn detect_all() -> Vec<DetectedBrowser> {
         if !wsl::is_wsl() {
             return Vec::new();
@@ -29,45 +30,38 @@ impl WslBrowserDetector {
 
         let mut browsers = Vec::new();
 
-        let candidates: &[(BrowserType, PathBuf)] = &[
-            (
-                BrowserType::Chrome,
-                appdata_local
-                    .join("Google")
-                    .join("Chrome")
-                    .join("User Data"),
-            ),
-            (
-                BrowserType::Edge,
-                appdata_local
-                    .join("Microsoft")
-                    .join("Edge")
-                    .join("User Data"),
-            ),
-            (
-                BrowserType::Brave,
-                appdata_local
-                    .join("BraveSoftware")
-                    .join("Brave-Browser")
-                    .join("User Data"),
-            ),
-            (
-                BrowserType::Arc,
-                appdata_local.join("Arc").join("User Data"),
-            ),
-            (
-                BrowserType::Chromium,
-                appdata_local.join("Chromium").join("User Data"),
-            ),
-        ];
+        let candidates = windows_browser_candidates(&appdata_local);
+        let candidates: Vec<(BrowserType, PathBuf)> = candidates
+            .into_iter()
+            .chain([
+                (
+                    BrowserType::Edge,
+                    appdata_local
+                        .join("Microsoft")
+                        .join("Edge")
+                        .join("User Data"),
+                ),
+                (
+                    BrowserType::Brave,
+                    appdata_local
+                        .join("BraveSoftware")
+                        .join("Brave-Browser")
+                        .join("User Data"),
+                ),
+                (
+                    BrowserType::Arc,
+                    appdata_local.join("Arc").join("User Data"),
+                ),
+            ])
+            .collect();
 
         for (browser_type, user_data_dir) in candidates {
             if user_data_dir.exists() {
-                let profiles = detect_chromium_profiles(user_data_dir);
+                let profiles = detect_chromium_profiles(&user_data_dir);
                 if !profiles.is_empty() {
                     browsers.push(DetectedBrowser {
-                        browser_type: *browser_type,
-                        user_data_dir: user_data_dir.clone(),
+                        browser_type,
+                        user_data_dir,
                         profiles,
                     });
                 }
@@ -95,6 +89,22 @@ impl WslBrowserDetector {
     }
 }
 
+/// Collect profile roots for every browser that resolves one under the given
+/// AppData/Local directory. Browsers without a shared-root mapping (Edge,
+/// Brave, Arc, Firefox) are skipped here and added separately by the caller.
+fn windows_browser_candidates(appdata_local: &std::path::Path) -> Vec<(BrowserType, PathBuf)> {
+    BrowserType::all()
+        .iter()
+        .copied()
+        .filter_map(|browser_type| {
+            browser_type
+                .user_data_dir_under(appdata_local)
+                .map(|path| (browser_type, path))
+        })
+        .collect()
+}
+
+/// Detect Chromium-based browser profiles
 fn detect_chromium_profiles(user_data_dir: &PathBuf) -> Vec<BrowserProfile> {
     let mut profiles = Vec::new();
 
@@ -150,6 +160,27 @@ fn detect_firefox_profiles(profiles_dir: &PathBuf) -> Vec<BrowserProfile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_profile_roots_include_every_chrome_channel_and_chromium() {
+        let appdata = PathBuf::from("/mnt/c/Users/test/AppData/Local");
+        let expected = [
+            (BrowserType::Chrome, "Google/Chrome/User Data"),
+            (BrowserType::ChromeBeta, "Google/Chrome Beta/User Data"),
+            (BrowserType::ChromeDev, "Google/Chrome Dev/User Data"),
+            (BrowserType::ChromeCanary, "Google/Chrome SxS/User Data"),
+            (
+                BrowserType::ChromeForTesting,
+                "Google/Chrome for Testing/User Data",
+            ),
+            (BrowserType::Chromium, "Chromium/User Data"),
+        ];
+
+        let actual = windows_browser_candidates(&appdata);
+        for (browser_type, relative_path) in expected {
+            assert!(actual.contains(&(browser_type, appdata.join(relative_path))));
+        }
+    }
 
     #[test]
     fn test_wsl_browser_detection() {
