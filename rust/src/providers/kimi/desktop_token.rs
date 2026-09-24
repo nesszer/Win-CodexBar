@@ -29,8 +29,6 @@ const DESKTOP_APP_DIR: &str = "kimi-desktop";
 const COOKIES_FILE: &str = "Cookies";
 const LOCAL_STATE_FILE: &str = "Local State";
 const AUTH_COOKIE_NAME: &str = "kimi-auth";
-const AUTH_COOKIE_HOSTS: [&str; 4] = ["www.kimi.com", ".www.kimi.com", ".kimi.com", "kimi.com"];
-
 impl KimiDesktopAuthToken {
     /// Cookies database inside a caller-provided `data_root` (upstream
     /// `cookiesDatabaseURL(homeDirectory:)` shape for test injection).
@@ -47,12 +45,20 @@ impl KimiDesktopAuthToken {
     /// Desktop session, or `None` when the app/database/cookie is absent or
     /// unreadable. Production entry point.
     pub fn load() -> Option<String> {
+        Self::load_for_region(super::KimiRegion::China)
+    }
+
+    pub fn load_for_region(region: super::KimiRegion) -> Option<String> {
         let data_root = dirs::data_dir()?;
-        Self::load_from(&data_root)
+        Self::load_from_region(&data_root, region)
     }
 
     /// Read from an explicit `data_root` (Electron `userData` parent).
     pub fn load_from(data_root: &Path) -> Option<String> {
+        Self::load_from_region(data_root, super::KimiRegion::China)
+    }
+
+    pub fn load_from_region(data_root: &Path, region: super::KimiRegion) -> Option<String> {
         let aes_key = crate::browser::cookies::CookieExtractor::get_chromium_encryption_key(
             &Self::local_state_path(data_root),
         )
@@ -63,13 +69,21 @@ impl KimiDesktopAuthToken {
             );
         })
         .ok();
-        Self::load_token(&Self::cookies_database_path(data_root), aes_key.as_deref())
+        Self::load_token(
+            &Self::cookies_database_path(data_root),
+            aes_key.as_deref(),
+            region.desktop_cookie_hosts(),
+        )
     }
 
     /// Core read (upstream `read(databaseURL:immutable:)`): WAL-safe
     /// read-only open → newest `kimi-auth` row → decode. `aes_key` is the
     /// Chromium app cookie key; `None` restricts reads to plaintext rows.
-    fn load_token(database_path: &Path, aes_key: Option<&[u8]>) -> Option<String> {
+    fn load_token(
+        database_path: &Path,
+        aes_key: Option<&[u8]>,
+        hosts: &[&str; 4],
+    ) -> Option<String> {
         if !database_path.is_file() {
             return None;
         }
@@ -81,7 +95,7 @@ impl KimiDesktopAuthToken {
             tracing::debug!(error = %err, "Kimi Desktop Cookies open failed");
         })
         .ok()?;
-        read_newest_auth_cookie(&conn)
+        read_newest_auth_cookie(&conn, hosts)
             .inspect_err(|err| {
                 tracing::debug!(error = %err, "Kimi Desktop cookies read failed");
             })
@@ -145,7 +159,10 @@ fn decode_cookie_value(row: (String, Vec<u8>), aes_key: Option<&[u8]>) -> Option
         .filter(|plain| !plain.is_empty())
 }
 
-fn read_newest_auth_cookie(conn: &rusqlite::Connection) -> rusqlite::Result<(String, Vec<u8>)> {
+fn read_newest_auth_cookie(
+    conn: &rusqlite::Connection,
+    hosts: &[&str; 4],
+) -> rusqlite::Result<(String, Vec<u8>)> {
     // Upstream query verbatim: newest `kimi-auth` across the registered
     // kimi.com cookie scopes by last access.
     let mut statement = conn.prepare(
@@ -157,13 +174,7 @@ fn read_newest_auth_cookie(conn: &rusqlite::Connection) -> rusqlite::Result<(Str
          LIMIT 1",
     )?;
     statement.query_row(
-        rusqlite::params![
-            AUTH_COOKIE_NAME,
-            AUTH_COOKIE_HOSTS[0],
-            AUTH_COOKIE_HOSTS[1],
-            AUTH_COOKIE_HOSTS[2],
-            AUTH_COOKIE_HOSTS[3],
-        ],
+        rusqlite::params![AUTH_COOKIE_NAME, hosts[0], hosts[1], hosts[2], hosts[3],],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
     )
 }
@@ -357,12 +368,24 @@ mod tests {
         insert_cookie_row(&conn, "www.kimi.com", "", &encrypted, 1);
 
         assert_eq!(
-            KimiDesktopAuthToken::load_token(&database, Some(key.as_slice())).as_deref(),
+            KimiDesktopAuthToken::load_token(
+                &database,
+                Some(key.as_slice()),
+                crate::providers::KimiRegion::China.desktop_cookie_hosts(),
+            )
+            .as_deref(),
             Some("encrypted-kimi-token")
         );
 
         // Without a key the encrypted row cannot be used.
-        assert_eq!(KimiDesktopAuthToken::load_token(&database, None), None);
+        assert_eq!(
+            KimiDesktopAuthToken::load_token(
+                &database,
+                None,
+                crate::providers::KimiRegion::China.desktop_cookie_hosts(),
+            ),
+            None
+        );
         // `load_from` without a usable `Local State` reads plaintext only and
         // yields nothing (no panic, no secret in logs).
         assert_eq!(KimiDesktopAuthToken::load_from(root.path()), None);

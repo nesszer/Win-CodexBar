@@ -48,7 +48,6 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["mimo", "Xiaomi MiMo"],
   ["doubao", "Doubao"],
   ["commandcode", "Command Code"],
-  ["crof", "Crof"],
   ["stepfun", "StepFun"],
   ["venice", "Venice"],
   ["openaiapi", "OpenAI API"],

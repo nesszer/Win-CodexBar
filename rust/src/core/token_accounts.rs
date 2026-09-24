@@ -354,7 +354,6 @@ impl TokenAccountSupport {
             | ProviderId::DeepSeek
             | ProviderId::Windsurf
             | ProviderId::Doubao
-            | ProviderId::Crof
             | ProviderId::StepFun
             | ProviderId::Venice
             | ProviderId::OpenAIApi

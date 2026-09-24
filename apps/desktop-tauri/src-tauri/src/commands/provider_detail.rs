@@ -73,15 +73,7 @@ pub(crate) fn build_provider_detail(
     let provider = instantiate_provider(id);
     let metadata = provider.metadata();
     let resume_supported = auto_resume_supported(id);
-    let dashboard_url = if id == codexbar::core::ProviderId::MiniMax {
-        Some(
-            codexbar::providers::MiniMaxProvider::dashboard_url_for_region(Some(
-                settings.api_region(id),
-            )),
-        )
-    } else {
-        metadata.dashboard_url.map(|s| s.to_string())
-    };
+    let dashboard_url = provider_dashboard_url(id, &settings);
 
     let detail = ProviderDetail {
         id: id.cli_name().to_string(),

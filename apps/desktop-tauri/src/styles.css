@@ -6035,31 +6035,6 @@ html:has(.menu-surface--tray) {
   color: inherit;
 }
 
-.accent-color-swatch-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  font-size: 12px;
-}
-
-.accent-color-swatch {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-}
-
-.accent-color-swatch-label {
-  color: var(--text-secondary);
-}
-
-.accent-color-swatch-value {
-  font-family: var(--font-mono, monospace);
-  color: var(--text-secondary);
-}
-
 /* ── Mistral monthly spend row (#2821, #2947) ──────────────────── */
 .menu-card__monthly-spend {
   margin-top: 4px;

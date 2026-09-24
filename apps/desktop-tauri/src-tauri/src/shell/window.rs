@@ -9,7 +9,9 @@ use crate::surface::{SurfaceMode, SurfaceTransition, WindowProperties};
 use crate::surface_target::SurfaceTarget;
 
 use super::SHELL_TRANSITION_SERIAL;
-use super::transition::{SurfaceSnapshot, apply_transition, current_surface_snapshot};
+use super::transition::{
+    RevealStrategy, SurfaceSnapshot, apply_transition, current_surface_snapshot,
+};
 
 pub(super) struct HideToTrayPlan {
     pub previous: SurfaceSnapshot,
@@ -26,6 +28,20 @@ pub fn apply_window_properties(
     let needs_show = apply_window_layout(window, mode, props)?;
     if needs_show {
         show_window(window)?;
+    }
+    Ok(())
+}
+
+/// Apply the requested surface without giving the proof window input focus.
+/// This path is used only by the isolated containment proof harness.
+pub fn apply_window_properties_without_activation(
+    window: &WebviewWindow,
+    mode: SurfaceMode,
+    props: &WindowProperties,
+) -> Result<(), String> {
+    let needs_show = apply_window_layout(window, mode, props)?;
+    if needs_show {
+        crate::proof_runtime::show_window_without_activation(window)?;
     }
     Ok(())
 }
@@ -181,7 +197,16 @@ where
     };
 
     if let Some(transition) = plan.transition {
-        apply_transition(app, &window, &transition, &plan.previous, plan.target, None).map(Some)
+        apply_transition(
+            app,
+            &window,
+            &transition,
+            &plan.previous,
+            plan.target,
+            None,
+            RevealStrategy::Activate,
+        )
+        .map(Some)
     } else {
         let _ = window.hide();
         Ok(Some(SurfaceMode::Hidden))

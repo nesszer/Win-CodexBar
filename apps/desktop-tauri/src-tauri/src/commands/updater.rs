@@ -14,6 +14,13 @@ use codexbar::updater::UpdateInfo;
 
 #[tauri::command]
 pub fn get_update_state(state: tauri::State<'_, Mutex<AppState>>) -> UpdateStatePayload {
+    if state
+        .lock()
+        .map(|guard| guard.is_containment_proof())
+        .unwrap_or(true)
+    {
+        return UpdateState::Idle.to_payload();
+    }
     state
         .lock()
         .map(|guard| guard.update_payload())
@@ -28,6 +35,9 @@ pub async fn check_for_updates(
     // Guard: skip if already checking or downloading.
     {
         let mut guard = state.lock().map_err(|e| e.to_string())?;
+        if guard.is_containment_proof() {
+            return Ok(UpdateState::Idle.to_payload());
+        }
         match guard.update_state {
             UpdateState::Checking | UpdateState::Downloading(_) => {
                 return Ok(guard.update_payload());
@@ -79,6 +89,13 @@ pub async fn download_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Result<UpdateStatePayload, String> {
+    if state
+        .lock()
+        .map(|guard| guard.is_containment_proof())
+        .unwrap_or(true)
+    {
+        return Ok(UpdateState::Idle.to_payload());
+    }
     let info = match update_info_for_download(&state)? {
         DownloadStart::Ready(info) => info,
         DownloadStart::AlreadyDownloading(payload) => return Ok(payload),
@@ -201,6 +218,12 @@ pub fn apply_update(state: tauri::State<'_, Mutex<AppState>>) -> Result<(), Stri
 }
 
 pub(crate) fn apply_ready_update(state: &Mutex<AppState>) -> Result<(), String> {
+    {
+        let guard = state.lock().map_err(|e| e.to_string())?;
+        if guard.is_containment_proof() {
+            return Err("updates disabled in containment proof mode".to_string());
+        }
+    }
     let (path, expected_sha256) = {
         let guard = state.lock().map_err(|e| e.to_string())?;
         let path = guard
@@ -223,6 +246,13 @@ pub fn dismiss_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Result<UpdateStatePayload, String> {
+    if state
+        .lock()
+        .map(|guard| guard.is_containment_proof())
+        .unwrap_or(true)
+    {
+        return Ok(UpdateState::Idle.to_payload());
+    }
     let payload = {
         let mut guard = state.lock().map_err(|e| e.to_string())?;
         guard.update_state = UpdateState::Idle;
@@ -236,6 +266,13 @@ pub fn dismiss_update(
 
 #[tauri::command]
 pub fn open_release_page(state: tauri::State<'_, Mutex<AppState>>) -> Result<(), String> {
+    if state
+        .lock()
+        .map(|guard| guard.is_containment_proof())
+        .unwrap_or(true)
+    {
+        return Err("updates disabled in containment proof mode".to_string());
+    }
     let url = {
         let guard = state.lock().map_err(|e| e.to_string())?;
         guard

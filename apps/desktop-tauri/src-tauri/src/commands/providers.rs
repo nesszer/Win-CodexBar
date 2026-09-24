@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::sync::Arc;
 
 const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 8;
+const PROOF_REFRESH_DISABLED: &str = "provider refresh disabled in containment proof mode";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RefreshScope {
@@ -379,10 +380,13 @@ async fn do_refresh_providers_with_policy(
     scope: RefreshScope,
 ) -> Result<ProviderRefreshOutcome, String> {
     let state = app.state::<Mutex<AppState>>();
-    let expected_generation = state
-        .lock()
-        .map_err(|e| e.to_string())?
-        .provider_refresh_generation;
+    let expected_generation = {
+        let guard = state.lock().map_err(|e| e.to_string())?;
+        if guard.is_containment_proof() {
+            return Err(PROOF_REFRESH_DISABLED.to_string());
+        }
+        guard.provider_refresh_generation
+    };
     let settings = Settings::load();
     let enabled_ids = settings.get_enabled_provider_ids();
     let refresh_ids = scope.provider_ids(&settings, &enabled_ids);
@@ -1159,6 +1163,13 @@ pub struct DeepSeekPricingStatus {
 pub fn get_deepseek_pricing_status(
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Option<DeepSeekPricingStatus> {
+    if state
+        .lock()
+        .map(|guard| guard.is_containment_proof())
+        .unwrap_or(true)
+    {
+        return None;
+    }
     let settings = Settings::load();
     if !settings.enabled_providers.contains("deepseek") {
         return None;
@@ -1203,11 +1214,21 @@ pub async fn refresh_providers_if_stale(app: tauri::AppHandle) -> Result<(), Str
 pub fn get_cached_providers(
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Vec<ProviderUsagePresentationSnapshot> {
-    let snapshots = state
+    let (snapshots, proof_mode, proof_settings) = state
         .lock()
-        .map(|guard| guard.provider_cache.clone())
-        .unwrap_or_default();
-    let settings = Settings::load();
+        .map(|guard| {
+            (
+                guard.provider_cache.clone(),
+                guard.is_containment_proof(),
+                guard.proof_settings().cloned(),
+            )
+        })
+        .unwrap_or((Vec::new(), true, None));
+    let settings = if proof_mode {
+        proof_settings.unwrap_or_default()
+    } else {
+        Settings::load()
+    };
 
     snapshots
         .into_iter()

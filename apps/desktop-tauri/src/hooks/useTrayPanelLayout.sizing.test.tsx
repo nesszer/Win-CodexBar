@@ -258,7 +258,7 @@ describe("useTrayPanelLayout sizing", () => {
     await nudgePass(result, 417, "421px"); // → 421 → 526 phys
     expect(lastResize()).toEqual({ width: 328, height: 421 });
     expect(surface.style.maxHeight).toBe("421px");
-  });
+  }, 30_000); // 8 bounded 3s settling passes + 3s readiness can exceed Vitest's 5s default.
 
   it("reconciles to the applied physical frame after an OS snap (no churn, no cycle)", async () => {
     // Deliberate 5-physical snap: requesting 539 logical (→674 phys) yields an

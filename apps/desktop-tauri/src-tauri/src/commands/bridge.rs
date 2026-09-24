@@ -661,6 +661,8 @@ pub struct SettingsSnapshot {
     predictive_pace_warning_enabled: bool,
     show_pace: bool,
     tray_icon_mode: &'static str,
+    stacked_tray_top_provider: Option<String>,
+    stacked_tray_bottom_provider: Option<String>,
     switcher_shows_icons: bool,
     menu_bar_shows_highest_usage: bool,
     menu_bar_shows_percent: bool,
@@ -719,9 +721,7 @@ pub struct SettingsSnapshot {
     provider_accent_colors: std::collections::HashMap<String, String>,
 }
 
-#[tauri::command]
-pub fn get_bootstrap_state() -> BootstrapState {
-    let settings = Settings::load();
+fn bootstrap_state_from_settings(settings: Settings) -> BootstrapState {
     BootstrapState {
         contract_version: "v1",
         providers: provider_catalog_for(&settings),
@@ -729,14 +729,48 @@ pub fn get_bootstrap_state() -> BootstrapState {
     }
 }
 
+#[cfg(not(test))]
 #[tauri::command]
-pub fn get_provider_catalog() -> Vec<ProviderCatalogEntry> {
+pub fn get_bootstrap_state(
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Result<BootstrapState, String> {
+    Ok(bootstrap_state_from_settings(settings_for_command(&state)?))
+}
+
+#[cfg(test)]
+#[tauri::command]
+pub fn get_bootstrap_state() -> BootstrapState {
+    bootstrap_state_from_settings(Settings::default())
+}
+
+#[tauri::command]
+pub fn get_provider_catalog(
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Result<Vec<ProviderCatalogEntry>, String> {
+    Ok(provider_catalog_for(&settings_for_command(&state)?))
+}
+
+pub fn get_provider_catalog_for_current_settings() -> Vec<ProviderCatalogEntry> {
     provider_catalog_for(&Settings::load())
 }
 
 #[tauri::command]
-pub fn get_settings_snapshot() -> SettingsSnapshot {
-    SettingsSnapshot::from(Settings::load())
+pub fn get_settings_snapshot(
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Result<SettingsSnapshot, String> {
+    Ok(SettingsSnapshot::from(settings_for_command(&state)?))
+}
+
+fn settings_for_command(state: &tauri::State<'_, Mutex<AppState>>) -> Result<Settings, String> {
+    let guard = state.lock().map_err(|error| error.to_string())?;
+    if guard.is_containment_proof() {
+        guard
+            .proof_settings()
+            .cloned()
+            .ok_or_else(|| "containment proof settings are unavailable".to_string())
+    } else {
+        Ok(Settings::load())
+    }
 }
 
 impl From<Settings> for SettingsSnapshot {
@@ -783,6 +817,8 @@ impl From<Settings> for SettingsSnapshot {
             predictive_pace_warning_enabled: settings.predictive_pace_warning_enabled,
             show_pace: settings.show_pace,
             tray_icon_mode: tray_icon_mode_label(settings.tray_icon_mode),
+            stacked_tray_top_provider: settings.stacked_tray_top_provider,
+            stacked_tray_bottom_provider: settings.stacked_tray_bottom_provider,
             switcher_shows_icons: settings.switcher_shows_icons,
             menu_bar_shows_highest_usage: settings.menu_bar_shows_highest_usage,
             menu_bar_shows_percent: settings.menu_bar_shows_percent,
@@ -876,6 +912,7 @@ fn tray_icon_mode_label(mode: TrayIconMode) -> &'static str {
     match mode {
         TrayIconMode::Single => "single",
         TrayIconMode::PerProvider => "perProvider",
+        TrayIconMode::Stacked => "stacked",
     }
 }
 

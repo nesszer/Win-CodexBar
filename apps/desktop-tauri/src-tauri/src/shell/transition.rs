@@ -13,7 +13,10 @@ use crate::window_positioner::{self, PanelSize, Rect};
 
 use super::geometry::surface_panel_size;
 use super::position::default_surface_position;
-use super::window::{apply_window_layout, apply_window_properties, show_window};
+use super::window::{
+    apply_window_layout, apply_window_properties, apply_window_properties_without_activation,
+    show_window,
+};
 use super::{SHELL_TRANSITION_SERIAL, ShellTransitionRequest};
 
 /// Positions from the positioner pipeline are in Tauri's physical coordinate
@@ -75,6 +78,12 @@ pub(super) enum TransitionResolution {
     },
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum RevealStrategy {
+    Activate,
+    NoActivate,
+}
+
 pub fn transition_to_target(
     app: &AppHandle,
     mode: SurfaceMode,
@@ -89,6 +98,27 @@ pub fn transition_to_target(
             position,
         },
         false,
+        RevealStrategy::Activate,
+    )
+}
+
+/// Transition to a surface using the native no-activate path reserved for
+/// isolated containment proof runs.
+pub fn transition_to_target_without_activation(
+    app: &AppHandle,
+    mode: SurfaceMode,
+    target: SurfaceTarget,
+    position: Option<(i32, i32)>,
+) -> Result<SurfaceMode, String> {
+    apply_transition_request_with_strategy(
+        app,
+        ShellTransitionRequest {
+            mode,
+            target,
+            position,
+        },
+        false,
+        RevealStrategy::NoActivate,
     )
 }
 
@@ -106,6 +136,7 @@ pub fn reopen_to_target(
             position,
         },
         true,
+        RevealStrategy::Activate,
     )
 }
 
@@ -113,14 +144,16 @@ fn apply_transition_request_with_strategy(
     app: &AppHandle,
     request: ShellTransitionRequest,
     force_same_mode_apply: bool,
+    reveal: RevealStrategy,
 ) -> Result<SurfaceMode, String> {
-    apply_transition_request(app, request, force_same_mode_apply)
+    apply_transition_request(app, request, force_same_mode_apply, reveal)
 }
 
 fn apply_transition_request(
     app: &AppHandle,
     request: ShellTransitionRequest,
     force_same_mode_apply: bool,
+    reveal: RevealStrategy,
 ) -> Result<SurfaceMode, String> {
     let _transition_guard = SHELL_TRANSITION_SERIAL.lock().unwrap();
     let window = app
@@ -145,11 +178,17 @@ fn apply_transition_request(
     .or_else(|| preserved_visible_mode_change_position(&window, &resolution));
 
     match resolution {
-        TransitionResolution::ModeChange { transition, target } => {
-            apply_transition(app, &window, &transition, &previous, target, position)
-        }
+        TransitionResolution::ModeChange { transition, target } => apply_transition(
+            app,
+            &window,
+            &transition,
+            &previous,
+            target,
+            position,
+            reveal,
+        ),
         TransitionResolution::SameModeRetarget { mode, target } => {
-            apply_same_mode_target_update(app, &window, mode, target, position)
+            apply_same_mode_target_update(app, &window, mode, target, position, reveal)
         }
         TransitionResolution::SameModeReopen { mode, target } => {
             let transition = SurfaceTransition {
@@ -157,7 +196,15 @@ fn apply_transition_request(
                 to: mode,
                 properties: mode.window_properties(),
             };
-            apply_transition(app, &window, &transition, &previous, target, position)
+            apply_transition(
+                app,
+                &window,
+                &transition,
+                &previous,
+                target,
+                position,
+                reveal,
+            )
         }
         TransitionResolution::Noop { mode } => Ok(mode),
     }
@@ -430,6 +477,7 @@ fn apply_same_mode_target_update(
     mode: SurfaceMode,
     target: SurfaceTarget,
     position: Option<(i32, i32)>,
+    reveal: RevealStrategy,
 ) -> Result<SurfaceMode, String> {
     if let Some((x, y)) = position {
         let _ = window.set_position(os_position(window, x, y));
@@ -445,7 +493,14 @@ fn apply_same_mode_target_update(
         },
     )?;
     events::emit_surface_mode_changed(app, mode, mode, target);
-    if show_window(window).is_ok() && mode == SurfaceMode::TrayPanel {
+    let shown = match reveal {
+        RevealStrategy::Activate => show_window(window).is_ok(),
+        RevealStrategy::NoActivate => {
+            crate::proof_runtime::show_window_without_activation(window)?;
+            true
+        }
+    };
+    if shown && mode == SurfaceMode::TrayPanel {
         mark_tray_panel_shown(app);
     }
     Ok(mode)
@@ -458,6 +513,7 @@ pub(super) fn apply_transition(
     previous: &SurfaceSnapshot,
     current_target: SurfaceTarget,
     position: Option<(i32, i32)>,
+    reveal: RevealStrategy,
 ) -> Result<SurfaceMode, String> {
     if let Some((x, y)) = position {
         let _ = window.set_position(os_position(window, x, y));
@@ -485,7 +541,14 @@ pub(super) fn apply_transition(
             // ever target Hidden/PopOut/Settings, none of which defer their
             // own reveal.)
             if needs_show {
-                let _ = show_window(window);
+                match reveal {
+                    RevealStrategy::Activate => {
+                        let _ = show_window(window);
+                    }
+                    RevealStrategy::NoActivate => {
+                        crate::proof_runtime::show_window_without_activation(window)?;
+                    }
+                }
             }
             clamp_current_window_to_work_area(window);
 
@@ -494,9 +557,14 @@ pub(super) fn apply_transition(
         Err(err) => {
             let recovery =
                 recovery_snapshot_for_failed_transition(transition, previous, &current_target);
-            if let Err(recovery_err) = restore_recovery_surface(&recovery, |mode, properties| {
-                apply_window_properties(window, mode, properties)
-            }) {
+            if let Err(recovery_err) =
+                restore_recovery_surface(&recovery, |mode, properties| match reveal {
+                    RevealStrategy::Activate => apply_window_properties(window, mode, properties),
+                    RevealStrategy::NoActivate => {
+                        apply_window_properties_without_activation(window, mode, properties)
+                    }
+                })
+            {
                 let hidden = hidden_surface_snapshot();
                 if let Err(hide_err) = window.hide().map_err(|e| e.to_string()) {
                     tracing::warn!(

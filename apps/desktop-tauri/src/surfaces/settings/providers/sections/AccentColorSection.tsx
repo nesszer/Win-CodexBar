@@ -94,16 +94,6 @@ export function AccentColorSection({
           {t("ProviderAccentColorReset")}
         </button>
       </div>
-      <div className="accent-color-swatch-row">
-        <span className="accent-color-swatch-label">
-          {t("ProviderAccentColor")}
-        </span>
-        <span
-          className="accent-color-swatch"
-          style={{ background: effective }}
-        />
-        <span className="accent-color-swatch-value">{effective}</span>
-      </div>
       {error && <p className="settings-section__error">{error}</p>}
     </section>
   );

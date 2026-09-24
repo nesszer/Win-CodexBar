@@ -87,19 +87,37 @@ impl CostUsagePricing {
         cache_creation_input_tokens: i32,
         output_tokens: i32,
     ) -> f64 {
+        Self::claude_cost_usd_u64_from_resolution(
+            resolution,
+            u64::try_from(input_tokens).unwrap_or(0),
+            u64::try_from(cache_read_input_tokens).unwrap_or(0),
+            u64::try_from(cache_creation_input_tokens).unwrap_or(0),
+            u64::try_from(output_tokens).unwrap_or(0),
+        )
+    }
+
+    /// Calculate cost from a resolved Claude pricing source without narrowing
+    /// untrusted local-history counters to the API-oriented signed type.
+    pub(crate) fn claude_cost_usd_u64_from_resolution(
+        resolution: ClaudePricingResolution,
+        input_tokens: u64,
+        cache_read_input_tokens: u64,
+        cache_creation_input_tokens: u64,
+        output_tokens: u64,
+    ) -> f64 {
         match resolution {
             ClaudePricingResolution::BuiltIn(pricing) => {
                 fn tiered(
-                    tokens: i32,
+                    tokens: u64,
                     base: f64,
                     above: Option<f64>,
                     threshold: Option<i32>,
                 ) -> f64 {
-                    let tokens = tokens.max(0);
                     match (threshold, above) {
                         (Some(thresh), Some(above_rate)) => {
+                            let thresh = u64::try_from(thresh).unwrap_or(0);
                             let below = tokens.min(thresh);
-                            let over = (tokens - thresh).max(0);
+                            let over = tokens.saturating_sub(thresh);
                             (below as f64) * base + (over as f64) * above_rate
                         }
                         _ => (tokens as f64) * base,
@@ -131,7 +149,7 @@ impl CostUsagePricing {
             ClaudePricingResolution::ModelsDev {
                 pricing,
                 threshold_tokens,
-            } => claude_routed_pricing::cost_usd_from_pricing_with_threshold(
+            } => claude_routed_pricing::cost_usd_from_u64_counts_with_threshold(
                 pricing,
                 threshold_tokens,
                 input_tokens,
@@ -194,5 +212,87 @@ impl CostUsagePricing {
             return Some(pricing.input_cost_per_token);
         }
         claude_routed_pricing::input_cost_per_token(model, Self::normalize_claude_model(model))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn routed_pricing() -> (models_dev_pricing::DynamicModelPricing, Option<u64>) {
+        let snapshot = models_dev_pricing::ModelsDevPricingSnapshot::from_catalog_json_for_tests(
+            r#"{
+                "anthropic": {"models": {"threshold-fixture": {"id": "threshold-fixture", "cost": {
+                    "input": 2, "output": 4, "cache_read": 0.25, "cache_write": 3,
+                    "context_over_200k": {"input": 7, "output": 11, "cache_read": 0.5, "cache_write": 9}
+                }}}}
+            }"#,
+        )
+        .expect("pricing fixture");
+        let resolution = CostUsagePricing::resolve_claude_pricing(
+            "anthropic/threshold-fixture",
+            "anthropic/threshold-fixture",
+            Some(&snapshot),
+        )
+        .expect("Models.dev pricing");
+        let ClaudePricingResolution::ModelsDev {
+            pricing,
+            threshold_tokens,
+        } = resolution
+        else {
+            panic!("expected Models.dev pricing");
+        };
+        (pricing, threshold_tokens)
+    }
+
+    #[test]
+    fn models_dev_u64_cost_uses_routed_rates_for_every_token_field() {
+        let (pricing, threshold) = routed_pricing();
+        assert_eq!(threshold, Some(200_000));
+
+        for (input, cache_read, cache_write, output, expected_usd) in [
+            (10_000, 2_000, 1_000, 500, 0.0255),
+            (199_999, 1, 0, 25, 0.400_098_25),
+            (200_000, 1, 0, 25, 1.400_275_5),
+            (220_000, 10_000, 2_000, 50, 1.563_55),
+        ] {
+            let actual = CostUsagePricing::claude_cost_usd_u64_from_resolution(
+                ClaudePricingResolution::ModelsDev {
+                    pricing,
+                    threshold_tokens: threshold,
+                },
+                input,
+                cache_read,
+                cache_write,
+                output,
+            );
+            let routed = claude_routed_pricing::cost_usd_from_u64_counts_with_threshold(
+                pricing,
+                threshold,
+                input,
+                cache_read,
+                cache_write,
+                output,
+            );
+            assert!((actual - expected_usd).abs() < 1e-12);
+            assert!((actual - routed).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn models_dev_u64_counter_overflow_selects_above_threshold_rates() {
+        let (pricing, threshold) = routed_pricing();
+        let actual = CostUsagePricing::claude_cost_usd_u64_from_resolution(
+            ClaudePricingResolution::ModelsDev {
+                pricing,
+                threshold_tokens: threshold,
+            },
+            u64::MAX,
+            1,
+            0,
+            0,
+        );
+        let expected = (u64::MAX as f64) * 7e-6 + 0.5e-6;
+        assert!((actual - expected).abs() < 1e-6);
     }
 }

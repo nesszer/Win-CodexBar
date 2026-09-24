@@ -253,7 +253,13 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
           <GeneralTab mode="notifications" settings={settings} set={set} saving={saving} />
         )}
         {activeTab === "menuBar" && (
-          <DisplayTab mode="menuBar" settings={settings} set={set} saving={saving} />
+          <DisplayTab
+            mode="menuBar"
+            settings={settings}
+            providers={state.providers}
+            set={set}
+            saving={saving}
+          />
         )}
         {activeTab === "menu" && (
           <DisplayTab mode="menu" settings={settings} set={set} saving={saving} />

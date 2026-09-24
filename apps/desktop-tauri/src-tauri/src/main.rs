@@ -11,14 +11,18 @@ mod floatbar;
 mod geometry_store;
 mod powertoys;
 mod proof_harness;
+mod proof_runtime;
 mod shell;
 mod shortcut_bridge;
 mod state;
 mod surface;
 mod surface_target;
+#[cfg(test)]
+mod test_support;
 mod tray_accounts;
 mod tray_bridge;
 mod tray_menu;
+mod tray_presentation;
 mod tray_visibility;
 mod usage_metric;
 mod window_positioner;
@@ -112,6 +116,20 @@ fn should_suppress_blur_dismiss(launch: LaunchBehavior, proof_mode: bool) -> boo
 }
 
 fn main() {
+    let containment_proof = match proof_runtime::ContainmentProof::from_env() {
+        Ok(proof) => proof,
+        Err(error) => {
+            eprintln!("CodexBar containment proof rejected: {error}");
+            std::process::exit(2);
+        }
+    };
+    if let Some(proof) = containment_proof.as_ref()
+        && let Err(error) = proof.install()
+    {
+        eprintln!("CodexBar containment proof setup failed: {error}");
+        std::process::exit(2);
+    }
+
     // Per-process log file names: the shell writes codexbar-desktop.log so
     // its cached handle never blocks the CLI's rotation on Windows.
     // SAFETY: runs before any thread spawns; no concurrent env access exists.
@@ -119,42 +137,81 @@ fn main() {
     codexbar::logging::install_panic_hook();
     codexbar::logging::init(false, false).expect("failed to initialize logging");
 
-    let proof_config = proof_harness::ProofConfig::from_env();
+    let containment_active = containment_proof.is_some();
+    let proof_config = if containment_active {
+        Some(proof_harness::ProofConfig {
+            target_surface: "settings".to_string(),
+            settings_tab: Some("usageSpend".to_string()),
+            target_payload: Some("usageSpend".to_string()),
+        })
+    } else {
+        proof_harness::ProofConfig::from_env()
+    };
     let is_proof_mode = proof_config.is_some();
-    let force_start_visible = std::env::var_os("CODEXBAR_START_VISIBLE").is_some();
-    let settings = codexbar::settings::Settings::load();
+    let force_start_visible =
+        !containment_active && std::env::var_os("CODEXBAR_START_VISIBLE").is_some();
+    let settings = containment_proof
+        .as_ref()
+        .map(proof_runtime::ContainmentProof::proof_settings)
+        .unwrap_or_else(codexbar::settings::Settings::load);
     let launch = launch_behavior(
         force_start_visible,
         settings.start_minimized,
         std::env::args().skip(1),
     );
 
-    let mut initial_state = AppState::new();
+    let mut initial_state = containment_proof
+        .as_ref()
+        .map(|proof| AppState::new_for_containment_proof(proof.clone()))
+        .unwrap_or_else(AppState::new);
     initial_state.proof_config = proof_config;
-    // Proof-harness seed: CODEXBAR_SEED_USAGE_JSON plants one synthetic Codex
-    // ProviderUsageSnapshot before the event loop and any WebView read. The
-    // cache timestamp makes the seeded cache count as fresh so the first
-    // frontend refresh-if-stale call does not evict the synthetic data.
-    if let Some(snapshot) = proof_harness::seed_usage_snapshot_from_env() {
-        tracing::info!(
-            "proof-harness: seeded provider snapshot for '{}'",
-            snapshot.provider_id
-        );
-        initial_state.provider_cache.push(snapshot);
-        initial_state.provider_cache_updated_at = Some(std::time::Instant::now());
+    if !containment_active {
+        // Validate the complete proof seed before installing any snapshots, so an
+        // invalid multi-provider fixture cannot leave a partial cache behind.
+        if let Some(snapshots) =
+            proof_harness::seed_usage_snapshots_from_env(initial_state.proof_config.as_ref())
+        {
+            let seeded_at = std::time::Instant::now();
+            for snapshot in &snapshots {
+                tracing::info!(
+                    "proof-harness: seeded provider snapshot for '{}'",
+                    snapshot.provider_id
+                );
+                if let Some(provider) =
+                    codexbar::core::ProviderId::from_cli_name(&snapshot.provider_id)
+                {
+                    initial_state
+                        .provider_cache_updated_at_by_provider
+                        .insert(provider, seeded_at);
+                }
+            }
+            initial_state.provider_cache.extend(snapshots);
+            initial_state.provider_cache_seeded = true;
+            initial_state.provider_cache_updated_at = Some(seeded_at);
+        }
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(Mutex::new(initial_state))
-        .plugin(shortcut_bridge::plugin())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if should_reopen_primary_window_from_instance_args(args.iter().skip(1)) {
-                let request = primary_window_request();
-                let _ =
-                    shell::reopen_to_target(app, request.mode, request.target, request.position);
-            }
-        }))
+        .plugin(tauri_plugin_dialog::init());
+    let builder = if containment_active {
+        builder
+    } else {
+        builder
+            .plugin(shortcut_bridge::plugin())
+            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+                if should_reopen_primary_window_from_instance_args(args.iter().skip(1)) {
+                    let request = primary_window_request();
+                    let _ = shell::reopen_to_target(
+                        app,
+                        request.mode,
+                        request.target,
+                        request.position,
+                    );
+                }
+            }))
+    };
+    builder
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_state,
             commands::get_provider_catalog,
@@ -277,19 +334,24 @@ fn main() {
             floatbar::set_float_bar_orientation,
         ])
         .setup(move |app| {
-            if let Err(error) = codexbar::providers::claude::accounts::cleanup_abandoned_logins() {
+            if !containment_active
+                && let Err(error) =
+                    codexbar::providers::claude::accounts::cleanup_abandoned_logins()
+            {
                 tracing::warn!("failed to clean abandoned Claude sign-in directories: {error}");
             }
             if let Some(window) = app.get_webview_window("main") {
                 shell::dwm::force_dark_caption(&window);
                 window.hide()?;
             }
-            tray_bridge::setup(app)?;
-            shortcut_bridge::register(app.handle());
-            floatbar::install(app.handle());
-            auto_refresh::install(app.handle().clone());
-            if settings.powertoys_status_pipe_enabled {
-                powertoys::install(app.handle().clone());
+            if !containment_active {
+                tray_bridge::setup(app)?;
+                shortcut_bridge::register(app.handle());
+                floatbar::install(app.handle());
+                auto_refresh::install(app.handle().clone());
+                if settings.powertoys_status_pipe_enabled {
+                    powertoys::install(app.handle().clone());
+                }
             }
 
             // Give the WebView/event loop one turn to finish startup before
@@ -299,7 +361,14 @@ fn main() {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(PROOF_ACTIVATION_DELAY).await;
-                    proof_harness::activate(&app_handle);
+                    if containment_active {
+                        if let Err(error) = proof_harness::activate_without_focus(&app_handle) {
+                            tracing::error!("containment proof reveal failed: {error}");
+                            app_handle.exit(2);
+                        }
+                    } else {
+                        proof_harness::activate(&app_handle);
+                    }
                 });
             } else if launch.open_primary_window_at_start {
                 let app = app.handle().clone();

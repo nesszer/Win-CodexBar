@@ -14,7 +14,10 @@ import DisplayTab from "./DisplayTab";
 import type { SettingsSnapshot } from "../../../types/bridge";
 
 const baseSettings = {
+  enabledProviders: ["codex", "claude"],
   trayIconMode: "single",
+  stackedTrayTopProvider: null,
+  stackedTrayBottomProvider: null,
   trayPanelAlwaysOnTop: false,
   switcherShowsIcons: false,
   menuBarShowsHighestUsage: false,
@@ -96,5 +99,30 @@ describe("DisplayTab window scale", () => {
     );
 
     expect(set).toHaveBeenCalledWith({ trayPanelAlwaysOnTop: true });
+  });
+});
+
+describe("DisplayTab stacked tray providers", () => {
+  it("persists explicit top and bottom provider choices", () => {
+    const set = vi.fn();
+    render(
+      <DisplayTab
+        mode="menuBar"
+        settings={{ ...baseSettings, trayIconMode: "stacked" } as SettingsSnapshot}
+        providers={[
+          { id: "codex", displayName: "Codex", cookieDomain: null },
+          { id: "claude", displayName: "Claude", cookieDomain: null },
+        ]}
+        set={set}
+        saving={false}
+      />,
+    );
+    const selects = screen.getAllByRole("combobox");
+
+    fireEvent.change(selects[1], { target: { value: "claude" } });
+    fireEvent.change(selects[2], { target: { value: "codex" } });
+
+    expect(set).toHaveBeenCalledWith({ stackedTrayTopProvider: "claude" });
+    expect(set).toHaveBeenCalledWith({ stackedTrayBottomProvider: "codex" });
   });
 });

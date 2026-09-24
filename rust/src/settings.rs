@@ -136,6 +136,16 @@ pub struct Settings {
     #[serde(default)]
     pub tray_icon_mode: TrayIconMode,
 
+    /// Optional preferred provider for the upper row of a stacked tray icon.
+    /// Stale or disabled values are retained and ignored until eligible again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stacked_tray_top_provider: Option<String>,
+
+    /// Optional preferred provider for the lower row of a stacked tray icon.
+    /// Stale or duplicate values fall back to the next eligible provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stacked_tray_bottom_provider: Option<String>,
+
     /// Show provider icons in the merged switcher UI
     #[serde(default = "default_true")]
     pub switcher_shows_icons: bool,
@@ -541,6 +551,8 @@ impl Default for Settings {
             provider_usage_thresholds: HashMap::new(),
             merge_tray_icons: false, // Show single provider by default
             tray_icon_mode: TrayIconMode::default(), // Single icon by default
+            stacked_tray_top_provider: None,
+            stacked_tray_bottom_provider: None,
             switcher_shows_icons: true,
             menu_bar_shows_highest_usage: false,
             menu_bar_shows_percent: false,
@@ -933,12 +945,17 @@ impl Settings {
         self.provider_configs.entry(id).or_default()
     }
 
-    /// Cookie source for `id`, or the default `"manual"` if unset.
+    /// Cookie source for `id`. Kimi follows upstream's automatic default;
+    /// providers with no specific default retain the legacy manual default.
     pub fn cookie_source(&self, id: ProviderId) -> &str {
         self.provider_configs
             .get(&id)
             .and_then(|c| c.cookie_source.as_deref())
-            .unwrap_or(DEFAULT_COOKIE_SOURCE)
+            .unwrap_or(if id == ProviderId::Kimi {
+                "auto"
+            } else {
+                DEFAULT_COOKIE_SOURCE
+            })
     }
 
     pub fn set_cookie_source(&mut self, id: ProviderId, source: impl Into<String>) {

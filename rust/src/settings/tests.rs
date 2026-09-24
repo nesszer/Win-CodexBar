@@ -32,6 +32,13 @@ fn test_settings_default() {
 }
 
 #[test]
+fn kimi_cookie_source_defaults_to_automatic_discovery() {
+    let settings = Settings::default();
+    assert_eq!(settings.cookie_source(ProviderId::Kimi), "auto");
+    assert_eq!(settings.cookie_source(ProviderId::Claude), "manual");
+}
+
+#[test]
 fn overview_layout_defaults_to_compact_and_round_trips() {
     let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
         .expect("missing overview layout defaults to compact");
@@ -772,6 +779,38 @@ fn test_settings_with_utf8_bom_parses_perprovider_tray_mode() {
 }
 
 #[test]
+fn stacked_tray_mode_preserves_provider_preferences() {
+    let json = r#"{
+        "tray_icon_mode": "stacked",
+        "stacked_tray_top_provider": "claude",
+        "stacked_tray_bottom_provider": "codex"
+    }"#;
+
+    let settings: Settings = serde_json::from_str(json).unwrap();
+
+    assert_eq!(settings.tray_icon_mode, TrayIconMode::Stacked);
+    assert_eq!(
+        settings.stacked_tray_top_provider.as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        settings.stacked_tray_bottom_provider.as_deref(),
+        Some("codex")
+    );
+
+    let saved = serde_json::to_string(&settings).unwrap();
+    let reloaded: Settings = serde_json::from_str(&saved).unwrap();
+    assert_eq!(
+        reloaded.stacked_tray_top_provider.as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        reloaded.stacked_tray_bottom_provider.as_deref(),
+        Some("codex")
+    );
+}
+
+#[test]
 fn test_language_serde_serialization() {
     // Test that Language serializes to lowercase string
     let english = Language::English;
@@ -1043,6 +1082,108 @@ fn test_new_format_provider_configs_only() {
     // Untouched providers still get their defaults.
     assert_eq!(settings.cookie_source(ProviderId::Claude), "manual");
     assert_eq!(settings.api_region(ProviderId::Zai), "global");
+}
+
+#[test]
+fn retired_provider_config_is_ignored_until_explicit_save() {
+    let original = r#"{
+            "enabled_providers": ["codex", "crof"],
+            "refresh_interval_secs": 300,
+            "provider_metrics": { "codex": "weekly", "crof": "session" },
+            "float_bar_provider_ids": ["codex", "crof"],
+            "stacked_tray_top_provider": "crof",
+            "stacked_tray_bottom_provider": "crof",
+            "provider_configs": {
+                "crof": { "api_token": "retired-fixture-key" },
+                "codex": { "cookie_source": "manual", "openai_web_extras": false },
+                "alibaba": { "api_region": "cn", "manual_cookie_header": "ali=PLACEHOLDER" }
+            }
+        }"#;
+    let original_bytes = original.as_bytes().to_vec();
+
+    let settings: Settings =
+        serde_json::from_str(original).expect("load settings with retired key");
+
+    assert_eq!(original.as_bytes(), original_bytes);
+    assert_eq!(settings.cookie_source(ProviderId::Codex), "manual");
+    assert!(!settings.openai_web_extras(ProviderId::Codex));
+    assert_eq!(
+        settings.enabled_providers,
+        HashSet::from(["codex".to_string()])
+    );
+    assert_eq!(settings.provider_metrics.len(), 1);
+    assert_eq!(settings.float_bar_provider_ids, ["codex"]);
+    assert_eq!(settings.stacked_tray_top_provider, None);
+    assert_eq!(settings.stacked_tray_bottom_provider, None);
+    assert_eq!(settings.api_region(ProviderId::Alibaba), "cn");
+    assert_eq!(
+        settings.manual_cookie_header(ProviderId::Alibaba),
+        "ali=PLACEHOLDER"
+    );
+
+    let saved = serde_json::to_string(&settings).expect("serialize sanitized settings");
+    let saved_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    let saved_configs = saved_value["provider_configs"].as_object().unwrap();
+    assert!(!saved_configs.contains_key("crof"));
+    assert!(saved_configs.contains_key("codex"));
+    assert!(saved_configs.contains_key("alibaba"));
+    assert!(
+        !saved.contains("\"crof\""),
+        "saved settings retained Crof: {saved}"
+    );
+}
+
+#[test]
+fn provider_aliases_are_canonicalized_at_the_load_boundary() {
+    let settings: Settings = serde_json::from_str(
+        r#"{
+            "enabled_providers": ["openai", "ClAuDe", "not-a-provider"],
+            "provider_metrics": {
+                "openai": "weekly",
+                "CoDeX": "session",
+                "not-a-provider": "weekly"
+            },
+            "float_bar_provider_ids": ["OPENAI", "codex", "ClAuDe", "unknown"],
+            "stacked_tray_top_provider": "OPENAI",
+            "stacked_tray_bottom_provider": "ClAuDe"
+        }"#,
+    )
+    .expect("load settings containing provider aliases");
+
+    assert_eq!(
+        settings.enabled_providers,
+        HashSet::from(["claude".to_string(), "codex".to_string()])
+    );
+    assert_eq!(
+        settings.provider_metrics.get("codex"),
+        Some(&MetricPreference::Session)
+    );
+    assert_eq!(settings.provider_metrics.len(), 1);
+    assert_eq!(settings.float_bar_provider_ids, ["codex", "claude"]);
+    assert_eq!(settings.stacked_tray_top_provider.as_deref(), Some("codex"));
+    assert_eq!(
+        settings.stacked_tray_bottom_provider.as_deref(),
+        Some("claude")
+    );
+}
+
+#[test]
+fn stacked_preferences_preserve_known_disabled_providers() {
+    let settings: Settings = serde_json::from_str(
+        r#"{
+            "enabled_providers": ["claude"],
+            "stacked_tray_top_provider": "OPENAI",
+            "stacked_tray_bottom_provider": "not-a-provider"
+        }"#,
+    )
+    .expect("load stacked preferences independently of enablement");
+
+    assert_eq!(settings.stacked_tray_top_provider.as_deref(), Some("codex"));
+    assert_eq!(settings.stacked_tray_bottom_provider, None);
+    assert_eq!(
+        settings.enabled_providers,
+        HashSet::from(["claude".to_string()])
+    );
 }
 
 /// Default `Settings` should serialize WITHOUT a `provider_configs`

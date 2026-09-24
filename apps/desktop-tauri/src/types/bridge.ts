@@ -12,7 +12,7 @@ export type SettingsTabId =
 
 // ── Narrowed string-literal unions (persisted settings enums) ─────────
 
-export type TrayIconMode = "single" | "perProvider";
+export type TrayIconMode = "single" | "perProvider" | "stacked";
 
 export type NotificationSoundTheme = "windows" | "codexBar";
 
@@ -190,6 +190,8 @@ export interface SettingsSnapshot {
   predictivePaceWarningEnabled: boolean;
   showPace?: boolean;
   trayIconMode: TrayIconMode;
+  stackedTrayTopProvider?: string | null;
+  stackedTrayBottomProvider?: string | null;
   switcherShowsIcons: boolean;
   menuBarShowsHighestUsage: boolean;
   menuBarShowsPercent: boolean;
@@ -299,6 +301,8 @@ export interface SettingsUpdate {
   predictivePaceWarningEnabled?: boolean;
   showPace?: boolean;
   trayIconMode?: TrayIconMode;
+  stackedTrayTopProvider?: string;
+  stackedTrayBottomProvider?: string;
   switcherShowsIcons?: boolean;
   menuBarShowsHighestUsage?: boolean;
   menuBarShowsPercent?: boolean;
@@ -379,6 +383,8 @@ export interface UsageSpendRow {
   displayName: string;
   sevenDay: number | null;
   thirtyDay: number | null;
+  sevenDayEstimate?: LocalCostEstimate;
+  thirtyDayEstimate?: LocalCostEstimate;
   sevenDayTokens?: number | null;
   thirtyDayTokens?: number | null;
   currency: string;
@@ -389,6 +395,11 @@ export interface UsageSpendRow {
   refreshing?: boolean;
   /** ISO 8601 timestamp of the stale snapshot when refreshing. */
   staleUpdatedAt?: string;
+}
+
+export interface LocalCostEstimate {
+  knownSubtotalUsd: number | null;
+  coverage: CostCoverageCounts;
 }
 
 export interface UsageSpendSummary {

@@ -87,7 +87,7 @@ fn provider_cache_can_skip_refresh(
             .iter()
             .any(|snapshot| snapshot.provider_id == id.cli_name())
     });
-    if !force && crate::proof_harness::seed_usage_json_active() && cache_has_all {
+    if !force && state.provider_cache_seeded && cache_has_all {
         return true;
     }
     !force
@@ -124,6 +124,38 @@ pub(super) fn complete_provider_refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validated_seed_pins_only_complete_nonforced_cache() {
+        let mut state = AppState::new();
+        state.provider_cache.push(
+            crate::proof_harness::parse_seed_usage_snapshot(
+                r#"{"providerId":"codex","primary":{"usedPercent":25.0}}"#,
+            )
+            .unwrap(),
+        );
+        assert!(!provider_cache_can_skip_refresh(
+            &state,
+            false,
+            &[ProviderId::Codex]
+        ));
+        state.provider_cache_seeded = true;
+        assert!(provider_cache_can_skip_refresh(
+            &state,
+            false,
+            &[ProviderId::Codex]
+        ));
+        assert!(!provider_cache_can_skip_refresh(
+            &state,
+            true,
+            &[ProviderId::Codex]
+        ));
+        assert!(!provider_cache_can_skip_refresh(
+            &state,
+            false,
+            &[ProviderId::Codex, ProviderId::Claude]
+        ));
+    }
 
     #[test]
     fn stale_inputs_cannot_reserve_a_new_generation_after_invalidation() {

@@ -104,6 +104,39 @@ fn canonical_provider_arg(provider_id: &str) -> Result<String, String> {
     Ok(parse_provider_arg(provider_id)?.cli_name().to_string())
 }
 
+fn provider_dashboard_url(id: ProviderId, settings: &Settings) -> Option<String> {
+    match id {
+        ProviderId::MiniMax => Some(
+            codexbar::providers::MiniMaxProvider::dashboard_url_for_region(Some(
+                settings.api_region(id),
+            )),
+        ),
+        ProviderId::Kimi => Some(
+            codexbar::providers::KimiRegion::from_settings(Some(settings.api_region(id)))
+                .console_url()
+                .to_string(),
+        ),
+        ProviderId::OpenRouter => instantiate_provider(id)
+            .metadata()
+            .dashboard_url
+            .map(str::to_string),
+        _ => provider_dashboard_url_from_sources(
+            instantiate_provider(id).metadata().dashboard_url,
+            codexbar::settings::get_api_key_providers()
+                .into_iter()
+                .find(|provider| provider.id == id)
+                .and_then(|provider| provider.dashboard_url),
+        ),
+    }
+}
+
+fn provider_dashboard_url_from_sources(
+    metadata_url: Option<&'static str>,
+    api_key_catalog_url: Option<&'static str>,
+) -> Option<String> {
+    metadata_url.or(api_key_catalog_url).map(str::to_string)
+}
+
 fn validate_single_line_secret(value: &str, field: &str, max_len: usize) -> Result<(), String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {

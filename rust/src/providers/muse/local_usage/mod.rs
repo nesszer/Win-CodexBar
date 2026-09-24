@@ -64,6 +64,7 @@ impl From<Report> for crate::spend_contract::LocalTokenHistorySummary {
             total_tokens: report.total_tokens.unwrap_or(0),
             session_count: report.session_count,
             coverage: report.coverage,
+            cost_estimate: Default::default(),
         }
     }
 }

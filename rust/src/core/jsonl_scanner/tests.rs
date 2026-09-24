@@ -77,13 +77,11 @@ fn fork_baseline_subtracts_known_reasoning_without_affecting_core_tokens() {
         output: 10,
         reasoning: Some(4),
     };
-    let mut state = CodexParserState::with_timestamp_state_and_fork_mode(
-        None,
-        Some(baseline),
-        None,
-        None,
-        true,
-    );
+    let mut state = CodexParserState::from_mode(CodexParseMode::ParentBaseline {
+        baseline,
+        paginated_continuation: false,
+        remaining_inherited_totals: None,
+    });
     assert_eq!(
         state.apply_totals_delta(CodexTotals {
             input: 20,
@@ -100,13 +98,11 @@ fn fork_baseline_subtracts_known_reasoning_without_affecting_core_tokens() {
         output: 10,
         reasoning: None,
     };
-    let mut state = CodexParserState::with_timestamp_state_and_fork_mode(
-        None,
-        Some(baseline_without_reasoning),
-        None,
-        None,
-        true,
-    );
+    let mut state = CodexParserState::from_mode(CodexParseMode::ParentBaseline {
+        baseline: baseline_without_reasoning,
+        paginated_continuation: false,
+        remaining_inherited_totals: None,
+    });
     assert_eq!(
         state.apply_totals_delta(CodexTotals {
             input: 20,
@@ -117,6 +113,109 @@ fn fork_baseline_subtracts_known_reasoning_without_affecting_core_tokens() {
         (10, 3, 10, None)
     );
     assert!(!state.fork_baseline_ambiguous);
+}
+
+#[test]
+fn inferred_fork_waits_for_present_explicit_start_ordinal() {
+    let range = CostUsageDayRange::new(
+        NaiveDate::from_ymd_opt(2026, 9, 22).unwrap(),
+        NaiveDate::from_ymd_opt(2026, 9, 22).unwrap(),
+    );
+    let mut state = CodexParserState::from_mode(CodexParseMode::InferSubagent {
+        start_ordinal: Some(10),
+    });
+
+    state.process_line(
+        r#"{"timestamp":"2026-09-22T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"model":"gpt-5.6-sol","total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":10},"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0}}}}"#,
+        &range,
+    );
+
+    assert!(state.records.is_empty());
+    assert!(state.fork_baseline.is_none());
+    assert!(!state.fork_baseline_locally_resolved());
+
+    state.process_line(
+        r#"{"ordinal":10,"timestamp":"2026-09-22T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"model":"gpt-5.6-sol","total_token_usage":{"input_tokens":110,"cached_input_tokens":22,"output_tokens":11},"last_token_usage":{"input_tokens":10,"cached_input_tokens":2,"output_tokens":1}}}}"#,
+        &range,
+    );
+
+    assert_eq!(state.records.len(), 1);
+    assert_eq!(state.records[0].0.input, 10);
+    assert_eq!(state.records[0].0.cached, 2);
+    assert_eq!(state.records[0].0.output, 1);
+    assert!(!state.fork_baseline_locally_resolved());
+}
+
+#[test]
+fn inferred_fork_keeps_missing_ordinal_unresolved_after_boundary_opens() {
+    let range = CostUsageDayRange::new(
+        NaiveDate::from_ymd_opt(2026, 9, 22).unwrap(),
+        NaiveDate::from_ymd_opt(2026, 9, 22).unwrap(),
+    );
+    let mut state = CodexParserState::from_mode(CodexParseMode::InferSubagent {
+        start_ordinal: Some(10),
+    });
+    let token_line = |ordinal: Option<i64>, total: i64, last: i64| {
+        let mut value = serde_json::json!({
+            "timestamp": "2026-09-22T10:00:00Z",
+            "type": "event_msg",
+            "payload": {"type": "token_count", "info": {
+                "model": "gpt-5.6-sol",
+                "total_token_usage": {"input_tokens": total, "cached_input_tokens": 0, "output_tokens": 0},
+                "last_token_usage": {"input_tokens": last, "cached_input_tokens": 0, "output_tokens": 0}
+            }}
+        });
+        if let Some(ordinal) = ordinal {
+            value["ordinal"] = serde_json::json!(ordinal);
+        }
+        value.to_string()
+    };
+
+    state.process_line(&token_line(Some(9), 100, 0), &range);
+    state.process_line(&token_line(Some(10), 100, 0), &range);
+    state.process_line(&token_line(Some(11), 110, 110), &range);
+    assert!(state.fork_baseline_locally_resolved());
+    state.process_line(&token_line(None, 120, 10), &range);
+    assert!(!state.fork_baseline_locally_resolved());
+    state.process_line(&token_line(Some(12), 130, 10), &range);
+
+    assert_eq!(state.records.len(), 1);
+    assert_eq!(state.records[0].0.input, 10);
+    assert!(!state.fork_baseline_locally_resolved());
+}
+
+#[test]
+fn inferred_fork_keeps_missing_ordinal_unresolved_after_local_resolution() {
+    let range = CostUsageDayRange::new(
+        NaiveDate::from_ymd_opt(2026, 9, 22).unwrap(),
+        NaiveDate::from_ymd_opt(2026, 9, 22).unwrap(),
+    );
+    let mut state = CodexParserState::from_mode(CodexParseMode::InferSubagent {
+        start_ordinal: Some(10),
+    });
+    let token_line = |ordinal: Option<i64>, total: i64, last: i64| {
+        let mut value = serde_json::json!({
+            "timestamp": "2026-09-22T10:00:00Z",
+            "type": "event_msg",
+            "payload": {"type": "token_count", "info": {
+                "model": "gpt-5.6-sol",
+                "total_token_usage": {"input_tokens": total, "cached_input_tokens": 0, "output_tokens": 0},
+                "last_token_usage": {"input_tokens": last, "cached_input_tokens": 0, "output_tokens": 0}
+            }}
+        });
+        if let Some(ordinal) = ordinal {
+            value["ordinal"] = serde_json::json!(ordinal);
+        }
+        value.to_string()
+    };
+
+    state.process_line(&token_line(Some(9), 100, 0), &range);
+    state.process_line(&token_line(Some(10), 100, 0), &range);
+    state.process_line(&token_line(Some(11), 110, 10), &range);
+    assert!(state.fork_baseline_locally_resolved());
+    state.process_line(&token_line(None, 120, 10), &range);
+
+    assert!(!state.fork_baseline_locally_resolved());
 }
 
 #[test]
@@ -1043,6 +1142,8 @@ fn session_meta_pre_read_accepts_snake_and_camel_fork_identity() {
             lineage: CodexSessionLineage::Child,
             fork_timestamp: Some("2026-05-31T10:00:00Z".to_string()),
             history_base_thread_id: Some("history-snake".to_string()),
+            is_subagent: false,
+            subagent_history_start_ordinal: None,
         }
     );
 

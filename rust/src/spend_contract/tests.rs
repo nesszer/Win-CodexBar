@@ -1,6 +1,59 @@
 use super::*;
 
 #[test]
+fn local_history_total_requires_complete_scan_and_pricing() {
+    let priced = LocalCostEstimate {
+        known_subtotal_usd: Some(1.25),
+        coverage: CostCoverageCounts {
+            estimated: 1,
+            ..Default::default()
+        },
+    };
+    let partial_history = LocalTokenHistorySummary {
+        total_tokens: 100,
+        session_count: 1,
+        coverage: LocalHistoryCoverage::Partial,
+        cost_estimate: priced.clone(),
+    };
+    assert_eq!(partial_history.total_usd(), None);
+    assert_eq!(partial_history.cost_estimate.known_subtotal_usd, Some(1.25));
+
+    let mixed_pricing = LocalTokenHistorySummary {
+        total_tokens: 100,
+        session_count: 1,
+        coverage: LocalHistoryCoverage::Complete,
+        cost_estimate: LocalCostEstimate {
+            known_subtotal_usd: Some(1.25),
+            coverage: CostCoverageCounts {
+                estimated: 1,
+                unpriced: 1,
+                ..Default::default()
+            },
+        },
+    };
+    assert_eq!(mixed_pricing.total_usd(), None);
+    assert_eq!(mixed_pricing.cost_estimate.known_subtotal_usd, Some(1.25));
+
+    let complete = LocalTokenHistorySummary {
+        total_tokens: 100,
+        session_count: 1,
+        coverage: LocalHistoryCoverage::Complete,
+        cost_estimate: priced,
+    };
+    assert_eq!(complete.total_usd(), Some(1.25));
+}
+
+#[test]
+fn complete_empty_local_history_has_a_known_zero_total() {
+    let history = LocalTokenHistorySummary {
+        coverage: LocalHistoryCoverage::Complete,
+        ..Default::default()
+    };
+
+    assert_eq!(history.total_usd(), Some(0.0));
+}
+
+#[test]
 fn coverage_ratio_counts_estimated_as_covered() {
     let coverage = CostCoverageCounts {
         priced: 1,

@@ -139,22 +139,16 @@ impl ClaudeScanPricingResolver {
         let cache_create_1h = cache_create_1h.min(cache_create);
         let cache_create_5m = cache_create.saturating_sub(cache_create_1h);
 
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "clamped to i32::MAX before casting"
-        )]
-        let clamp = |value: u64| value.min(i32::MAX as u64) as i32;
-
         let resolved = self.resolve(model);
         let billable = resolved.or_else(|| self.resolve(FALLBACK_CLAUDE_MODEL));
         let base = billable
             .map(|pricing| {
-                CostUsagePricing::claude_cost_usd_from_resolution(
+                CostUsagePricing::claude_cost_usd_u64_from_resolution(
                     pricing,
-                    clamp(input),
-                    clamp(cache_read),
-                    clamp(cache_create_5m),
-                    clamp(output),
+                    input,
+                    cache_read,
+                    cache_create_5m,
+                    output,
                 )
             })
             .unwrap_or(0.0);

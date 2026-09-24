@@ -1,4 +1,86 @@
 use super::*;
+use serde::Deserializer;
+use serde::de::{IgnoredAny, MapAccess, Visitor};
+use std::fmt;
+
+fn canonical_provider_id(raw: &str) -> Option<String> {
+    ProviderId::from_cli_name(raw).map(|provider| provider.cli_name().to_string())
+}
+
+fn canonicalize_provider_id_list(ids: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    ids.into_iter()
+        .filter_map(|raw| canonical_provider_id(&raw))
+        .filter(|canonical| seen.insert(canonical.clone()))
+        .collect()
+}
+
+fn canonicalize_provider_metrics(
+    metrics: HashMap<String, MetricPreference>,
+) -> HashMap<String, MetricPreference> {
+    let mut entries = metrics
+        .into_iter()
+        .filter_map(|(raw, preference)| {
+            let canonical = canonical_provider_id(&raw)?;
+            let canonical_spelling = raw.eq_ignore_ascii_case(&canonical);
+            Some((canonical, canonical_spelling, raw, preference))
+        })
+        .collect::<Vec<_>>();
+
+    // HashMap iteration order is unstable. Sort before resolving aliases so a
+    // canonical spelling always wins and alias-only collisions are repeatable.
+    entries.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| {
+                left.2
+                    .to_ascii_lowercase()
+                    .cmp(&right.2.to_ascii_lowercase())
+            })
+            .then_with(|| left.2.cmp(&right.2))
+    });
+
+    let mut canonical = HashMap::with_capacity(entries.len());
+    for (provider_id, _, _, preference) in entries {
+        canonical.insert(provider_id, preference);
+    }
+    canonical
+}
+
+fn deserialize_provider_configs<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<ProviderId, ProviderConfig>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct ProviderConfigsVisitor;
+
+    impl<'de> Visitor<'de> for ProviderConfigsVisitor {
+        type Value = HashMap<ProviderId, ProviderConfig>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a map of provider IDs to provider settings")
+        }
+
+        fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut configs = HashMap::with_capacity(map.size_hint().unwrap_or(0));
+            while let Some(key) = map.next_key::<String>()? {
+                if let Some(provider_id) = ProviderId::from_cli_name(&key) {
+                    configs.insert(provider_id, map.next_value()?);
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(configs)
+        }
+    }
+
+    deserializer.deserialize_map(ProviderConfigsVisitor)
+}
 
 /// Raw on-disk shape of [`Settings`] used purely for deserialization.
 ///
@@ -35,6 +117,8 @@ pub(super) struct RawSettings {
     provider_usage_thresholds: HashMap<String, UsageThresholdOverride>,
     merge_tray_icons: bool,
     tray_icon_mode: TrayIconMode,
+    stacked_tray_top_provider: Option<String>,
+    stacked_tray_bottom_provider: Option<String>,
     #[serde(default = "default_true")]
     switcher_shows_icons: bool,
     menu_bar_shows_highest_usage: bool,
@@ -52,6 +136,7 @@ pub(super) struct RawSettings {
     show_all_token_accounts_in_menu: bool,
 
     // ── New unified per-provider map ─────────────────────────────────
+    #[serde(default, deserialize_with = "deserialize_provider_configs")]
     provider_configs: HashMap<ProviderId, ProviderConfig>,
 
     // ── Legacy flat per-provider fields (migrated on load) ───────────
@@ -206,6 +291,8 @@ impl Default for RawSettings {
             provider_usage_thresholds: HashMap::new(),
             merge_tray_icons: s.merge_tray_icons,
             tray_icon_mode: s.tray_icon_mode,
+            stacked_tray_top_provider: s.stacked_tray_top_provider,
+            stacked_tray_bottom_provider: s.stacked_tray_bottom_provider,
             switcher_shows_icons: s.switcher_shows_icons,
             menu_bar_shows_highest_usage: s.menu_bar_shows_highest_usage,
             menu_bar_shows_percent: s.menu_bar_shows_percent,
@@ -515,7 +602,11 @@ impl From<RawSettings> for Settings {
         };
 
         Settings {
-            enabled_providers: raw.enabled_providers,
+            enabled_providers: raw
+                .enabled_providers
+                .into_iter()
+                .filter_map(|provider_id| canonical_provider_id(&provider_id))
+                .collect(),
             refresh_interval_secs: raw.refresh_interval_secs,
             adaptive_refresh: raw.adaptive_refresh,
             refresh_all_providers_on_menu_open: raw.refresh_all_providers_on_menu_open,
@@ -533,6 +624,12 @@ impl From<RawSettings> for Settings {
             ),
             merge_tray_icons: raw.merge_tray_icons,
             tray_icon_mode: raw.tray_icon_mode,
+            stacked_tray_top_provider: raw
+                .stacked_tray_top_provider
+                .and_then(|provider_id| canonical_provider_id(&provider_id)),
+            stacked_tray_bottom_provider: raw
+                .stacked_tray_bottom_provider
+                .and_then(|provider_id| canonical_provider_id(&provider_id)),
             switcher_shows_icons: raw.switcher_shows_icons,
             menu_bar_shows_highest_usage: raw.menu_bar_shows_highest_usage,
             menu_bar_shows_percent: raw.menu_bar_shows_percent,
@@ -549,7 +646,7 @@ impl From<RawSettings> for Settings {
             disable_keychain_access: raw.disable_keychain_access,
             hide_personal_info: raw.hide_personal_info,
             update_channel: raw.update_channel,
-            provider_metrics: raw.provider_metrics,
+            provider_metrics: canonicalize_provider_metrics(raw.provider_metrics),
             provider_order: if raw.provider_order.is_empty() {
                 Vec::new()
             } else {
@@ -578,7 +675,7 @@ impl From<RawSettings> for Settings {
             float_bar_orientation: normalize_float_bar_orientation(&raw.float_bar_orientation),
             float_bar_style: normalize_float_bar_style(&raw.float_bar_style),
             float_bar_click_through: raw.float_bar_click_through,
-            float_bar_provider_ids: raw.float_bar_provider_ids,
+            float_bar_provider_ids: canonicalize_provider_id_list(raw.float_bar_provider_ids),
             float_bar_dark_text: raw.float_bar_dark_text,
             float_bar_show_reset_inline: raw.float_bar_show_reset_inline,
             float_bar_show_cost: raw.float_bar_show_cost,

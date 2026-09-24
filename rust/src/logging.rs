@@ -11,7 +11,7 @@
 
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 /// Convert a displayable error into a frontend/log-safe message.
@@ -21,7 +21,10 @@ pub fn safe_error_message(err: impl std::fmt::Display) -> String {
 
 /// Canonical application config root that hosts the settings file and logs.
 pub fn config_root() -> Option<PathBuf> {
-    dirs::config_dir().map(|p| p.join("CodexBar"))
+    CONFIG_ROOT_OVERRIDE
+        .get()
+        .cloned()
+        .or_else(|| dirs::config_dir().map(|p| p.join("CodexBar")))
 }
 
 /// Settings directory that hosts the app settings file (also the log root).
@@ -36,6 +39,20 @@ pub const LOG_MAX_BYTES: u64 = 1024 * 1024;
 /// cached handles never fight over the same file on Windows.
 pub const LOG_FILE_STEM_CLI: &str = "codexbar-cli";
 pub const LOG_FILE_STEM_DESKTOP: &str = "codexbar-desktop";
+
+static CONFIG_ROOT_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Install a process-local config root before logging or settings are first
+/// touched. The desktop containment proof uses this to keep settings and logs
+/// out of the user's normal profile.
+pub fn install_config_root_override(root: PathBuf) -> Result<(), String> {
+    if !root.is_absolute() {
+        return Err(format!("config root must be absolute: {}", root.display()));
+    }
+    CONFIG_ROOT_OVERRIDE
+        .set(root)
+        .map_err(|_| "config root override was already installed".to_string())
+}
 
 static LOG_FILE_STEM: LazyLock<&'static str> = LazyLock::new(|| {
     // The Tauri shell sets CODEXBAR_PROCESS=desktop before logging::init;

@@ -1,15 +1,29 @@
 //! Upstream 0.53 Usage & Spend accounting bridge.
 
+use std::sync::Mutex;
+
 use codexbar::cost_scanner::CostScanner;
 use codexbar::settings::Settings;
 use codexbar::spend_contract::{SpendContract, build_local_spend_contract_from_summary};
+use tauri::State;
+
+use crate::state::AppState;
 
 #[tauri::command]
 pub async fn get_spend_contract(
+    state: State<'_, Mutex<AppState>>,
     provider_id: String,
     history_days: Option<u32>,
     include_open_codex: Option<bool>,
 ) -> Result<SpendContract, String> {
+    let containment_proof = state
+        .lock()
+        .map_err(|_| "app state lock is poisoned".to_string())?
+        .is_containment_proof();
+    if containment_proof {
+        return Err("spend contract is unavailable during containment proof".to_string());
+    }
+
     let provider = provider_id.trim().to_ascii_lowercase();
     if !matches!(provider.as_str(), "codex" | "claude" | "pi" | "opencodego") {
         return Err(format!(

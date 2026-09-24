@@ -26,6 +26,8 @@ pub struct SettingsUpdate {
     pub predictive_pace_warning_enabled: Option<bool>,
     pub show_pace: Option<bool>,
     pub tray_icon_mode: Option<String>,
+    pub stacked_tray_top_provider: Option<String>,
+    pub stacked_tray_bottom_provider: Option<String>,
     pub switcher_shows_icons: Option<bool>,
     pub menu_bar_shows_highest_usage: Option<bool>,
     pub menu_bar_shows_percent: Option<bool>,
@@ -121,6 +123,8 @@ impl SettingsUpdate {
 
     fn refreshes_tray_presentation(&self) -> bool {
         self.tray_icon_mode.is_some()
+            || self.stacked_tray_top_provider.is_some()
+            || self.stacked_tray_bottom_provider.is_some()
             || self.switcher_shows_icons.is_some()
             || self.menu_bar_shows_highest_usage.is_some()
             || self.menu_bar_shows_percent.is_some()
@@ -189,6 +193,12 @@ impl SettingsUpdate {
             && let Some(mode) = parse_tray_icon_mode(s)
         {
             settings.tray_icon_mode = mode;
+        }
+        if let Some(provider) = self.stacked_tray_top_provider.clone() {
+            settings.stacked_tray_top_provider = normalize_optional_provider_id(provider);
+        }
+        if let Some(provider) = self.stacked_tray_bottom_provider.clone() {
+            settings.stacked_tray_bottom_provider = normalize_optional_provider_id(provider);
         }
         if let Some(v) = self.provider_metrics.clone() {
             apply_provider_metrics(settings, v);
@@ -482,8 +492,14 @@ fn parse_tray_icon_mode(s: &str) -> Option<TrayIconMode> {
     match s {
         "single" => Some(TrayIconMode::Single),
         "perProvider" => Some(TrayIconMode::PerProvider),
+        "stacked" => Some(TrayIconMode::Stacked),
         _ => None,
     }
+}
+
+fn normalize_optional_provider_id(value: String) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 fn parse_update_channel(s: &str) -> Option<UpdateChannel> {
@@ -501,8 +517,16 @@ fn parse_language(s: &str) -> Option<Language> {
 #[tauri::command]
 pub async fn update_settings(
     app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<AppState>>,
     patch: SettingsUpdate,
 ) -> Result<SettingsSnapshot, String> {
+    if state
+        .lock()
+        .map(|guard| guard.is_containment_proof())
+        .unwrap_or(true)
+    {
+        return Err("settings mutations disabled in containment proof mode".to_string());
+    }
     let mut settings = Settings::load();
     let notify_float_bar = patch.notifies_float_bar();
     let refresh_provider_data = patch.refreshes_provider_data();
@@ -699,6 +723,36 @@ mod tests {
                 ..Default::default()
             }
             .refreshes_tray_presentation()
+        );
+        assert!(
+            SettingsUpdate {
+                stacked_tray_top_provider: Some("claude".to_string()),
+                ..Default::default()
+            }
+            .refreshes_tray_presentation()
+        );
+    }
+
+    #[test]
+    fn stacked_tray_update_accepts_mode_and_clears_automatic_provider() {
+        let mut settings = Settings {
+            stacked_tray_top_provider: Some("codex".to_string()),
+            ..Settings::default()
+        };
+
+        SettingsUpdate {
+            tray_icon_mode: Some("stacked".to_string()),
+            stacked_tray_top_provider: Some(String::new()),
+            stacked_tray_bottom_provider: Some("claude".to_string()),
+            ..Default::default()
+        }
+        .apply_provider_settings(&mut settings);
+
+        assert_eq!(settings.tray_icon_mode, TrayIconMode::Stacked);
+        assert_eq!(settings.stacked_tray_top_provider, None);
+        assert_eq!(
+            settings.stacked_tray_bottom_provider.as_deref(),
+            Some("claude")
         );
     }
 

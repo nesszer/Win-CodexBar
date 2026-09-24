@@ -54,11 +54,22 @@ fn locale_strings_for(lang: Language) -> LocaleStrings {
 /// the persisted label (`"english"`, `"chinese"`), or the full name
 /// (`"English"`, `"Chinese"`, `"中文"`).
 #[tauri::command]
-pub fn get_locale_strings(language: Option<String>) -> Result<LocaleStrings, String> {
-    let lang = match language.as_deref() {
-        None => locale::current_language(),
-        Some(raw) => {
-            parse_locale_language(raw).ok_or_else(|| format!("unknown language code: {raw}"))?
+pub fn get_locale_strings(
+    state: tauri::State<'_, Mutex<AppState>>,
+    language: Option<String>,
+) -> Result<LocaleStrings, String> {
+    let proof_mode = state
+        .lock()
+        .map(|guard| guard.is_containment_proof())
+        .unwrap_or(true);
+    let lang = if proof_mode {
+        Language::English
+    } else {
+        match language.as_deref() {
+            None => locale::current_language(),
+            Some(raw) => {
+                parse_locale_language(raw).ok_or_else(|| format!("unknown language code: {raw}"))?
+            }
         }
     };
     Ok(locale_strings_for(lang))
@@ -71,7 +82,18 @@ fn parse_locale_language(raw: &str) -> Option<Language> {
 /// Persist the UI language and emit a `locale-changed` event so the
 /// frontend can refetch its locale table without a restart.
 #[tauri::command]
-pub fn set_ui_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
+pub fn set_ui_language(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<AppState>>,
+    language: String,
+) -> Result<(), String> {
+    if state
+        .lock()
+        .map(|guard| guard.is_containment_proof())
+        .unwrap_or(true)
+    {
+        return Err("settings mutations disabled in containment proof mode".to_string());
+    }
     let lang =
         parse_locale_language(&language).ok_or_else(|| format!("unknown language: {language}"))?;
     let mut settings = Settings::load();

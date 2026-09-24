@@ -272,6 +272,7 @@ fn region_provider(provider_id: &str) -> Option<codexbar::core::ProviderId> {
         "alibabatokenplan" => ProviderId::AlibabaTokenPlan,
         "zai" => ProviderId::Zai,
         "minimax" => ProviderId::MiniMax,
+        "kimi" => ProviderId::Kimi,
         _ => return None,
     })
 }
@@ -284,6 +285,10 @@ pub(crate) fn provider_region_lookup(settings: &Settings, provider_id: &str) -> 
             ))
             .settings_value()
             .to_string()
+        } else if id == codexbar::core::ProviderId::Kimi {
+            codexbar::providers::KimiRegion::from_settings(Some(settings.api_region(id)))
+                .settings_value()
+                .to_string()
         } else {
             settings.api_region(id).to_string()
         }
@@ -820,6 +825,14 @@ pub fn region_options_for(provider_id: &str) -> Vec<RegionOption> {
                     .to_string(),
             },
         ],
+        "kimi" => codexbar::providers::KimiRegion::ALL
+            .iter()
+            .copied()
+            .map(|region| RegionOption {
+                value: region.settings_value().to_string(),
+                label: region.display_name().to_string(),
+            })
+            .collect(),
         "alibabatokenplan" => codexbar::providers::AlibabaTokenPlanRegion::ALL
             .iter()
             .copied()

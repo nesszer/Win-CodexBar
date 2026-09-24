@@ -4,6 +4,7 @@ import { Field, Select, Toggle } from "../../../components/FormControls";
 import type {
   MenuBarDisplayMode,
   OverviewLayout,
+  ProviderCatalogEntry,
   TrayIconMode,
   TrayVisibilityStatusDto,
 } from "../../../types/bridge";
@@ -20,7 +21,11 @@ export default function DisplayTab({
   settings,
   set,
   saving,
-}: TabProps & { mode?: "menuBar" | "menu" }) {
+  providers = [],
+}: TabProps & {
+  mode?: "menuBar" | "menu";
+  providers?: ProviderCatalogEntry[];
+}) {
   const { t } = useLocale();
   const [windowScaleDraft, setWindowScaleDraft] = useState(() =>
     clampWindowScalePercent(settings.windowScalePercent),
@@ -43,6 +48,13 @@ export default function DisplayTab({
       set({ windowScalePercent: next });
     }
   }, [set, settings.windowScalePercent, windowScaleDraft]);
+  const providerName = new Map(
+    providers.map((provider) => [provider.id, provider.displayName]),
+  );
+  const stackedProviderOptions = settings.enabledProviders.map((providerId) => ({
+    value: providerId,
+    label: providerName.get(providerId) ?? providerId,
+  }));
   return (
     <>
       {/* ── Menu bar ─────────────────────────────────────────────── */}
@@ -59,10 +71,47 @@ export default function DisplayTab({
               options={[
                 { value: "single", label: t("TrayIconModeSingle") },
                 { value: "perProvider", label: t("TrayIconModePerProvider") },
+                { value: "stacked", label: t("TrayIconModeStacked") },
               ]}
               onChange={(v) => set({ trayIconMode: v as TrayIconMode })}
             />
           </Field>
+          {settings.trayIconMode === "stacked" && (
+            <>
+              <Field label={t("StackedTrayTopProvider")}>
+                <Select
+                  value={settings.stackedTrayTopProvider ?? ""}
+                  disabled={saving}
+                  options={[
+                    { value: "", label: t("Automatic") },
+                    ...stackedProviderOptions.filter(
+                      (provider) =>
+                        provider.value !== settings.stackedTrayBottomProvider,
+                    ),
+                  ]}
+                  onChange={(provider) =>
+                    set({ stackedTrayTopProvider: provider })
+                  }
+                />
+              </Field>
+              <Field label={t("StackedTrayBottomProvider")}>
+                <Select
+                  value={settings.stackedTrayBottomProvider ?? ""}
+                  disabled={saving}
+                  options={[
+                    { value: "", label: t("Automatic") },
+                    ...stackedProviderOptions.filter(
+                      (provider) =>
+                        provider.value !== settings.stackedTrayTopProvider,
+                    ),
+                  ]}
+                  onChange={(provider) =>
+                    set({ stackedTrayBottomProvider: provider })
+                  }
+                />
+              </Field>
+            </>
+          )}
           <Field
             label={t("ShowProviderIcons")}
             description={t("ShowProviderIconsHelper")}
@@ -81,7 +130,7 @@ export default function DisplayTab({
           >
             <Toggle
               checked={settings.menuBarShowsHighestUsage}
-              disabled={saving}
+              disabled={saving || settings.trayIconMode === "stacked"}
               onChange={(v) => set({ menuBarShowsHighestUsage: v })}
             />
           </Field>
@@ -92,7 +141,7 @@ export default function DisplayTab({
           >
             <Toggle
               checked={settings.menuBarShowsPercent}
-              disabled={saving}
+              disabled={saving || settings.trayIconMode === "stacked"}
               onChange={(v) => set({ menuBarShowsPercent: v })}
             />
           </Field>
