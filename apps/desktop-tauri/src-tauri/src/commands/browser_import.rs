@@ -92,6 +92,10 @@ fn browser_type_key(bt: codexbar::browser::detection::BrowserType) -> &'static s
     use codexbar::browser::detection::BrowserType;
     match bt {
         BrowserType::Chrome => "chrome",
+        BrowserType::ChromeBeta => "chrome-beta",
+        BrowserType::ChromeDev => "chrome-dev",
+        BrowserType::ChromeCanary => "chrome-canary",
+        BrowserType::ChromeForTesting => "chrome-for-testing",
         BrowserType::Edge => "edge",
         BrowserType::Brave => "brave",
         BrowserType::Arc => "arc",
