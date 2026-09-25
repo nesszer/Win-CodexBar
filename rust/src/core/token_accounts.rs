@@ -3,7 +3,7 @@
 //! Store and manage multiple accounts/tokens per provider.
 //! Supports parallel fetching and account switching.
 
-use crate::core::ProviderId;
+use crate::core::{ProviderId, SourceMode};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -860,6 +860,20 @@ impl TokenAccountOverride {
             kind,
         }
     }
+
+    /// Normalize source selection for account types whose credential requires
+    /// a specific route. `None` leaves unrelated providers' source policy alone.
+    pub fn effective_source_mode(&self, requested: SourceMode) -> Option<SourceMode> {
+        match (self.provider, self.kind, requested) {
+            (ProviderId::Kimi, _, _) => Some(SourceMode::Web),
+            (ProviderId::Doubao, _, _) => Some(SourceMode::OAuth),
+            (ProviderId::OpenCodeGo, TokenAccountKind::Cookie, SourceMode::Auto) => {
+                Some(SourceMode::Web)
+            }
+            (ProviderId::OpenCodeGo, _, _) => Some(requested),
+            _ => None,
+        }
+    }
 }
 
 /// Maximum number of accounts to fetch per provider
@@ -937,6 +951,79 @@ mod tests {
                 .as_deref(),
             Some("go_key")
         );
+    }
+
+    #[test]
+    fn selected_account_effective_source_normalization() {
+        let cases = [
+            (
+                ProviderId::Kimi,
+                "kimi-session",
+                SourceMode::Auto,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::Kimi,
+                "kimi-session",
+                SourceMode::OAuth,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::Kimi,
+                "kimi-session",
+                SourceMode::Cli,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::Doubao,
+                "ark-key",
+                SourceMode::Cli,
+                Some(SourceMode::OAuth),
+            ),
+            (
+                ProviderId::Doubao,
+                "ark-key",
+                SourceMode::Web,
+                Some(SourceMode::OAuth),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "Cookie: session=web",
+                SourceMode::Auto,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "Cookie: session=web",
+                SourceMode::Cli,
+                Some(SourceMode::Cli),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "api-key",
+                SourceMode::Auto,
+                Some(SourceMode::Auto),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "api-key",
+                SourceMode::Web,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "api-key",
+                SourceMode::Cli,
+                Some(SourceMode::Cli),
+            ),
+            (ProviderId::OpenRouter, "api-key", SourceMode::Auto, None),
+        ];
+
+        for (provider, token, requested, expected) in cases {
+            let account =
+                TokenAccountOverride::from_account(provider, TokenAccount::new("selected", token));
+            assert_eq!(account.effective_source_mode(requested), expected);
+        }
     }
 
     #[test]

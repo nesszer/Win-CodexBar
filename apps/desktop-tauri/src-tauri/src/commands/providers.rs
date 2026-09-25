@@ -225,24 +225,28 @@ pub(crate) fn build_fetch_context(
     // These upstream account types are explicit identity selections. Keep the
     // provider's saved region/source settings intact, but project the selected
     // credential into the route required by that account.
-    let (source_mode, cookie_header, api_key) = match (id, token_account_kind) {
-        (ProviderId::Kimi, Some(_)) => (SourceMode::Web, active_token_cookie.clone(), None),
-        (ProviderId::Doubao, Some(_)) => (SourceMode::OAuth, None, active_token_api_key.clone()),
-        (ProviderId::OpenCodeGo, Some(codexbar::core::TokenAccountKind::ApiKey))
-            if usage_source == SourceMode::Auto =>
-        {
-            (SourceMode::Auto, None, active_token_api_key.clone())
+    let (cookie_header, api_key) = match (id, token_account_kind, usage_source) {
+        (ProviderId::Kimi, Some(_), _) => (active_token_cookie.clone(), None),
+        (ProviderId::Doubao, Some(_), _) => (None, active_token_api_key.clone()),
+        (
+            ProviderId::OpenCodeGo,
+            Some(codexbar::core::TokenAccountKind::ApiKey),
+            SourceMode::Auto,
+        ) => (None, active_token_api_key.clone()),
+        (ProviderId::OpenCodeGo, Some(codexbar::core::TokenAccountKind::ApiKey), _) => {
+            (cookie_header, api_key)
         }
-        (ProviderId::OpenCodeGo, Some(codexbar::core::TokenAccountKind::ApiKey)) => {
-            (usage_source, cookie_header, api_key)
-        }
-        (ProviderId::OpenCodeGo, Some(codexbar::core::TokenAccountKind::Cookie))
-            if usage_source == SourceMode::Auto =>
-        {
-            (SourceMode::Web, active_token_cookie.clone(), api_key)
-        }
-        _ => (source_mode, cookie_header, api_key),
+        (
+            ProviderId::OpenCodeGo,
+            Some(codexbar::core::TokenAccountKind::Cookie),
+            SourceMode::Auto,
+        ) => (active_token_cookie.clone(), api_key),
+        _ => (cookie_header, api_key),
     };
+    let source_mode = token_override
+        .as_ref()
+        .and_then(|account| account.effective_source_mode(usage_source))
+        .unwrap_or(source_mode);
     let token_account_isolated = token_override.is_some()
         && matches!(
             id,

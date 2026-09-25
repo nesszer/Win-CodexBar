@@ -5,8 +5,8 @@ use super::render::{
     render_brief_text, render_json_result, render_text_error, render_text_with_status,
 };
 use crate::core::{
-    ProviderFetchResult, ProviderId, SourceMode, TokenAccountKind, TokenAccountOverride,
-    TokenAccountStore, TokenAccountSupport, instantiate_provider,
+    ProviderFetchResult, ProviderId, TokenAccountKind, TokenAccountOverride, TokenAccountStore,
+    TokenAccountSupport, instantiate_provider,
 };
 use crate::settings::ApiKeys;
 use crate::status::{ProviderStatus as StatusInfo, fetch_provider_status};
@@ -117,15 +117,8 @@ pub(super) fn project_token_account(
     ctx.manual_cookie_header = projected.cookie_header;
     ctx.auto_prefer_web = projected.kind == TokenAccountKind::Cookie;
 
-    match (provider, projected.kind) {
-        (ProviderId::Kimi, _) => ctx.source_mode = SourceMode::Web,
-        (ProviderId::Doubao, _) => ctx.source_mode = SourceMode::OAuth,
-        (ProviderId::OpenCodeGo, TokenAccountKind::Cookie)
-            if ctx.source_mode == SourceMode::Auto =>
-        {
-            ctx.source_mode = SourceMode::Web;
-        }
-        _ => {}
+    if let Some(source_mode) = projected.effective_source_mode(ctx.source_mode) {
+        ctx.source_mode = source_mode;
     }
 }
 
