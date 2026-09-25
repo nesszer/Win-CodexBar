@@ -177,6 +177,8 @@ async fn collect_provider_diagnostic(
             .map(ToOwned::to_owned),
         manual_cookie_missing: false,
         api_key: api_keys.get(provider_id.cli_name()).map(ToOwned::to_owned),
+        token_account_kind: None,
+        token_account_isolated: false,
         workspace_id: settings
             .provider_config(provider_id)
             .and_then(|config| config.workspace_id.clone()),

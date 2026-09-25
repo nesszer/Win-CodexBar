@@ -2,8 +2,9 @@
 
 use super::*;
 use crate::core::{
-    CostSnapshot, ProviderAccountData, ProviderDisplayDetail, ProviderInventoryItem, RateWindow,
-    TokenAccount, TokenAccountSupport, UsageSnapshot,
+    CostSnapshot, FetchContext, ProviderAccountData, ProviderDisplayDetail, ProviderId,
+    ProviderInventoryItem, RateWindow, SourceMode, TokenAccount, TokenAccountKind,
+    TokenAccountSupport, UsageSnapshot,
 };
 use crate::providers::claude::claude_swap::ClaudeSwapAccount;
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel};
@@ -173,6 +174,83 @@ fn openrouter_account_ref_resolves_labeled_key() {
 
     let by_index = find_token_account(&data, "2").unwrap();
     assert_eq!(by_index.token, "sk-or-v1-work");
+}
+
+#[test]
+fn kimi_account_projection_forces_isolated_web_and_preserves_region() {
+    let account = TokenAccount::new("work", "selected-kimi-auth");
+    let mut ctx = FetchContext {
+        source_mode: SourceMode::OAuth,
+        api_region: Some("international".into()),
+        api_key: Some("ambient-api-key".into()),
+        ..FetchContext::default()
+    };
+
+    super::fetch_helpers::project_token_account(ProviderId::Kimi, &account, &mut ctx);
+
+    assert_eq!(ctx.source_mode, SourceMode::Web);
+    assert_eq!(
+        ctx.manual_cookie_header.as_deref(),
+        Some("kimi-auth=selected-kimi-auth")
+    );
+    assert_eq!(ctx.api_key, None);
+    assert_eq!(ctx.api_region.as_deref(), Some("international"));
+    assert!(ctx.token_account_isolated);
+}
+
+#[test]
+fn doubao_account_projection_uses_only_the_selected_ark_key() {
+    let account = TokenAccount::new("work", "selected-ark-key");
+    let mut ctx = FetchContext {
+        source_mode: SourceMode::Cli,
+        api_key: Some("ambient-key".into()),
+        ..FetchContext::default()
+    };
+
+    super::fetch_helpers::project_token_account(ProviderId::Doubao, &account, &mut ctx);
+
+    assert_eq!(ctx.source_mode, SourceMode::OAuth);
+    assert_eq!(ctx.api_key.as_deref(), Some("selected-ark-key"));
+    assert_eq!(ctx.token_account_kind, Some(TokenAccountKind::ApiKey));
+    assert!(ctx.token_account_isolated);
+}
+
+#[test]
+fn opencodego_account_projection_distinguishes_api_and_cookie_routes() {
+    let mut api_ctx = FetchContext::default();
+    super::fetch_helpers::project_token_account(
+        ProviderId::OpenCodeGo,
+        &TokenAccount::new("api", "selected-opencode-key"),
+        &mut api_ctx,
+    );
+    assert_eq!(api_ctx.source_mode, SourceMode::Auto);
+    assert_eq!(api_ctx.api_key.as_deref(), Some("selected-opencode-key"));
+    assert_eq!(api_ctx.token_account_kind, Some(TokenAccountKind::ApiKey));
+    assert!(!api_ctx.auto_prefer_web);
+
+    let mut cookie_ctx = FetchContext::default();
+    super::fetch_helpers::project_token_account(
+        ProviderId::OpenCodeGo,
+        &TokenAccount::new("web", "Cookie: session=selected-session"),
+        &mut cookie_ctx,
+    );
+    assert_eq!(cookie_ctx.source_mode, SourceMode::Web);
+    assert_eq!(
+        cookie_ctx.manual_cookie_header.as_deref(),
+        Some("Cookie: session=selected-session")
+    );
+    assert_eq!(
+        cookie_ctx.token_account_kind,
+        Some(TokenAccountKind::Cookie)
+    );
+
+    cookie_ctx.source_mode = SourceMode::Cli;
+    super::fetch_helpers::project_token_account(
+        ProviderId::OpenCodeGo,
+        &TokenAccount::new("api", "another-key"),
+        &mut cookie_ctx,
+    );
+    assert_eq!(cookie_ctx.source_mode, SourceMode::Cli);
 }
 
 #[test]

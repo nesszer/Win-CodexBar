@@ -249,6 +249,8 @@ fn build_usage_fetch_context(args: &UsageArgs, source_mode: SourceMode) -> Fetch
         manual_cookie_header: None,
         manual_cookie_missing: false,
         api_key: None,
+        token_account_kind: None,
+        token_account_isolated: false,
         workspace_id: None,
         seat_credit_entitlement: None,
         api_region: None,

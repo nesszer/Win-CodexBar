@@ -24,6 +24,10 @@ pub(super) fn resolve_api_key(ctx: &FetchContext) -> Option<String> {
     })
 }
 
+pub(super) fn selected_account_api_key(ctx: &FetchContext) -> Option<String> {
+    normalized_api_key(ctx.api_key.as_deref())
+}
+
 pub(super) async fn fetch(
     client: &Client,
     ctx: &FetchContext,
@@ -146,6 +150,25 @@ fn api_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_account_key_does_not_consult_global_environment() {
+        let ctx = FetchContext {
+            token_account_isolated: true,
+            token_account_kind: Some(crate::core::TokenAccountKind::ApiKey),
+            api_key: Some(" selected-account-key ".into()),
+            ..FetchContext::default()
+        };
+        assert_eq!(
+            selected_account_api_key(&ctx).as_deref(),
+            Some("selected-account-key")
+        );
+        let missing = FetchContext {
+            api_key: None,
+            ..ctx
+        };
+        assert_eq!(selected_account_api_key(&missing), None);
+    }
 
     #[test]
     fn api_key_normalization_matches_upstream_settings_reader() {

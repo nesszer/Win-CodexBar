@@ -4,6 +4,32 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+#[test]
+fn selected_api_account_uses_api_in_auto_and_rejects_explicit_other_sources() {
+    let auto = FetchContext {
+        source_mode: SourceMode::Auto,
+        token_account_kind: Some(crate::core::TokenAccountKind::ApiKey),
+        token_account_isolated: true,
+        api_key: Some("selected-key".into()),
+        ..FetchContext::default()
+    };
+    assert!(selected_api_account_requires_api_route(&auto).unwrap());
+    assert_eq!(
+        usage_api::selected_account_api_key(&auto).as_deref(),
+        Some("selected-key")
+    );
+
+    for source in [SourceMode::Web, SourceMode::Cli] {
+        let context = FetchContext {
+            source_mode: source,
+            ..auto.clone()
+        };
+        let error = selected_api_account_requires_api_route(&context).unwrap_err();
+        assert!(matches!(error, ProviderError::Other(_)));
+        assert!(error.to_string().contains(&format!("{source:?}")));
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FakeLegacySession {
     workspace_id: String,

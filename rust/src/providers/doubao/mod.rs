@@ -888,6 +888,15 @@ impl Provider for DoubaoProvider {
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+        if ctx.token_account_isolated
+            && ctx.token_account_kind == Some(crate::core::TokenAccountKind::ApiKey)
+        {
+            let api_key = selected_ark_api_key(ctx)?;
+            return Ok(ProviderFetchResult::new(
+                self.fetch_api(&api_key).await?,
+                "api",
+            ));
+        }
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::OAuth => {
                 if let Some(credentials) = Self::coding_plan_credentials(ctx.api_key.as_deref()) {
@@ -945,6 +954,15 @@ impl Provider for DoubaoProvider {
     }
 }
 
+fn selected_ark_api_key(ctx: &FetchContext) -> Result<String, ProviderError> {
+    ctx.api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_string)
+        .ok_or(ProviderError::AuthRequired)
+}
+
 fn resolve_api_key(
     explicit: Option<&str>,
     credential_target: &str,
@@ -977,6 +995,25 @@ fn resolve_api_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_ark_account_requires_its_projected_key() {
+        let isolated = FetchContext {
+            token_account_isolated: true,
+            token_account_kind: Some(crate::core::TokenAccountKind::ApiKey),
+            ..FetchContext::default()
+        };
+        assert!(matches!(
+            selected_ark_api_key(&isolated),
+            Err(ProviderError::AuthRequired)
+        ));
+
+        let selected = FetchContext {
+            api_key: Some(" selected-key ".into()),
+            ..isolated
+        };
+        assert_eq!(selected_ark_api_key(&selected).unwrap(), "selected-key");
+    }
     use reqwest::header::{HeaderMap, HeaderValue};
 
     #[test]

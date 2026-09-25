@@ -3,7 +3,7 @@
 //! Store and manage multiple accounts/tokens per provider.
 //! Supports parallel fetching and account switching.
 
-use crate::core::ProviderId;
+use crate::core::{ProviderId, SourceMode};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -20,6 +20,15 @@ pub enum TokenInjection {
     CookieHeader,
     /// Inject as environment variable
     Environment { key: String },
+    /// Accept either an API key or a Cookie header, as with OpenCode Go.
+    EnvironmentOrCookie { key: String },
+}
+
+/// Credential route selected by a labeled account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenAccountKind {
+    Cookie,
+    ApiKey,
 }
 
 /// Support definition for a provider's token accounts
@@ -330,6 +339,34 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: false,
                 cookie_name: None,
             }),
+            ProviderId::Kimi => Some(TokenAccountSupport {
+                title: "Web sessions",
+                subtitle: "Store labeled Kimi kimi-auth web sessions.",
+                placeholder: "kimi-auth value or Cookie: kimi-auth=...",
+                injection: TokenInjection::CookieHeader,
+                requires_manual_cookie_source: true,
+                cookie_name: Some("kimi-auth"),
+            }),
+            ProviderId::Doubao => Some(TokenAccountSupport {
+                title: "Ark API keys",
+                subtitle: "Store labeled Volcengine Ark API keys.",
+                placeholder: "Ark API key",
+                injection: TokenInjection::Environment {
+                    key: "ARK_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            ProviderId::OpenCodeGo => Some(TokenAccountSupport {
+                title: "API keys or sessions",
+                subtitle: "Store labeled OpenCode Go API keys or Cookie headers.",
+                placeholder: "API key or Cookie: ...",
+                injection: TokenInjection::EnvironmentOrCookie {
+                    key: "OPENCODE_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
             // These providers don't support token accounts
             ProviderId::Codex
             | ProviderId::Pi
@@ -337,7 +374,6 @@ impl TokenAccountSupport {
             | ProviderId::Antigravity
             | ProviderId::Kiro
             | ProviderId::VertexAI
-            | ProviderId::Kimi
             | ProviderId::KimiK2
             | ProviderId::JetBrains
             | ProviderId::Warp
@@ -346,14 +382,12 @@ impl TokenAccountSupport {
             | ProviderId::Infini
             | ProviderId::Perplexity
             | ProviderId::Abacus
-            | ProviderId::OpenCodeGo
             | ProviderId::Kilo
             | ProviderId::Bedrock
             | ProviderId::Codebuff
             | ProviderId::CodeRabbit
             | ProviderId::DeepSeek
             | ProviderId::Windsurf
-            | ProviderId::Doubao
             | ProviderId::StepFun
             | ProviderId::Venice
             | ProviderId::OpenAIApi
@@ -404,6 +438,12 @@ impl TokenAccountSupport {
                 map.insert(key.clone(), token.to_string());
                 Some(map)
             }
+            TokenInjection::EnvironmentOrCookie { key } => {
+                let api_key = Self::normalized_opencodego_api_key(token)?;
+                let mut map = HashMap::new();
+                map.insert(key.clone(), api_key);
+                Some(map)
+            }
             TokenInjection::CookieHeader => {
                 // Check for Claude OAuth token
                 if provider == ProviderId::Claude
@@ -416,6 +456,43 @@ impl TokenAccountSupport {
                 }
                 None
             }
+        }
+    }
+
+    fn normalized_opencodego_api_key(token: &str) -> Option<String> {
+        let token = token.trim();
+        let token = if token.len() >= 2
+            && ((token.starts_with('"') && token.ends_with('"'))
+                || (token.starts_with('\'') && token.ends_with('\'')))
+        {
+            token[1..token.len() - 1].trim()
+        } else {
+            token
+        };
+        if token.is_empty()
+            || token
+                .chars()
+                .any(|ch| ch.is_whitespace() || matches!(ch, '=' | ':'))
+        {
+            return None;
+        }
+        Some(token.to_string())
+    }
+
+    pub fn account_kind(provider: ProviderId, token: &str) -> TokenAccountKind {
+        if provider == ProviderId::OpenCodeGo {
+            if Self::normalized_opencodego_api_key(token).is_some() {
+                TokenAccountKind::ApiKey
+            } else {
+                TokenAccountKind::Cookie
+            }
+        } else if matches!(
+            Self::for_provider(provider).map(|support| support.injection),
+            Some(TokenInjection::Environment { .. })
+        ) {
+            TokenAccountKind::ApiKey
+        } else {
+            TokenAccountKind::Cookie
         }
     }
 
@@ -758,11 +835,13 @@ pub struct TokenAccountOverride {
     pub env_override: Option<HashMap<String, String>>,
     /// Cookie header to use
     pub cookie_header: Option<String>,
+    pub kind: TokenAccountKind,
 }
 
 impl TokenAccountOverride {
     /// Create an override from an account
     pub fn from_account(provider: ProviderId, account: TokenAccount) -> Self {
+        let kind = TokenAccountSupport::account_kind(provider, &account.token);
         let env_override = TokenAccountSupport::env_override(provider, &account.token);
         let cookie_header = if env_override.is_none() {
             Some(TokenAccountSupport::normalized_cookie_header(
@@ -778,6 +857,21 @@ impl TokenAccountOverride {
             account,
             env_override,
             cookie_header,
+            kind,
+        }
+    }
+
+    /// Normalize source selection for account types whose credential requires
+    /// a specific route. `None` leaves unrelated providers' source policy alone.
+    pub fn effective_source_mode(&self, requested: SourceMode) -> Option<SourceMode> {
+        match (self.provider, self.kind, requested) {
+            (ProviderId::Kimi, _, _) => Some(SourceMode::Web),
+            (ProviderId::Doubao, _, _) => Some(SourceMode::OAuth),
+            (ProviderId::OpenCodeGo, TokenAccountKind::Cookie, SourceMode::Auto) => {
+                Some(SourceMode::Web)
+            }
+            (ProviderId::OpenCodeGo, _, _) => Some(requested),
+            _ => None,
         }
     }
 }
@@ -796,11 +890,140 @@ mod tests {
         assert!(TokenAccountSupport::is_supported(ProviderId::Copilot));
         assert!(TokenAccountSupport::is_supported(ProviderId::OpenRouter));
         assert!(TokenAccountSupport::is_supported(ProviderId::Grok));
+        assert!(TokenAccountSupport::is_supported(ProviderId::Kimi));
+        assert!(TokenAccountSupport::is_supported(ProviderId::Doubao));
+        assert!(TokenAccountSupport::is_supported(ProviderId::OpenCodeGo));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Codex));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Gemini));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Hyper));
         assert!(!TokenAccountSupport::is_supported(ProviderId::GitKraken));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Bifrost));
+    }
+
+    #[test]
+    fn upstream_account_sources_normalize_and_classify_selected_credentials() {
+        assert_eq!(
+            TokenAccountSupport::normalized_cookie_header(ProviderId::Kimi, "selected-session"),
+            "kimi-auth=selected-session"
+        );
+        assert_eq!(
+            TokenAccountSupport::account_kind(ProviderId::Kimi, "selected-session"),
+            TokenAccountKind::Cookie
+        );
+        assert_eq!(
+            TokenAccountSupport::account_kind(ProviderId::Doubao, "ark-key"),
+            TokenAccountKind::ApiKey
+        );
+        assert_eq!(
+            TokenAccountSupport::account_kind(ProviderId::OpenCodeGo, "opencode-key"),
+            TokenAccountKind::ApiKey
+        );
+        assert_eq!(
+            TokenAccountSupport::account_kind(
+                ProviderId::OpenCodeGo,
+                "Cookie: session=opencode-session"
+            ),
+            TokenAccountKind::Cookie
+        );
+        assert_eq!(
+            TokenAccountSupport::env_override(ProviderId::OpenCodeGo, "opencode-key")
+                .and_then(|env| env.get("OPENCODE_API_KEY").cloned())
+                .as_deref(),
+            Some("opencode-key")
+        );
+        assert!(
+            TokenAccountSupport::env_override(
+                ProviderId::OpenCodeGo,
+                "Cookie: session=opencode-session"
+            )
+            .is_none()
+        );
+        for malformed in ["", " ", "Cookie: broken", "auth=fixture", "two words"] {
+            assert_eq!(
+                TokenAccountSupport::account_kind(ProviderId::OpenCodeGo, malformed),
+                TokenAccountKind::Cookie
+            );
+            assert!(TokenAccountSupport::env_override(ProviderId::OpenCodeGo, malformed).is_none());
+        }
+        assert_eq!(
+            TokenAccountSupport::env_override(ProviderId::OpenCodeGo, " 'go_key' ")
+                .and_then(|env| env.get("OPENCODE_API_KEY").cloned())
+                .as_deref(),
+            Some("go_key")
+        );
+    }
+
+    #[test]
+    fn selected_account_effective_source_normalization() {
+        let cases = [
+            (
+                ProviderId::Kimi,
+                "kimi-session",
+                SourceMode::Auto,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::Kimi,
+                "kimi-session",
+                SourceMode::OAuth,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::Kimi,
+                "kimi-session",
+                SourceMode::Cli,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::Doubao,
+                "ark-key",
+                SourceMode::Cli,
+                Some(SourceMode::OAuth),
+            ),
+            (
+                ProviderId::Doubao,
+                "ark-key",
+                SourceMode::Web,
+                Some(SourceMode::OAuth),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "Cookie: session=web",
+                SourceMode::Auto,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "Cookie: session=web",
+                SourceMode::Cli,
+                Some(SourceMode::Cli),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "api-key",
+                SourceMode::Auto,
+                Some(SourceMode::Auto),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "api-key",
+                SourceMode::Web,
+                Some(SourceMode::Web),
+            ),
+            (
+                ProviderId::OpenCodeGo,
+                "api-key",
+                SourceMode::Cli,
+                Some(SourceMode::Cli),
+            ),
+            (ProviderId::OpenRouter, "api-key", SourceMode::Auto, None),
+        ];
+
+        for (provider, token, requested, expected) in cases {
+            let account =
+                TokenAccountOverride::from_account(provider, TokenAccount::new("selected", token));
+            assert_eq!(account.effective_source_mode(requested), expected);
+        }
     }
 
     #[test]
