@@ -92,6 +92,9 @@ pub enum ProviderId {
     Muse,
     Replicate,
     Nous,
+    Hyper,
+    GitKraken,
+    Bifrost,
 }
 
 impl ProviderId {
@@ -177,6 +180,9 @@ impl ProviderId {
             ProviderId::Muse,
             ProviderId::Replicate,
             ProviderId::Nous,
+            ProviderId::Hyper,
+            ProviderId::GitKraken,
+            ProviderId::Bifrost,
         ]
     }
 
@@ -224,6 +230,9 @@ impl ProviderId {
             ProviderId::Meta => "meta",
             ProviderId::Muse => "muse",
             ProviderId::Nous => "nous",
+            ProviderId::Hyper => "hyper",
+            ProviderId::GitKraken => "gitkraken",
+            ProviderId::Bifrost => "bifrost",
             ProviderId::AiAnd => "aiand",
             ProviderId::Windsurf => "windsurf",
             ProviderId::Manus => "manus",
@@ -310,6 +319,9 @@ impl ProviderId {
             ProviderId::Meta => "Meta",
             ProviderId::Muse => "Muse Code",
             ProviderId::Nous => "Nous Portal",
+            ProviderId::Hyper => "Charm Hyper",
+            ProviderId::GitKraken => "GitKraken AI",
+            ProviderId::Bifrost => "Bifrost",
             ProviderId::AiAnd => "ai&",
             ProviderId::Windsurf => "Windsurf",
             ProviderId::Manus => "Manus",
@@ -411,6 +423,9 @@ impl ProviderId {
             ProviderId::Meta => None,
             ProviderId::Muse => None,
             ProviderId::Nous => None,
+            ProviderId::Hyper => Some("hyper.charm.land"),
+            ProviderId::GitKraken => None,
+            ProviderId::Bifrost => None,
             ProviderId::AiAnd => None,
             ProviderId::Windsurf => None,
             ProviderId::Doubao => None,
@@ -490,6 +505,9 @@ impl ProviderId {
             "fireworks" | "fireworks-ai" | "fw" => Some(ProviderId::Fireworks),
             "muse" | "muse-code" | "muse code" => Some(ProviderId::Muse),
             "nous" | "nous-portal" | "nous portal" | "hermes" => Some(ProviderId::Nous),
+            "hyper" | "charm-hyper" | "charm hyper" => Some(ProviderId::Hyper),
+            "gitkraken" | "gitkraken-ai" | "gitkraken ai" => Some(ProviderId::GitKraken),
+            "bifrost" | "bifrost-gateway" | "bifrost gateway" => Some(ProviderId::Bifrost),
             "meta" | "metaspark" | "meta-spark" | "muse-spark" | "musespark" | "muse spark"
             | "meta muse spark" => Some(ProviderId::Meta),
             "aiand" | "ai&" | "ai-and" | "ai and" => Some(ProviderId::AiAnd),
@@ -1099,6 +1117,9 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::Muse => "#0668E1",
         ProviderId::Replicate => "#000000",
         ProviderId::Nous => "#D6A55C",
+        ProviderId::Hyper => "#7C3AED",
+        ProviderId::GitKraken => "#179287",
+        ProviderId::Bifrost => "#5B7CFA",
     }
 }
 
@@ -1173,6 +1194,9 @@ mod tests {
         assert!(all.contains(&ProviderId::Replicate));
         assert!(all.contains(&ProviderId::Muse));
         assert!(all.contains(&ProviderId::Nous));
+        assert!(all.contains(&ProviderId::Hyper));
+        assert!(all.contains(&ProviderId::GitKraken));
+        assert!(all.contains(&ProviderId::Bifrost));
     }
 
     #[test]

@@ -40,6 +40,14 @@ pub fn validate_provider_workspace_value(
             }
             Ok(trimmed.to_string())
         }
+        ProviderId::GitKraken => {
+            if trimmed.len() > 256 || !trimmed.bytes().all(|byte| (0x21..=0x7e).contains(&byte)) {
+                return Err(
+                    "GitKraken organization ID must be a single printable identifier".to_string(),
+                );
+            }
+            Ok(trimmed.to_string())
+        }
         ProviderId::V0 => validate_id(trimmed, "v0 scope", |value| {
             value.len() <= 128
                 && value
@@ -192,6 +200,12 @@ mod tests {
             validate_provider_workspace_value(ProviderId::Devin, "https://api.devin.ai").is_err()
         );
         assert!(validate_provider_workspace_value(ProviderId::OpenCodeGo, "wrk_abc/123").is_err());
+        assert_eq!(
+            validate_provider_workspace_value(ProviderId::GitKraken, " org-123 ").unwrap(),
+            "org-123"
+        );
+        assert!(validate_provider_workspace_value(ProviderId::GitKraken, "org id").is_err());
+        assert!(validate_provider_workspace_value(ProviderId::GitKraken, "org\n123").is_err());
     }
 
     #[test]

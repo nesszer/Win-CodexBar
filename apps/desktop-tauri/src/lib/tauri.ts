@@ -450,6 +450,10 @@ export function setProviderGatewayUrl(
   return invoke<void>("set_provider_gateway_url", { providerId, gatewayUrl });
 }
 
+export function getProviderGatewayUrl(providerId: string): Promise<string> {
+  return invoke<string>("get_provider_gateway_url", { providerId });
+}
+
 export function getProviderAzureApiVersion(providerId: string): Promise<string | null> {
   return invoke<string | null>("get_provider_azure_api_version", { providerId });
 }

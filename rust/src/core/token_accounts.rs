@@ -376,7 +376,10 @@ impl TokenAccountSupport {
             | ProviderId::Fireworks
             | ProviderId::Meta
             | ProviderId::Nous
-            | ProviderId::Muse => None,
+            | ProviderId::Muse
+            | ProviderId::Hyper
+            | ProviderId::GitKraken
+            | ProviderId::Bifrost => None,
         }
     }
 
@@ -795,6 +798,9 @@ mod tests {
         assert!(TokenAccountSupport::is_supported(ProviderId::Grok));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Codex));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Gemini));
+        assert!(!TokenAccountSupport::is_supported(ProviderId::Hyper));
+        assert!(!TokenAccountSupport::is_supported(ProviderId::GitKraken));
+        assert!(!TokenAccountSupport::is_supported(ProviderId::Bifrost));
     }
 
     #[test]

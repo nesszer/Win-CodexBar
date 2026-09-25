@@ -76,4 +76,7 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["meta", "Meta"],
   ["muse", "Muse Code"],
   ["nous", "Nous Portal"],
+  ["hyper", "Charm Hyper"],
+  ["gitkraken", "GitKraken AI"],
+  ["bifrost", "Bifrost"],
 ];
