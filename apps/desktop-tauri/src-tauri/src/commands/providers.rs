@@ -84,6 +84,7 @@ pub(crate) fn build_fetch_context(
         .and_then(|override_data| override_data.env_override.as_ref());
     let active_token_api_key = active_token_env.and_then(|env| env.values().next().cloned());
     let usage_source = SourceMode::parse(settings.usage_source(id)).unwrap_or_default();
+    let token_account_kind = token_override.as_ref().map(|account| account.kind);
     // Selected token-account key overrides a stored provider apiKey (upstream #2271 / #1183).
     let api_key = active_token_api_key.or(stored_api_key);
     let has_kimi_code_api_key =
@@ -220,16 +221,47 @@ pub(crate) fn build_fetch_context(
     // token account or manual cookie source scopes the session to web creds.
     let auto_prefer_web = token_override.is_some() || cookie_source == "manual";
 
+    // These upstream account types are explicit identity selections. Keep the
+    // provider's saved region/source settings intact, but project the selected
+    // credential into the route required by that account.
+    let (source_mode, cookie_header, api_key) = match (id, token_account_kind) {
+        (ProviderId::Kimi, Some(_)) => (SourceMode::Web, active_token_cookie.clone(), None),
+        (ProviderId::Doubao, Some(_)) => (SourceMode::OAuth, None, active_token_api_key.clone()),
+        (ProviderId::OpenCodeGo, Some(codexbar::core::TokenAccountKind::ApiKey))
+            if usage_source == SourceMode::Auto =>
+        {
+            (SourceMode::Auto, None, active_token_api_key.clone())
+        }
+        (ProviderId::OpenCodeGo, Some(codexbar::core::TokenAccountKind::ApiKey)) => {
+            (usage_source, cookie_header, api_key)
+        }
+        (ProviderId::OpenCodeGo, Some(codexbar::core::TokenAccountKind::Cookie))
+            if usage_source == SourceMode::Auto =>
+        {
+            (SourceMode::Web, active_token_cookie.clone(), api_key)
+        }
+        _ => (source_mode, cookie_header, api_key),
+    };
+    let token_account_isolated = token_override.is_some()
+        && matches!(
+            id,
+            ProviderId::Kimi | ProviderId::Doubao | ProviderId::OpenCodeGo
+        );
+
     FetchContext {
         source_mode,
         manual_cookie_header: cookie_header,
         manual_cookie_missing: fails_closed_without_cookie,
         api_key,
+        token_account_kind,
+        token_account_isolated,
         workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
         seat_credit_entitlement: settings.seat_credit_entitlement(id),
         api_region: (!api_region.is_empty()).then_some(api_region),
         gateway_url,
-        auto_prefer_web,
+        auto_prefer_web: auto_prefer_web
+            && !(id == ProviderId::OpenCodeGo
+                && token_account_kind == Some(codexbar::core::TokenAccountKind::ApiKey)),
         ..FetchContext::default()
     }
 }

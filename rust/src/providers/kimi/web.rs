@@ -132,7 +132,12 @@ fn browser_auth_token(region: KimiRegion) -> Option<String> {
 pub(crate) async fn fetch_via_web(
     cookie_header: Option<&str>,
     region: KimiRegion,
+    account_isolated: bool,
 ) -> Result<UsageSnapshot, ProviderError> {
+    if account_isolated {
+        let token = selected_account_auth_token(cookie_header)?;
+        return fetch_via_web_token(&client()?, &token, region).await;
+    }
     let source = cookie_source();
     if let Some(token) =
         cookie_header.and_then(|header| KimiProvider::auth_token_from_cookie_header(header).ok())
@@ -174,6 +179,12 @@ pub(crate) async fn fetch_via_web(
     }
 
     Err(ProviderError::AuthRequired)
+}
+
+fn selected_account_auth_token(cookie_header: Option<&str>) -> Result<String, ProviderError> {
+    cookie_header
+        .and_then(|header| KimiProvider::auth_token_from_cookie_header(header).ok())
+        .ok_or(ProviderError::AuthRequired)
 }
 
 fn client() -> Result<reqwest::Client, ProviderError> {
@@ -326,6 +337,22 @@ pub(super) async fn fetch_subscription_for_enrichment_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_session_rejects_missing_or_invalid_cookie_without_fallback() {
+        assert!(matches!(
+            selected_account_auth_token(None),
+            Err(ProviderError::AuthRequired)
+        ));
+        assert!(matches!(
+            selected_account_auth_token(Some("locale=en-US")),
+            Err(ProviderError::AuthRequired)
+        ));
+        assert_eq!(
+            selected_account_auth_token(Some("Cookie: kimi-auth=selected")).unwrap(),
+            "selected"
+        );
+    }
 
     fn static_desktop(_: KimiRegion) -> Option<String> {
         Some("desktop-token".to_string())

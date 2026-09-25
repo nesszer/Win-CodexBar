@@ -477,6 +477,15 @@ impl Provider for OpenCodeGoProvider {
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Fetching OpenCode Go usage");
 
+        if ctx.token_account_isolated
+            && ctx.token_account_kind == Some(crate::core::TokenAccountKind::ApiKey)
+            && ctx.source_mode == SourceMode::Auto
+        {
+            let api_key =
+                usage_api::selected_account_api_key(ctx).ok_or(ProviderError::AuthRequired)?;
+            return usage_api::fetch(&self.client, ctx, &api_key, "api").await;
+        }
+
         match ctx.source_mode {
             SourceMode::Auto => {
                 // Local-first unless workspace/token scope asks for web first
@@ -513,12 +522,16 @@ impl Provider for OpenCodeGoProvider {
             SourceMode::Web => self.fetch_web(ctx).await,
             SourceMode::Cli => self.fetch_local_with_balance(ctx).await,
             SourceMode::OAuth => {
-                let api_key = usage_api::resolve_api_key(ctx).ok_or_else(|| {
-                    ProviderError::NotInstalled(
+                let api_key = if ctx.token_account_isolated {
+                    usage_api::selected_account_api_key(ctx).ok_or(ProviderError::AuthRequired)?
+                } else {
+                    usage_api::resolve_api_key(ctx).ok_or_else(|| {
+                        ProviderError::NotInstalled(
                         "Missing OpenCode Go API key. Add one in Settings or set OPENCODE_API_KEY."
                             .to_string(),
-                    )
-                })?;
+                        )
+                    })?
+                };
                 usage_api::fetch(&self.client, ctx, &api_key, "api").await
             }
         }

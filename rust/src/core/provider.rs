@@ -766,6 +766,13 @@ pub struct FetchContext {
     /// API key for providers that require authentication
     pub api_key: Option<String>,
 
+    /// Type of the explicitly selected labeled token account, if any.
+    pub token_account_kind: Option<super::TokenAccountKind>,
+
+    /// A selected account is an identity boundary: providers must not retry
+    /// another ambient credential or account after its credential fails.
+    pub token_account_isolated: bool,
+
     /// Optional provider workspace/project scope from persisted settings.
     pub workspace_id: Option<String>,
 
@@ -801,6 +808,8 @@ impl Default for FetchContext {
             manual_cookie_header: None,
             manual_cookie_missing: false,
             api_key: None,
+            token_account_kind: None,
+            token_account_isolated: false,
             workspace_id: None,
             seat_credit_entitlement: None,
             api_region: None,
