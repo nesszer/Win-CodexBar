@@ -8,6 +8,7 @@ interface Props {
   onDraftChange: (draft: string) => void;
   onSave: () => void;
   t: (key: LocaleKey) => string;
+  bifrost?: boolean;
 }
 
 export function WayfinderGatewaySection({
@@ -18,12 +19,13 @@ export function WayfinderGatewaySection({
   onDraftChange,
   onSave,
   t,
+  bifrost = false,
 }: Props) {
   return (
     <section className="provider-detail__section">
-      <h3>{t("WayfinderGatewayTitle")}</h3>
+      <h3>{bifrost ? "Bifrost gateway" : t("WayfinderGatewayTitle")}</h3>
       <label>
-        <span>{t("WayfinderGatewayLabel")}</span>
+        <span>{bifrost ? "Gateway URL" : t("WayfinderGatewayLabel")}</span>
         <input
           type="url"
           value={draft}
@@ -32,7 +34,9 @@ export function WayfinderGatewaySection({
           aria-describedby="wayfinder-gateway-help"
         />
       </label>
-      <p id="wayfinder-gateway-help">{t("WayfinderGatewayHelp")}</p>
+      <p id="wayfinder-gateway-help">
+        {bifrost ? "Base URL of your Bifrost gateway." : t("WayfinderGatewayHelp")}
+      </p>
       {error && <p role="alert">{error}</p>}
       <button
         type="button"

@@ -46,6 +46,25 @@ const POLICIES: Readonly<Record<string, UsageSourcePolicy>> = {
       { value: "oauth", label: "Hermes OAuth", description: "Uses the read-only Nous Portal token from Hermes Agent." },
     ],
   },
+  hyper: {
+    options: [
+      { value: "auto", label: "Auto", description: "Tries the Charm Hyper browser session, then the configured API key." },
+      { value: "web", label: "Browser session", description: "Uses the selected hyper.charm.land browser session only." },
+      { value: "oauth", label: "API", description: "Uses the configured Charm Hyper API key only." },
+    ],
+  },
+  gitkraken: {
+    options: [
+      { value: "auto", label: "Auto", description: "Uses the configured GitKraken access token." },
+      { value: "oauth", label: "API", description: "Uses the configured GitKraken access token only." },
+    ],
+  },
+  bifrost: {
+    options: [
+      { value: "auto", label: "Auto", description: "Uses the configured Bifrost gateway and virtual key." },
+      { value: "oauth", label: "API", description: "Uses the configured Bifrost gateway and virtual key only." },
+    ],
+  },
   muse: {
     options: [
       { value: "auto", label: "Auto", description: "Uses the local Muse Code device login." },

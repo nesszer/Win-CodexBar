@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import type { SettingsSnapshot, SettingsUpdate } from "../../../types/bridge";
 import { useLocale } from "../../../hooks/useLocale";
 import { providerAllowsPace } from "../../../lib/providerPace";
@@ -6,6 +6,7 @@ import {
   getCredentialStorageStatus,
   getProviderCookieSourceOptions,
   getProviderDetail,
+  getProviderGatewayUrl,
   getProviderRegionOptions,
   getTokenAccountProviders,
   openProviderDashboard,
@@ -83,6 +84,8 @@ export function ProviderDetailPane({
   onSettingsChange,
 }: Props) {
   const { t, language } = useLocale();
+  const [gatewayLoadedProviderId, setGatewayLoadedProviderId] =
+    useState<string | null>(null);
   const [state, dispatch] = useReducer(
     providerDetailPaneReducer,
     { wayfinderGatewayUrl, providerId },
@@ -142,11 +145,34 @@ export function ProviderDetailPane({
     }
   }, []);
 
+  const gatewayProviderId = providerId === "wayfinder" || providerId === "bifrost"
+    ? providerId
+    : null;
+
+  useEffect(() => {
+    setGatewayLoadedProviderId(null);
+    if (!gatewayProviderId) return;
+    let cancelled = false;
+    void getProviderGatewayUrl(gatewayProviderId).then((url) => {
+      if (!cancelled) {
+        dispatch({ type: "SET_GATEWAY_DRAFT", draft: url });
+        setGatewayLoadedProviderId(gatewayProviderId);
+      }
+    }).catch((e) => {
+      if (!cancelled) {
+        dispatch({ type: "SAVE_GATEWAY_ERROR", error: String(e) });
+        setGatewayLoadedProviderId(gatewayProviderId);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [gatewayProviderId]);
+
   const saveGateway = async () => {
     dispatch({ type: "SAVE_GATEWAY_START" });
     try {
-      await setProviderGatewayUrl("wayfinder", gatewayDraft);
-      await load("wayfinder");
+      if (!gatewayProviderId) return;
+      await setProviderGatewayUrl(gatewayProviderId, gatewayDraft);
+      await load(gatewayProviderId);
     } catch (e) {
       dispatch({ type: "SAVE_GATEWAY_ERROR", error: String(e) });
     } finally {
@@ -319,7 +345,8 @@ export function ProviderDetailPane({
         t={t}
         onChanged={reload}
       />
-      {detail.id === "wayfinder" && (
+      {(detail.id === "wayfinder" || detail.id === "bifrost") &&
+        gatewayLoadedProviderId === detail.id && (
         <WayfinderGatewaySection
           draft={gatewayDraft}
           error={gatewayError}
@@ -330,6 +357,7 @@ export function ProviderDetailPane({
           }
           onSave={() => void saveGateway()}
           t={t}
+          bifrost={detail.id === "bifrost"}
         />
       )}
       <MenuBarMetricSection

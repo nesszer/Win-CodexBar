@@ -619,6 +619,39 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             config_file_path: None,
             dashboard_url: Some("https://dev.meta.ai/docs"),
         },
+        ProviderConfigInfo {
+            id: ProviderId::Hyper,
+            name: "Charm Hyper",
+            requires_api_key: false,
+            api_key_env_var: Some("HYPER_API_KEY"),
+            api_key_help: Some(
+                "Optional. Sign in through hyper.charm.land browser cookies, or save an API key for API access.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://hyper.charm.land"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::GitKraken,
+            name: "GitKraken AI",
+            requires_api_key: true,
+            api_key_env_var: Some("GITKRAKEN_API_TOKEN"),
+            api_key_help: Some(
+                "Save a GitKraken access token. Optional organization ID: provider extras or GITKRAKEN_ORG_ID.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://gitkraken.dev/account#ai-usage"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Bifrost,
+            name: "Bifrost",
+            requires_api_key: true,
+            api_key_env_var: Some("BIFROST_API_KEY"),
+            api_key_help: Some(
+                "Save a Bifrost virtual key and configure the gateway base URL in provider settings. Or set BIFROST_API_KEY and BIFROST_BASE_URL.",
+            ),
+            config_file_path: None,
+            dashboard_url: None,
+        },
     ]
 }
 
