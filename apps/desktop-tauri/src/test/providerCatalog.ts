@@ -37,6 +37,7 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["deepseek", "DeepSeek"],
   ["deepinfra", "DeepInfra"],
   ["fireworks", "Fireworks"],
+  ["atlascloud", "Atlas Cloud"],
   ["aiand", "ai&"],
   ["zenmux", "ZenMux"],
   ["clinepass", "ClinePass"],

@@ -218,6 +218,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   nanogpt:     { id: "nanogpt",     brandColor: "#687fa1", fallbackLetter: "N" },
   infini:      { id: "infini",      brandColor: "#687fa1", fallbackLetter: "I" },
   abacus:      { id: "abacus",      brandColor: "#7c3aed", fallbackLetter: "A", svgPath: RAW.abacus },
+  atlascloud:  { id: "atlascloud",  brandColor: "#5975F5", fallbackLetter: "A" },
   manus:       { id: "manus",       brandColor: "#34322d", fallbackLetter: "M", svgPath: RAW.manus },
   mimo:        { id: "mimo",        brandColor: "#ff6900", fallbackLetter: "M", svgPath: RAW.mimo },
   doubao:      { id: "doubao",      brandColor: "#2563eb", fallbackLetter: "D", svgPath: RAW.doubao },

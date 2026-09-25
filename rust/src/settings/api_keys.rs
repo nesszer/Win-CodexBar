@@ -396,6 +396,17 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://console.aiand.com"),
         },
         ProviderConfigInfo {
+            id: ProviderId::AtlasCloud,
+            name: "Atlas Cloud",
+            requires_api_key: true,
+            api_key_env_var: Some("ATLASCLOUD_API_KEY"),
+            api_key_help: Some(
+                "Get an API key from Atlas Cloud and set it in Preferences or ATLASCLOUD_API_KEY.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://www.atlascloud.ai/console"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::ZenMux,
             name: "ZenMux",
             requires_api_key: true,

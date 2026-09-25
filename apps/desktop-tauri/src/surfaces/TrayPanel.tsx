@@ -28,7 +28,7 @@ import {
 
 /** Provider IDs that have a dashboard URL in the backend */
 const HAS_DASHBOARD = new Set([
-  "abacus", "alibaba", "alibabatokenplan", "amp", "augment",
+  "abacus", "alibaba", "alibabatokenplan", "amp", "atlascloud", "augment",
   "azureopenai", "bedrock", "claude", "codex", "codebuff",
   "aiand", "commandcode", "copilot", "crossmodel", "cursor", "deepgram", "deepinfra", "deepseek", "zenmux", "clinepass", "longcat", "neuralwatt", "zoommate",
   "doubao", "elevenlabs", "factory", "gemini", "grok", "groq",
