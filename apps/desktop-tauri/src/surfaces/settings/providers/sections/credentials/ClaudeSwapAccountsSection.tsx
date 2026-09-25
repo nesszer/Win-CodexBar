@@ -82,6 +82,7 @@ function languageLocale(language: Language): string {
     japanese: "ja-JP",
     korean: "ko-KR",
     spanish: "es-MX",
+    portuguesebrazil: "pt-BR",
     russian: "ru-RU",
     turkish: "tr-TR",
   }[language];

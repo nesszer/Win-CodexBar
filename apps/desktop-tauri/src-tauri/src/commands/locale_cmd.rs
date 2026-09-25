@@ -165,6 +165,17 @@ mod locale_tests {
     }
 
     #[test]
+    fn locale_strings_roundtrip_brazilian_portuguese() {
+        let bundle = locale_strings_for(Language::PortugueseBrazil);
+        assert_eq!(bundle.language, "portuguesebrazil");
+        assert_eq!(
+            bundle.entries.get("TabGeneral").map(String::as_str),
+            Some("Geral")
+        );
+        assert_eq!(bundle.entries.len(), locale::LocaleKey::ALL.len());
+    }
+
+    #[test]
     fn locale_strings_contains_every_variant() {
         let bundle = locale_strings_for(Language::English);
         for (_, name) in locale::LocaleKey::ALL {
@@ -190,6 +201,7 @@ mod locale_tests {
                 "japanese",
                 "korean",
                 "spanish",
+                "portuguesebrazil",
                 "russian",
                 "turkish"
             ]
@@ -203,6 +215,7 @@ mod locale_tests {
                 "日本語",
                 "한국어",
                 "Español",
+                "Português (Brasil)",
                 "Русский",
                 "Türkçe"
             ]
@@ -286,6 +299,14 @@ mod locale_tests {
         assert!(matches!(
             parse_locale_language("español"),
             Some(Language::Spanish)
+        ));
+        assert!(matches!(
+            parse_locale_language("pt-BR"),
+            Some(Language::PortugueseBrazil)
+        ));
+        assert!(matches!(
+            parse_locale_language("Português (Brasil)"),
+            Some(Language::PortugueseBrazil)
         ));
         assert!(matches!(
             parse_locale_language("tr-TR"),

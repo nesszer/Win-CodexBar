@@ -23,6 +23,7 @@ const FALLBACK_LANGUAGE_OPTIONS: LanguageOption[] = [
   { value: "japanese", display: "日本語" },
   { value: "korean", display: "한국어" },
   { value: "spanish", display: "Español" },
+  { value: "portuguesebrazil", display: "Português (Brasil)" },
   { value: "russian", display: "Русский" },
   { value: "turkish", display: "Türkçe" },
 ];

@@ -684,13 +684,14 @@ fn test_language_defaults_to_english() {
 #[test]
 fn test_language_all_variants_available() {
     let languages = Language::all();
-    assert_eq!(languages.len(), 8);
+    assert_eq!(languages.len(), 9);
     assert!(languages.contains(&Language::English));
     assert!(languages.contains(&Language::Chinese));
     assert!(languages.contains(&Language::ChineseTraditional));
     assert!(languages.contains(&Language::Japanese));
     assert!(languages.contains(&Language::Korean));
     assert!(languages.contains(&Language::Spanish));
+    assert!(languages.contains(&Language::PortugueseBrazil));
     assert!(languages.contains(&Language::Russian));
     assert!(languages.contains(&Language::Turkish));
 }
@@ -703,6 +704,29 @@ fn test_language_display_names() {
     assert_eq!(Language::Japanese.display_name(), "日本語");
     assert_eq!(Language::Russian.display_name(), "Русский");
     assert_eq!(Language::Turkish.display_name(), "Türkçe");
+    assert_eq!(
+        Language::PortugueseBrazil.display_name(),
+        "Português (Brasil)"
+    );
+}
+
+#[test]
+fn test_language_resolves_brazilian_portuguese_aliases() {
+    for alias in [
+        "portuguesebrazil",
+        "pt",
+        "pt-BR",
+        "Portuguese",
+        "Português",
+        "portugues",
+        "Português (Brasil)",
+    ] {
+        assert_eq!(
+            Language::resolve(alias),
+            Some(Language::PortugueseBrazil),
+            "failed to resolve {alias}"
+        );
+    }
 }
 
 #[test]

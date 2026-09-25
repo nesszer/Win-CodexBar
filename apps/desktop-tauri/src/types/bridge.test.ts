@@ -15,7 +15,9 @@ describe("Language type", () => {
     const langRu: Language = "russian";
     expect(langRu).toBe("russian");
     const langTr: Language = "turkish";
+    const langPtBr: Language = "portuguesebrazil";
     expect(langTr).toBe("turkish");
+    expect(langPtBr).toBe("portuguesebrazil");
   });
 
   it("allows 'spanish' in LocaleStrings payload", () => {

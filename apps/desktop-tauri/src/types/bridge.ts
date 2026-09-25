@@ -53,6 +53,7 @@ export type Language =
   | "japanese"
   | "korean"
   | "spanish"
+  | "portuguesebrazil"
   | "russian"
   | "turkish";
 

@@ -50,6 +50,7 @@ fn language_id(lang: Language) -> &'static LanguageIdentifier {
     static JA_JP: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ja-JP".parse().unwrap());
     static KO_KR: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ko-KR".parse().unwrap());
     static ES_MX: LazyLock<LanguageIdentifier> = LazyLock::new(|| "es-MX".parse().unwrap());
+    static PT_BR: LazyLock<LanguageIdentifier> = LazyLock::new(|| "pt-BR".parse().unwrap());
     static RU_RU: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ru-RU".parse().unwrap());
     static TR_TR: LazyLock<LanguageIdentifier> = LazyLock::new(|| "tr-TR".parse().unwrap());
 
@@ -60,6 +61,7 @@ fn language_id(lang: Language) -> &'static LanguageIdentifier {
         Language::Japanese => &JA_JP,
         Language::Korean => &KO_KR,
         Language::Spanish => &ES_MX,
+        Language::PortugueseBrazil => &PT_BR,
         Language::Russian => &RU_RU,
         Language::Turkish => &TR_TR,
     }

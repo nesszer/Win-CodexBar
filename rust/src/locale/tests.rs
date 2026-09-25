@@ -370,6 +370,10 @@ fn test_locale_respects_language_setting() {
     let lang = Language::Spanish;
     assert_eq!(get_text(lang, LocaleKey::TabAbout), "Acerca de");
 
+    // Test that Brazilian Portuguese returns Portuguese strings
+    let lang = Language::PortugueseBrazil;
+    assert_eq!(get_text(lang, LocaleKey::TabAbout), "Sobre");
+
     // Test that Russian language returns Russian strings
     let lang = Language::Russian;
     assert_eq!(get_text(lang, LocaleKey::TabAbout), "О программе");
@@ -388,6 +392,7 @@ fn test_english_is_complete_and_other_languages_can_fallback() {
         ("ja-JP", include_str!("ja-JP.ftl")),
         ("ko-KR", include_str!("ko-KR.ftl")),
         ("es-MX", include_str!("es-MX.ftl")),
+        ("pt-BR", include_str!("pt-BR.ftl")),
         ("ru-RU", include_str!("ru-RU.ftl")),
         ("tr-TR", include_str!("tr-TR.ftl")),
     ];
@@ -444,6 +449,25 @@ fn test_fluent_preserves_literal_placeholders_and_status_spacing() {
     assert_eq!(
         get_text(Language::English, LocaleKey::RemainingAmount),
         "{:.2} remaining"
+    );
+}
+
+#[test]
+fn test_brazilian_portuguese_preserves_placeholders_and_status_spacing() {
+    assert_eq!(
+        get_text(Language::PortugueseBrazil, LocaleKey::TrayStatusError),
+        " (Erro)"
+    );
+    assert_eq!(
+        get_text(
+            Language::PortugueseBrazil,
+            LocaleKey::TrayCreditsRemaining
+        ),
+        "Créditos restantes {}%"
+    );
+    assert_eq!(
+        get_text(Language::PortugueseBrazil, LocaleKey::UsedPercent),
+        "{:.0}% usado"
     );
 }
 
