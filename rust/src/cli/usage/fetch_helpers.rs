@@ -108,6 +108,7 @@ pub(super) fn project_token_account(
     ctx: &mut crate::core::FetchContext,
 ) {
     let projected = TokenAccountOverride::from_account(provider, account.clone());
+    let effective_source_mode = projected.effective_source_mode(ctx.source_mode);
     ctx.token_account_kind = Some(projected.kind);
     ctx.token_account_isolated = true;
     ctx.api_key = projected
@@ -117,7 +118,7 @@ pub(super) fn project_token_account(
     ctx.manual_cookie_header = projected.cookie_header;
     ctx.auto_prefer_web = projected.kind == TokenAccountKind::Cookie;
 
-    if let Some(source_mode) = projected.effective_source_mode(ctx.source_mode) {
+    if let Some(source_mode) = effective_source_mode {
         ctx.source_mode = source_mode;
     }
 }
