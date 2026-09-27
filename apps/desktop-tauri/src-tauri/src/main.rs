@@ -81,6 +81,18 @@ where
         .collect()
 }
 
+// Launchpad asks the local single-instance app to exit through this private
+// process argument; no network shutdown route is exposed.
+fn is_launchpad_quit_request<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut args = args.into_iter();
+    matches!(args.next(), Some(arg) if arg.as_ref() == "--quit-from-launchpad")
+        && args.next().is_none()
+}
+
 fn should_reopen_primary_window_from_instance_args<I, S>(args: I) -> bool
 where
     I: IntoIterator<Item = S>,
@@ -119,6 +131,7 @@ fn main() {
     codexbar::logging::install_panic_hook();
     codexbar::logging::init(false, false).expect("failed to initialize logging");
 
+    let quit_from_launchpad = is_launchpad_quit_request(std::env::args().skip(1));
     let proof_config = proof_harness::ProofConfig::from_env();
     let is_proof_mode = proof_config.is_some();
     let force_start_visible = std::env::var_os("CODEXBAR_START_VISIBLE").is_some();
@@ -149,6 +162,10 @@ fn main() {
         .plugin(shortcut_bridge::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if is_launchpad_quit_request(args.iter().skip(1)) {
+                app.exit(0);
+                return;
+            }
             if should_reopen_primary_window_from_instance_args(args.iter().skip(1)) {
                 let request = primary_window_request();
                 let _ =
@@ -277,6 +294,10 @@ fn main() {
             floatbar::set_float_bar_orientation,
         ])
         .setup(move |app| {
+            if quit_from_launchpad {
+                app.handle().exit(0);
+                return Ok(());
+            }
             if let Err(error) = codexbar::providers::claude::accounts::cleanup_abandoned_logins() {
                 tracing::warn!("failed to clean abandoned Claude sign-in directories: {error}");
             }
@@ -507,6 +528,34 @@ mod tests {
         assert!(should_reopen_primary_window_from_instance_args([""]));
         assert!(should_reopen_primary_window_from_instance_args(["  "]));
         assert!(should_reopen_primary_window_from_instance_args(["menubar"]));
+    }
+
+    #[test]
+    fn launchpad_quit_requires_one_exact_argument() {
+        assert!(is_launchpad_quit_request(["--quit-from-launchpad"]));
+        assert!(!is_launchpad_quit_request(std::iter::empty::<&str>()));
+        assert!(!is_launchpad_quit_request([
+            "--quit-from-launchpad",
+            "--tray"
+        ]));
+        assert!(!is_launchpad_quit_request([
+            "--tray",
+            "--quit-from-launchpad"
+        ]));
+    }
+
+    #[test]
+    fn launchpad_quit_does_not_match_similar_or_unrelated_arguments() {
+        for arg in [
+            "--quit-from-launchpad=1",
+            "--quit-from-launchpad-extra",
+            "--Quit-from-launchpad",
+            "/quit-from-launchpad",
+            "quit-from-launchpad",
+            "--tray",
+        ] {
+            assert!(!is_launchpad_quit_request([arg]), "unexpected quit: {arg}");
+        }
     }
 
     #[test]
