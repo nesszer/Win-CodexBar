@@ -156,7 +156,27 @@ pub fn calculate_panel_position(
     }
 }
 
-/// Position for shortcut-triggered opening: 22 % from left, vertically centred.
+/// Position beside a desktop launch's physical cursor point, kept in the work area.
+pub fn calculate_cursor_position(
+    cursor: (f64, f64),
+    work_area: &Rect,
+    panel_size: &PanelSize,
+    scale_factor: f64,
+) -> (i32, i32) {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "physical cursor coordinates fit i32"
+    )]
+    let x = (cursor.0.round() as i32).saturating_add(GAP);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "physical cursor coordinates fit i32"
+    )]
+    let y = (cursor.1.round() as i32).saturating_add(GAP);
+    clamp_to_work_area(x, y, work_area, panel_size, scale_factor)
+}
+
+/// Legacy shortcut placement: 22 % from left, vertically centred.
 pub fn calculate_shortcut_position(
     monitor_rect: &Rect,
     panel_size: &PanelSize,
@@ -476,6 +496,56 @@ mod tests {
     }
 
     // --- shortcut-anchor tests ---
+
+    #[test]
+    fn desktop_open_stays_beside_cursor_after_content_grows() {
+        let monitor = hd_monitor();
+        let cursor = (50.0, 100.0);
+        assert_eq!(
+            calculate_cursor_position(cursor, &monitor, &panel(), 1.0),
+            (58, 108)
+        );
+        let taller = PanelSize {
+            width: 360,
+            height: 800,
+        };
+        assert_eq!(
+            calculate_cursor_position(cursor, &monitor, &taller, 1.0),
+            (58, 108)
+        );
+    }
+
+    #[test]
+    fn cursor_open_clamps_on_high_dpi_monitor_with_negative_origin() {
+        let work_area = Rect {
+            x: -2560,
+            y: 0,
+            width: 2560,
+            height: 1400,
+        };
+        let panel = PanelSize {
+            width: 400,
+            height: 600,
+        };
+        assert_eq!(
+            calculate_cursor_position((-10.0, 1390.0), &work_area, &panel, 2.0),
+            (-808, 192)
+        );
+    }
+
+    #[test]
+    fn oversized_cursor_panel_keeps_its_top_left_visible() {
+        let work_area = Rect {
+            x: 1920,
+            y: -100,
+            width: 500,
+            height: 400,
+        };
+        assert_eq!(
+            calculate_cursor_position((2200.0, 250.0), &work_area, &panel(), 2.0),
+            (1928, -92)
+        );
+    }
 
     #[test]
     fn shortcut_position_22_pct_from_left() {

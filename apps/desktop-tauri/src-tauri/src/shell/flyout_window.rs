@@ -28,7 +28,7 @@ use crate::surface::SurfaceMode;
 pub const FLYOUT_LABEL: &str = "flyout";
 
 /// Geometry-store key for the flyout's remembered SIZE (position is never
-/// stored — the flyout always re-anchors above the tray on open). Kept as
+/// stored — each open chooses a tray or captured cursor anchor). Kept as
 /// its own key (distinct from the legacy `SurfaceMode::TrayPanel::as_str()`
 /// `"trayPanel"` key) — `geometry_store::load_size` migrates a pre-existing
 /// `"trayPanel"` entry into this key on first read, so upgrading users keep
@@ -88,6 +88,29 @@ pub fn open_or_focus(
     position: Option<(i32, i32)>,
     activation: Activation,
 ) -> Result<(), String> {
+    open_with_anchor(app, position, None, activation)
+}
+
+/// Open a desktop launch near its captured cursor location, retaining that
+/// anchor through subsequent content-driven resizes.
+pub fn open_near_cursor(
+    app: &AppHandle,
+    cursor: Option<(f64, f64)>,
+    activation: Activation,
+) -> Result<(), String> {
+    open_with_anchor(app, None, cursor, activation)
+}
+
+fn open_with_anchor(
+    app: &AppHandle,
+    position: Option<(i32, i32)>,
+    cursor: Option<(f64, f64)>,
+    activation: Activation,
+) -> Result<(), String> {
+    app.state::<Mutex<AppState>>()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .flyout_cursor_anchor = cursor;
     let settings = Settings::load();
     if let Some(window) = app.get_webview_window(FLYOUT_LABEL) {
         apply_window_always_on_top(&window, settings.tray_panel_always_on_top)?;
@@ -150,9 +173,11 @@ pub fn open_or_focus(
     // Settings window.
     super::dwm::force_dark_caption_resizable(&win);
 
-    let target_position =
-        position.or_else(|| super::position::default_surface_position(app, SurfaceMode::TrayPanel));
-    if let Some((x, y)) = target_position {
+    if cursor.is_some() {
+        reanchor(app)?;
+    } else if let Some((x, y)) =
+        position.or_else(|| super::position::default_surface_position(app, SurfaceMode::TrayPanel))
+    {
         // Best-effort initial placement; the frontend re-reveals the
         // window, so a failed set_position here is non-fatal.
         let _set_initial = win.set_position(PhysicalPosition::new(x, y));
@@ -322,7 +347,7 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
         // drag-resizes call `set_flyout_size`, auto-fit resizes never do) —
         // mirrors `shell::position::remember_current_geometry_if_eligible`
         // skipping TrayPanel for the same reason on the old shared window.
-        // Position is never persisted (always re-anchored above the tray).
+        // Position is never persisted; resizing follows this open's selected anchor.
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => true,
         tauri::WindowEvent::CloseRequested { api, .. } => {
             // Hide-not-close on a native close request (Alt+F4-equivalent from
@@ -337,8 +362,8 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
     }
 }
 
-/// Reposition the flyout so its bottom-right corner stays anchored to the
-/// system-tray area, using the window's CURRENT logical size (after a
+/// Reposition the flyout at its captured cursor or system-tray anchor,
+/// using the window's CURRENT logical size (after a
 /// frontend-driven resize). Canonical anchor-math implementation for the
 /// flyout window; the `reanchor_tray_panel` Tauri command
 /// (`commands/system.rs`) is a thin retarget onto this function.
@@ -357,18 +382,28 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
         height: (outer.height as f64 / scale).round() as u32,
     };
 
-    let anchor = app
+    let (anchor, cursor) = app
         .try_state::<Mutex<AppState>>()
-        .and_then(|state| state.lock().ok()?.tray_anchor);
+        .and_then(|state| {
+            let state = state.lock().ok()?;
+            Some((state.tray_anchor, state.flyout_cursor_anchor))
+        })
+        .unwrap_or_default();
     let monitors = window.available_monitors().unwrap_or_default();
-    let monitor = anchor
-        .and_then(|anchor| crate::shell::geometry::monitor_for_anchor(&monitors, anchor))
-        .cloned()
+    let monitor = cursor
+        .and_then(|(x, y)| app.monitor_from_point(x, y).ok().flatten())
+        .or_else(|| {
+            anchor
+                .and_then(|anchor| crate::shell::geometry::monitor_for_anchor(&monitors, anchor))
+                .cloned()
+        })
         .or_else(|| window.current_monitor().ok().flatten())
         .or_else(|| window.primary_monitor().ok().flatten())
         .ok_or_else(|| "no monitor".to_string())?;
 
     let work_area = crate::shell::geometry::monitor_work_area_rect(&monitor);
+    // The target monitor can differ from the window's previous monitor.
+    let scale = monitor.scale_factor().max(1.0);
     let monitor_bounds = Rect {
         x: monitor.position().x,
         y: monitor.position().y,
@@ -377,7 +412,14 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
     };
 
     let (x, y) = {
-        if let Some(a) = anchor {
+        if let Some(cursor) = cursor {
+            crate::window_positioner::calculate_cursor_position(
+                cursor,
+                &work_area,
+                &panel_size,
+                scale,
+            )
+        } else if let Some(a) = anchor {
             crate::window_positioner::calculate_panel_position(
                 &Rect {
                     x: a.x,

@@ -320,7 +320,7 @@ describe("TrayPanel provider grid", () => {
     });
   });
 
-  it("offers an Overview share snapshot using only included spend rows", async () => {
+  it("shows only included overview spend rows without an export button", async () => {
     tauriMocks.getUsageSpendSummary.mockResolvedValue({
       contract: {},
       reportingPeriod: "rolling:30",
@@ -370,9 +370,16 @@ describe("TrayPanel provider grid", () => {
 
     renderTrayPanel([provider("codex", "Codex", 35)]);
 
-    expect(await screen.findByRole("button", { name: "UsageSpendShare" })).toBeInTheDocument();
-    expect(screen.getByText("~$2.00")).toBeInTheDocument();
+    const expectedTotal = `~${new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+    }).format(2)}`;
+    expect(await screen.findByText((_, element) =>
+      element?.tagName === "STRONG" && element.textContent === expectedTotal,
+    )).toBeInTheDocument();
     expect(screen.getByText(/1 of 2 OverviewSpendProviderCoverage/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "UsageSpendShare" })).not.toBeInTheDocument();
   });
 
   it("dismisses the tray panel on unmodified Escape", async () => {

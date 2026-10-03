@@ -10,12 +10,14 @@ const mocks = vi.hoisted(() => ({
   grokAccountRemove: vi.fn(),
   grokAccountSwitch: vi.fn(),
   grokAccountFetch: vi.fn(),
+  grokAccountReauthenticate: vi.fn(),
 }));
 const events = vi.hoisted(() => ({
   listen: vi.fn<(event: string, listener: () => void) => Promise<() => void>>(),
 }));
 vi.mock("../../../../../lib/tauri", () => mocks);
 vi.mock("@tauri-apps/api/event", () => events);
+vi.mock("../../../../../hooks/useLocale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
 import { GrokAccountsSection } from "./GrokAccountsSection";
 
 const t = (key: string) => key;

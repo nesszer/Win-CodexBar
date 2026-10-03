@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useState } from "react";
 import type {
   CostSummaryDisplayStyle,
   ProviderChartData,
@@ -275,37 +275,42 @@ export default function MenuCard({
     .filter(Boolean)
     .join(" ");
 
+  const renderHeader = (refreshAction?: ReactNode) => (
+    <header className="menu-card__header">
+      <div className="menu-card__title-row">
+        <div className="menu-card__name-group">
+          <span className="menu-card__name">{provider.displayName}</span>
+          {!provider.error && email && <span className="menu-card__email">{email}</span>}
+        </div>
+        {refreshAction}
+      </div>
+      {provider.error ? (
+        <div className="menu-card__error-block">
+          <div className="menu-card__error-text">{provider.error}</div>
+          <CopyIconButton text={provider.error} />
+        </div>
+      ) : (
+        <div className="menu-card__subtitle-row">
+          <span className="menu-card__subtitle">
+            {Number.isNaN(Date.parse(provider.updatedAt))
+              ? provider.updatedAt
+              : formatRelativeUpdated(Date.parse(provider.updatedAt), t)}
+          </span>
+          {displayedPlanName && (
+            <span className="menu-card__plan-badge">{displayedPlanName}</span>
+          )}
+        </div>
+      )}
+    </header>
+  );
+
   return (
     <article
       className={cardClassName}
       aria-busy={isRefreshing}
       style={accentColor ? ({ "--provider-accent": accentColor } as CSSProperties) : undefined}
     >
-      <header className="menu-card__header">
-        <div className="menu-card__title-row">
-          <div className="menu-card__name-group">
-            <span className="menu-card__name">{provider.displayName}</span>
-            {!provider.error && email && <span className="menu-card__email">{email}</span>}
-          </div>
-        </div>
-        {provider.error ? (
-          <div className="menu-card__error-block">
-            <div className="menu-card__error-text">{provider.error}</div>
-            <CopyIconButton text={provider.error} />
-          </div>
-        ) : (
-          <div className="menu-card__subtitle-row">
-            <span className="menu-card__subtitle">
-              {Number.isNaN(Date.parse(provider.updatedAt))
-                ? provider.updatedAt
-                : formatRelativeUpdated(Date.parse(provider.updatedAt), t)}
-            </span>
-            {displayedPlanName && (
-              <span className="menu-card__plan-badge">{displayedPlanName}</span>
-            )}
-          </div>
-        )}
-      </header>
+      {provider.providerId !== "grok" && renderHeader()}
 
       {provider.providerId === "codex" && (
         <CodexAccountsMenu
@@ -322,6 +327,8 @@ export default function MenuCard({
           hideEmail={hideEmail}
           resetTimeRelative={resetTimeRelative}
           onLayoutChange={onLayoutChange}
+          cardSnapshot={provider}
+          renderHeader={renderHeader}
         />
       )}
 

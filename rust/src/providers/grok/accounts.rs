@@ -2,6 +2,9 @@
 //! skills, and the rest of ~/.grok stay in the ambient home.
 
 mod login;
+mod orca;
+mod orca_runtime;
+mod refresh;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -14,6 +17,7 @@ use crate::atomic_file::replace_staged;
 use crate::secure_file;
 
 pub use login::{begin_login, cancel_login, cleanup_abandoned_logins, login};
+pub use orca::select_account as select_orca_account;
 
 pub static CREDENTIAL_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -31,11 +35,34 @@ pub struct GrokAccount {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GrokAccountUsage {
+    pub status: GrokUsageStatus,
     pub usage_available: bool,
     pub used_percent: Option<f64>,
     pub plan: Option<String>,
     pub window_minutes: Option<u32>,
     pub resets_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GrokUsageStatus {
+    Ready,
+    SignInRequired,
+    Unavailable,
+    Failed,
+}
+
+impl GrokAccountUsage {
+    pub fn unavailable(status: GrokUsageStatus) -> Self {
+        Self {
+            status,
+            usage_available: false,
+            used_percent: None,
+            plan: None,
+            window_minutes: None,
+            resets_at: None,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -277,6 +304,31 @@ impl AccountManager {
         self.save(&store)
     }
 
+    /// Refresh only the requested identity, preserving the currently selected account.
+    pub fn reauthenticate(&self, id: &str, login: SavedLogin) -> io::Result<()> {
+        login.validate()?;
+        if login.id()? != id {
+            return Err(io::Error::other(
+                "Signed in to a different Grok account. Sign in to the selected account instead.",
+            ));
+        }
+        if !self.list()?.iter().any(|account| account.id == id) {
+            return Err(io::Error::other("Grok account no longer exists."));
+        }
+        let active = read_login(&self.ambient_auth)?
+            .is_some_and(|current| current.id().ok().as_deref() == Some(id));
+        self.import(login.clone())?;
+        orca::update_login(id, &login)?;
+        if active {
+            let staged = stage_json(&self.ambient_auth, &login.auth)?;
+            if let Err(error) = replace_staged(&staged, &self.ambient_auth) {
+                let _cleanup = std::fs::remove_file(staged);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
     pub fn switch(&self, id: &str) -> io::Result<()> {
         let mut store = self.load()?;
         let target = store
@@ -285,6 +337,7 @@ impl AccountManager {
             .find(|a| a.id().ok().as_deref() == Some(id))
             .cloned()
             .ok_or_else(|| io::Error::other("Saved Grok account not found."))?;
+        let target = orca::saved_login(id)?.unwrap_or(target);
         target.validate()?;
         if let Some(current) = read_login(&self.ambient_auth)? {
             if current.id()? == id {
@@ -305,6 +358,20 @@ impl AccountManager {
     }
 
     pub fn auth_text_for(&self, id: &str) -> io::Result<String> {
+        if let Some(login) = orca::saved_login(id)? {
+            return serde_json::to_string(&login.auth).map_err(io::Error::other);
+        }
+        // Switch writes the live login to ~/.grok/auth.json. Prefer that file
+        // when the id matches so the Active row uses the same credentials as
+        // the Weekly card, not a stale saved copy.
+        let current = read_login(&self.ambient_auth);
+        if let Ok(Some(login)) = &current
+            && login.id()? == id
+        {
+            // Serialize the same snapshot whose identity was checked. A second
+            // file read could race with a switch to another account.
+            return serde_json::to_string(&login.auth).map_err(io::Error::other);
+        }
         let store = self.load()?;
         if let Some(login) = store
             .accounts
@@ -313,12 +380,10 @@ impl AccountManager {
         {
             return serde_json::to_string(&login.auth).map_err(io::Error::other);
         }
-        let current = read_login(&self.ambient_auth)?
-            .ok_or_else(|| io::Error::other("Grok account not found."))?;
-        if current.id()? != id {
-            return Err(io::Error::other("Grok account not found."));
-        }
-        std::fs::read_to_string(&self.ambient_auth)
+        // A damaged ambient file must not prevent usage reads for a saved
+        // account. If no saved identity matched, retain the ambient diagnostic.
+        current.map(|_| ())?;
+        Err(io::Error::other("Grok account not found."))
     }
 }
 
@@ -451,6 +516,58 @@ mod tests {
     }
 
     #[test]
+    fn reauthentication_updates_only_the_selected_saved_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        let first = login("user-a", "a@example.com", "original");
+        activate(&manager, &first);
+        manager.save_current().unwrap();
+        manager
+            .import(login("user-b", "b@example.com", "other"))
+            .unwrap();
+        let ambient = std::fs::read(&manager.ambient_auth).unwrap();
+        manager
+            .reauthenticate("user-b", login("user-b", "b@example.com", "renewed"))
+            .unwrap();
+        assert_eq!(manager.list().unwrap().len(), 2);
+        assert!(manager.auth_text_for("user-b").unwrap().contains("renewed"));
+        assert_eq!(std::fs::read(&manager.ambient_auth).unwrap(), ambient);
+        manager
+            .reauthenticate("user-a", login("user-a", "a@example.com", "active-renewed"))
+            .unwrap();
+        assert!(
+            manager
+                .auth_text_for("user-a")
+                .unwrap()
+                .contains("active-renewed")
+        );
+        assert!(
+            std::fs::read_to_string(&manager.ambient_auth)
+                .unwrap()
+                .contains("active-renewed")
+        );
+        assert_eq!(manager.list().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reauthentication_rejects_a_different_identity_without_changing_any_login() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        activate(&manager, &login("user-a", "a@example.com", "original"));
+        manager.save_current().unwrap();
+        let ambient = std::fs::read(&manager.ambient_auth).unwrap();
+        let saved = manager.auth_text_for("user-a").unwrap();
+        assert!(
+            manager
+                .reauthenticate("user-a", login("user-b", "b@example.com", "wrong"))
+                .is_err()
+        );
+        assert_eq!(manager.list().unwrap().len(), 1);
+        assert_eq!(manager.auth_text_for("user-a").unwrap(), saved);
+        assert_eq!(std::fs::read(&manager.ambient_auth).unwrap(), ambient);
+    }
+
+    #[test]
     fn add_and_switch_preserves_outgoing_account() {
         let dir = tempfile::tempdir().unwrap();
         let manager = manager(dir.path());
@@ -545,6 +662,41 @@ mod tests {
         let ambient = manager.auth_text_for("user-a").unwrap();
         assert!(ambient.contains("token-a"));
         assert!(manager.auth_text_for("missing").is_err());
+    }
+
+    #[test]
+    fn auth_text_for_prefers_live_login_over_saved_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        manager
+            .import(login("user-a", "a@example.com", "token-old"))
+            .unwrap();
+        activate(&manager, &login("user-a", "a@example.com", "token-live"));
+        let text = manager.auth_text_for("user-a").unwrap();
+        assert!(text.contains("token-live"));
+        assert!(!text.contains("token-old"));
+    }
+
+    #[test]
+    fn auth_text_for_saved_account_survives_invalid_ambient_login() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        manager
+            .import(login("user-a", "a@example.com", "token-saved"))
+            .unwrap();
+        std::fs::create_dir_all(manager.ambient_auth.parent().unwrap()).unwrap();
+        std::fs::write(&manager.ambient_auth, "invalid-json").unwrap();
+        assert!(
+            manager
+                .auth_text_for("user-a")
+                .unwrap()
+                .contains("token-saved")
+        );
+        assert!(manager.auth_text_for("missing").is_err());
+        assert_eq!(
+            std::fs::read_to_string(&manager.ambient_auth).unwrap(),
+            "invalid-json"
+        );
     }
 
     #[test]

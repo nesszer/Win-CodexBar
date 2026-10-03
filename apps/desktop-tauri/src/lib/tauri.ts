@@ -59,6 +59,7 @@ export const claudeAccountSwitch = (id: string) =>
   invoke<ClaudeReconciliationSnapshot>("claude_account_switch", { id });
 export const grokAccountsList = () => invoke<GrokAccount[]>("grok_accounts_list");
 export const grokAccountAdd = () => invoke<void>("grok_account_add");
+export const grokAccountReauthenticate = (id: string) => invoke<void>("grok_account_reauthenticate", { id });
 export const grokAccountCancelLogin = () => invoke<void>("grok_account_cancel_login");
 export const grokAccountSaveCurrent = () => invoke<void>("grok_account_save_current");
 export const grokAccountRemove = (id: string) => invoke<void>("grok_account_remove", { id });

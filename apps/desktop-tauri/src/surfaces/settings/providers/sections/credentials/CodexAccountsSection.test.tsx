@@ -153,8 +153,30 @@ describe("CodexAccountsSection", () => {
     );
     render(<CodexAccountsSection t={t} />);
     await waitFor(() => {
-      expect(screen.getByText("free · 38%")).toBeDefined();
+      expect(screen.getByText("free · 1h 38%")).toBeDefined();
     });
+  });
+
+  it("shows both five-hour and weekly limits in the settings pill", async () => {
+    const usage = snapshot(14, "plus");
+    usage.primaryWindow!.limitWindowSeconds = 18_000;
+    usage.secondaryWindow = { usedPercent: 93, resetAt: null, limitWindowSeconds: 604_800 };
+    tauriMocks.getCodexAccountsState.mockResolvedValue({
+      accounts: [account("1")], accountOrdinals: { "1": 1 }, snapshots: { "1": usage },
+    });
+    render(<CodexAccountsSection t={t} />);
+    expect(await screen.findByText("plus · 5h 14% · 7d 93%")).toBeInTheDocument();
+  });
+
+  it("shows weekly-only limits in the settings pill", async () => {
+    const usage = snapshot(42, "pro");
+    usage.secondaryWindow = { ...usage.primaryWindow!, limitWindowSeconds: 604_800 };
+    usage.primaryWindow = null;
+    tauriMocks.getCodexAccountsState.mockResolvedValue({
+      accounts: [account("1")], accountOrdinals: { "1": 1 }, snapshots: { "1": usage },
+    });
+    render(<CodexAccountsSection t={t} />);
+    expect(await screen.findByText("pro · 7d 42%")).toBeInTheDocument();
   });
 
   it("offers ambient reauthentication and reloads the account state", async () => {
@@ -173,7 +195,7 @@ describe("CodexAccountsSection", () => {
 
     expect(tauriMocks.codexAccountReauthenticate).toHaveBeenCalledTimes(1);
     await waitFor(() => {
-      expect(screen.getByText("free · 12%")).toBeDefined();
+      expect(screen.getByText("free · 1h 12%")).toBeDefined();
     });
   });
 

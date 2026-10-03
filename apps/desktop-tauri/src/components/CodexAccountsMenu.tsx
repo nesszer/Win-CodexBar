@@ -4,6 +4,7 @@ import type {
   CodexAccount,
   CodexAccountsStateBridge,
   CodexAccountUsageSnapshot,
+  CodexUsageWindow,
 } from "../types/bridge";
 import { useLocale } from "../hooks/useLocale";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
@@ -41,6 +42,7 @@ export default function CodexAccountsMenu({
   const [accountOrdinals, setAccountOrdinals] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [switched, setSwitched] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -64,7 +66,7 @@ export default function CodexAccountsMenu({
 
   useEffect(() => {
     onLayoutChange?.();
-  }, [accounts.length, error, onLayoutChange]);
+  }, [accounts.length, snapshots, error, switched, onLayoutChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,10 +80,12 @@ export default function CodexAccountsMenu({
   }, [load]);
 
   const handleSwitch = async (id: string) => {
+    setSwitched(false);
     setBusy(true);
     setError(null);
     try {
       await codexAccountSwitch(id);
+      setSwitched(true);
       await load();
       // Make the tray icon/menu reflect the newly active ambient identity.
       void refreshProviders().catch(() => {});
@@ -105,11 +109,12 @@ export default function CodexAccountsMenu({
   );
 
   return (
-    <details className="codex-menu-accounts" onToggle={onLayoutChange}>
+    <details className="codex-menu-accounts" open onToggle={onLayoutChange}>
       <summary className="codex-menu-accounts__summary">
         <span className="codex-menu-accounts__title">{t("CodexAccountsTitle")}</span>
         <span className="codex-menu-accounts__count">{accounts.length}</span>
       </summary>
+      {switched && <p role="status">{t("CodexAccountsSwitchedHint")}</p>}
       {error && (
         <div className="codex-menu-accounts__error" role="alert">
           {error}
@@ -154,23 +159,9 @@ function CodexAccountRow({
   onSwitch: (id: string) => Promise<void>;
 }) {
   const { t } = useLocale();
-  // Prefer the primary (normally five-hour) window. Accounts whose backend
-  // only returns a weekly window have primaryWindow: null, so keep the
-  // existing secondary-window fallback for their bar and reset detail.
-  const usageWindow =
-    snapshot?.primaryWindow ?? snapshot?.secondaryWindow ?? null;
-  const pct = usageWindow ? Math.round(usageWindow.usedPercent) : null;
-  const resetText = useFormattedResetTime(
-    usageWindow?.resetAt ?? null,
-    null,
-    resetTimeRelative,
+  const windows = [snapshot?.primaryWindow, snapshot?.secondaryWindow].filter(
+    (window): window is NonNullable<typeof window> => window != null,
   );
-  const resetLabel = resetText
-    ? resetTimeRelative
-      ? resetText
-      : `${t("MetricResetsIn")} ${resetText}`
-    : null;
-  const windowLabel = formatWindowLabel(usageWindow?.limitWindowSeconds);
   const isAmbient = account.source === "ambient";
 
   return (
@@ -187,23 +178,13 @@ function CodexAccountRow({
               </span>
             )}
           </span>
-          {(pct !== null || resetLabel) && (
-            <span className="codex-menu-accounts__usage">
-              {windowLabel && <span>{windowLabel}</span>}
-              {pct !== null && (
-                <span>{pct}% {t("PanelUsedSuffix")}</span>
-              )}
-              {resetLabel && <span>{resetLabel}</span>}
-            </span>
-          )}
-          {pct !== null && (
-            <span className="codex-menu-accounts__bar" aria-hidden>
-              <span
-                className="codex-menu-accounts__bar-fill"
-                style={{ width: `${Math.max(2, Math.min(100, pct))}%` }}
-              />
-            </span>
-          )}
+          {windows.map((usageWindow, index) => (
+            <CodexAccountUsageLane
+              key={`${usageWindow.limitWindowSeconds}-${index}`}
+              usageWindow={usageWindow}
+              resetTimeRelative={resetTimeRelative}
+            />
+          ))}
         </div>
         <button
           type="button"
@@ -215,6 +196,49 @@ function CodexAccountRow({
         </button>
       </div>
     </li>
+  );
+}
+
+function CodexAccountUsageLane({
+  usageWindow,
+  resetTimeRelative,
+}: {
+  usageWindow: CodexUsageWindow;
+  resetTimeRelative: boolean;
+}) {
+  const { t } = useLocale();
+  const pct = Math.round(usageWindow.usedPercent);
+  const resetText = useFormattedResetTime(
+    usageWindow.resetAt ?? null,
+    null,
+    resetTimeRelative,
+  );
+  const resetLabel = resetText
+    ? resetTimeRelative
+      ? resetText
+      : `${t("MetricResetsIn")} ${resetText}`
+    : null;
+  const windowLabel = formatWindowLabel(usageWindow.limitWindowSeconds);
+  const barLevel =
+    pct >= 100 ? "exhausted" : pct >= 90 ? "critical" : undefined;
+
+  return (
+    <>
+      <span className="codex-menu-accounts__usage">
+        {windowLabel && <span>{windowLabel}</span>}
+        <span>
+          {pct}% {t("PanelUsedSuffix")}
+        </span>
+        {resetLabel && <span>{resetLabel}</span>}
+      </span>
+      <span className="codex-menu-accounts__bar" aria-hidden>
+        <span
+          className="codex-menu-accounts__bar-fill"
+          data-level={barLevel}
+          style={{ width: `${Math.max(2, Math.min(100, pct))}%` }}
+        />
+      </span>
+    </>
   );
 }
 

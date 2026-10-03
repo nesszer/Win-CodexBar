@@ -3961,6 +3961,11 @@ html:has(.menu-surface--tray) {
   opacity: 0.65;
 }
 
+.codex-menu-accounts__usage-status {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .codex-menu-accounts__bar {
   display: block;
   height: 4px;
@@ -4020,6 +4025,11 @@ html:has(.menu-surface--tray) {
   align-items: center;
   justify-content: space-between;
   gap: var(--menu-card-header-column-gap);
+}
+
+.menu-card__refresh-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* Provider brand badge + display name cluster. Tauri-only addition that

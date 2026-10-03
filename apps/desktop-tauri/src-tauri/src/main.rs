@@ -49,7 +49,7 @@ fn should_hide_close_request(mode: SurfaceMode) -> bool {
 
 /// Open the primary window: the tray-panel flyout, the only dashboard
 /// layout. The legacy PopOut layout on `main` is retired, so launches and
-/// relaunches land on the same panel as a tray left-click.
+/// relaunches use that same panel near the cursor, while tray clicks anchor it to the tray.
 ///
 /// Spawned because building the flyout window synchronously can deadlock on
 /// Windows (see `shell::flyout_window::open_or_focus`).
@@ -58,14 +58,16 @@ fn should_hide_close_request(mode: SurfaceMode) -> bool {
 /// Windows for the foreground (`Activation::IfAllowed`): a launch from Start
 /// or Explorer gets focus, a login-time or background launch does not.
 fn open_primary_window(app: &tauri::AppHandle, delay: Duration) {
+    // Capture the launch location before startup work or a delayed reveal moves the cursor.
+    let cursor = app.cursor_position().ok().map(|point| (point.x, point.y));
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
-        if let Err(error) = shell::flyout_window::open_or_focus(
+        if let Err(error) = shell::flyout_window::open_near_cursor(
             &app,
-            None,
+            cursor,
             shell::activation::Activation::IfAllowed,
         ) {
             tracing::warn!(%error, "failed to open the tray panel window");
@@ -227,6 +229,7 @@ fn main() {
             commands::claude_account_switch,
             commands::grok_accounts_list,
             commands::grok_account_add,
+            commands::grok_account_reauthenticate,
             commands::grok_account_cancel_login,
             commands::grok_account_save_current,
             commands::grok_account_remove,

@@ -166,6 +166,7 @@ fn auto_tries_switched_login_before_cookies() {
             GrokAutoStep::AmbientOAuth,
             GrokAutoStep::AmbientCli,
             GrokAutoStep::ApiKey,
+            GrokAutoStep::ManualCookie,
         ]
     );
 }
@@ -175,6 +176,18 @@ fn cookie_refresh_uses_cache_when_present() {
     assert_eq!(
         cookie_refresh_action(true, None),
         CookieRefreshAction::UseCached
+    );
+}
+
+#[test]
+fn auto_uses_explicit_cookie_without_importing_browser_cookies() {
+    assert_eq!(
+        grok_auto_steps(false, true, false),
+        vec![
+            GrokAutoStep::AmbientOAuth,
+            GrokAutoStep::AmbientCli,
+            GrokAutoStep::ManualCookie,
+        ]
     );
 }
 

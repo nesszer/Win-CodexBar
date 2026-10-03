@@ -1,5 +1,4 @@
 import { useState } from "react";
-import type { GrokAccount, GrokAccountUsage } from "../../../../../types/bridge";
 import type { LocaleKey } from "../../../../../i18n/keys";
 import {
   grokAccountAdd,
@@ -7,23 +6,28 @@ import {
   grokAccountSaveCurrent,
   grokAccountRemove,
   grokAccountSwitch,
+  grokAccountReauthenticate,
 } from "../../../../../lib/tauri";
 import { useGrokAccounts } from "../../../../../hooks/useGrokAccounts";
+import GrokAccountUsageDetails from "../../../../../components/GrokAccountUsageDetails";
 
 export function GrokAccountsSection({ t }: { t: (key: LocaleKey) => string }) {
   const [loggingIn, setLoggingIn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const { accounts, usage, busy, error, reportError, run } = useGrokAccounts();
-  const runOperation = (operation: () => Promise<void>, success?: LocaleKey) =>
+  const { accounts, usage, busy, error, reportError, run, reload } = useGrokAccounts();
+  const runOperation = (operation: () => Promise<void>, success?: LocaleKey) => {
+    setMessage(null);
     void run(
       operation,
       success ? () => setMessage(t(success)) : undefined,
       () => setLoggingIn(false),
     );
+  };
   return (
     <section className="provider-detail-section codex-accounts">
       <h4>{t("GrokAccountsTitle")}</h4>
       <p className="settings-section__hint">{t("GrokAccountsHint")}</p>
+      <p className="settings-section__hint">{t("GrokAccountsSourceHint")}</p>
       {error && (
         <div className="provider-detail-error" role="alert">
           {error}
@@ -43,8 +47,9 @@ export function GrokAccountsSection({ t }: { t: (key: LocaleKey) => string }) {
               <div className="credential-card__info">
                 <strong>{account.email}</strong>
                 <span className="credential-card__meta">
-                  {usageLabel(account, usage[account.id])}
+                  {usage[account.id]?.plan || account.plan}
                 </span>
+                <GrokAccountUsageDetails snapshot={usage[account.id]} t={t} />
                 {account.isActive && (
                   <span className="credential-card__badge credential-card__badge--set">
                     {t("TokenAccountActive")}
@@ -52,20 +57,29 @@ export function GrokAccountsSection({ t }: { t: (key: LocaleKey) => string }) {
                 )}
               </div>
               <div className="credential-card__actions">
-                {!account.isActive && account.isSaved && (
+                {!account.isActive && account.isSaved && usage[account.id]?.status !== "signInRequired" && (
                   <button
                     className="credential-btn credential-btn--primary"
-                    disabled={busy}
+                    disabled={busy || usage[account.id]?.status === "signInRequired" || usage[account.id]?.status === "loading"}
                     onClick={() =>
-                      run(
+                      runOperation(
                         () => grokAccountSwitch(account.id),
-                        () => setMessage(t("GrokAccountsSwitched")),
+                        "GrokAccountsSwitched",
                       )
                     }
                   >
                     {t("CodexAccountsSwitchButton")}
                   </button>
                 )}
+                {usage[account.id]?.status === "signInRequired" && <button
+                  className="credential-btn credential-btn--primary" disabled={busy}
+                  onClick={() => {
+                    setMessage(null);
+                    setLoggingIn(true);
+                    runOperation(() => grokAccountReauthenticate(account.id), "GrokAccountsReauthenticated");
+                  }}>
+                  {t("GrokAccountsSignInAgain")}
+                </button>}
                 {!account.isSaved && (
                   <button
                     className="credential-btn credential-btn--secondary"
@@ -89,6 +103,7 @@ export function GrokAccountsSection({ t }: { t: (key: LocaleKey) => string }) {
           </li>
         ))}
       </ul>
+      <button className="credential-btn credential-btn--secondary" disabled={busy} onClick={() => void reload()}>{t("GrokUsageRetry")}</button>
       <button
         className="credential-btn credential-btn--primary"
         disabled={busy}
@@ -111,13 +126,4 @@ export function GrokAccountsSection({ t }: { t: (key: LocaleKey) => string }) {
       )}
     </section>
   );
-}
-
-function usageLabel(account: GrokAccount, snapshot?: GrokAccountUsage): string {
-  const plan = snapshot?.plan || account.plan || "";
-  const percent =
-    snapshot?.usageAvailable && snapshot.usedPercent != null
-      ? `${Math.round(snapshot.usedPercent)}%`
-      : null;
-  return [plan, percent].filter(Boolean).join(" · ");
 }

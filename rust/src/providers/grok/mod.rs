@@ -95,7 +95,14 @@ impl GrokProvider {
         self
     }
 
-    fn load_credentials(kind: GrokAuthKind) -> Result<GrokCredentials, ProviderError> {
+    async fn load_credentials(kind: GrokAuthKind) -> Result<GrokCredentials, ProviderError> {
+        if kind == GrokAuthKind::OAuth {
+            let text = accounts::AccountManager::new()
+                .map_err(|_| ProviderError::AuthRequired)?
+                .ambient_auth_text_for_usage()
+                .await?;
+            return GrokCredentials::parse_for_kind(&text, kind);
+        }
         let path = Self::auth_file_path()
             .ok_or_else(|| ProviderError::NotInstalled("Grok auth path not found".to_string()))?;
         let text = std::fs::read_to_string(&path).map_err(|_| {
@@ -108,15 +115,21 @@ impl GrokProvider {
         &self,
         text: &str,
     ) -> Result<crate::providers::grok::accounts::GrokAccountUsage, ProviderError> {
-        let (credentials, kind) =
-            if let Ok(credentials) = GrokCredentials::parse_for_kind(text, GrokAuthKind::OAuth) {
-                (credentials, GrokAuthKind::OAuth)
-            } else {
-                (
-                    GrokCredentials::parse_for_kind(text, GrokAuthKind::Cli)?,
-                    GrokAuthKind::Cli,
-                )
-            };
+        // A saved row identifies its OAuth entry. An expired OAuth login must
+        // not fall back to a different CLI identity in the same auth file.
+        let parsed =
+            ParsedGrokAuthFile::parse(text).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        let kind = if parsed
+            .view()
+            .map_err(|e| ProviderError::Parse(e.to_string()))?
+            .select(GrokAuthKind::OAuth)
+            .is_some()
+        {
+            GrokAuthKind::OAuth
+        } else {
+            GrokAuthKind::Cli
+        };
+        let credentials = GrokCredentials::parse_for_kind(text, kind)?;
         let result = self
             .fetch_with_auth(&credentials, kind, &FetchContext::default())
             .await?;
@@ -267,8 +280,7 @@ impl GrokProvider {
                 .is_some_and(|token| !token.trim().is_empty()),
             ctx.manual_cookie_header
                 .as_deref()
-                .is_some_and(|cookie| !cookie.trim().is_empty())
-                && allow_browser_cookie_fallback,
+                .is_some_and(|cookie| !cookie.trim().is_empty()),
             allow_browser_cookie_fallback,
         ) {
             match step {
@@ -308,7 +320,7 @@ impl GrokProvider {
         kind: GrokAuthKind,
         ctx: &FetchContext,
     ) -> Option<Result<ProviderFetchResult, ProviderError>> {
-        let credentials = Self::load_credentials(kind).ok()?;
+        let credentials = Self::load_credentials(kind).await.ok()?;
         match self.fetch_with_auth(&credentials, kind, ctx).await {
             Ok(result) => Some(Ok(result)),
             Err(ProviderError::AuthRequired) => None,
@@ -567,14 +579,14 @@ impl Provider for GrokProvider {
                 self.fetch_with_cookie_refresh(ctx).await
             }
             SourceMode::Cli => {
-                let credentials = Self::load_credentials(GrokAuthKind::Cli)?;
+                let credentials = Self::load_credentials(GrokAuthKind::Cli).await?;
                 self.fetch_with_auth(&credentials, GrokAuthKind::Cli, ctx)
                     .await
             }
             SourceMode::OAuth => {
                 // Prefer the switched ~/.grok/auth.json over a leftover token
                 // account so Weekly/notifications follow Grok account Switch.
-                let credentials = match Self::load_credentials(GrokAuthKind::OAuth) {
+                let credentials = match Self::load_credentials(GrokAuthKind::OAuth).await {
                     Ok(credentials) => credentials,
                     Err(error) => {
                         let Some(token) = ctx.api_key.as_deref() else {
@@ -631,7 +643,8 @@ fn grok_auto_steps(
     if has_api_key {
         steps.push(GrokAutoStep::ApiKey);
     }
-    if has_manual_cookie && allow_browser_cookie_fallback {
+    // Explicit cookies remain available even when automatic browser discovery is disabled.
+    if has_manual_cookie {
         steps.push(GrokAutoStep::ManualCookie);
     }
     if allow_browser_cookie_fallback {
@@ -754,8 +767,13 @@ fn account_usage_from_result(
     result: &ProviderFetchResult,
 ) -> crate::providers::grok::accounts::GrokAccountUsage {
     let primary = &result.usage.primary;
-    let usage_available = !primary.is_informational;
+    let usage_available = !primary.is_informational && primary.used_percent.is_finite();
     crate::providers::grok::accounts::GrokAccountUsage {
+        status: if usage_available {
+            accounts::GrokUsageStatus::Ready
+        } else {
+            accounts::GrokUsageStatus::Unavailable
+        },
         usage_available,
         used_percent: usage_available.then_some(primary.used_percent),
         plan: result

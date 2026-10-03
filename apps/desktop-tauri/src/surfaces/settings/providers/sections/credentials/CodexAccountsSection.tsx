@@ -317,13 +317,21 @@ function CodexUsagePill({
   snapshot: CodexAccountUsageSnapshot;
   t: (key: LocaleKey) => string;
 }) {
-  const window = snapshot.primaryWindow;
-  const percent = window ? Math.round(window.usedPercent) : null;
   const plan = snapshot.plan ?? "";
   const blocked = snapshot.allowed === false || snapshot.limitReached === true;
-  const label = [plan, percent !== null ? `${percent}%` : null]
-    .filter(Boolean)
-    .join(" · ");
+  const windows = [snapshot.primaryWindow, snapshot.secondaryWindow]
+    .filter((window): window is NonNullable<typeof window> => window != null)
+    .map((window) => {
+      const pct = `${Math.round(window.usedPercent)}%`;
+      if (window.limitWindowSeconds % 86_400 === 0) {
+        return `${window.limitWindowSeconds / 86_400}d ${pct}`;
+      }
+      if (window.limitWindowSeconds % 3_600 === 0) {
+        return `${window.limitWindowSeconds / 3_600}h ${pct}`;
+      }
+      return pct;
+    });
+  const label = [plan, ...windows].filter(Boolean).join(" · ");
   return (
     <span className={blocked ? "codex-usage codex-usage--blocked" : "codex-usage"}>
       {label || t("CodexAccountsUsageUnavailable")}

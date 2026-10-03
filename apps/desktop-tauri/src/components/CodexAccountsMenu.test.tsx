@@ -124,6 +124,49 @@ describe("CodexAccountsMenu", () => {
     expect((fills[1] as HTMLElement).style.width).toBe("70%");
   });
 
+  it("renders both five-hour and weekly usage bars when both windows exist", async () => {
+    const both: CodexAccountUsageSnapshot = {
+      email: "both@example.com",
+      providerAccountId: null,
+      plan: "plus",
+      allowed: true,
+      limitReached: false,
+      primaryWindow: {
+        usedPercent: 14,
+        resetAt: "2030-01-02T03:04:00Z",
+        limitWindowSeconds: 18_000,
+      },
+      secondaryWindow: {
+        usedPercent: 93,
+        resetAt: "2030-01-08T03:04:00Z",
+        limitWindowSeconds: 604_800,
+      },
+      credits: null,
+      updatedAt: "2024-01-01T00:00:00Z",
+    };
+    const { container } = renderMenu(false, {
+      accounts: [account("1", { source: "ambient" }), account("2")],
+      accountOrdinals: { "1": 1, "2": 2 },
+      snapshots: { "1": both },
+    }, false);
+    await screen.findByText("user-1@example.com");
+    expect(screen.getByText("14% PanelUsedSuffix")).toBeInTheDocument();
+    expect(screen.getByText("93% PanelUsedSuffix")).toBeInTheDocument();
+    const fills = container.querySelectorAll(".codex-menu-accounts__bar-fill");
+    expect(fills.length).toBe(2);
+    expect((fills[0] as HTMLElement).style.width).toBe("14%");
+    expect((fills[1] as HTMLElement).style.width).toBe("93%");
+    expect((fills[1] as HTMLElement).dataset.level).toBe("critical");
+    expect(screen.getByText("5h")).toBeInTheDocument();
+    expect(screen.getByText("7d")).toBeInTheDocument();
+    for (const resetAt of [both.primaryWindow!.resetAt!, both.secondaryWindow!.resetAt!]) {
+      const formatted = new Intl.DateTimeFormat(undefined, {
+        month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      }).format(new Date(resetAt));
+      expect(screen.getByText(`MetricResetsIn ${formatted}`)).toBeInTheDocument();
+    }
+  });
+
   it("renders a usage bar from a weekly-only snapshot (primaryWindow: null)", async () => {
     const weeklyOnly: CodexAccountUsageSnapshot = {
       email: "weekly@example.com",
@@ -201,6 +244,7 @@ describe("CodexAccountsMenu", () => {
     });
     expect(tauriMocks.codexAccountSwitch).toHaveBeenCalledWith("2");
     expect(tauriMocks.refreshProviders).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("CodexAccountsSwitchedHint")).toBeInTheDocument();
   });
   it("uses an opaque ordinal for every account while hideEmail is on", async () => {
     const { container: hidden } = renderMenu(true, {

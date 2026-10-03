@@ -1,3 +1,10 @@
+## [Unreleased]
+
+### Improved
+- Keep saved Grok account usage tied to its login, renew expiring credentials, and coordinate optional account selection and reconnects with Orca.
+- Show both Codex account quota windows, expand account lists by default, and place Grok refresh in its card header.
+- Open desktop launches near the cursor while retaining the current foreground activation policy.
+
 # Changelog
 
 ## [Windows] 0.70.0 - 2026-10-03
@@ -135,6 +142,7 @@ allowances and per-model spending, clearer account switching, and steadier
 menu-bar layout.
 
 ### Added
+- Codex accounts: show both five-hour and weekly usage windows with independent reset times in the tray, and include both limits in Settings.
 - Cost history: add provider-scoped, display-only Codex and Claude quota-window projection primitives with exact reset boundaries, independent token/cost completeness, and backward-compatible local evidence handling.
 - Provider charts: show recent Codex and Claude quota-window history with explicit account scope and estimated-boundary markers; historical data remains display-only.
 - Grok: Settings and tray **Add account** flow matching Codex/Claude — isolated `grok login --oauth`, save current CLI login, switch, and remove without logging out the active session.

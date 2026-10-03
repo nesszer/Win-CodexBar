@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { GrokAccount, GrokAccountUsage } from "../types/bridge";
+import type { GrokAccount, GrokAccountUsage, ProviderUsageSnapshot } from "../types/bridge";
 import {
   grokAccountFetch,
   grokAccountsList,
@@ -13,6 +13,7 @@ export function useGrokAccounts({ reloadOnFocus = false }: { reloadOnFocus?: boo
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(false);
   const reloadSequence = useRef(0);
+  const mutationInFlight = useRef(false);
 
   const reportError = useCallback((value: unknown, sequence = reloadSequence.current) => {
     if (mounted.current && sequence === reloadSequence.current) setError(String(value));
@@ -22,20 +23,26 @@ export function useGrokAccounts({ reloadOnFocus = false }: { reloadOnFocus?: boo
     const sequence = ++reloadSequence.current;
     try {
       const next = await grokAccountsList();
-      const snapshots: Record<string, GrokAccountUsage> = {};
+      if (!mounted.current || sequence !== reloadSequence.current) return false;
+      setAccounts(next);
+      setError(null);
+      setUsage((previous) => Object.fromEntries(next.map((account) => [account.id, {
+        ...(previous[account.id] ?? { usageAvailable: false, usedPercent: null, plan: null, windowMinutes: null, resetsAt: null }), status: "loading",
+      }])));
       await Promise.all(
         next.map(async (account) => {
+          let snapshot: GrokAccountUsage;
           try {
-            snapshots[account.id] = await grokAccountFetch(account.id);
+            snapshot = await grokAccountFetch(account.id);
           } catch {
-            // Keep the account row even if that login's usage fetch fails.
+            snapshot = { status: "failed", usageAvailable: false, usedPercent: null, plan: null, windowMinutes: null, resetsAt: null };
+          }
+          if (mounted.current && sequence === reloadSequence.current) {
+            setUsage((previous) => ({ ...previous, [account.id]: snapshot }));
           }
         }),
       );
       if (!mounted.current || sequence !== reloadSequence.current) return false;
-      setAccounts(next);
-      setUsage(snapshots);
-      setError(null);
       return true;
     } catch (value) {
       reportError(value, sequence);
@@ -48,11 +55,15 @@ export function useGrokAccounts({ reloadOnFocus = false }: { reloadOnFocus?: boo
     const refresh = () => void reload();
     refresh();
     const unlisten = listen("grok-accounts-updated", refresh);
+    const unlistenProvider = listen<ProviderUsageSnapshot>("provider-updated", ({ payload }) => {
+      if (payload.providerId === "grok") refresh();
+    });
     if (reloadOnFocus) window.addEventListener("focus", refresh);
     return () => {
       mounted.current = false;
       if (reloadOnFocus) window.removeEventListener("focus", refresh);
       void unlisten.then((dispose) => dispose()).catch(() => {});
+      void unlistenProvider.then((dispose) => dispose()).catch(() => {});
     };
   }, [reload, reloadOnFocus, reportError]);
 
@@ -62,6 +73,8 @@ export function useGrokAccounts({ reloadOnFocus = false }: { reloadOnFocus?: boo
       onSuccess?: () => void,
       onFinally?: () => void,
     ) => {
+      if (mutationInFlight.current) return false;
+      mutationInFlight.current = true;
       setBusy(true);
       setError(null);
       try {
@@ -73,6 +86,7 @@ export function useGrokAccounts({ reloadOnFocus = false }: { reloadOnFocus?: boo
         reportError(value);
         return false;
       } finally {
+        mutationInFlight.current = false;
         if (mounted.current) {
           setBusy(false);
           onFinally?.();

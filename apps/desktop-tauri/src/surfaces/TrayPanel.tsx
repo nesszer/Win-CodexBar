@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot, UsageSpendSummary } from "../types/bridge";
 import type { LocaleKey } from "../i18n/keys";
-import { costPeriodLabel, costPeriodShortLabel } from "../lib/costPeriod";
+import { costPeriodShortLabel } from "../lib/costPeriod";
 import { useCurrency } from "../hooks/CurrencyProvider";
 import { sumDisplayCurrencyAmounts } from "../lib/currency";
 import {
@@ -25,10 +25,7 @@ import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid from "../components/ProviderGrid";
 import AgentSessions from "../components/AgentSessions";
 import { hasSuccessfulClaudeCliQuota } from "../lib/claudeAccountActions";
-import {
-  filterUsageSpendSummaryForOverview,
-  shareUsageSpendPng,
-} from "../lib/usageSpendSharing";
+import { filterUsageSpendSummaryForOverview } from "../lib/usageSpendSharing";
 
 /** Provider IDs that have a dashboard URL in the backend */
 const HAS_DASHBOARD = new Set([
@@ -352,9 +349,8 @@ function OverviewSpendSummary({
   period?: string;
   t: (key: LocaleKey) => string;
 }) {
-  const { preferredCode, rates, format } = useCurrency();
+  const { preferredCode, rates } = useCurrency();
   const [summary, setSummary] = useState<UsageSpendSummary | null>(null);
-  const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -373,16 +369,6 @@ function OverviewSpendSummary({
   // The summary names the History window its period columns cover.
   const summaryPeriod = overviewSummary.reportingPeriod;
   const title = t("OverviewSpendPeriodTitle").replace("{}", costPeriodShortLabel(summaryPeriod, t));
-  const onShare = () => {
-    setShareError(null);
-    const error = shareUsageSpendPng(
-      overviewSummary,
-      title,
-      `codexbar-overview-usage-${overviewSummary.reportingDay}.png`,
-      costPeriodLabel(summaryPeriod, t),
-    );
-    if (error) setShareError(t(error as LocaleKey));
-  };
 
   const rows = overviewSummary.rows;
   const target = preferredCode.trim().toUpperCase() || "AUTO";
@@ -407,19 +393,6 @@ function OverviewSpendSummary({
       <div className="settings-section__caption" style={{ marginTop: 4 }}>
         {aggregate.included} of {aggregate.considered} {t("OverviewSpendProviderCoverage")} · {t("OverviewSpendEstimate")}
       </div>
-      <button
-        type="button"
-        className="credential-btn credential-btn--secondary"
-        style={{ marginTop: 8 }}
-        onClick={onShare}
-      >
-        {t("UsageSpendShare")}
-      </button>
-      {shareError && (
-        <div className="settings-section__caption" role="status" style={{ marginTop: 4 }}>
-          {shareError}
-        </div>
-      )}
     </div>
   );
 }
