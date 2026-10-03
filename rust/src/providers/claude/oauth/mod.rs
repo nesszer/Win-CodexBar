@@ -280,6 +280,16 @@ fn refresh_cooldown_message() -> String {
         .to_string()
 }
 
+// The shared renewal path returns OAuth only for a terminal grant rejection;
+// its other outcome is OAuthTransient. Preserve that distinction for saved
+// account rows without changing the ambient provider's fallback behavior.
+fn account_refresh_error(error: ProviderError) -> ProviderError {
+    match error {
+        ProviderError::OAuth(message) => ProviderError::OAuthRevoked(message),
+        other => other,
+    }
+}
+
 impl ClaudeOAuthFetcher {
     const USAGE_URL: &'static str = "https://api.anthropic.com/api/oauth/usage";
     const DEFAULT_RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(5 * 60);
@@ -306,6 +316,7 @@ impl ClaudeOAuthFetcher {
                 source,
                 account_manager.as_ref(),
                 saved_account_id.as_deref(),
+                true,
             )
             .await;
         // Still-expired credentials with a terminal/gated refresh state get the
@@ -317,6 +328,59 @@ impl ClaudeOAuthFetcher {
             return Err(error);
         }
         self.fetch_with_credentials(credentials).await
+    }
+
+    /// Fetch a saved account directly; never switch Claude Code to obtain usage.
+    pub async fn fetch_account(&self, id: &str) -> Result<ProviderFetchResult, ProviderError> {
+        if !super::claude_code_consent() {
+            return Err(ProviderError::OAuth(
+                "Enable Allow reading Claude Code's credentials in Settings to check saved accounts.".into(),
+            ));
+        }
+        let _operation = super::accounts::CREDENTIAL_OPERATION.lock().await;
+        let manager = super::accounts::AccountManager::new()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let (oauth, active) = manager
+            .usage_credentials(id)
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let oauth = oauth.to_string();
+        let source = credentials_store::CredentialSource::saved_account(
+            manager.usage_source_path(),
+            id,
+            &oauth,
+        );
+        let credentials = credentials_store::parse_credentials_json(&oauth)?;
+        let (credentials, outcome) = self
+            .ensure_fresh_credentials(
+                credentials,
+                source.clone(),
+                Some(&manager),
+                Some(id),
+                active,
+            )
+            .await;
+        if credentials.is_expired()
+            && let Some(error) = outcome
+        {
+            return Err(account_refresh_error(error));
+        }
+        let result = self.fetch_with_credentials(credentials.clone()).await;
+        // Unknown expiry metadata and early server expiry still get one renewal.
+        if matches!(&result, Err(ProviderError::OAuthExpired(_)))
+            && credentials.refresh_token.is_some()
+        {
+            let mut expired = credentials;
+            expired.expires_at = Some(Utc::now());
+            credentials_store::store_refreshed(&source, &expired);
+            let (refreshed, outcome) = self
+                .ensure_fresh_credentials(expired, source, Some(&manager), Some(id), active)
+                .await;
+            if let Some(error) = outcome {
+                return Err(account_refresh_error(error));
+            }
+            return self.fetch_with_credentials(refreshed).await;
+        }
+        result
     }
 
     /// Fetch usage with an explicit OAuth access token.
@@ -367,6 +431,7 @@ impl ClaudeOAuthFetcher {
         source: credentials_store::CredentialSource,
         account_manager: Option<&super::accounts::AccountManager>,
         saved_account_id: Option<&str>,
+        write_ambient: bool,
     ) -> (ClaudeOAuthCredentials, Option<ProviderError>) {
         // Prefer an in-memory refreshed token if it is fresher than what we just
         // read from disk (covers a prior persist that failed to write). Scoped
@@ -384,7 +449,12 @@ impl ClaudeOAuthFetcher {
 
         if !credentials.is_expired() {
             if recovered_from_cache {
-                self.persist_refreshed_state(&credentials, account_manager, saved_account_id);
+                self.persist_refreshed_state(
+                    &credentials,
+                    account_manager,
+                    saved_account_id,
+                    write_ambient,
+                );
             }
             return (credentials, None);
         }
@@ -414,7 +484,12 @@ impl ClaudeOAuthFetcher {
             Ok(refreshed) => {
                 clear_refresh_backoff(&source);
                 credentials_store::store_refreshed(&source, &refreshed);
-                self.persist_refreshed_state(&refreshed, account_manager, saved_account_id);
+                self.persist_refreshed_state(
+                    &refreshed,
+                    account_manager,
+                    saved_account_id,
+                    write_ambient,
+                );
                 tracing::debug!("Refreshed expired Claude OAuth token");
                 (refreshed, None)
             }
@@ -437,11 +512,12 @@ impl ClaudeOAuthFetcher {
     /// Reconcile the saved account before the live credentials file. If either
     /// write fails, the in-memory refreshed value remains newer than disk and
     /// the next poll retries this same path without rotating the token again.
-    fn persist_refreshed_state(
+    pub(super) fn persist_refreshed_state(
         &self,
         refreshed: &ClaudeOAuthCredentials,
         account_manager: Option<&super::accounts::AccountManager>,
         saved_account_id: Option<&str>,
+        write_ambient: bool,
     ) {
         if let (Some(manager), Some(account_id)) = (account_manager, saved_account_id) {
             let refreshed_oauth = Self::refreshed_oauth_value(refreshed);
@@ -453,7 +529,15 @@ impl ClaudeOAuthFetcher {
             }
         }
 
-        if let Err(err) = credentials_store::persist_refreshed_credentials(refreshed) {
+        let still_active = saved_account_id.is_none_or(|id| {
+            account_manager.is_some_and(|manager| {
+                manager.current_account_id().ok().flatten().as_deref() == Some(id)
+            })
+        });
+        if write_ambient
+            && still_active
+            && let Err(err) = credentials_store::persist_refreshed_credentials(refreshed)
+        {
             tracing::debug!("Claude OAuth token refreshed but could not persist: {err}");
         }
     }

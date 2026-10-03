@@ -81,7 +81,7 @@ describe("CodexAccountsSection", () => {
     expect(screen.getByText("user-2@example.com")).toBeDefined();
     expect(screen.getByText("CodexAccountsSourceManaged")).toBeDefined();
     expect(screen.getByText("CodexAccountsSourceAmbient")).toBeDefined();
-    expect(screen.getAllByText("CodexAccountsReauthenticateButton")).toHaveLength(1);
+    expect(screen.queryByText("CodexAccountsReauthenticateButton")).toBeNull();
   });
 
   it("redacts every row (ambient + managed) when privacy is on", async () => {
@@ -157,10 +157,10 @@ describe("CodexAccountsSection", () => {
     });
   });
 
-  it("offers ambient reauthentication and reloads the account state", async () => {
-    const ambient = account("ambient", { source: "ambient" });
+  it.each(["ambient", "managedByApp"] as const)("offers %s reauthentication and reloads the account state", async (source) => {
+    const ambient = account("ambient", { source });
     tauriMocks.getCodexAccountsState
-      .mockResolvedValueOnce({ accounts: [ambient], accountOrdinals: { ambient: 1 }, snapshots: {} } as CodexAccountsStateBridge)
+      .mockResolvedValueOnce({ accounts: [ambient], accountOrdinals: { ambient: 1 }, snapshots: {}, needsAuthentication: { ambient: true } } as CodexAccountsStateBridge)
       .mockResolvedValueOnce({ accounts: [ambient], accountOrdinals: { ambient: 1 }, snapshots: { ambient: snapshot(12) } } as CodexAccountsStateBridge);
     tauriMocks.codexAccountReauthenticate.mockResolvedValue(ambient);
 
@@ -172,6 +172,7 @@ describe("CodexAccountsSection", () => {
     });
 
     expect(tauriMocks.codexAccountReauthenticate).toHaveBeenCalledTimes(1);
+    expect(tauriMocks.codexAccountReauthenticate).toHaveBeenCalledWith("ambient");
     await waitFor(() => {
       expect(screen.getByText("free · 12%")).toBeDefined();
     });

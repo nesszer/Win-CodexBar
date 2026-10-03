@@ -586,7 +586,8 @@ describe("FloatBar", () => {
 
     await waitFor(() => {
       const pill = container.querySelector(".floatbar__pill");
-      expect(pill?.textContent).toContain("Usage unavailable");
+      expect(pill?.textContent).toContain("!");
+      expect(pill?.querySelector(".floatbar__pct")?.getAttribute("aria-label")).toBe("Usage unavailable");
       expect(pill?.getAttribute("title")).toBe("Gemini: Usage unavailable");
       expect(pill?.textContent).not.toContain("super-secret");
       expect(pill?.getAttribute("title")).not.toContain("private.example.test");
@@ -606,7 +607,8 @@ describe("FloatBar", () => {
 
     await waitFor(() => {
       const pill = container.querySelector(".floatbar__pill");
-      expect(pill?.textContent).toContain("Sign-in required");
+      expect(pill?.textContent).toContain("!");
+      expect(pill?.querySelector(".floatbar__pct")?.getAttribute("aria-label")).toBe("Sign-in required");
       expect(pill?.textContent).not.toContain("12%");
       expect(pill?.getAttribute("title")).toBe("GitHub Copilot: Sign-in required");
     });
@@ -625,6 +627,25 @@ describe("FloatBar", () => {
         .querySelector(".floatbar__pill")
         ?.getAttribute("title");
       expect(title).toContain("Claude: 80% remaining");
+    });
+  });
+
+  it("preserves the previous percentage space when a session expires", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([snapshot("codex", "Codex", 100)]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ enabledProviders: ["codex"] }));
+    const { container } = renderFloatBar(bootstrap({ enabledProviders: ["codex"] }));
+    await waitFor(() => expect(container.querySelector(".floatbar__pct")?.textContent).toBe("100%"));
+    const updated = eventMocks.listen.mock.calls.find(([name]) => name === "provider-updated")?.[1];
+    await act(async () => {
+      updated({ payload: snapshot("codex", "Codex", 0, { errorState: "expiredSession", error: "expired" }) });
+    });
+    await waitFor(() => {
+      const pct = container.querySelector(".floatbar__pct");
+      const placeholder = pct?.querySelector<HTMLElement>("span[aria-hidden]");
+      expect(placeholder?.textContent).toBe("100%");
+      expect(placeholder?.style.visibility).toBe("hidden");
+      expect(pct?.getAttribute("aria-label")).toBe("Session expired");
+      expect(pct?.querySelector(".floatbar__warning")?.textContent).toBe("!");
     });
   });
 

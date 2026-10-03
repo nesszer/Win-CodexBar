@@ -178,9 +178,15 @@ body.floatbar-window #root {
   line-height: 1;
 }
 .floatbar__pct {
+  position: relative;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   line-height: 1;
+}
+.floatbar__warning {
+  position: absolute;
+  inset: 0;
+  text-align: center;
 }
 .floatbar__reset {
   display: inline-flex;

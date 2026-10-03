@@ -3988,12 +3988,21 @@ html:has(.menu-surface--tray) {
   flex-shrink: 0;
   font-size: 0.68rem;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 2px 6px;
+  white-space: nowrap;
   border-radius: 5px;
   color: var(--text-primary);
   background: transparent;
   border: 1px solid var(--provider-row-divider, rgba(128, 128, 128, 0.3));
   cursor: pointer;
+}
+
+.codex-menu-accounts__row-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
 }
 
 .codex-menu-accounts__switch:hover:not(:disabled) {
@@ -6030,3 +6039,28 @@ button, input, select, textarea {
 .select {
   max-width: 240px;
 }
+
+/* Account login actions follow each provider's account list. */
+.codex-menu-accounts__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.codex-menu-accounts__usage {
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.codex-menu-accounts__action {
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.codex-menu-accounts__action:disabled { opacity: 0.5; cursor: default; }

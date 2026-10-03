@@ -176,7 +176,7 @@ pub(crate) fn handle_action(app: &AppHandle, action: AccountMenuAction) {
                 use tauri_plugin_dialog::DialogExt;
                 let (result, message) = match action {
                     AccountMenuAction::AddClaudeAccount => (
-                        crate::commands::claude_account_add(handle.clone()).await,
+                        crate::commands::claude_account_add(handle.clone(), None).await,
                         "Claude Code account added. Select it to switch.",
                     ),
                     AccountMenuAction::SaveClaudeAccount => (

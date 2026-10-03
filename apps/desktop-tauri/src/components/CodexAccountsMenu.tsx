@@ -7,29 +7,28 @@ import type {
 } from "../types/bridge";
 import { useLocale } from "../hooks/useLocale";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
+import ProviderAccountsMenu from "./ProviderAccountsMenu";
 import { buildCodexAccountSurfaceLabels } from "./codexAccountDisplay";
 import {
+  codexAccountAdd,
+  codexAccountReauthenticate,
   codexAccountSwitch,
   getCodexAccountsState,
   refreshProviders,
 } from "../lib/tauri";
 
-/**
- * Multi-account lane surface for the Codex tray menu card (ADR 0003,
- * option A). Renders only when more than one Codex account exists, so the
- * common single-account menu stays unchanged (single-account fallback).
- *
- * Shows every account (ambient + managed) with a compact usage bar and a
- * Switch action. Switching updates the ambient identity and triggers a
- * provider refresh so the tray icon/menu reflect the now-active account.
- */
+/** Visible account overview and login actions for the Codex tray card. */
 export default function CodexAccountsMenu({
   hideEmail,
   resetTimeRelative,
+  showAsUsed = false,
+  needsAuthentication = false,
   onLayoutChange,
 }: {
   hideEmail: boolean;
   resetTimeRelative: boolean;
+  showAsUsed?: boolean;
+  needsAuthentication?: boolean;
   onLayoutChange?: () => void;
 }) {
   const { t } = useLocale();
@@ -39,11 +38,15 @@ export default function CodexAccountsMenu({
   >({});
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
   const [accountOrdinals, setAccountOrdinals] = useState<Record<string, number>>({});
-  const [busy, setBusy] = useState(false);
+  const [accountNeedsAuthentication, setAccountNeedsAuthentication] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const busy = loading || pending;
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setBusy(true);
+    setLoading(true);
     setError(null);
     try {
       const next: CodexAccountsStateBridge = await getCodexAccountsState();
@@ -51,10 +54,11 @@ export default function CodexAccountsMenu({
       setDisplayNames(next.displayNames ?? {});
       setAccountOrdinals(next.accountOrdinals);
       setSnapshots(next.snapshots);
+      setAccountNeedsAuthentication(next.needsAuthentication ?? {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   }, []);
 
@@ -64,7 +68,7 @@ export default function CodexAccountsMenu({
 
   useEffect(() => {
     onLayoutChange?.();
-  }, [accounts.length, error, onLayoutChange]);
+  }, [accounts, snapshots, error, pending, onLayoutChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,24 +81,24 @@ export default function CodexAccountsMenu({
     };
   }, [load]);
 
-  const handleSwitch = async (id: string) => {
-    setBusy(true);
+  const run = async (action: () => Promise<unknown>, login = false) => {
+    setSigningIn(login);
+    setPending(true);
     setError(null);
     try {
-      await codexAccountSwitch(id);
+      await action();
       await load();
-      // Make the tray icon/menu reflect the newly active ambient identity.
       void refreshProviders().catch(() => {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setPending(false);
+      setSigningIn(false);
     }
   };
 
-  if (accounts.length <= 1) {
-    return null;
-  }
+  const handleSwitch = (id: string) => run(() => codexAccountSwitch(id));
+  const ambient = accounts.find((account) => account.source === "ambient");
 
   const accountDisplayNames = buildCodexAccountSurfaceLabels(
     accounts,
@@ -105,34 +109,56 @@ export default function CodexAccountsMenu({
   );
 
   return (
-    <details className="codex-menu-accounts" onToggle={onLayoutChange}>
-      <summary className="codex-menu-accounts__summary">
-        <span className="codex-menu-accounts__title">{t("CodexAccountsTitle")}</span>
-        <span className="codex-menu-accounts__count">{accounts.length}</span>
-      </summary>
+    <ProviderAccountsMenu
+      title={t("CodexAccountsTitle")}
+      count={accounts.length}
+      aria-busy={busy}
+      onLayoutChange={onLayoutChange}
+      actions={<>
+        <button
+          type="button"
+          className="codex-menu-accounts__action"
+          disabled={busy}
+          onClick={() => void run(codexAccountAdd, true)}
+        >
+          {t(needsAuthentication && !ambient ? "CodexAccountsSignInButton" : "CodexAccountsAddButton")}
+        </button>
+      </>}
+    >
+
+      {pending && (
+        <div className="codex-menu-accounts__usage" role="status">
+          {t(signingIn ? "CodexAccountsSigningIn" : "TrayLoading")}
+        </div>
+      )}
       {error && (
         <div className="codex-menu-accounts__error" role="alert">
           {error}
         </div>
       )}
-      <ul className="codex-menu-accounts__list">
-        {accounts.map((account) => {
-          const label = accountDisplayNames[account.id];
-          return (
-            <CodexAccountRow
-              key={account.id}
-              account={account}
-              snapshot={snapshots[account.id]}
-              displayName={label}
-              tooltip={label}
-              resetTimeRelative={resetTimeRelative}
-              busy={busy}
-              onSwitch={handleSwitch}
-            />
-          );
-        })}
-      </ul>
-    </details>
+      {accounts.length > 0 && (
+        <ul className="codex-menu-accounts__list">
+          {accounts.map((account) => {
+            const label = accountDisplayNames[account.id];
+            return (
+              <CodexAccountRow
+                key={account.id}
+                account={account}
+                snapshot={snapshots[account.id]}
+                displayName={label}
+                tooltip={label}
+                showAsUsed={showAsUsed}
+                resetTimeRelative={resetTimeRelative}
+                busy={busy}
+                needsAuthentication={accountNeedsAuthentication[account.id] ?? (account.source === "ambient" && needsAuthentication)}
+                onSwitch={handleSwitch}
+                onReauthenticate={(id) => run(() => codexAccountReauthenticate(id), true)}
+              />
+            );
+          })}
+        </ul>
+      )}
+    </ProviderAccountsMenu>
   );
 }
 
@@ -141,36 +167,25 @@ function CodexAccountRow({
   snapshot,
   displayName,
   tooltip,
+  showAsUsed,
   resetTimeRelative,
   busy,
+  needsAuthentication,
   onSwitch,
+  onReauthenticate,
 }: {
   account: CodexAccount;
   snapshot: CodexAccountUsageSnapshot | undefined;
   displayName: string;
   tooltip: string;
+  showAsUsed: boolean;
   resetTimeRelative: boolean;
   busy: boolean;
+  needsAuthentication: boolean;
   onSwitch: (id: string) => Promise<void>;
+  onReauthenticate: (id: string) => Promise<void>;
 }) {
   const { t } = useLocale();
-  // Prefer the primary (normally five-hour) window. Accounts whose backend
-  // only returns a weekly window have primaryWindow: null, so keep the
-  // existing secondary-window fallback for their bar and reset detail.
-  const usageWindow =
-    snapshot?.primaryWindow ?? snapshot?.secondaryWindow ?? null;
-  const pct = usageWindow ? Math.round(usageWindow.usedPercent) : null;
-  const resetText = useFormattedResetTime(
-    usageWindow?.resetAt ?? null,
-    null,
-    resetTimeRelative,
-  );
-  const resetLabel = resetText
-    ? resetTimeRelative
-      ? resetText
-      : `${t("MetricResetsIn")} ${resetText}`
-    : null;
-  const windowLabel = formatWindowLabel(usageWindow?.limitWindowSeconds);
   const isAmbient = account.source === "ambient";
 
   return (
@@ -187,37 +202,80 @@ function CodexAccountRow({
               </span>
             )}
           </span>
-          {(pct !== null || resetLabel) && (
-            <span className="codex-menu-accounts__usage">
-              {windowLabel && <span>{windowLabel}</span>}
-              {pct !== null && (
-                <span>{pct}% {t("PanelUsedSuffix")}</span>
-              )}
-              {resetLabel && <span>{resetLabel}</span>}
-            </span>
+          {snapshot?.plan && (
+            <span className="codex-menu-accounts__usage">{snapshot.plan}</span>
           )}
-          {pct !== null && (
-            <span className="codex-menu-accounts__bar" aria-hidden>
-              <span
-                className="codex-menu-accounts__bar-fill"
-                style={{ width: `${Math.max(2, Math.min(100, pct))}%` }}
-              />
-            </span>
+          {snapshot?.primaryWindow && (
+            <AccountWindow window={snapshot.primaryWindow} showAsUsed={showAsUsed} resetTimeRelative={resetTimeRelative} />
+          )}
+          {snapshot?.secondaryWindow && (
+            <AccountWindow window={snapshot.secondaryWindow} showAsUsed={showAsUsed} resetTimeRelative={resetTimeRelative} />
+          )}
+          {!snapshot?.primaryWindow && !snapshot?.secondaryWindow && (
+            <span className="codex-menu-accounts__usage">{t("CodexAccountsUsageUnavailable")}</span>
           )}
         </div>
-        <button
-          type="button"
-          className="codex-menu-accounts__switch"
-          disabled={busy || isAmbient}
-          onClick={() => void onSwitch(account.id)}
-        >
-          {t("CodexAccountsSwitchButton")}
-        </button>
+        <div className="codex-menu-accounts__row-actions">
+          {needsAuthentication && (
+            <button
+              type="button"
+              className="codex-menu-accounts__switch"
+              disabled={busy}
+              aria-label={`${t("CodexAccountsReauthenticateButton")}: ${displayName}`}
+              onClick={() => void onReauthenticate(account.id)}
+            >
+              {t("CodexAccountsReauthenticateButton")}
+            </button>
+          )}
+          <button
+            type="button"
+            className="codex-menu-accounts__switch"
+            disabled={busy || isAmbient}
+            onClick={() => void onSwitch(account.id)}
+          >
+            {t("CodexAccountsSwitchButton")}
+          </button>
+        </div>
       </div>
     </li>
   );
 }
 
+function AccountWindow({
+  window,
+  resetTimeRelative,
+  showAsUsed,
+}: {
+  showAsUsed: boolean;
+  window: NonNullable<CodexAccountUsageSnapshot["primaryWindow"]>;
+  resetTimeRelative: boolean;
+}) {
+  const { t } = useLocale();
+  const known = Number.isFinite(window.usedPercent);
+  const used = Math.max(0, Math.min(100, Math.round(window.usedPercent)));
+  const remaining = 100 - used;
+  const resetText = useFormattedResetTime(window.resetAt, null, resetTimeRelative);
+  const resetLabel = resetText && (
+    resetTimeRelative ? resetText : `${t("MetricResetsIn")} ${resetText}`
+  );
+  return (
+    <div>
+      <span className="codex-menu-accounts__usage">
+        <span>{formatWindowLabel(window.limitWindowSeconds) ?? t("DetailWindowPrimary")}</span>
+        <span>
+          {known ? `${remaining}% ${t("PanelLeftSuffix")}` : t("CodexAccountsUsageUnavailable")}
+        </span>
+        {known && showAsUsed && <span>{used}% {t("PanelUsedSuffix")}</span>}
+        {resetLabel && <span>{resetLabel}</span>}
+      </span>
+      <span className="codex-menu-accounts__bar" aria-hidden>
+        {known && (
+          <span className="codex-menu-accounts__bar-fill" style={{ width: `${remaining}%` }} />
+        )}
+      </span>
+    </div>
+  );
+}
 function formatWindowLabel(
   limitWindowSeconds: number | null | undefined,
 ): string | null {

@@ -7,6 +7,18 @@ use base64::Engine;
 use reqwest::header::HeaderValue;
 use std::time::{Duration, Instant};
 
+#[test]
+fn saved_account_refresh_errors_distinguish_reauthentication_from_retry() {
+    assert!(matches!(
+        super::account_refresh_error(ProviderError::OAuth("invalid grant".into())),
+        ProviderError::OAuthRevoked(_)
+    ));
+    assert!(matches!(
+        super::account_refresh_error(ProviderError::OAuthTransient("cooldown".into())),
+        ProviderError::OAuthTransient(_)
+    ));
+}
+
 fn test_credentials(access_token: &str) -> ClaudeOAuthCredentials {
     ClaudeOAuthCredentials {
         access_token: access_token.to_string(),

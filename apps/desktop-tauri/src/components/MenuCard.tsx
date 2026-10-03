@@ -309,13 +309,15 @@ export default function MenuCard({
 
       {provider.providerId === "codex" && (
         <CodexAccountsMenu
+          needsAuthentication={provider.errorState === "needsAuthentication"}
+          showAsUsed={showAsUsed}
           hideEmail={hideEmail}
           resetTimeRelative={resetTimeRelative}
           onLayoutChange={onLayoutChange}
         />
       )}
       {provider.providerId === "claude" && (
-        <ClaudeAccountsMenu hideEmail={hideEmail} onLayoutChange={onLayoutChange} />
+        <ClaudeAccountsMenu hideEmail={hideEmail} onLayoutChange={onLayoutChange} showAsUsed={showAsUsed} resetTimeRelative={resetTimeRelative} />
       )}
       {provider.providerId === "grok" && (
         <GrokAccountsMenu

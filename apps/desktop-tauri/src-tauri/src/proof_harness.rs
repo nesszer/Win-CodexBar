@@ -277,6 +277,18 @@ pub fn is_proof_mode(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+/// Synthetic account rows are available only through a proof-mode command.
+pub fn seed_claude_accounts_from_env() -> Option<Vec<crate::commands::ClaudeAccountState>> {
+    let path = std::env::var_os("CODEXBAR_SEED_CLAUDE_ACCOUNTS_JSON")?;
+    let result = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok());
+    if result.is_none() {
+        tracing::warn!("Invalid Claude account proof seed; using real account metadata");
+    }
+    result
+}
+
 // ── Provider-usage seed (CODEXBAR_SEED_USAGE_JSON) ───────────────────
 
 /// Environment variable pointing at a JSON file with one synthetic,

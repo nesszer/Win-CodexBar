@@ -11,12 +11,14 @@ import { LocaleProvider } from "../i18n/LocaleProvider";
 const tauriMocks = vi.hoisted(() => ({
   getCodexAccountsState: vi.fn(),
   codexAccountSwitch: vi.fn(),
+  codexAccountAdd: vi.fn(),
+  codexAccountReauthenticate: vi.fn(),
   refreshProviders: vi.fn(),
   getLocaleStrings: vi.fn(),
 }));
 
 const eventMocks = vi.hoisted(() => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
+  listen: vi.fn((_event: string, _callback: () => void) => Promise.resolve(() => {})),
 }));
 
 vi.mock("../lib/tauri", () => tauriMocks);
@@ -64,12 +66,14 @@ function renderMenu(
   hideEmail: boolean,
   state: CodexAccountsStateBridge,
   resetTimeRelative = true,
+  showAsUsed = false,
 ) {
   tauriMocks.getCodexAccountsState.mockResolvedValue(state);
   tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle({}));
   return render(
     <LocaleProvider>
       <CodexAccountsMenu
+        showAsUsed={showAsUsed}
         hideEmail={hideEmail}
         resetTimeRelative={resetTimeRelative}
       />
@@ -82,17 +86,80 @@ describe("CodexAccountsMenu", () => {
     vi.clearAllMocks();
   });
 
-  it("renders nothing for a single-account setup (single-account fallback)", async () => {
-    const { container } = renderMenu(false, {
+  it("offers login actions even for a single account", async () => {
+    renderMenu(false, {
       accounts: [account("1", { source: "ambient" })],
-      accountOrdinals: { "1": 1 },
-      snapshots: {},
+      accountOrdinals: { "1": 1 }, snapshots: {},
+      needsAuthentication: { "1": true },
     });
-    await waitFor(() => {
-      expect(
-        container.querySelector(".codex-menu-accounts"),
-      ).toBeNull();
+    expect(await screen.findByRole("button", { name: "CodexAccountsAddButton" })).toBeDefined();
+    const refresh = await screen.findByRole("button", { name: "CodexAccountsReauthenticateButton: user-1@example.com" });
+    await waitFor(() => expect((refresh as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => { refresh.click(); });
+    expect(tauriMocks.codexAccountReauthenticate).toHaveBeenCalledOnce();
+  });
+
+  it("expands the account list by default and places add account below the rows", async () => {
+    const { container } = renderMenu(false, {
+      accounts: [account("one"), account("two")],
+      accountOrdinals: { one: 1, two: 2 }, snapshots: {},
     });
+    const row = await screen.findByText("user-two@example.com");
+    expect(container.querySelector("details")?.open).toBe(true);
+    const add = screen.getByRole("button", { name: "CodexAccountsAddButton" });
+    expect(row.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("offers account sign-in with no saved accounts and reports a login failure", async () => {
+    renderMenu(false, { accounts: [], accountOrdinals: {}, snapshots: {} });
+    const add = await screen.findByRole("button", { name: "CodexAccountsAddButton" });
+    await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+    tauriMocks.codexAccountAdd.mockRejectedValueOnce(new Error("Login cancelled"));
+    await act(async () => { add.click(); });
+    expect(tauriMocks.codexAccountAdd).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Login cancelled");
+  });
+
+  it("reauthenticates a single saved account without switching it and reports cancellation", async () => {
+    renderMenu(false, { accounts: [account("expired")], accountOrdinals: { expired: 1 }, snapshots: {}, needsAuthentication: { expired: true } });
+    const refresh = await screen.findByRole("button", {
+      name: "CodexAccountsReauthenticateButton: user-expired@example.com",
+    });
+    await waitFor(() => expect(refresh).toBeEnabled());
+    tauriMocks.codexAccountReauthenticate.mockRejectedValueOnce(new Error("Account setup cancelled."));
+    await act(async () => { refresh.click(); });
+    expect(tauriMocks.codexAccountReauthenticate).toHaveBeenCalledWith("expired");
+    expect(tauriMocks.codexAccountSwitch).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Account setup cancelled.");
+    expect(refresh).toBeEnabled();
+  });
+
+  it("shows both quota windows for each account without expanding a disclosure", async () => {
+    const both = { ...snapshot(30), secondaryWindow: { usedPercent: 65, resetAt: null, limitWindowSeconds: 604800 } };
+    const { container } = renderMenu(false, {
+      accounts: [account("1", { source: "ambient" }), account("2")],
+      accountOrdinals: { "1": 1, "2": 2 }, snapshots: { "1": both, "2": snapshot(70) },
+    });
+    await screen.findByText("user-1@example.com");
+    expect(container.querySelector("details")?.open).toBe(true);
+    expect(screen.getByText("35% PanelLeftSuffix")).toBeDefined();
+    expect(screen.getByText("7d")).toBeDefined();
+    expect(screen.getByText("30% PanelLeftSuffix")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /CodexAccountsReauthenticateButton/ })).toBeNull();
+  });
+
+  it("keeps login actions disabled while account updates arrive during sign-in", async () => {
+    let finish!: () => void;
+    tauriMocks.codexAccountAdd.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    renderMenu(false, { accounts: [], accountOrdinals: {}, snapshots: {} });
+    const add = await screen.findByRole("button", { name: "CodexAccountsAddButton" }) as HTMLButtonElement;
+    await waitFor(() => expect(add.disabled).toBe(false));
+    await act(async () => { add.click(); });
+    const callback = eventMocks.listen.mock.calls.find(([event]) => event === "codex-accounts-updated")?.[1] as (() => void) | undefined;
+    await act(async () => { callback?.(); });
+    expect(add.disabled).toBe(true);
+    await act(async () => { finish(); });
+    await waitFor(() => expect(add.disabled).toBe(false));
   });
 
   it("lists multiple accounts with usage bars and marks the ambient one active", async () => {
@@ -120,8 +187,8 @@ describe("CodexAccountsMenu", () => {
 
     // Usage bar widths map to the snapshot percentages.
     const fills = container.querySelectorAll(".codex-menu-accounts__bar-fill");
-    expect((fills[0] as HTMLElement).style.width).toBe("30%");
-    expect((fills[1] as HTMLElement).style.width).toBe("70%");
+    expect((fills[0] as HTMLElement).style.width).toBe("70%");
+    expect((fills[1] as HTMLElement).style.width).toBe("30%");
   });
 
   it("renders a usage bar from a weekly-only snapshot (primaryWindow: null)", async () => {
@@ -151,7 +218,7 @@ describe("CodexAccountsMenu", () => {
       ".codex-menu-accounts__bar-fill",
     );
     expect(fills.length).toBe(1);
-    expect((fills[0] as HTMLElement).style.width).toBe("42%");
+    expect((fills[0] as HTMLElement).style.width).toBe("58%");
   });
 
   it("shows the five-hour usage and local reset time for each account", async () => {
@@ -175,8 +242,33 @@ describe("CodexAccountsMenu", () => {
 
     await screen.findByText("user-1@example.com");
     expect(screen.getAllByText("5h")).toHaveLength(2);
-    expect(screen.getByText("30% PanelUsedSuffix")).toBeDefined();
+    expect(screen.getByText("70% PanelLeftSuffix")).toBeDefined();
     expect(screen.getAllByText(`MetricResetsIn ${expectedReset}`)).toHaveLength(2);
+  });
+
+  it("shows remaining capacity alongside used capacity when the used setting is enabled", async () => {
+    renderMenu(false, {
+      accounts: [account("1", { source: "ambient" }), account("2")],
+      accountOrdinals: { "1": 1, "2": 2 }, snapshots: { "1": snapshot(30) },
+    }, true, true);
+    await screen.findByText("70% PanelLeftSuffix");
+    expect(screen.getByText("30% PanelUsedSuffix")).toBeDefined();
+    expect(screen.getByText("CodexAccountsUsageUnavailable")).toBeDefined();
+  });
+
+  it("distinguishes exhausted and full quotas from unknown usage", async () => {
+    const { container } = renderMenu(false, {
+      accounts: [account("1"), account("2"), account("3")],
+      accountOrdinals: { "1": 1, "2": 2, "3": 3 },
+      snapshots: { "1": snapshot(100), "2": snapshot(0), "3": snapshot(Number.NaN) },
+    });
+    await screen.findByText("0% PanelLeftSuffix");
+    expect(screen.getByText("100% PanelLeftSuffix")).toBeDefined();
+    expect(screen.getByText("CodexAccountsUsageUnavailable")).toBeDefined();
+    const fills = container.querySelectorAll(".codex-menu-accounts__bar-fill");
+    expect(fills).toHaveLength(2);
+    expect((fills[0] as HTMLElement).style.width).toBe("0%");
+    expect((fills[1] as HTMLElement).style.width).toBe("100%");
   });
 
   it("switches an account and kicks a provider refresh", async () => {

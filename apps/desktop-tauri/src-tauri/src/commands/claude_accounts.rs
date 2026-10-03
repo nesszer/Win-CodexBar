@@ -345,7 +345,7 @@ fn changed(app: &tauri::AppHandle) {
 }
 
 #[tauri::command]
-pub async fn claude_account_add(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn claude_account_add(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
     let _mutation = MUTATION
         .try_lock()
         .map_err(|_| "A Claude account operation is already in progress.")?;
@@ -356,11 +356,14 @@ pub async fn claude_account_add(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let _credentials = accounts::CREDENTIAL_OPERATION.lock().await;
     AccountManager::new()
-        .and_then(|m| m.import(login))
+        .and_then(|m| match id.as_deref() {
+            Some(id) => m.reauthenticate(id, login),
+            None => m.import(login),
+        })
         .map_err(|e| e.to_string())?;
     crate::auto_resume::clear(&app, ProviderId::Claude);
-    changed(&app);
-    Ok(())
+    drop(_credentials);
+    refresh_after_claude_change(app).await.map(|_| ())
 }
 
 #[tauri::command]

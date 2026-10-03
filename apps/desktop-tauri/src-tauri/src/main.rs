@@ -219,6 +219,7 @@ fn main() {
             commands::get_deepseek_pricing_status,
             commands::codex_accounts_list,
             commands::claude_accounts_list,
+            commands::get_claude_accounts_state,
             commands::claude_reconciliation_state,
             commands::claude_account_add,
             commands::claude_account_cancel_login,

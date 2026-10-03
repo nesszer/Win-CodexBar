@@ -5,6 +5,7 @@ import type { ClaudeAccount } from "../../../../../types/bridge";
 const mocks = vi.hoisted(() => ({
   claudeAccountsList: vi.fn(), claudeAccountAdd: vi.fn(), claudeAccountCancelLogin: vi.fn(),
   claudeAccountSaveCurrent: vi.fn(), claudeAccountRemove: vi.fn(), claudeAccountSwitch: vi.fn(),
+  claudeAccountReauthenticate: vi.fn(),
   claudeReconciliationState: vi.fn(),
   claudeSwapAccountsList: vi.fn(), claudeSwapAccountSwitch: vi.fn(),
   getSettingsSnapshot: vi.fn(), updateSettings: vi.fn(),
@@ -19,6 +20,18 @@ const current: ClaudeAccount = { id: "one:org", email: "one@example.com", organi
 const other: ClaudeAccount = { ...current, id: "two:org", email: "two@example.com", isActive: false, isSaved: true };
 
 describe("ClaudeAccountsSection", () => {
+  it("offers targeted reauthentication only for the expired account", async () => {
+    mocks.claudeAccountsList.mockResolvedValue([current, { ...other, needsAuthentication: true }]);
+    mocks.claudeAccountReauthenticate.mockResolvedValue(undefined);
+    render(<ClaudeAccountsSection t={t} />);
+    const refresh = await screen.findByRole("button", { name: `CodexAccountsReauthenticateButton: ${other.email}` });
+    expect(screen.getAllByRole("button", { name: /CodexAccountsReauthenticateButton/ })).toHaveLength(1);
+    mocks.claudeAccountsList.mockResolvedValue([current, other]);
+    await act(async () => fireEvent.click(refresh));
+    expect(mocks.claudeAccountReauthenticate).toHaveBeenCalledWith(other.id);
+    expect(screen.queryByRole("button", { name: /CodexAccountsReauthenticateButton/ })).toBeNull();
+    expect(mocks.claudeAccountSwitch).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     events.listen.mockResolvedValue(() => {});

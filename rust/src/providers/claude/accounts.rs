@@ -17,7 +17,16 @@ pub use login::{begin_login, cancel_login, cleanup_abandoned_logins, login, requ
 /// Serializes account changes with our own OAuth and CLI token refreshes.
 pub static CREDENTIAL_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-#[derive(Clone, Debug, Serialize)]
+/// Read a selected saved login's usage without activating it in Claude Code.
+pub async fn fetch_usage(
+    id: &str,
+) -> Result<crate::core::ProviderFetchResult, crate::core::ProviderError> {
+    super::oauth::ClaudeOAuthFetcher::new()
+        .fetch_account(id)
+        .await
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeAccount {
     pub id: String,
@@ -173,6 +182,26 @@ impl AccountManager {
         self.import(current)
     }
 
+    /// Resolve this account only. The active login may have newer credentials
+    /// than its saved copy after Claude Code rotates its token.
+    pub(super) fn usage_credentials(&self, id: &str) -> io::Result<(Value, bool)> {
+        if let Ok(Some(current)) = read_login(&self.config_dir, &self.config_file)
+            && current.id()? == id
+        {
+            return Ok((current.oauth, true));
+        }
+        self.load()?
+            .accounts
+            .into_iter()
+            .find(|account| account.id().ok().as_deref() == Some(id))
+            .map(|account| (account.oauth, false))
+            .ok_or_else(|| io::Error::other("Saved Claude account not found."))
+    }
+
+    pub(super) fn usage_source_path(&self) -> PathBuf {
+        self.root.join("accounts.json")
+    }
+
     pub(super) fn current_account_id(&self) -> io::Result<Option<String>> {
         let config = read_object(&self.config_file)?;
         let Some(identity) = config.get("oauthAccount").filter(|value| !value.is_null()) else {
@@ -224,6 +253,45 @@ impl AccountManager {
         let mut store = self.load()?;
         upsert(&mut store, login)?;
         self.save(&store)
+    }
+
+    /// Repair this login without selecting a different active account.
+    pub fn reauthenticate(&self, id: &str, login: SavedLogin) -> io::Result<()> {
+        login.validate()?;
+        if login.id()? != id {
+            return Err(io::Error::other(
+                "Sign in with the same Claude account and organization to refresh this login.",
+            ));
+        }
+        let mut store = self.load()?;
+        let current = read_login(&self.config_dir, &self.config_file)?;
+        let active = current
+            .as_ref()
+            .is_some_and(|account| account.id().ok().as_deref() == Some(id));
+        if !active
+            && !store
+                .accounts
+                .iter()
+                .any(|account| account.id().ok().as_deref() == Some(id))
+        {
+            return Err(io::Error::other("Saved Claude account not found."));
+        }
+        let oauth = login.oauth.clone();
+        upsert(&mut store, login)?;
+        self.save(&store)?;
+        if active && self.current_account_id()?.as_deref() == Some(id) {
+            let path = self.config_dir.join(".credentials.json");
+            let mut credentials = read_object(&path)?;
+            credentials["claudeAiOauth"] = oauth;
+            let staged = stage_json(&path, &credentials)?;
+            if let Err(error) = atomic_file::replace_staged(&staged, &path) {
+                let _cleanup = std::fs::remove_file(staged);
+                return Err(error);
+            }
+            super::clear_account_caches(&path);
+        }
+        super::clear_account_caches(&self.root.join("accounts.json"));
+        Ok(())
     }
 
     pub fn remove(&self, id: &str) -> io::Result<()> {
@@ -377,6 +445,41 @@ fn stage_json(path: &Path, value: &Value) -> io::Result<PathBuf> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn usage_credentials_keep_inactive_accounts_separate_and_prefer_live_active_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        manager.import(login("one", "org", "old-one")).unwrap();
+        manager.import(login("two", "org", "two-token")).unwrap();
+        activate(&manager, &login("one", "org", "fresh-one"));
+        let path = manager.config_dir.join(".credentials.json");
+        let before = std::fs::read(&path).unwrap();
+        let (active, is_active) = manager.usage_credentials("one:org").unwrap();
+        assert!(is_active);
+        assert_eq!(active["accessToken"], "fresh-one");
+        let (inactive, is_active) = manager.usage_credentials("two:org").unwrap();
+        assert!(!is_active);
+        assert_eq!(inactive["accessToken"], "two-token");
+        super::super::oauth::ClaudeOAuthFetcher::new().persist_refreshed_state(
+            &super::super::oauth::ClaudeOAuthCredentials {
+                access_token: "new-two".into(),
+                refresh_token: Some("new-refresh-two".into()),
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+                scopes: vec!["user:profile".into()],
+                rate_limit_tier: None,
+            },
+            Some(&manager),
+            Some("two:org"),
+            false,
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            manager.usage_credentials("two:org").unwrap().0["refreshToken"],
+            "new-refresh-two"
+        );
+        assert!(manager.usage_credentials("missing:org").is_err());
+    }
+
     fn login(account: &str, org: &str, token: &str) -> SavedLogin {
         SavedLogin {
             oauth: json!({"accessToken":token,"refreshToken":format!("refresh-{token}"),"expiresAt":9999999999999_i64,"subscriptionType":"max"}),
@@ -397,6 +500,60 @@ mod tests {
     fn activate(manager: &AccountManager, login: &SavedLogin) {
         std::fs::write(manager.config_dir.join(".credentials.json"), json!({"claudeAiOauth":login.oauth,"mcpOAuth":{"secret":"preserved"},"pluginSecrets":{"x":"secret"}}).to_string()).unwrap();
         std::fs::write(&manager.config_file, json!({"oauthAccount":login.identity,"projects":{"test":"preferences"},"hasCompletedOnboarding":true}).to_string()).unwrap();
+    }
+
+    #[test]
+    fn reauthentication_checks_identity_and_preserves_other_accounts() {
+        for active in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let manager = manager(dir.path());
+            let target = login("target", "org", "old");
+            let ambient = if active {
+                target.clone()
+            } else {
+                login("other", "org", "ambient")
+            };
+            manager.import(target.clone()).unwrap();
+            activate(&manager, &ambient);
+            let credentials_path = manager.config_dir.join(".credentials.json");
+            let before_credentials = std::fs::read(&credentials_path).unwrap();
+            let before_config = std::fs::read(&manager.config_file).unwrap();
+            let before_store = std::fs::read(manager.root.join("accounts.json")).unwrap();
+            let id = target.id().unwrap();
+            assert!(
+                manager
+                    .reauthenticate(&id, login("wrong", "org", "new"))
+                    .is_err()
+            );
+            assert_eq!(
+                std::fs::read(manager.root.join("accounts.json")).unwrap(),
+                before_store
+            );
+            assert_eq!(
+                std::fs::read(&credentials_path).unwrap(),
+                before_credentials
+            );
+            manager
+                .reauthenticate(&id, login("target", "org", "new"))
+                .unwrap();
+            assert_eq!(manager.load().unwrap().accounts.len(), 1);
+            assert_eq!(
+                manager.usage_credentials(&id).unwrap().0["accessToken"],
+                "new"
+            );
+            assert_eq!(std::fs::read(&manager.config_file).unwrap(), before_config);
+            if active {
+                assert_eq!(
+                    read_object(&credentials_path).unwrap()["mcpOAuth"]["secret"],
+                    "preserved"
+                );
+            } else {
+                assert_eq!(
+                    std::fs::read(&credentials_path).unwrap(),
+                    before_credentials
+                );
+            }
+        }
     }
 
     #[test]

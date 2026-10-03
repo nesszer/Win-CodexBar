@@ -1,0 +1,62 @@
+[
+  {
+    "email": "demo-a@example.test",
+    "usage": {
+      "sevenDay": {
+        "usedPercent": 44,
+        "resetsAt": "2026-10-08T22:00:00Z"
+      },
+      "updatedAt": "2026-10-03T16:00:00Z",
+      "fiveHour": {
+        "usedPercent": 12,
+        "resetsAt": "2026-10-03T22:00:00Z"
+      }
+    },
+    "isSaved": true,
+    "id": "demo-a:org",
+    "organization": "Personal",
+    "usageError": null,
+    "plan": "max",
+    "isActive": true,
+    "needsAuthentication": false
+  },
+  {
+    "email": "demo-b@example.test",
+    "usage": {
+      "sevenDay": {
+        "usedPercent": 80,
+        "resetsAt": null
+      },
+      "updatedAt": "2026-10-03T16:00:00Z",
+      "fiveHour": {
+        "usedPercent": 63,
+        "resetsAt": null
+      }
+    },
+    "isSaved": true,
+    "id": "demo-b:org",
+    "organization": "Work",
+    "usageError": null,
+    "plan": "pro",
+    "isActive": false,
+    "needsAuthentication": false
+  },
+  {
+    "email": "demo-c@example.test",
+    "usage": {
+      "sevenDay": null,
+      "updatedAt": "2026-10-03T15:00:00Z",
+      "fiveHour": {
+        "usedPercent": 72,
+        "resetsAt": null
+      }
+    },
+    "isSaved": true,
+    "id": "demo-c:org",
+    "organization": "Team",
+    "usageError": "Sign in again to check this Claude account.",
+    "plan": "max",
+    "isActive": false,
+    "needsAuthentication": true
+  }
+]

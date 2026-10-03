@@ -1,5 +1,11 @@
 # Changelog
 
+## [Windows] Unreleased
+
+- Show independent session and weekly usage for native saved Claude Code accounts, with account-scoped OAuth renewal and safe authentication warnings.
+- Offer Refresh login beside Switch only for Claude and Codex accounts that need sign-in. Repair the selected saved login without switching to another account.
+- Use expanded, collapsible Claude and Codex account sections with Add account below the rows; keep the floating bar's usage footprint when authentication expires.
+
 ## [Windows] 0.70.0 - 2026-10-03
 
 Windows port of upstream CodexBar **0.60.3 → 0.70.0**: every provider, cost/usage, privacy, tray, CLI and reliability port from upstream 0.60.4 through 0.70.0 integrated across the release branch, plus six community pull requests and fixes for open issues. This is also the first release to ship the changes in the unreleased 0.61.0 changelog section.

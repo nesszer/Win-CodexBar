@@ -7,12 +7,14 @@ import type { LocaleKey } from "../../../../../i18n/keys";
 import {
   claudeAccountsList,
   claudeAccountAdd,
+  claudeAccountReauthenticate,
   claudeAccountCancelLogin,
   claudeAccountSaveCurrent,
   claudeAccountRemove,
   claudeAccountSwitch,
 } from "../../../../../lib/tauri";
 import { ClaudeSwapAccountsSection } from "./ClaudeSwapAccountsSection";
+import ClaudeAccountUsage from "../../../../../components/ClaudeAccountUsage";
 import {
   localClaudeReconciliationOutcome,
   useClaudeReconciliation,
@@ -109,6 +111,7 @@ export function ClaudeAccountsSection({
                       account.plan,
                     ].filter(Boolean).join(" · ")}
                   </span>
+                  <ClaudeAccountUsage account={account} t={t} />
                   {account.isActive && (
                     <span className="credential-card__badge credential-card__badge--set">
                       {t("TokenAccountActive")}
@@ -116,6 +119,15 @@ export function ClaudeAccountsSection({
                   )}
                 </div>
                 <div className="credential-card__actions">
+                  {account.needsAuthentication && <button
+                    className="credential-btn credential-btn--secondary"
+                    disabled={busy || reconciling}
+                    aria-label={`${t("CodexAccountsReauthenticateButton")}: ${account.email}`}
+                    onClick={() => {
+                      setLoggingIn(true);
+                      void run(() => claudeAccountReauthenticate(account.id));
+                    }}
+                  >{t("CodexAccountsReauthenticateButton")}</button>}
                   {!account.isActive && account.isSaved && (
                     <button
                       className="credential-btn credential-btn--primary"

@@ -8,6 +8,7 @@ const tauriMocks = vi.hoisted(() => ({
   getLocaleStrings: vi.fn(),
   setUiLanguage: vi.fn(),
   claudeAccountsList: vi.fn(),
+  getCodexAccountsState: vi.fn(),
 }));
 
 const eventMocks = vi.hoisted(() => ({
@@ -183,6 +184,15 @@ describe("MenuCard", () => {
       },
     });
     eventMocks.listen.mockResolvedValue(() => {});
+  });
+
+  it("keeps Codex sign-in discoverable beside an authentication error with no accounts", async () => {
+    tauriMocks.getCodexAccountsState.mockResolvedValueOnce({ accounts: [], accountOrdinals: {}, snapshots: {} });
+    const codex = { ...provider("Authentication required"), providerId: "codex", displayName: "Codex", errorState: "needsAuthentication" as const };
+    render(<LocaleProvider><MenuCard provider={codex} display={{ hideEmail: false, resetTimeRelative: true, showResetWhenExhausted: true }} /></LocaleProvider>);
+    expect(await screen.findByText("Authentication required")).toBeDefined();
+    const add = await screen.findByRole("button", { name: "CodexAccountsSignInButton" });
+    await waitFor(() => expect(add).toBeEnabled());
   });
 
   it("keeps Fireworks vendor API spend visible when local cost summaries are hidden", async () => {

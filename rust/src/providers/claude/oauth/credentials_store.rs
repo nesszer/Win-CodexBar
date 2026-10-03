@@ -28,6 +28,20 @@ pub(super) enum CredentialSource {
     Environment,
     File(PathBuf),
     Keyring(String), // the account string that matched
+    SavedAccount(PathBuf, String, String),
+}
+
+impl CredentialSource {
+    pub(super) fn saved_account(path: PathBuf, id: &str, oauth: &str) -> Self {
+        // A later sign-in must supersede a pending rotation even when the new
+        // token has a shorter lifetime. Unchanged disk credentials still find
+        // their in-memory replacement after a failed persistence attempt.
+        Self::SavedAccount(
+            path,
+            id.to_owned(),
+            crate::core::sha256_hex(oauth.as_bytes()),
+        )
+    }
 }
 
 /// In-memory cache of the most recently refreshed credentials, keyed by
@@ -277,7 +291,9 @@ fn load_from_macos_security_cli()
     Ok(None)
 }
 
-fn parse_credentials_json(content: &str) -> Result<ClaudeOAuthCredentials, ProviderError> {
+pub(super) fn parse_credentials_json(
+    content: &str,
+) -> Result<ClaudeOAuthCredentials, ProviderError> {
     if let Ok(file) = serde_json::from_str::<CredentialsFile>(content)
         && let Some(oauth) = file.claude_ai_oauth
     {
@@ -444,6 +460,28 @@ fn apply_refresh_to_credentials_json(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_new_saved_login_cannot_inherit_an_older_longer_lived_rotation() {
+        let path = std::path::PathBuf::from(format!("saved-cache-{}", uuid::Uuid::new_v4()));
+        let old_source =
+            super::CredentialSource::saved_account(path.clone(), "one:org", "old-login");
+        let new_source = super::CredentialSource::saved_account(path, "one:org", "new-login");
+        let fresh = super::ClaudeOAuthCredentials {
+            access_token: "rotated-old-login".into(),
+            refresh_token: Some("rotated-refresh".into()),
+            expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(8)),
+            scopes: vec![],
+            rate_limit_tier: None,
+        };
+        let shorter_login = super::ClaudeOAuthCredentials {
+            access_token: "new-login".into(),
+            expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+            ..fresh.clone()
+        };
+        super::store_refreshed(&old_source, &fresh);
+        assert!(super::cached_refreshed_if_fresher(&old_source, &shorter_login).is_some());
+        assert!(super::cached_refreshed_if_fresher(&new_source, &shorter_login).is_none());
+    }
     use super::{
         CredentialSource, apply_refresh_to_credentials_json, cached_refreshed_if_fresher,
         parse_credentials_json, replacement_from_changed_fresh_keyring, store_refreshed,

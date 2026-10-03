@@ -1,0 +1,29 @@
+[
+  {
+    "error": null,
+    "errorState": "ready",
+    "providerId": "codex",
+    "displayName": "Codex",
+    "primary": {
+      "usedPercent": 0,
+      "windowMinutes": 300
+    }
+  },
+  {
+    "sourceLabel": "oauth",
+    "displayName": "Claude",
+    "primary": {
+      "resetsAt": "2026-10-03T22:00:00Z",
+      "usedPercent": 12,
+      "windowMinutes": 300
+    },
+    "providerId": "claude",
+    "secondary": {
+      "usedPercent": 44,
+      "windowMinutes": 10080
+    },
+    "secondaryLabel": "Weekly",
+    "primaryLabel": "Session",
+    "errorState": "ready"
+  }
+]

@@ -786,6 +786,14 @@ fn spawn_provider_refreshes(
         }));
     }
 
+    if refresh_account_lanes && provider_ids.contains(&ProviderId::Claude) {
+        let app_handle = app.clone();
+        let permits = Arc::clone(&fetch_permits);
+        handles.push(tokio::spawn(async move {
+            super::refresh_claude_account_lanes(app_handle, permits, generation).await;
+        }));
+    }
+
     handles
 }
 

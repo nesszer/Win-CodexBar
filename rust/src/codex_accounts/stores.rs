@@ -138,8 +138,15 @@ impl SnapshotStore {
             return Ok(HashMap::new());
         }
         let data = std::fs::read_to_string(&self.file_path)?;
-        let file: serde_json::Value = serde_json::from_str(&data)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let file: serde_json::Value = match serde_json::from_str(&data) {
+            Ok(file) => file,
+            Err(_) => {
+                // Usage is a disposable cache. A truncated cache must not hide
+                // saved accounts or prevent their login and refresh actions.
+                tracing::warn!("Codex account usage cache is invalid; usage is unavailable");
+                return Ok(HashMap::new());
+            }
+        };
         let snapshots = file.get("snapshots");
         let Some(snapshots) = snapshots else {
             return Ok(HashMap::new());
@@ -187,6 +194,20 @@ impl Default for SnapshotStore {
 mod tests {
     use super::*;
     use crate::codex_accounts::models::{CodexAccountSource, utc_now};
+
+    #[test]
+    fn unreadable_snapshot_json_does_not_hide_saved_accounts_or_change_the_file() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("snapshots.json");
+        for malformed in ["", "{\"snapshots\":"] {
+            std::fs::write(&path, malformed).unwrap();
+            let store = SnapshotStore {
+                file_path: path.clone(),
+            };
+            assert!(store.load().unwrap().is_empty());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
+        }
+    }
 
     fn store_dir() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();

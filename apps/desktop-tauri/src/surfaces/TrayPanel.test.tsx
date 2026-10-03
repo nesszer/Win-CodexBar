@@ -837,6 +837,7 @@ describe("TrayPanel provider grid", () => {
 
     await waitFor(() => {
       expect(container.querySelector(".menu-surface__footer-zoom")).not.toBeNull();
+      expect(container.querySelector(".provider-grid")).not.toBeNull();
     });
 
     const surface = container.querySelector(".menu-surface");
