@@ -98,6 +98,15 @@ foreach ($branch in @('ci/pr-', 'ci/pr-0', 'ci/pr-12x', 'ci/pr-7/extra', 'x/ci/p
 }
 Assert-Equal (Get-ForkMirrorPrNumber -Branch 'ci/pr-750') '750' 'mirror PR number parsed'
 Assert-Equal (Get-ForkMirrorPrNumber -Branch 'main') '' 'non-mirror branch has no PR number'
+$decision = Get-TriggerGateDecision -BudgetMode 'normal' -Branch 'pull/750/head' -PrUrl '' -ForkPr '750'
+Assert-True (-not $decision.Skip) 'API fork pipeline with fork_pr runs whatever the branch name'
+$decision = Get-TriggerGateDecision -BudgetMode 'off' -Branch '' -PrUrl '' -ForkPr '750'
+Assert-True $decision.Skip 'budget off wins over fork_pr'
+foreach ($forkPr in @('0', 'abc', '7 ', '-1', '12x')) {
+    $decision = Get-TriggerGateDecision -BudgetMode 'normal' -Branch 'feature/x' -PrUrl '' -ForkPr $forkPr
+    Assert-True $decision.Skip "malformed fork_pr '$forkPr' skips"
+}
+Assert-Equal (Get-ForkMirrorPrNumber -Branch 'ci/pr-12' -ForkPr '750') '750' 'fork_pr wins over the branch name'
 
 Write-Host '==> Hosted Node provisioning guard'
 $prRunnerText = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'run-circleci-pr-check.ps1')

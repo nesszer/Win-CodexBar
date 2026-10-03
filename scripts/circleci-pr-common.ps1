@@ -34,7 +34,8 @@ function Get-TriggerGateDecision {
     param(
         [AllowEmptyString()][string]$BudgetMode,
         [AllowEmptyString()][string]$Branch,
-        [AllowEmptyString()][string]$PrUrl
+        [AllowEmptyString()][string]$PrUrl,
+        [AllowEmptyString()][string]$ForkPr = ''
     )
 
     # Gate 1 - budget: CI_BUDGET_MODE=off is the emergency stop
@@ -55,7 +56,7 @@ function Get-TriggerGateDecision {
     # those pushes run the checks too.
     $isPr = -not [string]::IsNullOrWhiteSpace($PrUrl)
     $isMainPush = $Branch -in @('main', 'master')
-    $isForkMirror = -not [string]::IsNullOrWhiteSpace((Get-ForkMirrorPrNumber -Branch $Branch))
+    $isForkMirror = -not [string]::IsNullOrWhiteSpace((Get-ForkMirrorPrNumber -Branch $Branch -ForkPr $ForkPr))
     if (-not $isPr -and -not $isMainPush -and -not $isForkMirror) {
         return [pscustomobject]@{
             Skip = $true
@@ -71,12 +72,18 @@ function Get-TriggerGateDecision {
 
 <#
 .SYNOPSIS
-    PR number of a ci/pr-<number> fork-mirror branch, or '' for any other
-    branch. The fork-ci-mirror workflow is the only writer of these branches.
+    PR number of an approved fork mirror, or '' when the pipeline is not one.
+    The fork-ci-mirror workflow is the only writer of ci/pr-<number>
+    branches, and the only caller that sets the fork_pr pipeline parameter
+    (passed in as ForkPr) through the CircleCI trigger API.
 #>
 function Get-ForkMirrorPrNumber {
-    param([AllowEmptyString()][string]$Branch)
+    param(
+        [AllowEmptyString()][string]$Branch,
+        [AllowEmptyString()][string]$ForkPr = ''
+    )
 
+    if ($ForkPr -match '^[1-9]\d*$') { return $ForkPr }
     if ($Branch -match '^ci/pr-([1-9]\d*)$') { return $Matches[1] }
     return ''
 }

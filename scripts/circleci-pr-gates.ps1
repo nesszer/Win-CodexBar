@@ -42,6 +42,10 @@ param(
     # push pipelines).
     [AllowEmptyString()][string]$PrBaseSha = $env:CBX_PR_BASE_SHA,
 
+    # Pipeline parameter fork_pr, exported as CBX_FORK_PR. Set only on API
+    # pipelines started by .github/workflows/fork-ci-mirror.yml.
+    [AllowEmptyString()][string]$ForkPr = $env:CBX_FORK_PR,
+
     # CIRCLE_SHA1.
     [AllowEmptyString()][string]$Sha = $env:CIRCLE_SHA1,
 
@@ -74,7 +78,7 @@ function Invoke-GateHalt {
 }
 
 # Gates 1 and 2: budget emergency stop, then PR/main-master scope.
-$trigger = Get-TriggerGateDecision -BudgetMode $BudgetMode -Branch $Branch -PrUrl $PrUrl
+$trigger = Get-TriggerGateDecision -BudgetMode $BudgetMode -Branch $Branch -PrUrl $PrUrl -ForkPr $ForkPr
 if ($trigger.Skip) {
     Invoke-GateHalt -Reason $trigger.Reason
     exit 0
@@ -94,7 +98,7 @@ if ($isMainPush) {
     # PR association without a populated event value (e.g. api trigger):
     # resolve the base from the public GitHub pulls API.
     try {
-        $prNumber = Get-ForkMirrorPrNumber -Branch $Branch
+        $prNumber = Get-ForkMirrorPrNumber -Branch $Branch -ForkPr $ForkPr
         if ($PrUrl -match '/pull/(\d+)') { $prNumber = $Matches[1] }
         if ([string]::IsNullOrWhiteSpace($prNumber)) { throw 'PR number not available from pipeline values.' }
         if ([string]::IsNullOrWhiteSpace($env:CIRCLE_PROJECT_USERNAME) -or [string]::IsNullOrWhiteSpace($env:CIRCLE_PROJECT_REPONAME)) {

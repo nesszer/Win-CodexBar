@@ -3,15 +3,17 @@ name: Fork PR CI mirror
 # CircleCI GitHub App pipelines never fire for pull requests from forks, so
 # fork PRs used to merge with no hosted Windows check. A maintainer approves a
 # fork PR's current head by adding the `ci:run` label. This workflow then
-# copies exactly that commit to ci/pr-<number> in this repository. CircleCI
-# builds the push (scripts/circleci-pr-common.ps1 lets ci/pr-<number> through),
-# and its check lands on the same commit, so it shows on the fork PR.
+# copies exactly that commit to ci/pr-<number> in this repository and starts a
+# CircleCI pipeline for it through the trigger API (secret CIRCLECI_TOKEN,
+# variables CIRCLECI_PROJECT_SLUG and CIRCLECI_PIPELINE_DEFINITION_ID). The
+# check lands on the same commit, so it shows on the fork PR.
 #
 # Safety:
 # - pull_request_target runs this file from the base branch, never the fork's
 #   copy. No step checks out, installs, or executes fork code here; the job
-#   only moves a git ref. The fork code runs later on CircleCI, which is the
-#   reason for the label gate.
+#   only moves a git ref and calls the CircleCI API. The fork code runs later
+#   on CircleCI, which is the reason for the label gate. CIRCLECI_TOKEN is
+#   exposed only to that API step, never to fork code.
 # - Only users with triage access or higher can add labels.
 # - Any new push to the fork PR removes the label, so every new head needs a
 #   fresh maintainer approval before CircleCI builds it.
@@ -60,7 +62,34 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA"
           # The mirror branch belongs to this workflow; a re-approval replaces it.
           git -c http.extraheader="$auth" push --quiet --force origin "${HEAD_SHA}:refs/heads/ci/pr-${PR_NUMBER}"
-          echo "Mirrored ${HEAD_SHA} to ci/pr-${PR_NUMBER}; CircleCI pr-check will report on this commit." >> "$GITHUB_STEP_SUMMARY"
+          echo "Mirrored ${HEAD_SHA} to ci/pr-${PR_NUMBER}." >> "$GITHUB_STEP_SUMMARY"
+
+      # CircleCI ignores a branch push that brings no new commits, and the
+      # fork head is already in this repository through its pull ref. So the
+      # pipeline is started through the trigger API: config from main (the
+      # fork cannot change the CI definition), code from ci/pr-<number>.
+      - name: Start the CircleCI pipeline
+        env:
+          CIRCLECI_TOKEN: ${{ secrets.CIRCLECI_TOKEN }}
+          PROJECT_SLUG: ${{ vars.CIRCLECI_PROJECT_SLUG }}
+          DEFINITION_ID: ${{ vars.CIRCLECI_PIPELINE_DEFINITION_ID }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CIRCLECI_TOKEN" ] || [ -z "$PROJECT_SLUG" ] || [ -z "$DEFINITION_ID" ]; then
+            echo "::error::Set secret CIRCLECI_TOKEN and variables CIRCLECI_PROJECT_SLUG and CIRCLECI_PIPELINE_DEFINITION_ID (see .github/CI.md)."
+            exit 1
+          fi
+          body=$(jq -n --arg def "$DEFINITION_ID" --arg pr "$PR_NUMBER" \
+            '{definition_id: $def, config: {branch: "main"}, checkout: {branch: ("ci/pr-" + $pr)}, parameters: {fork_pr: $pr}}')
+          status=$(curl -sS -o response.json -w '%{http_code}' -X POST \
+            -H "Circle-Token: ${CIRCLECI_TOKEN}" -H 'Content-Type: application/json' \
+            --data "$body" "https://circleci.com/api/v2/project/${PROJECT_SLUG}/pipeline/run")
+          if [ "$status" != "201" ]; then
+            echo "::error::CircleCI trigger returned HTTP ${status}: $(jq -r '.message // empty' response.json)"
+            exit 1
+          fi
+          echo "CircleCI pipeline #$(jq -r .number response.json) started for ci/pr-${PR_NUMBER}; pr-check will report on the fork PR's head commit." >> "$GITHUB_STEP_SUMMARY"
 
   revoke:
     name: Require re-approval after a new push

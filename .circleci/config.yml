@@ -4,6 +4,14 @@ version: 2.1
 orbs:
   win: circleci/windows@5.0
 
+parameters:
+  # Set only by .github/workflows/fork-ci-mirror.yml through the CircleCI
+  # trigger API, after a maintainer approved a fork PR head with the ci:run
+  # label. GitHub App pipelines never fire for fork PRs on their own.
+  fork_pr:
+    type: string
+    default: ""
+
 jobs:
   pr-check:
     executor:
@@ -22,6 +30,7 @@ jobs:
       # from the environment with [AllowEmptyString] defaults.
       CBX_PR_URL: << pipeline.event.context.github.pr_url >>
       CBX_PR_BASE_SHA: << pipeline.event.github.pull_request.base.sha >>
+      CBX_FORK_PR: << pipeline.parameters.fork_pr >>
     steps:
       - checkout
       - run:
@@ -81,7 +90,8 @@ workflows:
     # Semantic CI boundary: release-integration micro PRs target port/upstream-*.
     # A micro-named head aimed directly at main still receives full hosted CI.
     # Guard the PR-only value behind event.name so push pipelines compile safely.
-    when: pipeline.event.name == "push" or (pipeline.event.name == "pull_request" and not (pipeline.event.github.pull_request.base.ref starts-with "port/upstream-"))
+    # API pipelines run only with fork_pr set (the fork-ci-mirror workflow).
+    when: pipeline.event.name == "push" or (pipeline.event.name == "pull_request" and not (pipeline.event.github.pull_request.base.ref starts-with "port/upstream-")) or pipeline.parameters.fork_pr != ""
     jobs:
       - pr-check:
           filters:

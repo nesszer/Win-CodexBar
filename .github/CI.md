@@ -45,10 +45,23 @@ build one:
    with this project's environment variables.
 2. Add the `ci:run` label. .github/workflows/fork-ci-mirror.yml pushes
    exactly that head commit to ci/pr-<number> in this repository.
-3. CircleCI builds the ci/pr-<number> push. The trigger gate in
-   scripts/circleci-pr-common.ps1 lets those branches through, and the
-   docs-only gate finds the PR base from the number. The check lands on the
-   same commit, so it shows on the fork PR.
+3. The same workflow starts a CircleCI pipeline through the trigger API,
+   with the config from main and the code from ci/pr-<number>. A plain push
+   is not enough: CircleCI ignores a branch push that brings no new commits,
+   and the fork head is already in this repository through its pull ref.
+   The pipeline's fork_pr parameter lets it through the trigger gate in
+   scripts/circleci-pr-common.ps1, and the docs-only gate finds the PR base
+   from the number. The check lands on the same commit, so it shows on the
+   fork PR.
+
+One-time setup for step 3:
+
+- Actions secret CIRCLECI_TOKEN: a CircleCI personal API token (User
+  Settings -> Personal API Tokens) from a user with access to this project.
+- Actions variable CIRCLECI_PROJECT_SLUG: Project Settings -> Overview, for
+  example circleci/<org-id>/<project-id>.
+- Actions variable CIRCLECI_PIPELINE_DEFINITION_ID: Project Settings ->
+  Pipelines, the id of the pipeline that runs .circleci/config.yml.
 
 Any new push to the fork PR removes the label; re-add it after reviewing the
 new commits. Closing the PR removes the mirror branch. GITHUB_TOKEN cannot
