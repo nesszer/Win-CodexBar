@@ -9,6 +9,7 @@
 
 ## [Windows] Unreleased
 
+- Keep Claude usage working when reading Claude Code's credentials is off and its own login is missing or expired: use the one saved Claude account that was never installed into Claude Code, renewing its token in CodexBar's own store without touching Claude Code.
 - Show independent session and weekly usage for native saved Claude Code accounts, with account-scoped OAuth renewal and safe authentication warnings.
 - Offer Refresh login beside Switch only for Claude and Codex accounts that need sign-in. Repair the selected saved login without switching to another account.
 - Use expanded, collapsible Claude and Codex account sections with Add account below the rows; keep the floating bar's usage footprint when authentication expires.
