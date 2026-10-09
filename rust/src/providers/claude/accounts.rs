@@ -74,6 +74,12 @@ impl SavedLogin {
 #[derive(Default, Serialize, Deserialize)]
 struct Store {
     accounts: Vec<SavedLogin>,
+    /// Account whose tokens CodexBar last installed into Claude Code. Its
+    /// saved copy shares a refresh-token chain with Claude Code, so CodexBar
+    /// must not rotate it without reading Claude Code's credentials. Older
+    /// builds ignore this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    installed_in_claude_code: Option<String>,
 }
 
 pub struct AccountManager {
@@ -179,7 +185,48 @@ impl AccountManager {
         let current = read_login(&self.config_dir, &self.config_file)?.ok_or_else(|| {
             io::Error::other("No Claude Code subscription login found. Add an account first.")
         })?;
-        self.import(current)
+        let id = current.id()?;
+        self.import(current)?;
+        self.set_installed_in_claude_code(Some(&id))
+    }
+
+    fn set_installed_in_claude_code(&self, id: Option<&str>) -> io::Result<()> {
+        let mut store = self.load()?;
+        store.installed_in_claude_code = id.map(str::to_owned);
+        self.save(&store)
+    }
+
+    /// The only saved account CodexBar may use for usage without reading
+    /// Claude Code's own credentials: one that was never installed into Claude
+    /// Code, so nothing else rotates its refresh token. `None` unless there
+    /// is exactly one, because without that consent the active login is unknown.
+    pub(super) fn standalone_usage_credentials(&self) -> io::Result<Option<(String, Value)>> {
+        let store = self.load()?;
+        let installed = store.installed_in_claude_code;
+        let mut candidates = store
+            .accounts
+            .into_iter()
+            .filter(|account| account.id().ok() != installed)
+            .collect::<Vec<_>>();
+        if candidates.len() != 1 {
+            tracing::debug!(
+                candidates = candidates.len(),
+                "No single standalone saved Claude account to use for usage"
+            );
+            return Ok(None);
+        }
+        let account = candidates.remove(0);
+        Ok(Some((account.id()?, account.oauth)))
+    }
+
+    /// Display fields (never credentials) of one saved account.
+    pub(super) fn saved_summary(&self, id: &str) -> Option<ClaudeAccount> {
+        let store = self.load().ok()?;
+        let account = store
+            .accounts
+            .iter()
+            .find(|account| account.id().ok().as_deref() == Some(id))?;
+        account.summary(false, true).ok()
     }
 
     /// Resolve this account only. The active login may have newer credentials
@@ -251,6 +298,10 @@ impl AccountManager {
     pub fn import(&self, login: SavedLogin) -> io::Result<()> {
         login.validate()?;
         let mut store = self.load()?;
+        if store.installed_in_claude_code == Some(login.id()?) {
+            // A new sign-in is a new refresh-token chain, not Claude Code's.
+            store.installed_in_claude_code = None;
+        }
         upsert(&mut store, login)?;
         self.save(&store)
     }
@@ -278,6 +329,9 @@ impl AccountManager {
         }
         let oauth = login.oauth.clone();
         upsert(&mut store, login)?;
+        if active {
+            store.installed_in_claude_code = Some(id.to_owned());
+        }
         self.save(&store)?;
         if active && self.current_account_id()?.as_deref() == Some(id) {
             let path = self.config_dir.join(".credentials.json");
@@ -299,6 +353,9 @@ impl AccountManager {
         store
             .accounts
             .retain(|a| a.id().ok().as_deref() != Some(id));
+        if store.installed_in_claude_code.as_deref() == Some(id) {
+            store.installed_in_claude_code = None;
+        }
         self.save(&store)
     }
 
@@ -313,6 +370,7 @@ impl AccountManager {
         target.validate()?;
         if let Some(current) = read_login(&self.config_dir, &self.config_file)? {
             if current.id()? == id {
+                self.set_installed_in_claude_code(Some(id))?;
                 return Ok(());
             }
             // Preserve the latest refresh token before replacing the active login.
@@ -357,6 +415,10 @@ impl AccountManager {
             }));
         }
         super::clear_account_caches(&credential_path);
+        // Best-effort: the switch itself already succeeded.
+        if let Err(error) = self.set_installed_in_claude_code(Some(id)) {
+            tracing::warn!(%error, "Claude account switched but its shared-login marker was not saved");
+        }
         Ok(())
     }
 }
@@ -685,6 +747,71 @@ mod tests {
             manager.load().unwrap().accounts[0].oauth["accessToken"],
             "updated"
         );
+    }
+
+    #[test]
+    fn standalone_usage_account_is_the_single_saved_login_never_installed_in_claude_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        assert!(manager.standalone_usage_credentials().unwrap().is_none());
+
+        manager.import(login("a", "one", "own-token")).unwrap();
+        let (id, oauth) = manager.standalone_usage_credentials().unwrap().unwrap();
+        assert_eq!(id, "a:one");
+        assert_eq!(oauth["accessToken"], "own-token");
+
+        // Two candidates: without Claude Code's consent nothing says which is meant.
+        manager.import(login("b", "two", "other")).unwrap();
+        assert!(manager.standalone_usage_credentials().unwrap().is_none());
+
+        // Installing one into Claude Code shares its refresh chain; the other
+        // account stays usable on its own.
+        manager.switch("b:two").unwrap();
+        assert_eq!(
+            manager.standalone_usage_credentials().unwrap().unwrap().0,
+            "a:one"
+        );
+
+        // A saved account that is the only one left but is shared is not offered.
+        manager.remove("a:one").unwrap();
+        assert!(manager.standalone_usage_credentials().unwrap().is_none());
+    }
+
+    #[test]
+    fn shared_login_marker_follows_save_current_import_and_remove() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        activate(&manager, &login("a", "one", "live"));
+        manager.save_current().unwrap();
+        assert!(manager.standalone_usage_credentials().unwrap().is_none());
+
+        // A fresh isolated sign-in of the same account is a new chain.
+        manager.import(login("a", "one", "fresh-signin")).unwrap();
+        let (_, oauth) = manager.standalone_usage_credentials().unwrap().unwrap();
+        assert_eq!(oauth["accessToken"], "fresh-signin");
+
+        manager.save_current().unwrap();
+        manager.remove("a:one").unwrap();
+        manager.import(login("a", "one", "again")).unwrap();
+        assert!(manager.standalone_usage_credentials().unwrap().is_some());
+    }
+
+    #[test]
+    fn store_without_shared_login_marker_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = manager(dir.path());
+        std::fs::create_dir_all(&manager.root).unwrap();
+        let legacy = json!({"accounts": [{
+            "oauth": login("a", "one", "t").oauth,
+            "identity": login("a", "one", "t").identity,
+        }]});
+        secure_file::write_string(&manager.root.join("accounts.json"), &legacy.to_string())
+            .unwrap();
+        assert_eq!(manager.load().unwrap().accounts.len(), 1);
+        assert!(manager.standalone_usage_credentials().unwrap().is_some());
+        let summary = manager.saved_summary("a:one").unwrap();
+        assert_eq!(summary.email, "same@example.com");
+        assert!(manager.saved_summary("missing:acct").is_none());
     }
 
     #[test]
