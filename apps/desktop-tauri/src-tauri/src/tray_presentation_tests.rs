@@ -1,11 +1,11 @@
 use super::*;
 use codexbar::core::ProviderId;
 
-fn fake_snapshot(id: &str, display_name: &str, used_percent: f64) -> ProviderUsageSnapshot {
+pub(crate) fn fake_snapshot(id: &str, display_name: &str, used_percent: f64) -> ProviderUsageSnapshot {
     fake_snapshot_with(id, display_name, used_percent, None, None, None)
 }
 
-fn fake_snapshot_with(
+pub(crate) fn fake_snapshot_with(
     id: &str,
     display_name: &str,
     used_percent: f64,
@@ -331,6 +331,34 @@ fn codex_headline_skips_informational_primary() {
 
     assert_eq!(codex_lane_headline_window(&snapshot).used_percent, 25.0);
 }
+#[test]
+fn pick_tray_provider_highest_picks_max_primary() {
+    let a = fake_snapshot("codex", "Codex", 30.0);
+    let b = fake_snapshot("claude", "Claude", 72.5);
+    let c = fake_snapshot("gemini", "Gemini", 50.0);
+    let refs: Vec<&ProviderUsageSnapshot> = vec![&a, &b, &c];
+    let picked = pick_tray_provider(&refs, /* prefer_highest = */ true)
+        .expect("highest mode should pick a provider");
+    assert_eq!(picked.provider_id, "claude");
+}
+
+#[test]
+fn pick_tray_provider_first_preserves_catalog_order() {
+    let a = fake_snapshot("codex", "Codex", 30.0);
+    let b = fake_snapshot("claude", "Claude", 72.5);
+    let refs: Vec<&ProviderUsageSnapshot> = vec![&a, &b];
+    let picked = pick_tray_provider(&refs, /* prefer_highest = */ false)
+        .expect("non-highest mode should still pick the first entry");
+    assert_eq!(picked.provider_id, "codex");
+}
+
+#[test]
+fn pick_tray_provider_none_when_empty() {
+    let refs: Vec<&ProviderUsageSnapshot> = vec![];
+    assert!(pick_tray_provider(&refs, true).is_none());
+    assert!(pick_tray_provider(&refs, false).is_none());
+}
+
 fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
     crate::commands::NamedRateWindowSnapshot {
         id: "additional_budget".to_string(),
