@@ -245,7 +245,7 @@ fn extra_columns_and_without_rowid_schema_is_supported() {
     .unwrap();
     let mut budget = Budget::new();
     assert_eq!(
-        supported_schema(&conn, &mut budget).unwrap(),
+        table_schema(&conn, &mut budget, "gen_metadata", &["idx", "data"]).unwrap(),
         SchemaInspection::Supported
     );
 }
@@ -260,7 +260,7 @@ fn generated_columns_are_rejected() {
         .unwrap();
     let mut budget = Budget::new();
     assert_eq!(
-        supported_schema(&conn, &mut budget).unwrap(),
+        table_schema(&conn, &mut budget, "gen_metadata", &["idx", "data"]).unwrap(),
         SchemaInspection::Unsupported
     );
 }
@@ -274,7 +274,7 @@ fn schema_entry_budget_is_incomplete_not_foreign() {
     }
     let mut budget = Budget::new();
     assert_eq!(
-        supported_schema(&conn, &mut budget).unwrap(),
+        table_schema(&conn, &mut budget, "gen_metadata", &["idx", "data"]).unwrap(),
         SchemaInspection::Incomplete
     );
 }
@@ -471,10 +471,11 @@ fn inspect_schema(
     conn: &Connection,
     budget: &mut Budget,
 ) -> rusqlite::Result<SchemaInspection> {
-    match table {
-        "gen_metadata" => supported_schema(conn, budget),
-        _ => supported_steps_schema(conn, budget),
-    }
+    let required: &[&str] = match table {
+        "gen_metadata" => &["idx", "data"],
+        _ => &["idx", "metadata"],
+    };
+    table_schema(conn, budget, table, required)
 }
 
 #[test]
