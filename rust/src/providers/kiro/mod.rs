@@ -8,14 +8,7 @@ mod tests;
 mod usage_limits;
 pub mod version;
 
-// Re-exports for version compatibility checking
-#[allow(
-    unused_imports,
-    reason = "imports needed for future Kiro provider wiring"
-)]
-pub use version::{
-    KiroVersion, detect_version, find_kiro_cli, get_version, is_compatible, is_installed,
-};
+pub use version::find_kiro_cli;
 
 use async_trait::async_trait;
 use chrono::Datelike;
