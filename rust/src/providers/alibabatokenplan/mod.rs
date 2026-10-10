@@ -415,14 +415,6 @@ impl Provider for AlibabaTokenPlanProvider {
             _ => error.state_kind(),
         }
     }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
 }
 
 pub(super) fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError> {

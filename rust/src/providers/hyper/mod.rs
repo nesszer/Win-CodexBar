@@ -218,10 +218,6 @@ impl Provider for HyperProvider {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::OAuth]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
     fn cookie_source_scopes_session_only(&self) -> bool {
         true
     }

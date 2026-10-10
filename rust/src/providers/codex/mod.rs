@@ -154,10 +154,6 @@ impl Provider for CodexProvider {
         true
     }
 
-    fn supports_cli(&self) -> bool {
-        true
-    }
-
     fn detect_version(&self) -> Option<String> {
         detect_codex_version()
     }

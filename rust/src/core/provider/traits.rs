@@ -53,14 +53,16 @@ pub trait Provider: Send + Sync {
         false
     }
 
-    /// Check if web API (cookies) is supported
+    /// Check if web API (cookies) is supported. Defaults to whether
+    /// [`Self::available_sources`] lists [`SourceMode::Web`].
     fn supports_web(&self) -> bool {
-        false
+        self.available_sources().contains(&SourceMode::Web)
     }
 
-    /// Check if CLI probe is supported
+    /// Check if CLI probe is supported. Defaults to whether
+    /// [`Self::available_sources`] lists [`SourceMode::Cli`].
     fn supports_cli(&self) -> bool {
-        false
+        self.available_sources().contains(&SourceMode::Cli)
     }
 
     /// Detect the version of the CLI tool (if applicable)

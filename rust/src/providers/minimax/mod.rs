@@ -1044,14 +1044,6 @@ impl Provider for MiniMaxProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::Cli]
     }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
 }
 
 #[cfg(test)]

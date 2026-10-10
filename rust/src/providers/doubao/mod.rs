@@ -943,6 +943,11 @@ impl Provider for DoubaoProvider {
         vec![SourceMode::Auto, SourceMode::OAuth, SourceMode::Cli]
     }
 
+    /// Stays `false` although `SourceMode::Cli` is listed (existing behavior).
+    fn supports_cli(&self) -> bool {
+        false
+    }
+
     /// Doubao's arkcli probe raises `NotInstalled` when the `arkcli`
     /// binary is missing from PATH/`ARKCLI_PATH` ("arkcli was not found.
     /// Install arkcli, ...") — an installation gap, not a credential

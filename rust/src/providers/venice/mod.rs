@@ -299,10 +299,6 @@ impl Provider for VeniceProvider {
         vec![SourceMode::Auto, SourceMode::OAuth, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
     fn owns_browser_cookie_resolution(&self) -> bool {
         true
     }

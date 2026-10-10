@@ -794,8 +794,9 @@ impl Provider for CodeBuddyProvider {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::Cli]
     }
 
-    fn supports_web(&self) -> bool {
-        true
+    /// Stays `false` although `SourceMode::Cli` is listed (existing behavior).
+    fn supports_cli(&self) -> bool {
+        false
     }
 }
 

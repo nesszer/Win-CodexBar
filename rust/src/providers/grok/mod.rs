@@ -591,14 +591,6 @@ impl Provider for GrokProvider {
         ]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
-
     fn detect_version(&self) -> Option<String> {
         Self::detect_cli_version()
     }

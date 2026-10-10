@@ -363,14 +363,6 @@ impl Provider for PerplexityProvider {
         vec![SourceMode::Auto, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
-    }
-
     /// Browser sessions are tried one by one inside the provider, so the shell
     /// must not pre-merge a single browser cookie header for Auto.
     fn owns_browser_cookie_resolution(&self) -> bool {

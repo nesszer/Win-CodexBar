@@ -467,10 +467,6 @@ impl Provider for ZoomMateProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
     }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
 }
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────

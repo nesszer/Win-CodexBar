@@ -402,14 +402,6 @@ impl Provider for WarpProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::OAuth]
     }
-
-    fn supports_web(&self) -> bool {
-        false
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
-    }
 }
 
 #[cfg(test)]

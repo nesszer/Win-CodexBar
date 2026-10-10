@@ -415,10 +415,6 @@ impl Provider for ManusProvider {
         vec![SourceMode::Auto, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
     /// The provider iterates every browser session itself, so the shell must
     /// not pre-resolve a single merged header for it.
     fn owns_browser_cookie_resolution(&self) -> bool {

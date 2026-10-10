@@ -102,10 +102,6 @@ impl Provider for ZedProvider {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::OAuth]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
     fn web_is_opt_in(&self) -> bool {
         true
     }

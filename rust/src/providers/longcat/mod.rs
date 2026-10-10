@@ -150,6 +150,11 @@ impl Provider for LongCatProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
     }
+
+    /// Stays `false` although `SourceMode::Web` is listed (existing behavior).
+    fn supports_web(&self) -> bool {
+        false
+    }
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {

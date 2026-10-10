@@ -229,14 +229,6 @@ impl Provider for JetBrainsProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Cli]
     }
-
-    fn supports_web(&self) -> bool {
-        false
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
     /// JetBrains' local IDE probe raises `NotInstalled` when the AI
     /// Assistant plugin is not found in any IDE configuration — an
     /// installation gap, not a credential problem — so it surfaces as an

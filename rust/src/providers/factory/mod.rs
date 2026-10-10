@@ -754,10 +754,6 @@ impl Provider for FactoryProvider {
         vec![SourceMode::Auto, SourceMode::OAuth, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
     fn supports_cli(&self) -> bool {
         // Shell maps cookie-source "off" to Cli; Factory treats Cli as API-only.
         true

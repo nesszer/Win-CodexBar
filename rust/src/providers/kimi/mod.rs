@@ -397,14 +397,6 @@ impl Provider for KimiProvider {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::OAuth]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
-    }
-
     fn supports_oauth(&self) -> bool {
         true
     }

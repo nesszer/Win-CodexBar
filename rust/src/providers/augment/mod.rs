@@ -293,14 +293,6 @@ impl Provider for AugmentProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::Cli]
     }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
     /// Augment's CLI probes raise `NotInstalled` when the CLI binary or
     /// config root is absent ("Augment CLI not found. Install from ...",
     /// "Augment not found. Install from ...") — an installation gap, not a

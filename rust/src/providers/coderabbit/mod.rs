@@ -101,10 +101,6 @@ impl Provider for CodeRabbitProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Cli]
     }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
 }
 
 fn configured_program() -> String {

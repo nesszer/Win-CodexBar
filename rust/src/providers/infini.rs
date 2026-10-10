@@ -379,14 +379,6 @@ impl Provider for InfiniProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
     }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
-    }
 }
 
 impl std::fmt::Display for PlanType {

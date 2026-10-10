@@ -542,10 +542,6 @@ impl Provider for MistralProvider {
         vec![SourceMode::Auto, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
     fn monthly_plan_window_id(&self) -> Option<&'static str> {
         Some(MONTHLY_PLAN_WINDOW_ID)
     }

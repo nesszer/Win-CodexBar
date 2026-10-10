@@ -202,10 +202,6 @@ impl Provider for WindsurfProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Cli]
     }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
 }
 
 fn decode_json_value(value: SqlValue) -> Option<String> {

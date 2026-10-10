@@ -898,10 +898,6 @@ impl Provider for AntigravityProvider {
         vec![SourceMode::Auto, SourceMode::Cli]
     }
 
-    fn supports_cli(&self) -> bool {
-        true
-    }
-
     /// Antigravity's `NotInstalled` reports the local language-server probe
     /// finding nothing to talk to — a runtime that is not running, not a
     /// credential problem — so it surfaces as an offline runtime.

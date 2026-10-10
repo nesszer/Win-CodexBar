@@ -854,14 +854,6 @@ impl Provider for ClaudeProvider {
         true
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
-
     fn owns_browser_cookie_resolution(&self) -> bool {
         true
     }

@@ -380,14 +380,6 @@ impl Provider for OllamaProvider {
         vec![SourceMode::Auto, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
-    }
-
     fn retains_last_good_on_transport_failure(&self) -> bool {
         true
     }

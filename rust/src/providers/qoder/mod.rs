@@ -507,10 +507,6 @@ impl Provider for QoderProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
     }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
 }
 
 #[cfg(test)]

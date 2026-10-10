@@ -469,14 +469,6 @@ impl Provider for KiroProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Cli]
     }
-
-    fn supports_web(&self) -> bool {
-        false
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
-    }
     /// Kiro's CLI probes raise `NotInstalled` when the `kiro-cli` binary is
     /// missing ("kiro-cli not found. Install from https://kiro.dev") — an
     /// installation gap, not a credential problem — so it surfaces as an

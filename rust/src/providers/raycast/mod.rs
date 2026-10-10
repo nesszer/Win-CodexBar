@@ -184,10 +184,6 @@ impl Provider for RaycastProvider {
         vec![SourceMode::Auto, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
     fn manual_cookie_precedes_token_account(&self) -> bool {
         true
     }

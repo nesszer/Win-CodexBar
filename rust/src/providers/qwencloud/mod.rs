@@ -432,10 +432,6 @@ impl Provider for QwenCloudProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
     }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
 }
 
 fn api_url(api: &str) -> String {
