@@ -515,34 +515,17 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
                 ))
             } else if let Some(first) = parsed.rate_limits.first() {
                 // Rate-limit-only payload: promote the first window to primary.
-                UsageSnapshot::new(RateWindow::with_details(
-                    used_percent(first.used, first.limit),
-                    window_minutes(&first.window),
-                    first.reset_at,
-                    Some(amount_description(first.used, first.limit, &parsed.unit)),
-                ))
+                UsageSnapshot::new(rate_limit_window(first, &parsed.unit))
             } else {
                 UsageSnapshot::new(RateWindow::informational("Key quota"))
             };
             let skip_first_rate_limit = parsed.quota.is_none() && !parsed.rate_limits.is_empty();
-            for (idx, rate_limit) in parsed.rate_limits.iter().enumerate() {
-                if skip_first_rate_limit && idx == 0 {
-                    continue;
-                }
-                snap = snap.with_extra_rate_window(
-                    rate_limit.window.clone(),
-                    rate_limit_title(&rate_limit.window),
-                    RateWindow::with_details(
-                        used_percent(rate_limit.used, rate_limit.limit),
-                        window_minutes(&rate_limit.window),
-                        rate_limit.reset_at,
-                        Some(amount_description(
-                            rate_limit.used,
-                            rate_limit.limit,
-                            &parsed.unit,
-                        )),
-                    ),
-                );
+            for rate_limit in parsed
+                .rate_limits
+                .iter()
+                .skip(usize::from(skip_first_rate_limit))
+            {
+                snap = with_rate_limit_extra(snap, rate_limit, &parsed.unit);
             }
             snap
         }
@@ -579,20 +562,7 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
     // Rate-limit extras for subscription/wallet kinds that also ship them.
     if kind != Kind::KeyQuota {
         for rate_limit in &parsed.rate_limits {
-            snapshot = snapshot.with_extra_rate_window(
-                rate_limit.window.clone(),
-                rate_limit_title(&rate_limit.window),
-                RateWindow::with_details(
-                    used_percent(rate_limit.used, rate_limit.limit),
-                    window_minutes(&rate_limit.window),
-                    rate_limit.reset_at,
-                    Some(amount_description(
-                        rate_limit.used,
-                        rate_limit.limit,
-                        &parsed.unit,
-                    )),
-                ),
-            );
+            snapshot = with_rate_limit_extra(snapshot, rate_limit, &parsed.unit);
         }
     }
 
@@ -657,6 +627,27 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
         result = result.with_cost(cost);
     }
     result
+}
+
+fn rate_limit_window(rate_limit: &ParsedRateLimit, unit: &str) -> RateWindow {
+    RateWindow::with_details(
+        used_percent(rate_limit.used, rate_limit.limit),
+        window_minutes(&rate_limit.window),
+        rate_limit.reset_at,
+        Some(amount_description(rate_limit.used, rate_limit.limit, unit)),
+    )
+}
+
+fn with_rate_limit_extra(
+    snapshot: UsageSnapshot,
+    rate_limit: &ParsedRateLimit,
+    unit: &str,
+) -> UsageSnapshot {
+    snapshot.with_extra_rate_window(
+        rate_limit.window.clone(),
+        rate_limit_title(&rate_limit.window),
+        rate_limit_window(rate_limit, unit),
+    )
 }
 
 fn classify_usage_kind(parsed: &ParsedUsage) -> Kind {
