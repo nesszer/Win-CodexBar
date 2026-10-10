@@ -111,6 +111,38 @@ fn parses_equals_form_args() {
     assert_eq!(process.source, ProcessSource::Ide);
 }
 
+#[test]
+fn ide_flags_capture_extension_token_and_prefer_the_extension_port() {
+    // (command line, extension token, port)
+    let cases = [
+        (
+            "1	ls.exe --extension_server_csrf_token ext-tok --csrf_token main --extension_server_port 54123 --https_server_port 61999",
+            Some("ext-tok"),
+            Some(54123),
+        ),
+        (
+            "1	ls.exe --csrf_token=main --extension_server_port=abc --https_server_port=61999",
+            None,
+            Some(61999),
+        ),
+        (
+            "1	ls.exe --csrf_token main --extension_server_port 70000",
+            None,
+            None,
+        ),
+    ];
+    for (line, ext_token, port) in cases {
+        let process = AntigravityProvider::parse_process_info(line).expect(line);
+        assert_eq!(process.csrf_token, "main", "{line}");
+        assert_eq!(
+            process.extension_server_csrf_token.as_deref(),
+            ext_token,
+            "{line}"
+        );
+        assert_eq!(process.extension_port, port, "{line}");
+    }
+}
+
 fn make_response(models: Vec<(&str, f64)>) -> UserStatusResponse {
     let json = serde_json::json!({
         "userStatus": {
