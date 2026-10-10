@@ -465,3 +465,201 @@ fn routine_read_offers_background_pricing_only_for_unpriced_history() {
     assert_eq!(unknown.total_usd(), None);
     assert!(background_pricing_refresh(&unknown).is_some());
 }
+
+fn inspect_schema(
+    table: &str,
+    conn: &Connection,
+    budget: &mut Budget,
+) -> rusqlite::Result<SchemaInspection> {
+    match table {
+        "gen_metadata" => supported_schema(conn, budget),
+        _ => supported_steps_schema(conn, budget),
+    }
+}
+
+#[test]
+fn schema_inspection_requires_one_stored_table_with_the_reader_columns() {
+    use SchemaInspection::{Incomplete, Supported, Unsupported};
+    for (table, column) in [("gen_metadata", "data"), ("steps", "metadata")] {
+        let upper = (table.to_ascii_uppercase(), column.to_ascii_uppercase());
+        let unrelated = (0..=MAX_SCHEMA_ENTRIES)
+            .map(|index| format!("CREATE TABLE unrelated_{index}(value TEXT);"))
+            .collect::<String>();
+        let cases = [
+            (
+                format!("CREATE TABLE {table}(idx INTEGER, {column} BLOB);"),
+                false,
+                Supported,
+            ),
+            (
+                format!("CREATE TABLE {}(IDX INTEGER, {} BLOB);", upper.0, upper.1),
+                false,
+                Supported,
+            ),
+            (
+                format!("CREATE TABLE {table}(idx INTEGER);"),
+                false,
+                Unsupported,
+            ),
+            (
+                format!("CREATE VIEW {table} AS SELECT 1 AS idx, x'00' AS {column};"),
+                false,
+                Unsupported,
+            ),
+            (
+                format!("CREATE TABLE other(idx INTEGER, {column} BLOB);"),
+                false,
+                Unsupported,
+            ),
+            (String::new(), false, Unsupported),
+            (
+                format!(
+                    "CREATE TABLE {table}(idx INTEGER, {column} BLOB, derived TEXT GENERATED ALWAYS AS (idx || 'x') VIRTUAL);"
+                ),
+                false,
+                Unsupported,
+            ),
+            (
+                format!("CREATE TABLE {table}(idx INTEGER, {column} BLOB);"),
+                true,
+                Incomplete,
+            ),
+            (unrelated, false, Incomplete),
+        ];
+        for (ddl, expired, expected) in cases {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch(&ddl).unwrap();
+            let mut budget = if expired {
+                Budget::with_deadline(Instant::now())
+            } else {
+                Budget::new()
+            };
+            assert_eq!(
+                inspect_schema(table, &conn, &mut budget).unwrap(),
+                expected,
+                "{table}: {ddl:.80}"
+            );
+        }
+    }
+}
+
+/// (complete, exhausted, budget rows, budget bytes, database bytes) after one read.
+type RowCharge = (bool, bool, usize, usize, usize);
+/// (rows as (idx, SQL value), preset (rows, bytes, database bytes), expected charge).
+type RowCase<'a> = (&'a [(i64, &'a str)], (usize, usize, usize), RowCharge);
+
+fn charge_rows(steps: bool, rows: &[(i64, &str)], preset: (usize, usize, usize)) -> RowCharge {
+    let (table, column) = if steps {
+        ("steps", "metadata")
+    } else {
+        ("gen_metadata", "data")
+    };
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        &format!("CREATE TABLE {table}(idx INTEGER, {column} BLOB)"),
+        [],
+    )
+    .unwrap();
+    for (idx, value) in rows {
+        conn.execute(&format!("INSERT INTO {table} VALUES (?1, {value})"), [idx])
+            .unwrap();
+    }
+    let (preset_rows, preset_bytes, preset_database_bytes) = preset;
+    let mut budget = Budget::new();
+    budget.rows = preset_rows;
+    budget.bytes = preset_bytes;
+    let (complete, database_bytes) = if steps {
+        let mut database_bytes = preset_database_bytes;
+        let scan =
+            read_step_timestamps(&conn, &HashMap::new(), &mut budget, &mut database_bytes).unwrap();
+        (scan.complete, database_bytes)
+    } else {
+        assert_eq!(
+            preset_database_bytes, 0,
+            "the generation reader starts at zero"
+        );
+        let parsed = read_generation_rows(&conn, "session", &mut budget).unwrap();
+        (parsed.complete, parsed.database_bytes)
+    };
+    (
+        complete,
+        budget.exhausted,
+        budget.rows,
+        budget.bytes,
+        database_bytes,
+    )
+}
+
+#[test]
+fn row_readers_skip_unusable_rows_before_charging_bytes() {
+    let oversized = format!("zeroblob({})", MAX_BLOB_BYTES + 1);
+    let near_full = MAX_TOTAL_BYTES - 5;
+    for steps in [false, true] {
+        let cases: [RowCase<'_>; 8] = [
+            (
+                &[(-1, "zeroblob(10)")],
+                (0, MAX_TOTAL_BYTES, 0),
+                (false, false, 1, MAX_TOTAL_BYTES, 0),
+            ),
+            (
+                &[(0, "NULL")],
+                (0, MAX_TOTAL_BYTES, 0),
+                (false, false, 1, MAX_TOTAL_BYTES, 0),
+            ),
+            (
+                &[(0, "'text'")],
+                (0, MAX_TOTAL_BYTES, 0),
+                (false, false, 1, MAX_TOTAL_BYTES, 0),
+            ),
+            (&[(0, "zeroblob(0)")], (0, 0, 0), (false, false, 1, 0, 0)),
+            (
+                &[(0, oversized.as_str())],
+                (0, 0, 0),
+                (false, false, 1, MAX_BLOB_BYTES + 1, MAX_BLOB_BYTES + 1),
+            ),
+            (
+                &[(0, "zeroblob(10)")],
+                (0, near_full, 0),
+                (false, true, 1, near_full, 10),
+            ),
+            (
+                &[(0, "zeroblob(4)"), (1, "zeroblob(10)")],
+                (0, MAX_TOTAL_BYTES - 9, 0),
+                (false, true, 2, MAX_TOTAL_BYTES - 5, 14),
+            ),
+            (
+                &[(0, "zeroblob(10)")],
+                (MAX_ROWS, 0, 0),
+                (false, true, MAX_ROWS + 1, 0, 0),
+            ),
+        ];
+        for (rows, preset, expected) in cases {
+            assert_eq!(
+                charge_rows(steps, rows, preset),
+                expected,
+                "steps={steps} {rows:?} {preset:?}"
+            );
+        }
+    }
+    // The steps reader carries the database total from the generation scan.
+    let full = MAX_DATABASE_BYTES - 5;
+    assert_eq!(
+        charge_rows(true, &[(0, "zeroblob(10)")], (0, 0, full)),
+        (false, true, 1, 0, full)
+    );
+    assert_eq!(
+        charge_rows(true, &[(0, "zeroblob(5)")], (0, 0, full)),
+        (false, false, 1, 5, MAX_DATABASE_BYTES)
+    );
+
+    let valid = valid_turn_blob(100, 1_785_700_000);
+    let hex = valid
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let literal = format!("x'{hex}'");
+    assert_eq!(
+        charge_rows(false, &[(0, literal.as_str())], (0, 0, 0)),
+        (true, false, 1, valid.len(), valid.len())
+    );
+}
