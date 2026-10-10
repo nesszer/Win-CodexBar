@@ -2,9 +2,13 @@ use super::*;
 use crate::codex_costs::codex_period_start;
 use crate::core::test_fixtures::test_file_usage;
 use crate::core::{CodexSessionLineage, CostUsagePricing};
+use crate::cost_reporting_period::cost_bucket_zone;
 use chrono::{Duration, FixedOffset, Local, NaiveTime, TimeZone};
 use claude_pricing::FALLBACK_CLAUDE_MODEL;
+use claude_scan::claude_usage_record_from_event_with_pricing;
+use claude_usage::{claude_usage_dedup_key, should_count_claude_record};
 use daily_history::mark_claude_daily_token_coverage;
+use std::fs::File;
 use std::io::Write;
 use support::{
     app_scanner, cached_file, cached_input_total, cached_usage_with_packed,
