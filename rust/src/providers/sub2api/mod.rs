@@ -85,11 +85,10 @@ struct UsageResponse {
     unit: Option<String>,
     balance: Option<f64>,
     quota: Option<QuotaResponse>,
-    #[serde(default, rename = "rate_limits")]
+    #[serde(default)]
     rate_limits: Option<Vec<RateLimitResponse>>,
     subscription: Option<SubscriptionResponse>,
     usage: Option<UsageBlockResponse>,
-    #[serde(rename = "expires_at")]
     expires_at: Option<String>,
 }
 
@@ -107,25 +106,17 @@ struct RateLimitResponse {
     limit: f64,
     used: f64,
     remaining: f64,
-    #[serde(rename = "reset_at")]
     reset_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct SubscriptionResponse {
-    #[serde(rename = "daily_usage_usd")]
     daily_usage_usd: Option<f64>,
-    #[serde(rename = "weekly_usage_usd")]
     weekly_usage_usd: Option<f64>,
-    #[serde(rename = "monthly_usage_usd")]
     monthly_usage_usd: Option<f64>,
-    #[serde(rename = "daily_limit_usd")]
     daily_limit_usd: Option<f64>,
-    #[serde(rename = "weekly_limit_usd")]
     weekly_limit_usd: Option<f64>,
-    #[serde(rename = "monthly_limit_usd")]
     monthly_limit_usd: Option<f64>,
-    #[serde(rename = "expires_at")]
     expires_at: Option<String>,
 }
 
@@ -138,9 +129,7 @@ struct UsageBlockResponse {
 #[derive(Debug, Deserialize)]
 struct TotalsResponse {
     requests: Option<i64>,
-    #[serde(rename = "total_tokens")]
     total_tokens: Option<i64>,
-    #[serde(rename = "actual_cost")]
     actual_cost: Option<f64>,
 }
 
