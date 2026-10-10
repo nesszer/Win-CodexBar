@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
 use super::tokens::{RowTokens, TokenSums};
-use crate::core::{ProviderError, ProviderFetchResult, RateWindow, UsageSnapshot};
+use crate::core::{ProviderError, ProviderFetchResult};
 
 const FIVE_HOURS_MS: i64 = 5 * 60 * 60 * 1000;
 const WEEK_MS: i64 = 7 * 24 * 60 * 60 * 1000;
@@ -100,26 +100,12 @@ pub struct LocalUsageSnapshot {
 impl LocalUsageSnapshot {
     pub fn to_fetch_result(&self) -> ProviderFetchResult {
         let now = Utc::now();
-        let primary = RateWindow::with_details(
-            self.rolling_usage_percent,
-            Some(300),
-            Some(now + Duration::seconds(self.rolling_reset_in_sec)),
-            None,
+        let at = |percent: f64, reset: i64| (percent, now + Duration::seconds(reset));
+        let snap = super::go_snapshot(
+            at(self.rolling_usage_percent, self.rolling_reset_in_sec),
+            Some(at(self.weekly_usage_percent, self.weekly_reset_in_sec)),
+            Some(at(self.monthly_usage_percent, self.monthly_reset_in_sec)),
         );
-        let mut snap = UsageSnapshot::new(primary).with_login_method("OpenCode Go");
-        snap = snap.with_secondary(RateWindow::with_details(
-            self.weekly_usage_percent,
-            Some(10080),
-            Some(now + Duration::seconds(self.weekly_reset_in_sec)),
-            None,
-        ));
-        let monthly_reset = now + Duration::seconds(self.monthly_reset_in_sec);
-        snap = snap.with_tertiary(RateWindow::with_details(
-            self.monthly_usage_percent,
-            RateWindow::monthly_window_minutes(Some(monthly_reset)).or(Some(43200)),
-            Some(monthly_reset),
-            None,
-        ));
         // Upstream 0.51 (#2982): local SQLite quota reconstruction is useful
         // but it is not server-confirmed authority. Keep that distinction in
         // the data contract so CLI/React can present it without guessing.
@@ -632,6 +618,7 @@ mod tokens_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::RateWindow;
     use chrono::Weekday;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -657,6 +644,37 @@ mod tests {
         assert!(result.usage.primary.resets_at.is_some());
         assert!(result.usage.secondary.as_ref().unwrap().resets_at.is_some());
         assert!(result.usage.tertiary.as_ref().unwrap().resets_at.is_some());
+    }
+
+    #[test]
+    fn local_fetch_result_pins_window_minutes_and_reset_offsets() {
+        let before = Utc::now();
+        let result = LocalUsageSnapshot {
+            rolling_usage_percent: 12.0,
+            weekly_usage_percent: 23.0,
+            monthly_usage_percent: 34.0,
+            rolling_reset_in_sec: 300,
+            weekly_reset_in_sec: 1_000,
+            monthly_reset_in_sec: 2_000,
+        }
+        .to_fetch_result();
+        let after = Utc::now();
+        let usage = &result.usage;
+        assert_eq!(usage.login_method.as_deref(), Some("OpenCode Go"));
+        let windows = [
+            (&usage.primary, 300, Some(300)),
+            (usage.secondary.as_ref().unwrap(), 1_000, Some(10080)),
+            (usage.tertiary.as_ref().unwrap(), 2_000, None),
+        ];
+        for (window, reset_in, minutes) in windows {
+            let resets_at = window.resets_at.unwrap();
+            assert!(resets_at >= before + Duration::seconds(reset_in));
+            assert!(resets_at <= after + Duration::seconds(reset_in));
+            let expected = minutes.or(RateWindow::monthly_window_minutes(Some(resets_at)));
+            assert_eq!(window.window_minutes, expected);
+            assert!(window.reset_description.is_none());
+        }
+        assert!(usage.extra_rate_windows.is_empty());
     }
 
     fn temp_db_path(label: &str) -> PathBuf {
