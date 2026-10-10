@@ -153,77 +153,42 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     let mut results: Vec<CostResult> = Vec::new();
 
     for provider in providers.as_list() {
-        match provider {
-            ProviderId::Codex => {
-                let summary = scanner.scan_codex();
-                results.push(CostResult {
-                    provider: provider.cli_name().to_string(),
-                    display_name: provider.display_name().to_string(),
-                    summary,
-                    supported: true,
-                    token_history: None,
-                });
-            }
+        let (summary, supported, token_history) = match provider {
+            ProviderId::Codex => (scanner.scan_codex(), true, None),
             ProviderId::Claude => {
                 let summary = if pi_selected || args.provider_native_only {
                     scanner.scan_claude_with_cancel_and_pi_sessions(None, false)
                 } else {
                     scanner.scan_claude()
                 };
-                results.push(CostResult {
-                    provider: provider.cli_name().to_string(),
-                    display_name: provider.display_name().to_string(),
-                    summary,
-                    supported: true,
-                    token_history: None,
-                });
+                (summary, true, None)
             }
-            ProviderId::Pi => {
-                let summary = scanner.scan_pi();
-                results.push(CostResult {
-                    provider: provider.cli_name().to_string(),
-                    display_name: provider.display_name().to_string(),
-                    summary,
-                    supported: true,
-                    token_history: None,
-                });
-            }
-            ProviderId::Antigravity => {
-                results.push(CostResult {
-                    provider: provider.cli_name().to_string(),
-                    display_name: provider.display_name().to_string(),
-                    summary: CostSummary::default(),
-                    supported: true,
-                    token_history: Some(
-                        crate::providers::antigravity::local_sessions::summarize_with_pricing_refresh(
-                            days,
-                            args.refresh,
-                        )
-                        .await,
-                    ),
-                });
-            }
+            ProviderId::Pi => (scanner.scan_pi(), true, None),
+            ProviderId::Antigravity => (
+                CostSummary::default(),
+                true,
+                Some(
+                    crate::providers::antigravity::local_sessions::summarize_with_pricing_refresh(
+                        days,
+                        args.refresh,
+                    )
+                    .await,
+                ),
+            ),
             ProviderId::Muse => {
                 let report = crate::providers::muse::local_usage::scan(days, None);
-                results.push(CostResult {
-                    provider: provider.cli_name().to_string(),
-                    display_name: provider.display_name().to_string(),
-                    summary: CostSummary::default(),
-                    supported: true,
-                    token_history: Some(report.into()),
-                });
+                (CostSummary::default(), true, Some(report.into()))
             }
-            _ => {
-                // Other providers don't have local logs to scan
-                results.push(CostResult {
-                    provider: provider.cli_name().to_string(),
-                    display_name: provider.display_name().to_string(),
-                    summary: CostSummary::default(),
-                    supported: false,
-                    token_history: None,
-                });
-            }
-        }
+            // Other providers don't have local logs to scan
+            _ => (CostSummary::default(), false, None),
+        };
+        results.push(CostResult {
+            provider: provider.cli_name().to_string(),
+            display_name: provider.display_name().to_string(),
+            summary,
+            supported,
+            token_history,
+        });
     }
 
     match format {

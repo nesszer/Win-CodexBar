@@ -96,16 +96,21 @@ pub fn render_json_result(
     }
 
     if let Some(s) = status {
-        json_result["status"] = serde_json::json!({
-            "level": format!("{:?}", s.level).to_lowercase(),
-            "description": s.description,
-        });
+        json_result["status"] = status_json(s);
     }
 
     json_result
 }
 
 /// Serialize a [`UsagePace`] into a compact JSON object for the `--json` output.
+/// `{level, description}` status object shared by every usage JSON row.
+pub(super) fn status_json(status: &StatusInfo) -> serde_json::Value {
+    serde_json::json!({
+        "level": format!("{:?}", status.level).to_lowercase(),
+        "description": status.description,
+    })
+}
+
 fn pace_json(pace: UsagePace) -> serde_json::Value {
     serde_json::json!({
         "stage": format!("{:?}", pace.stage).to_lowercase(),

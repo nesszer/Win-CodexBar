@@ -12,6 +12,7 @@ mod render;
 use fetch_helpers::{fetch_provider_json_output, fetch_provider_text_output};
 #[cfg(test)]
 use render::render_text;
+use render::status_json;
 pub(super) use render::{
     append_status_line, format_percent, render_status_indicator, render_text_error,
 };

@@ -224,34 +224,10 @@ struct GuardResultPayload {
 
 /// Run the guard command. Returns the process exit code.
 pub async fn run(args: GuardArgs) -> i32 {
-    let window = match GuardWindow::parse(&args.window) {
-        Some(w) => w,
-        None => {
-            eprintln!("Error: --window must be session|weekly.");
-            return exit_codes::USAGE_ERROR;
-        }
-    };
-
-    let minimum_remaining = match parse_min_remaining(args.min_remaining) {
-        Ok(v) => v,
+    let (window, minimum_remaining, timeout_secs, provider_id) = match parse_guard_args(&args) {
+        Ok(parsed) => parsed,
         Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::USAGE_ERROR;
-        }
-    };
-
-    let timeout_secs = match parse_timeout_secs(args.timeout) {
-        Ok(v) => v,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::USAGE_ERROR;
-        }
-    };
-
-    let provider_id = match resolve_guard_provider(&args.provider) {
-        Ok(id) => id,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
+            eprintln!("Error: {msg}");
             return exit_codes::USAGE_ERROR;
         }
     };
@@ -284,6 +260,16 @@ pub async fn run(args: GuardArgs) -> i32 {
         args.pretty,
     );
     evaluation.exit_code
+}
+
+/// Validate the guard flags in order; the first failure is the usage error.
+fn parse_guard_args(args: &GuardArgs) -> Result<(GuardWindow, f64, f64, ProviderId), String> {
+    let window = GuardWindow::parse(&args.window)
+        .ok_or_else(|| "--window must be session|weekly.".to_string())?;
+    let minimum_remaining = parse_min_remaining(args.min_remaining)?;
+    let timeout_secs = parse_timeout_secs(args.timeout)?;
+    let provider_id = resolve_guard_provider(&args.provider)?;
+    Ok((window, minimum_remaining, timeout_secs, provider_id))
 }
 
 async fn run_guard_fetch<F, Fut>(timeout_secs: f64, operation: F) -> GuardFetchOutcome
