@@ -777,25 +777,6 @@ impl CostScanner {
         }
     }
 
-    /// Scan Claude transcript rows for display-only quota-window history.
-    ///
-    /// The parser, preliminary-row filtering, provider filtering, and
-    /// request/session deduplication are shared with the ordinary Claude cost
-    /// summary path.  Missing timestamps or incomplete file reads keep the
-    /// coverage flag false; callers must not present those rows as an exact
-    /// historical total.
-    pub fn scan_claude_quota_history(&self) -> ClaudeQuotaHistoryScan {
-        self.scan_claude_quota_history_with_cancel(None)
-    }
-
-    /// Cancellable form of [`Self::scan_claude_quota_history`].
-    pub fn scan_claude_quota_history_with_cancel(
-        &self,
-        cancel: Option<&AtomicBool>,
-    ) -> ClaudeQuotaHistoryScan {
-        self.scan_claude_chart_snapshot_with_cancel(cancel)
-            .quota_history
-    }
     /// Scan OpenCode Go local SQLite usage (upstream #2649 per-model cost breakdown).
     ///
     /// Reads the local `opencode.db` and maps rows onto the shared `CostSummary`
