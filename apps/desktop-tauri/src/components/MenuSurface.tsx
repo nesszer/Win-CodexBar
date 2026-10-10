@@ -32,9 +32,6 @@ function lineIcon(...paths: ReactNode[]) {
   );
 }
 
-/** 16px line icons after the SF Symbols the macOS menu uses
- *  (key, chart.xyaxis.line, waveform.path.ecg, gearshape, info.circle,
- *  xmark.rectangle). Refresh has no icon on the Mac. */
 const ROW_ICONS: Record<MenuRowId, ReactNode> = {
   switchAccount: lineIcon(
     <circle key="bow" cx="8" cy="4.6" r="3" />,
@@ -67,8 +64,6 @@ const ROW_ICONS: Record<MenuRowId, ReactNode> = {
 interface MenuSurfaceProps {
   summary?: ReactNode;
   banner?: ReactNode;
-  /** Footer rows in groups. A separator is drawn before each non-empty
-   *  group, like the separators between the macOS menu sections. */
   footerGroups?: MenuFooterRow[][];
   /** Inline style applied to the root `menu-surface` element (e.g. CSS
    *  `zoom` for the tray flyout). */
@@ -79,10 +74,6 @@ interface MenuSurfaceProps {
 /**
  * Flush, compact container for the tray panel (`TrayPanel`), the only
  * dashboard layout. It renders in the tray-panel flyout window.
- *
- * Mirrors the upstream macOS `MenuContent`: a 310pt menu panel holding a
- * stack of full provider cards (`MenuCard`), one per enabled provider,
- * followed by the menu rows.
  */
 export default function MenuSurface({
   summary,

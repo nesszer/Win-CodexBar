@@ -28,9 +28,6 @@ pub fn dismiss_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
     crate::shell::flyout_window::hide(&app)
 }
 
-/// Arm the gesture blur guard before a drag-reorder gesture starts its
-/// OLE modal loop, so the transient
-/// `Focused(false)` that loop produces doesn't auto-hide the flyout.
 #[tauri::command]
 pub fn begin_flyout_gesture(app: tauri::AppHandle) -> Result<(), String> {
     let state = app

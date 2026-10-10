@@ -74,7 +74,6 @@ export const EMPTY_AUTOFIT_STATE: TrayAutoFitState = {
 export interface TraySizingInput {
   /** Measured content height, logical px, post zoom-scale, pre clamp. */
   measuredHeight: number;
-  /** Logical window width: 310 px times the Panel scale. */
   expectedWidth: number;
   minHeight: number;
   maxHeight: number;

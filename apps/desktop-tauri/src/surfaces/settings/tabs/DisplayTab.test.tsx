@@ -60,7 +60,6 @@ describe("DisplayTab menu settings", () => {
 
   it("shows the saved Panel scale and saves the new one when the slider is released", async () => {
     const set = vi.fn();
-    // Settles the tab's tray-visibility read before the slider re-renders it.
     await act(async () => {
       render(
         <DisplayTab

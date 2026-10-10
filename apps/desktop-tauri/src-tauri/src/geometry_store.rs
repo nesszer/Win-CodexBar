@@ -1,8 +1,6 @@
 //! Persistent window-geometry store for the Tauri desktop shell.
 //!
-//! Remembers position (and size where applicable) for detached user surfaces:
-//! PopOut, Settings and the float bar. The tray-panel flyout remembers
-//! nothing: it is a fixed panel anchored to the tray on every open.
+//! Remembers position (and size where applicable) for detached user surfaces.
 
 use std::fs;
 use std::path::PathBuf;
@@ -49,8 +47,6 @@ fn geometry_path() -> Option<PathBuf> {
 /// Surface modes eligible for geometry persistence.
 ///
 /// - `Hidden`: never remembered.
-/// - `TrayPanel`: never remembered; the flyout is a fixed panel anchored to
-///   the tray on every open.
 /// - `PopOut` / `Settings`: user-movable, position + size remembered.
 pub fn should_remember(mode: SurfaceMode) -> bool {
     matches!(mode, SurfaceMode::PopOut | SurfaceMode::Settings)

@@ -276,9 +276,6 @@ impl AppState {
         self.flyout_reveal_pending.take()
     }
 
-    /// Arm the gesture blur guard for 15s. Called when the frontend reports
-    /// a drag-reorder mousedown is about to start an OLE modal loop that will
-    /// transiently blur the window.
     pub fn begin_gesture_blur_guard(&mut self, now: std::time::Instant) {
         self.gesture_blur_guard = Some((now, now + std::time::Duration::from_secs(15)));
     }

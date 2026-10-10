@@ -170,8 +170,6 @@ pub fn get_work_area_rect(app: tauri::AppHandle) -> Result<WorkAreaRect, String>
 
 // ── Misc UX ────────────────────────────────────────────────────────────
 
-/// The Windows accent color as `#rrggbb`. The tray panel paints its menu
-/// selection with it, the way macOS menus use the system accent.
 #[tauri::command]
 pub fn get_system_accent_color() -> Option<String> {
     system_accent_abgr().map(abgr_to_hex)

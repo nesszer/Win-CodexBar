@@ -1,20 +1,8 @@
-//! Detached "Pop Out Dashboard" flyout window: a fixed-width light panel,
-//! anchored to the tray, with optional always-on-top behavior that auto-hides
-//! on click-outside.
-//!
 //! Runs as an auxiliary Tauri window labeled `flyout`, independent of the
 //! `main` window's surface state machine. It is the only dashboard layout:
 //! tray left-click, "Pop Out Dashboard", the global shortcut, app launch and
 //! single-instance relaunch all open it. The legacy PopOut layout on `main`
-//! is retired. Like the Mac menu, it always opens next to the tray (or the
-//! launch cursor) and can't be moved or resized; the frontend sets its height
-//! to fit the content.
-//!
-//! Structurally modeled on `crate::floatbar` (self-contained module owning
-//! its window + a `handle_window_event` hook dispatched from `main.rs`
-//! before the `main`-window-only handling); the window itself is built with
-//! `settings_window.rs`'s builder recipe (async open, manual DWM chrome
-//! pass, `WebviewUrl::App` with a `?window=` query marker).
+//! is retired.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,8 +17,7 @@ use crate::surface::SurfaceMode;
 
 pub const FLYOUT_LABEL: &str = "flyout";
 
-/// The panel fill, `--mac-panel-bg` in `styles.css`. The window paints it
-/// before the page loads and on every erase, so the panel never flashes dark.
+/// The window paints this before the page loads and on every erase.
 const PANEL_FILL: tauri::utils::config::Color = tauri::utils::config::Color(0xDE, 0xDE, 0xE2, 0xFF);
 
 /// Same window used to close a same-click blur-dismiss/reopen race as the
@@ -132,13 +119,11 @@ fn open_with_anchor(
         .decorations(props.decorations)
         .shadow(false)
         .resizable(props.resizable)
-        // No maximize box, so Windows never snaps or maximizes the panel.
         .maximizable(false)
         .always_on_top(settings.tray_panel_always_on_top)
         .skip_taskbar(props.skip_taskbar)
-        // WebView2 shares `prefers-color-scheme` across the process, so the
-        // flyout stays pinned dark like the other windows; the panel's CSS
-        // draws it light regardless.
+        // WebView2 shares `prefers-color-scheme` across the profile, so the
+        // flyout stays pinned dark like the other windows.
         .theme(Some(tauri::Theme::Dark))
         .background_color(PANEL_FILL)
         // CRITICAL: dynamically-built windows default to drag-drop ENABLED,
@@ -340,11 +325,6 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
     }
 }
 
-/// Reposition the flyout at its captured cursor or system-tray anchor, using
-/// the window's CURRENT logical size (after a frontend-driven resize).
-/// Canonical anchor-math implementation for the flyout window; the
-/// `reanchor_tray_panel` Tauri command (`commands/system.rs`) is a thin
-/// retarget onto this function.
 pub fn reanchor(app: &AppHandle) -> Result<(), String> {
     use crate::window_positioner::{PanelSize, Rect};
 
@@ -453,12 +433,6 @@ mod tests {
 
     #[test]
     fn tray_panel_window_properties_still_the_single_source_for_flyout_shape() {
-        // `open_or_focus`'s builder reads size/decorations/resizable/
-        // skip_taskbar from
-        // `SurfaceMode::TrayPanel.window_properties()` directly (not
-        // independent duplicated constants) — this pins down the values that
-        // relationship depends on, so a change to `surface.rs` shows up here
-        // instead of silently drifting from what the flyout actually builds.
         let props = SurfaceMode::TrayPanel.window_properties();
         assert_eq!(props.width, 310.0);
         assert_eq!(props.height, 776.0);

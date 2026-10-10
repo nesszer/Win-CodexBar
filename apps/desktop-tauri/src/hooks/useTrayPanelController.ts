@@ -33,7 +33,6 @@ import {
 const TRAY_INITIAL_REFRESH_DELAY_MS = 250;
 const DENSE_OVERVIEW_THRESHOLD = 32;
 
-/** Which of a provider's web pages the backend can open. */
 interface ProviderLinks {
   providerId: string;
   dashboard: boolean;
@@ -63,7 +62,6 @@ export function useTrayPanelController(state: BootstrapState) {
   const { t } = useLocale();
   const surfaceTarget = useSurfaceTarget("trayPanel");
 
-  // Settings > Menu > Panel scale, applied as CSS zoom on the panel.
   const trayScale = clampTrayScalePercent(settings.trayScalePercent) / 100;
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
@@ -80,8 +78,6 @@ export function useTrayPanelController(state: BootstrapState) {
     };
   }, []);
 
-  // The hidden panel window lives for the whole app run, so a focus re-read
-  // is what picks up an accent changed in Windows settings.
   const [accentColor, setAccentColor] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -169,9 +165,6 @@ export function useTrayPanelController(state: BootstrapState) {
     return [match];
   }, [denseTrayProviders, sorted, selectedProviderId, gridExpanded]);
 
-  // The account and link rows act on the selected provider, or on the only
-  // one: macOS shows them on a provider tab, and with a single provider there
-  // is no overview tab.
   const actionProvider =
     selectedProviderId !== null
       ? (providersById.get(selectedProviderId) ?? null)
@@ -198,7 +191,6 @@ export function useTrayPanelController(state: BootstrapState) {
       cancelled = true;
     };
   }, [actionProviderId]);
-  // Links resolved for a previously selected provider never show.
   const links =
     providerLinks !== null && providerLinks.providerId === actionProviderId
       ? providerLinks

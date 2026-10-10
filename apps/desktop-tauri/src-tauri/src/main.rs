@@ -399,11 +399,6 @@ fn main() {
                     {
                         return;
                     }
-                    // Gesture guard: ignore blur while an HTML5 drag-reorder
-                    // is running its OLE modal loop.
-                    // Windows produces a spurious Focused(false) the instant
-                    // such a loop starts even though the user never left the
-                    // window; see AppState::begin_gesture_blur_guard.
                     if let Some(st) = window.app_handle().try_state::<Mutex<AppState>>()
                         && st
                             .lock()

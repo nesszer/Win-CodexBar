@@ -81,8 +81,6 @@ function mountSurface(): void {
   surface = document.querySelector<HTMLElement>(".menu-surface--tray")!;
 }
 
-/** Drive the auto-fit measure: jsdom rects are 0, so scrollHeight dominates →
- *  contentHeight = scrollHeight + 1 (measure pipeline, zoom=1). */
 function setScrollHeight(px: number): void {
   Object.defineProperty(surface, "scrollHeight", {
     configurable: true,
@@ -227,8 +225,6 @@ describe("useTrayPanelLayout sizing", () => {
     const lockedResizes = windowMocks.setSize.mock.calls.length;
     const lockedAnchors = tauriMocks.reanchorTrayPanel.mock.calls.length;
 
-    // Flip-down evidence (measure 542→543): detected, suppressed, and the DOM
-    // constraint stays the RETAINED height — never the smaller candidate.
     await nudgePass(result, 542, "549px");
     expect(windowMocks.setSize.mock.calls.length).toBe(lockedResizes);
     expect(tauriMocks.reanchorTrayPanel.mock.calls.length).toBe(lockedAnchors);
@@ -309,8 +305,6 @@ describe("useTrayPanelLayout sizing", () => {
   it("sizes the window at 310 px times the Panel scale and leaves the spare height above the footer out", async () => {
     const body = surface.querySelector<HTMLElement>(".menu-surface__body")!;
     const footer = surface.querySelector<HTMLElement>(".menu-surface__footer")!;
-    // WebView2 at zoom 1.5: rects are rendered px, scrollHeight is local px,
-    // and the filled surface parks 201 px of spare height above the footer.
     surface.getBoundingClientRect = () =>
       ({ top: 0, bottom: 800, height: 800 }) as DOMRect;
     body.getBoundingClientRect = () =>

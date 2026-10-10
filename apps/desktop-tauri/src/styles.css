@@ -1046,9 +1046,7 @@ html {
 /* Hide the panel during the initial resize + reposition dance so the
    user never sees the window jump around.  Once layout is measured and
    the window is anchored in its final position, .tray-panel-reveal--ready
-   fades the content in smoothly.  The page behind the panel carries the
-   panel fill (--mac-panel-bg, and PANEL_FILL in shell/flyout_window.rs) so
-   no other color shows while the panel is hidden. */
+   fades the content in smoothly. */
 :root {
   --mac-panel-bg: #dedee2;
 }
@@ -1067,9 +1065,6 @@ body:has(.tray-panel-reveal),
   opacity: 1;
   transition: opacity 80ms ease-out;
 }
-/* The window keeps a height floor, so it can be taller than the content.
-   The panel fills the window and parks the spare height above the footer,
-   which keeps the footer rows next to the tray. */
 .tray-panel-reveal .menu-surface--tray {
   flex-grow: 1;
 }
@@ -3383,10 +3378,6 @@ html:has(.menu-surface--tray) {
   overflow: visible;
 }
 
-/* Tray panel: a fixed light panel after the macOS 0.70 menu material
-   (tray-card-spec.md section 1) under every app theme.  The wrapper sets
-   data-theme="light"; tokens that only the dark theme block defines get
-   tray values here so theme dark, light and auto render the same panel. */
 .menu-surface--tray {
   --mac-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --mac-text-headline: 600 13px/16px var(--mac-font);
@@ -3412,7 +3403,6 @@ html:has(.menu-surface--tray) {
   --mac-pace-bad: #ff3b30;
   --mac-marker: rgba(0, 0, 0, 0.58);
   --mac-accent: #007aff;
-  /* TrayPanel overrides this inline with the Windows accent color. */
   --mac-selection-bg: #0078d4;
   --mac-selection-text: #fff;
 
@@ -3457,8 +3447,6 @@ html:has(.menu-surface--tray) {
   --mac-menu-row-h: 22px;
   --mac-row-pl: 15px;
   --mac-row-icon: 16px;
-  /* The Mac code says 4.5pt, but the 0.70 shots put footer labels 38px from
-     the panel edge, which a 6px gap after the 16px icon reproduces. */
   --mac-row-icon-gap: 6px;
   --mac-shortcut-w: 44px;
 
@@ -3536,14 +3524,11 @@ html:has(.menu-surface--tray) {
   box-sizing: border-box;
   overflow: visible;
 }
-/* Selected card: no highlight plate, like the macOS menu card. */
 .menu-surface--tray .menu-stack__item--selected {
   border: none;
   border-radius: 6px;
   padding: 4px 4px;
 }
-/* The panel is light under every app theme.  These base rules paint white
-   tints meant for a dark surface, so the tray gets dark tints instead. */
 .menu-surface--tray .menu-card__copy-btn:hover {
   background: rgba(0, 0, 0, 0.06);
 }
@@ -4529,8 +4514,6 @@ html:has(.menu-surface--tray) {
   font-size: 13px;
 }
 
-/* Footer rows follow the macOS menu: 22px rows (24px for Refresh), a 16px
-   icon column, a 44px shortcut column, and an inset selection plate. */
 .menu-surface__footer {
   display: flex;
   flex-direction: column;

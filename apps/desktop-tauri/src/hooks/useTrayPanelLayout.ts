@@ -12,20 +12,18 @@ import {
   type TrayAutoFitState,
 } from "../lib/traySizing";
 
-/** The macOS 0.70 menu width (tray-card-spec.md section 1) at 100% Panel scale. */
 const TRAY_BASE_WIDTH = 310;
 const TRAY_MAX_MEASURE_HEIGHT = 920;
 const TRAY_OVERVIEW_MIN_HEIGHT = 200;
 const TRAY_DETAIL_MIN_HEIGHT = 420;
 const TRAY_DENSE_OVERVIEW_HEIGHT = 776;
+const TRAY_HEIGHT_SLACK = 1;
 
 export interface TrayPanelLayoutOptions {
   canMeasure: boolean;
   denseOverview: boolean;
   detailMode: boolean;
   layoutKey: string;
-  /** Panel scale as a factor: the CSS `zoom` TrayPanel puts on the surface.
-   *  The window width and height follow it. Defaults to 1. */
   zoom?: number;
 }
 
@@ -34,10 +32,6 @@ export interface TrayPanelLayout {
   requestLayout: () => void;
 }
 
-/**
- * Fits the tray flyout window to its content: a fixed width of 310 px times
- * the Panel scale, and a height measured from the rendered surface.
- */
 export function useTrayPanelLayout({
   canMeasure,
   denseOverview,
@@ -50,12 +44,8 @@ export function useTrayPanelLayout({
   const layoutReadyRef = useRef(false);
   const resizeRunRef = useRef(0);
   const layoutTimerRef = useRef<number | undefined>(undefined);
-  // The window's actual physical size after our last resize. Win32 may snap
-  // a requested size, and lib/traySizing compares candidates against it.
   const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
   const programmaticInFlightRef = useRef(0);
-  // Sizing decision state (committed frame, one-frame history, learned
-  // oscillation pair). The #261 cycle detection lives in lib/traySizing.
   const sizingStateRef = useRef<TrayAutoFitState>(EMPTY_AUTOFIT_STATE);
 
   const applySize = useCallback(async (size: LogicalSize): Promise<void> => {
@@ -82,10 +72,6 @@ export function useTrayPanelLayout({
     const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
     if (!surface || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      // Measuring temporarily removes the surface/body constraints, which
-      // resizes the observed elements. Do not feed that programmatic change
-      // back into another pass or the capped flyout flashes between its
-      // measured and committed layouts forever.
       if (
         layoutReadyRef.current &&
         programmaticInFlightRef.current > 0
@@ -94,8 +80,6 @@ export function useTrayPanelLayout({
       }
       requestLayout();
     });
-    // The surface fills the window, so content changes show up on the body
-    // and the footer rather than on the surface itself.
     for (const part of [
       surface,
       surface.querySelector(".menu-surface__body"),
@@ -182,12 +166,8 @@ export function useTrayPanelLayout({
         }
       };
 
-      // Every resize this pass causes, and any that arrive shortly after,
-      // must not start another pass. The trailing delay absorbs late events.
       programmaticInFlightRef.current += 1;
       try {
-        // Text wraps at the window width, so the width has to be in place
-        // before the height is measured.
         const committed = sizingStateRef.current.committed;
         if (!layoutReadyRef.current || committed?.width !== width) {
           const height =
@@ -208,9 +188,7 @@ export function useTrayPanelLayout({
 
         // WebView2 reports bounding rects in rendered px but scrollHeight in
         // the zoomed surface's local px (measured on Edge 154), so the local
-        // value is scaled before the two are compared. The surface fills the
-        // window and parks spare height above the footer; that gap is not
-        // content. The extra 1 px absorbs DPI rounding of the window height.
+        // value is scaled before the two are compared.
         const surfaceRect = surface.getBoundingClientRect();
         const bodyRect = body?.getBoundingClientRect();
         const footerRect = footer?.getBoundingClientRect();
@@ -223,7 +201,7 @@ export function useTrayPanelLayout({
           surfaceRect.bottom,
         );
         const height = Math.min(
-          Math.max(Math.ceil(contentBottom - spare) + 1, minHeight),
+          Math.max(Math.ceil(contentBottom - spare) + TRAY_HEIGHT_SLACK, minHeight),
           maxHeight,
         );
 
@@ -239,8 +217,6 @@ export function useTrayPanelLayout({
             expectedWidth: width,
             minHeight,
             maxHeight,
-            // WebView layout px ↔ Win32 physical px ratio; CSS zoom does not
-            // affect it.
             scaleFactor: window.devicePixelRatio,
             zoom,
             lastAppliedPhysicalHeight: lastSizeRef.current?.height ?? null,
@@ -248,7 +224,6 @@ export function useTrayPanelLayout({
           sizingStateRef.current,
         );
         sizingStateRef.current = decision.state;
-        // A zoomed element's max-height renders at value × zoom.
         surface.style.maxHeight = `${decision.height / zoom}px`;
         committedHeight = true;
 

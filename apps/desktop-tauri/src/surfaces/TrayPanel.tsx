@@ -19,9 +19,6 @@ import { filterUsageSpendSummaryForOverview } from "../lib/usageSpendSharing";
  * Tray popover surface — two modes like macOS CodexBar:
  * 1. Overview (default): provider grid + all cards stacked
  * 2. Detail: click a provider in grid → show only that provider's card
- *
- * The panel is a light menu under every app theme, like the macOS menu, so
- * the wrappers pin `data-theme="light"`.
  */
 export default function TrayPanel({ state }: { state: BootstrapState }) {
   const stayAwakeHeld = useStayAwakeStatus();

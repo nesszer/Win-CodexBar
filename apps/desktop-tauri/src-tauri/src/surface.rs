@@ -50,8 +50,6 @@ impl SurfaceMode {
             // tray icon, auto-hides on click-outside (blur), and never shows in
             // the taskbar. Its optional always-on-top setting is applied by the
             // dedicated flyout window, which can read persisted settings.
-            // Fixed 310px wide like the Mac menu; the frontend sizes the
-            // height to its content and scales both by "Panel scale".
             Self::TrayPanel => WindowProperties {
                 visible: true,
                 decorations: false,
@@ -277,7 +275,6 @@ mod tests {
     #[test]
     fn tray_panel_is_fixed_size_blur_dismiss_flyout() {
         let props = SurfaceMode::TrayPanel.window_properties();
-        // "Pop Out Dashboard" flyout: fixed size, anchored, auto-hide, no taskbar.
         assert!(!props.resizable);
         assert!(props.blur_dismiss);
         assert!(!props.always_on_top);

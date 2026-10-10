@@ -550,7 +550,6 @@ export function revealTrayPanelWindow(): Promise<void> {
   return invoke<void>("reveal_tray_panel_window");
 }
 
-/** The Windows accent color as `#rrggbb`, or null when Windows has none. */
 export function getSystemAccentColor(): Promise<string | null> {
   return invoke<string | null>("get_system_accent_color");
 }

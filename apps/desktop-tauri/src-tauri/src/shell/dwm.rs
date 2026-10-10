@@ -168,15 +168,13 @@ unsafe extern "system" fn borderless_subclass_proc(
     }
 }
 
-/// The native chrome a borderless window gets from DWM.
 #[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Chrome {
     Dark,
     /// Keeps `WS_THICKFRAME` so the native resize affordance still works.
     DarkResizable,
-    /// The tray flyout: a fixed light panel with Windows 11 rounded corners.
-    /// Its erase color comes from the builder's `background_color`, which
+    /// The erase color comes from the builder's `background_color`, which
     /// tao paints on `WM_ERASEBKGND`.
     LightPanel,
 }
@@ -191,22 +189,20 @@ const fn colorref(r: u8, g: u8, b: u8) -> u32 {
 }
 
 #[cfg(windows)]
+const PANEL_HAIRLINE: u32 = colorref(0x8A, 0x8B, 0x8E);
+
+#[cfg(windows)]
 impl Chrome {
     fn keeps_resize_frame(self) -> bool {
         self == Self::DarkResizable
     }
 
-    /// `DWMWA_WINDOW_CORNER_PREFERENCE`, when the window asks for one.
     fn corner_preference(self) -> Option<u32> {
         (self == Self::LightPanel).then_some(DWMWCP_ROUND)
     }
 
-    /// `DWMWA_BORDER_COLOR`. DWM draws its border along the rounded corner,
-    /// where the panel's CSS hairline is clipped, so both use the measured
-    /// Mac hairline `#8A8B8E`. Without it the dark-mode border would ring
-    /// the light panel.
     fn border_color(self) -> Option<u32> {
-        (self == Self::LightPanel).then_some(colorref(0x8A, 0x8B, 0x8E))
+        (self == Self::LightPanel).then_some(PANEL_HAIRLINE)
     }
 }
 
@@ -224,7 +220,6 @@ pub fn force_dark_caption_resizable(win: &tauri::WebviewWindow) {
     apply_chrome(win, Chrome::DarkResizable);
 }
 
-/// Borderless light panel with rounded corners, for the tray flyout only.
 #[cfg(windows)]
 pub fn light_panel_chrome(win: &tauri::WebviewWindow) {
     apply_chrome(win, Chrome::LightPanel);

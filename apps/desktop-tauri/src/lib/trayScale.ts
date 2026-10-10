@@ -1,5 +1,3 @@
-/** Panel scale bounds in percent. The backend clamps `trayScalePercent` to
- *  the same range when it loads or saves settings. */
 export const TRAY_SCALE_MIN = 100;
 export const TRAY_SCALE_MAX = 200;
 export const TRAY_SCALE_STEP = 5;

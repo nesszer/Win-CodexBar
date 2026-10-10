@@ -599,9 +599,6 @@ mod tests {
         let action = resolve_menu_action("pop_out").expect("pop_out action");
         assert!(matches!(action, MenuAction::OpenFlyout));
 
-        // SurfaceMode::TrayPanel is retained purely as a data key (geometry
-        // key / window_properties source / panel-size reference) for the
-        // flyout window's builder. The panel is a fixed-width menu.
         let props = SurfaceMode::TrayPanel.window_properties();
         assert!(!props.resizable && props.blur_dismiss && props.skip_taskbar);
     }

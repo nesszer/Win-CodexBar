@@ -231,7 +231,6 @@ function renderTrayPanel(
   );
 }
 
-/** The pages `get_provider_detail` reports for a provider with both links. */
 function providerLinks(id: string) {
   return {
     dashboardUrl: `https://${id}.example/usage`,
@@ -338,12 +337,6 @@ describe("TrayPanel provider grid", () => {
   });
 
   it("reveals regardless of the shared surface-mode snapshot (TrayPanel now runs in its own dedicated window)", async () => {
-    // TrayPanel is now hosted exclusively in the dedicated `flyout` OS
-    // window (see App.tsx's isFlyoutWindow() routing), so it must not depend
-    // on `main`'s surface-mode machine to know it's "open" — that machine
-    // can report something other than "trayPanel". Overriding the snapshot
-    // mock to another mode confirms the reveal gate is not wired to
-    // useSurfaceMode() at all.
     tauriMocks.getCurrentSurfaceState.mockResolvedValue({
       mode: "settings",
       target: { kind: "settings", tab: "general" },
@@ -474,7 +467,6 @@ describe("TrayPanel provider grid", () => {
     await waitFor(() => {
       expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
     });
-    // The overview of several providers has no provider to act on.
     expect(screen.queryByRole("button", { name: "Usage Dashboard" })).toBeNull();
     expect(container.querySelectorAll(".menu-surface__footer-sep")).toHaveLength(1);
 
@@ -881,10 +873,6 @@ describe("TrayPanel provider grid", () => {
   });
 
   it("renders the default tray panel layout with no legacy window chrome", async () => {
-    // Pins the one dashboard layout: tray-variant surface, icon-first
-    // provider switcher, and the Refresh / Settings... / About / Quit rows
-    // with their Ctrl shortcuts. The retired PopOut layout had a "CodexBar"
-    // title bar with window controls.
     const { container } = renderTrayPanel([
       provider("claude", "Claude", 35),
       provider("codex", "Codex", 20),
@@ -1072,8 +1060,6 @@ describe("TrayPanel provider grid", () => {
       trayScalePercent: 150,
     });
 
-    // Width 310 × 1.5 = 465. Height 505 × 1.5 = 757.5, rounded up to 758,
-    // plus 1 px for DPI rounding = 759.
     await waitFor(() => {
       expect(setSize).toHaveBeenCalledWith(
         expect.objectContaining({ width: 465, height: 759 }),
@@ -1082,8 +1068,6 @@ describe("TrayPanel provider grid", () => {
     first.unmount();
     setSize.mockClear();
 
-    // Same zoom, taller content: 700 × 1.5 + 1 = 1051 exceeds the mocked
-    // work-area cap (900 - 16 = 884), so the clamp still wins.
     scrollHeight.mockReturnValue(700);
     renderTrayPanel([provider("codex", "Codex", 61)], {
       trayScalePercent: 150,
