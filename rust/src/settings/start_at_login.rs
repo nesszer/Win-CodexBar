@@ -120,3 +120,6 @@ impl Settings {
         false
     }
 }
+
+#[cfg(test)]
+mod tests;
