@@ -2500,11 +2500,7 @@ body:has(.tray-panel-reveal) {
 .menu-stack {
   display: flex;
   flex-direction: column;
-  /* upstream MenuContent VStack(spacing: 8) */
-  gap: 6px;
-  flex: 1 1 auto;
   min-height: 0;
-  max-height: 100%;
   overflow-y: auto;
 }
 
@@ -2793,7 +2789,6 @@ html:has(.menu-surface--tray) {
 .menu-card__local-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px 28px;
 }
 .menu-card__local-grid > div,
 .menu-card__local-note {
@@ -2877,16 +2872,8 @@ html:has(.menu-surface--tray) {
   --menu-card-header-column-gap: 12px;
   display: flex;
   flex-direction: column;
-  /* outer VStack(alignment:.leading, spacing: 6) */
-  gap: 6px;
-  padding: var(--menu-card-header-only-y) var(--menu-card-x);
   text-align: left;
   align-items: stretch;
-}
-
-.menu-card--with-details {
-  padding-top: var(--menu-card-section-y);
-  padding-bottom: var(--menu-card-section-y);
 }
 
 /* ── Multi-account Codex lanes (ADR 0003, option A) ─────────────────── */
@@ -3086,21 +3073,11 @@ html:has(.menu-surface--tray) {
   flex: 1 1 auto;
 }
 
-/* providerName: Font.headline + .semibold — use 500 on Windows for parity */
-.menu-card__name {
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* email: Font.subheadline secondary ≈ 12px */
 .menu-card__email {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 60%;
-  text-align: right;
 }
 
 .menu-card__subtitle-row {
@@ -3122,7 +3099,6 @@ html:has(.menu-surface--tray) {
 }
 .menu-card__error-text {
   display: block;
-  font-size: 11px;
   color: var(--provider-status-error);
   line-height: 1.4;
   word-break: break-word;
@@ -3175,7 +3151,6 @@ html:has(.menu-surface--tray) {
 .menu-card__content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
 /* ── Metric row ─────────────────────────────────────────────────────── */
@@ -3183,8 +3158,6 @@ html:has(.menu-surface--tray) {
 .menu-metric {
   display: flex;
   flex-direction: column;
-  /* upstream: VStack(alignment:.leading, spacing: 6) */
-  gap: 6px;
 }
 
 .menu-metric__title {
@@ -3268,7 +3241,6 @@ html:has(.menu-surface--tray) {
 }
 .menu-metric__reserve {
   opacity: 0.7;
-  font-size: 10px;
 }
 
 .menu-metric__budget {
@@ -3674,11 +3646,7 @@ html:has(.menu-surface--tray) {
 .provider-grid {
   display: grid;
   margin: 0 0 2px;
-  padding: 8px 10px 6px;
   flex-shrink: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
 }
 
 [data-theme="light"] .provider-grid {
@@ -3690,8 +3658,6 @@ html:has(.menu-surface--tray) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  gap: 2px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -3782,8 +3748,6 @@ html:has(.menu-surface--tray) {
    4px track at bottom of each grid button, fill = remainingPercent */
 .provider-grid__weekly-track {
   display: block;
-  width: 18px;
-  height: 3px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
@@ -3825,9 +3789,6 @@ html:has(.menu-surface--tray) {
 
 /* ── Menu card / metric row tightening ────────────────────────────── */
 .menu-card__name {
-  font-size: var(--font-headline);
-  /* upstream .semibold (600) renders too heavy on Windows; 500 is visually closer */
-  font-weight: 500;
   letter-spacing: -0.005em;
 }
 .menu-card__email,
@@ -3835,9 +3796,6 @@ html:has(.menu-surface--tray) {
 .menu-card__subtitle {
   font-size: var(--font-caption);
   font-weight: 400;
-}
-.menu-card__email {
-  color: var(--text-secondary);
 }
 .menu-card__group-title,
 .menu-metric__title {
@@ -3953,24 +3911,11 @@ html:has(.menu-surface--tray) {
   --usage-bar-exhausted: #ff3b30;
 }
 
-.menu-metric__pct,
-.menu-metric__reset,
-.menu-metric__status,
-.menu-metric__detail {
-  font-size: var(--font-caption);
-}
 .menu-card__cost-line,
 .menu-card__pace-label,
 .menu-card__pace-eta,
 .menu-card__pace-ok {
   font-size: var(--font-caption);
-}
-
-/* ── Card stack: spacing between cards (no visible divider) ───── */
-.menu-stack__sep {
-  height: 0;
-  margin: 4px 0;
-  background: none;
 }
 
 /* ── Settings: macOS toolbar-style tab bar ────────────────────────── */
@@ -4602,10 +4547,6 @@ html:has(.menu-surface--tray) {
 /* ── macOS parity: inline error subtitle, divider spacing, footer icon
       opacity, and card bottom padding (final overlay) ─────────────────── */
 
-.menu-card__divider {
-  margin: 4px 0;
-}
-
 .menu-card__content {
   padding-bottom: 6px;
 }
@@ -4624,12 +4565,6 @@ html:has(.menu-surface--tray) {
 .menu-card__plan-badge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
   line-height: 1.4;
@@ -4647,16 +4582,7 @@ html:has(.menu-surface--tray) {
 }
 .menu-card__name-group {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
   min-width: 0;
-}
-
-/* ── Windows QA polish: stable provider grid and compact heights ─── */
-.provider-grid {
-  grid-template-columns: repeat(8, 34px);
-  justify-content: start;
-  gap: 7px 4px;
 }
 
 .menu-surface--tray .provider-grid {
@@ -4668,11 +4594,6 @@ html:has(.menu-surface--tray) {
   grid-template-columns: repeat(auto-fit, 26px);
   justify-content: start;
   gap: 8px 7px;
-}
-
-.provider-grid__item {
-  min-height: 40px;
-  padding: 2px 2px 3px;
 }
 
 .menu-surface--tray .provider-grid__item {
@@ -4698,11 +4619,6 @@ html:has(.menu-surface--tray) {
   padding-bottom: 5px;
 }
 
-.provider-grid--compact .provider-grid__item {
-  min-height: 40px;
-  gap: 2px;
-}
-
 .menu-surface--tray .provider-grid--compact .provider-grid__item {
   min-height: 26px;
   gap: 0;
@@ -4712,11 +4628,6 @@ html:has(.menu-surface--tray) {
   max-width: 32px;
   font-size: 9.5px;
   text-overflow: ellipsis;
-}
-
-.provider-grid--compact .provider-grid__weekly-track {
-  width: 20px;
-  height: 3px;
 }
 
 .menu-surface--tray .provider-grid__weekly-track,
