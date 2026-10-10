@@ -732,25 +732,21 @@ fn sign_authorization_for(
     let parsed = reqwest::Url::parse(request.url)
         .map_err(|e| ProviderError::Other(format!("Invalid AWS endpoint URL: {e}")))?;
     let host = parsed.host_str().unwrap_or("ce.us-east-1.amazonaws.com");
-    let (canonical_headers, signed_headers) = if let Some(session_token) =
-        &credentials.session_token
-    {
-        (
-            format!(
-                "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{}\nx-amz-date:{}\nx-amz-security-token:{session_token}\nx-amz-target:{}\n",
-                request.body_hash, request.amz_date, request.target
-            ),
+    // The security token header sorts between x-amz-date and x-amz-target.
+    let (token_header, signed_headers) = match &credentials.session_token {
+        Some(token) => (
+            format!("x-amz-security-token:{token}\n"),
             "content-type;host;x-amz-content-sha256;x-amz-date;x-amz-security-token;x-amz-target",
-        )
-    } else {
-        (
-            format!(
-                "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{}\nx-amz-date:{}\nx-amz-target:{}\n",
-                request.body_hash, request.amz_date, request.target
-            ),
+        ),
+        None => (
+            String::new(),
             "content-type;host;x-amz-content-sha256;x-amz-date;x-amz-target",
-        )
+        ),
     };
+    let canonical_headers = format!(
+        "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{}\nx-amz-date:{}\n{token_header}x-amz-target:{}\n",
+        request.body_hash, request.amz_date, request.target
+    );
     let canonical_request = [
         "POST",
         "/",
