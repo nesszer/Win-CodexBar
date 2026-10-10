@@ -13,8 +13,9 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot, looks_like_curl_capture,
 };
+use crate::providers::strip_cookie_prefix;
 use plan_cache::CommandCodePlanCache;
 
 const COMMAND_CODE_API_BASE: &str = "https://api.commandcode.ai";
@@ -202,12 +203,7 @@ fn normalize_cookie_header(raw: &str) -> Option<String> {
     } else if looks_like_curl_capture(header) {
         return None;
     }
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
+    header = strip_cookie_prefix(header);
     if header.is_empty() {
         return None;
     }
@@ -266,11 +262,6 @@ fn cookie_header_from_curl(raw: &str) -> Option<String> {
             .then(|| value.trim().to_string())
             .filter(|value| !value.is_empty())
     })
-}
-
-fn looks_like_curl_capture(raw: &str) -> bool {
-    let lower = raw.trim_start().to_ascii_lowercase();
-    lower.starts_with("curl ") || lower.starts_with("curl.exe ")
 }
 
 fn split_header(field: &str) -> Option<(&str, &str)> {

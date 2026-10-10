@@ -20,6 +20,7 @@ use crate::core::{
     CostSnapshot, FetchContext, ManualEmptyCookiePolicy, Provider, ProviderDisplayDetail,
     ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::strip_cookie_prefix;
 
 pub(crate) const BILLING_URL: &str = "https://replicate.com/account/billing";
 const REPLICATE_ORIGIN: &str = "https://replicate.com";
@@ -528,13 +529,7 @@ fn result_from_billing(
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut value = raw.trim();
-    if value
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        value = value["cookie:".len()..].trim();
-    }
+    let value = strip_cookie_prefix(raw.trim());
     let mut pairs = Vec::new();
     for part in value.split(';') {
         let part = part.trim();

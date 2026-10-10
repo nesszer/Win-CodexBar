@@ -9,6 +9,7 @@ use reqwest::Url;
 
 use crate::browser::cookies::{Cookie, CookieExtractor};
 use crate::core::{FetchContext, ProviderError, ProviderId};
+use crate::providers::strip_cookie_prefix;
 
 pub(super) const OLLAMA_COOKIE_DOMAIN: &str = "ollama.com";
 pub(super) const OLLAMA_SESSION_COOKIE_NAME: &str = "__Secure-session";
@@ -44,12 +45,7 @@ pub(super) fn normalize_cookie_header(input: &str) -> Option<String> {
         return None;
     }
 
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
+    header = strip_cookie_prefix(header);
 
     if header.is_empty() {
         return None;
@@ -62,16 +58,7 @@ pub(super) fn normalize_cookie_header(input: &str) -> Option<String> {
         let cleaned = header
             .split(';')
             .map(str::trim)
-            .map(|segment| {
-                if segment
-                    .get(.."cookie:".len())
-                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-                {
-                    segment["cookie:".len()..].trim().to_string()
-                } else {
-                    segment.to_string()
-                }
-            })
+            .map(|segment| strip_cookie_prefix(segment).to_string())
             .filter(|segment| !segment.is_empty())
             .collect::<Vec<_>>()
             .join("; ");

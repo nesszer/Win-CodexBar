@@ -11,6 +11,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
     UsageSnapshot,
 };
+use crate::providers::strip_cookie_prefix;
 
 const HOST: &str = "https://longcat.chat";
 const USER_CURRENT: &str = "/api/v1/user-current";
@@ -158,14 +159,8 @@ impl Provider for LongCatProvider {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim().to_string();
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|p| p.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim().to_string();
-    }
-    (!header.is_empty()).then_some(header)
+    let header = strip_cookie_prefix(raw.trim());
+    (!header.is_empty()).then(|| header.to_string())
 }
 
 fn envelope_code(value: &Value) -> Result<Option<i64>, ProviderError> {

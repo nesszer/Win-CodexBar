@@ -33,6 +33,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
     UsageSnapshot,
 };
+use crate::providers::{normalize_cookie_pairs, strip_cookie_prefix};
 
 const CN_API: &str = "https://www.codebuddy.cn/billing/meter/get-user-resource";
 const CN_ORIGIN: &str = "https://www.codebuddy.cn";
@@ -414,22 +415,8 @@ fn read_cookie_file() -> Option<String> {
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
     // Strip BOM, caret-escapes from Windows "Copy as cURL", and Cookie: prefix.
-    let mut header = raw.trim().trim_start_matches('\u{feff}').replace('^', "");
-    header = header.trim().to_string();
-    let lower = header.to_ascii_lowercase();
-    if lower.starts_with("cookie:") {
-        header = header["cookie:".len()..].trim().to_string();
-    }
-    let pairs = header
-        .split(';')
-        .filter_map(|chunk| {
-            let (name, value) = chunk.trim().split_once('=')?;
-            let name = name.trim();
-            let value = value.trim();
-            (!name.is_empty() && !value.is_empty()).then(|| format!("{name}={value}"))
-        })
-        .collect::<Vec<_>>();
-    (!pairs.is_empty()).then(|| pairs.join("; "))
+    let header = raw.trim().trim_start_matches('\u{feff}').replace('^', "");
+    normalize_cookie_pairs(strip_cookie_prefix(header.trim()))
 }
 
 /// First 8 bytes of SHA-256(cookie), hex — 16 chars, no cookie material.

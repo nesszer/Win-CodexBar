@@ -17,7 +17,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
     UsageSnapshot,
 };
-use crate::providers::browser_cookie_header;
+use crate::providers::{browser_cookie_header, strip_cookie_prefix};
 
 const GATEWAY_BASE_URL: &str = "https://home.qwencloud.com";
 const DATA_GATEWAY_BASE_URL: &str = "https://cs-data.qwencloud.com";
@@ -658,13 +658,7 @@ fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError> {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim();
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
+    let mut header = strip_cookie_prefix(raw.trim());
     if (header.starts_with('"') && header.ends_with('"'))
         || (header.starts_with('\'') && header.ends_with('\''))
     {

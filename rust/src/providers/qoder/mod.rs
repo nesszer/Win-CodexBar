@@ -17,6 +17,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
     UsageSnapshot,
 };
+use crate::providers::{normalize_cookie_pairs, strip_cookie_prefix};
 
 const BX_VERSION: &str = "2.5.35";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -191,26 +192,11 @@ impl Default for QoderProvider {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim();
+    let header = raw.trim();
     if header.chars().any(char::is_control) {
         return None;
     }
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
-    let pairs = header
-        .split(';')
-        .filter_map(|chunk| {
-            let (name, value) = chunk.trim().split_once('=')?;
-            let name = name.trim();
-            let value = value.trim();
-            (!name.is_empty() && !value.is_empty()).then(|| format!("{name}={value}"))
-        })
-        .collect::<Vec<_>>();
-    (!pairs.is_empty()).then(|| pairs.join("; "))
+    normalize_cookie_pairs(strip_cookie_prefix(header))
 }
 
 fn snapshot_from_payload(

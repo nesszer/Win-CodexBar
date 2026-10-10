@@ -24,7 +24,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
     UsageSnapshot,
 };
-use crate::providers::browser_cookie_header;
+use crate::providers::{browser_cookie_header, strip_cookie_prefix};
 
 use region::AlibabaTokenPlanRegion as Region;
 
@@ -488,13 +488,7 @@ fn find_failing_success_frame(value: &Value) -> Option<&Value> {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim();
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
+    let header = strip_cookie_prefix(raw.trim());
     (!header.is_empty() && header.contains('=')).then(|| header.to_string())
 }
 
