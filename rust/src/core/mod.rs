@@ -26,7 +26,6 @@ mod quota_burndown;
 mod rate_window;
 mod redactor;
 mod session_equivalent_forecast;
-mod session_quota;
 mod sqlite;
 mod timezone;
 mod token_accounts;
@@ -60,7 +59,6 @@ pub use quota_burndown::{
 pub use rate_window::*;
 pub use redactor::*;
 pub use session_equivalent_forecast::*;
-pub use session_quota::*;
 pub use sqlite::*;
 pub use timezone::{local_timezone_name, try_local_timezone_name};
 pub use token_accounts::*;
