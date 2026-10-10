@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/api/event", () => eventMocks);
 import { LocaleProvider } from "../i18n/LocaleProvider";
 import { buildBundle } from "../test/localeHarness";
 import { loadStyles, ruleBlock } from "../test/styles";
-import type { ProviderUsageSnapshot } from "../types/bridge";
+import type { ProviderUsageSnapshot, WayfinderUsageSnapshot } from "../types/bridge";
 import MenuCard from "./MenuCard";
 
 function rateWindow(
@@ -588,6 +588,60 @@ describe("MenuCard", () => {
     expect(screen.queryByText("should-not-render@example.test")).not.toBeInTheDocument();
     expect(screen.queryByText("should-not-render")).not.toBeInTheDocument();
     expect(screen.queryByText("Session")).not.toBeInTheDocument();
+  });
+
+  it("renders Wayfinder details from the bridge-shaped gateway snapshot", async () => {
+    // Same JSON the Rust bridge emits for the Mac-parity Wayfinder pack
+    // (rust/src/providers/wayfinder.rs, pack_snapshot_serializes_camel_case_keys_for_the_bridge).
+    const bridgeJson = {
+      gatewayStatus: "ok",
+      offline: false,
+      dryRun: false,
+      missingKeys: [],
+      modelCount: 3,
+      models: ["cheap-local", "premium-cloud", "embed-local"],
+      requests: 1200,
+      estimatedRequests: 0,
+      tokens: 350000,
+      realized: 4.2,
+      baseline: 9.8,
+      saved: 5.6,
+      savedPercent: 57.1,
+      periodDays: 30,
+      unit: "USD",
+      priced: true,
+      routes: [
+        { name: "cheap", requests: 900, tokens: 260000, realized: 1.6, baseline: 4.7, saved: 3.1 },
+        { name: "premium", requests: 300, tokens: 90000, realized: 2.6, baseline: 5.1, saved: 2.5 },
+      ],
+    } satisfies WayfinderUsageSnapshot;
+    const snapshot = provider(null);
+    snapshot.providerId = "wayfinder";
+    snapshot.displayName = "Wayfinder";
+    snapshot.wayfinderUsage = bridgeJson;
+
+    const { rerender } = renderCard(snapshot);
+
+    expect(await screen.findByText("ok")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("Saved: 5.6000 USD (57.1%)")).toBeInTheDocument();
+    expect(screen.queryByText(/Missing keys/)).not.toBeInTheDocument();
+
+    snapshot.wayfinderUsage = {
+      ...bridgeJson,
+      gatewayStatus: "degraded",
+      dryRun: true,
+      missingKeys: ["RIG_CLOUD_KEY"],
+    };
+    rerender(
+      <LocaleProvider>
+        <MenuCard provider={{ ...snapshot }} display={{ hideEmail: false, resetTimeRelative: true }} />
+      </LocaleProvider>,
+    );
+
+    expect(await screen.findByText("degraded")).toBeInTheDocument();
+    expect(screen.getByText("Dry run")).toBeInTheDocument();
+    expect(screen.getByText("Missing keys: RIG_CLOUD_KEY")).toBeInTheDocument();
   });
 
   it("uses explicit hourly quota labels in Simplified Chinese", async () => {
