@@ -64,35 +64,17 @@ impl CopilotApi {
         github_host: Option<&str>,
         seat_credit_entitlement: Option<f64>,
     ) -> Result<UsageSnapshot, ProviderError> {
-        let api_url = copilot_usage_url(github_host);
-        let response = self
+        let request = self
             .client
-            .get(api_url)
+            .get(copilot_usage_url(github_host))
             .header("Authorization", format!("token {}", token.trim()))
             .header("Accept", "application/json")
             .header("Editor-Version", "vscode/1.96.2")
             .header("Editor-Plugin-Version", "copilot-chat/0.26.7")
             .header("User-Agent", "GitHubCopilotChat/0.26.7")
-            .header("X-Github-Api-Version", "2025-04-01")
-            .send()
-            .await
-            .map_err(|e| ProviderError::Other(format!("Request failed: {}", e)))?;
-
-        if response.status() == 401 || response.status() == 403 {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "GitHub Copilot usage endpoint returned {}",
-                response.status()
-            )));
-        }
-
-        let usage_response: CopilotUsageResponse = response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+            .header("X-Github-Api-Version", "2025-04-01");
+        let usage_response: CopilotUsageResponse =
+            send_json(request, "GitHub Copilot usage endpoint").await?;
 
         snapshot_from_response_with_seat_entitlement(usage_response, seat_credit_entitlement)
     }
@@ -103,33 +85,14 @@ impl CopilotApi {
         token: &str,
         github_host: Option<&str>,
     ) -> Result<GitHubIdentity, ProviderError> {
-        let url = github_api_url(github_host, GITHUB_USER_PATH);
-        let response = self
+        let request = self
             .client
-            .get(url)
+            .get(github_api_url(github_host, GITHUB_USER_PATH))
             .header("Authorization", format!("token {}", token.trim()))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "Win-CodexBar")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .send()
-            .await
-            .map_err(|e| ProviderError::Other(format!("Request failed: {}", e)))?;
-
-        if response.status() == 401 || response.status() == 403 {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "GitHub identity endpoint returned {}",
-                response.status()
-            )));
-        }
-
-        response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        send_json(request, "GitHub identity endpoint").await
     }
 
     /// Resolve the Copilot OAuth token from settings/legacy API key, GitHub
@@ -235,6 +198,30 @@ impl Default for CopilotApi {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 401/403 mean the token is rejected; any other non-success names `endpoint`.
+async fn send_json<T: serde::de::DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+    endpoint: &str,
+) -> Result<T, ProviderError> {
+    let response = request
+        .send()
+        .await
+        .map_err(|e| ProviderError::Other(format!("Request failed: {}", e)))?;
+    let status = response.status();
+    if status == 401 || status == 403 {
+        return Err(ProviderError::AuthRequired);
+    }
+    if !status.is_success() {
+        return Err(ProviderError::Other(format!(
+            "{endpoint} returned {status}"
+        )));
+    }
+    response
+        .json()
+        .await
+        .map_err(|e| ProviderError::Parse(e.to_string()))
 }
 
 // --- API Response Types ---
@@ -521,10 +508,7 @@ impl CopilotUsageResponse {
     fn credits_used_counter(&self) -> Option<f64> {
         let mut chat: Option<f64> = None;
         let mut first: Option<f64> = None;
-        for (key, value) in &self.quota_snapshots.entries {
-            let Ok(snapshot) = serde_json::from_value::<QuotaSnapshot>(value.clone()) else {
-                continue;
-            };
+        for (key, snapshot) in self.snapshots() {
             let Some(credits) = snapshot.credits_used else {
                 continue;
             };
@@ -534,64 +518,50 @@ impl CopilotUsageResponse {
             match classify_quota_kind(key, snapshot.quota_id.as_deref().unwrap_or_default()) {
                 CopilotQuotaKind::Premium => return Some(credits),
                 CopilotQuotaKind::Chat => {
-                    if chat.is_none() {
-                        chat = Some(credits);
-                    }
+                    chat.get_or_insert(credits);
                 }
                 _ => {
-                    if first.is_none() {
-                        first = Some(credits);
-                    }
+                    first.get_or_insert(credits);
                 }
             }
         }
         chat.or(first)
     }
 
+    /// Quota snapshot entries that decode; malformed entries are skipped.
+    fn snapshots(&self) -> impl Iterator<Item = (&String, QuotaSnapshot)> {
+        self.quota_snapshots
+            .entries
+            .iter()
+            .filter_map(|(key, value)| {
+                serde_json::from_value::<QuotaSnapshot>(value.clone())
+                    .ok()
+                    .map(|snapshot| (key, snapshot))
+            })
+    }
+
     fn usable_quotas(&self, reset: Option<DateTime<Utc>>) -> UsableQuotas {
         let mut quotas = UsableQuotas::default();
 
-        for (key, value) in &self.quota_snapshots.entries {
-            let Ok(snapshot) = serde_json::from_value::<QuotaSnapshot>(value.clone()) else {
-                continue;
-            };
+        for (key, snapshot) in self.snapshots() {
             let Some(quota) = UsableQuota::from_snapshot(key, snapshot) else {
                 continue;
             };
-
-            match quota.kind {
-                CopilotQuotaKind::Premium => {
-                    if quotas.first.is_none() {
-                        quotas.first = Some(quota.clone());
-                    }
-                    if quotas.premium.is_none() {
-                        quotas.premium = Some(quota);
-                    }
-                }
-                CopilotQuotaKind::Chat => {
-                    if quotas.first.is_none() {
-                        quotas.first = Some(quota.clone());
-                    }
-                    if quotas.chat.is_none() {
-                        quotas.chat = Some(quota);
-                    }
-                }
-                CopilotQuotaKind::Completions => {
-                    if quotas.first.is_none() {
-                        quotas.first = Some(quota.clone());
-                    }
-                    if quotas.completions.is_none() {
-                        quotas.completions = Some(quota);
-                    }
-                }
+            let slot = match quota.kind {
+                CopilotQuotaKind::Premium => &mut quotas.premium,
+                CopilotQuotaKind::Chat => &mut quotas.chat,
+                CopilotQuotaKind::Completions => &mut quotas.completions,
                 CopilotQuotaKind::Other => {
                     quotas.extra.push(NamedRateWindow::new(
                         quota.id.clone(),
                         quota.title.clone(),
                         quota.to_rate_window(reset),
                     ));
+                    continue;
                 }
-            }
+            };
+            slot.get_or_insert_with(|| quota.clone());
+            quotas.first.get_or_insert(quota);
         }
 
         let completions = UsableQuota::from_limited(
