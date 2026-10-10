@@ -196,7 +196,6 @@ pub(super) fn scan_codex_detailed_with_cache(
 
     let cache_root = scanner.cache_root.as_deref();
     let mut cache = JsonlScanner::load_cache(ProviderId::Codex, cache_root);
-    let sessions_dirs = scanner.get_codex_sessions_dirs();
     let priority_metadata_key = codex_priority_metadata_key(scanner);
     let pending_scan = CodexPendingScanContext::new(
         &cache,
