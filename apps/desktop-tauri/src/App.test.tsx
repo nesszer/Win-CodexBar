@@ -59,7 +59,7 @@ vi.mock("./hooks/useSurfaceSnapshot", () => ({
 
 import App from "./App";
 import { buildBundle } from "./test/localeHarness";
-import type { BootstrapState, SettingsSnapshot } from "./types/bridge";
+import type { BootstrapState } from "./types/bridge";
 import { makeSettings } from "./test/fixtures";
 
 

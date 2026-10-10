@@ -59,25 +59,13 @@ import TrayPanel from "./TrayPanel";
 import { LocaleProvider } from "../i18n/LocaleProvider";
 import { buildBundle } from "../test/localeHarness";
 import type { ProviderUsageSnapshot, SettingsSnapshot } from "../types/bridge";
-
-function rateWindow(used: number) {
-  return {
-    usedPercent: used,
-    remainingPercent: 100 - used,
-    windowMinutes: null,
-    resetsAt: null,
-    resetDescription: null,
-    isExhausted: false,
-    reservePercent: null,
-    reserveDescription: null,
-  };
-}
+import { makeRateWindow } from "../test/fixtures";
 
 const codex: ProviderUsageSnapshot = {
   providerId: "codex",
   displayName: "Codex",
-  primary: rateWindow(35),
-  selectedMetric: rateWindow(35),
+  primary: makeRateWindow(35),
+  selectedMetric: makeRateWindow(35),
   primaryLabel: "Monthly",
   secondary: null,
   modelSpecific: null,

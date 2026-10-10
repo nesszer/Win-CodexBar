@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   ProviderCatalogEntry,
   ProviderUsageSnapshot,
-  RateWindowSnapshot,
   SettingsSnapshot,
 } from "../../../types/bridge";
 
@@ -23,23 +22,7 @@ vi.mock("../providers/ProviderDetailPane", () => ({
 }));
 
 import ProvidersTab from "./ProvidersTab";
-
-function rateWindow(
-  usedPercent: number,
-  isInformational?: boolean,
-): RateWindowSnapshot {
-  return {
-    usedPercent,
-    remainingPercent: 100 - usedPercent,
-    windowMinutes: null,
-    resetsAt: null,
-    resetDescription: null,
-    isExhausted: false,
-    isInformational,
-    reservePercent: null,
-    reserveDescription: null,
-  };
-}
+import { makeRateWindow } from "../../../test/fixtures";
 
 const provider: ProviderCatalogEntry = {
   id: "codex",
@@ -58,9 +41,9 @@ describe("ProvidersTab", () => {
     const snapshot: ProviderUsageSnapshot = {
       providerId: provider.id,
       displayName: provider.displayName,
-      primary: rateWindow(0, true),
-      selectedMetric: rateWindow(42),
-      secondary: rateWindow(42),
+      primary: makeRateWindow(0, { isInformational: true }),
+      selectedMetric: makeRateWindow(42),
+      secondary: makeRateWindow(42),
       modelSpecific: null,
       tertiary: null,
       extraRateWindows: [],

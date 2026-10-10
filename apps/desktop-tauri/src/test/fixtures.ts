@@ -1,4 +1,4 @@
-import type { SettingsSnapshot } from "../types/bridge";
+import type { RateWindowSnapshot, SettingsSnapshot } from "../types/bridge";
 
 /** A complete SettingsSnapshot with stable defaults; tests pass only the fields they assert on. */
 export function makeSettings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
@@ -73,6 +73,24 @@ export function makeSettings(overrides: Partial<SettingsSnapshot> = {}): Setting
     weeklyProgressWorkDays: null,
     costSummaryDisplayStyle: "compact",
     providerAccentColors: {},
+    ...overrides,
+  };
+}
+
+/** A non-exhausted rate window at `usedPercent`, with no reset or reserve data unless overridden. */
+export function makeRateWindow(
+  usedPercent = 0,
+  overrides: Partial<RateWindowSnapshot> = {},
+): RateWindowSnapshot {
+  return {
+    usedPercent,
+    remainingPercent: 100 - usedPercent,
+    windowMinutes: null,
+    resetsAt: null,
+    resetDescription: null,
+    isExhausted: false,
+    reservePercent: null,
+    reserveDescription: null,
     ...overrides,
   };
 }

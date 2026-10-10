@@ -23,34 +23,15 @@ vi.mock("@tauri-apps/api/event", () => eventMocks);
 import { LocaleProvider } from "../i18n/LocaleProvider";
 import { buildBundle } from "../test/localeHarness";
 import { loadStyles, ruleBlock } from "../test/styles";
-import type { ProviderUsageSnapshot } from "../types/bridge";
+import type { ProviderUsageSnapshot, RateWindowSnapshot } from "../types/bridge";
 import MenuCard from "./MenuCard";
+import { makeRateWindow } from "../test/fixtures";
 
 function rateWindow(
   usedPercent = 0,
-  opts: {
-    exhausted?: boolean;
-    resetDescription?: string | null;
-    reservePercent?: number | null;
-    reserveDescription?: string | null;
-    reserveWillLastToReset?: boolean;
-    reserveEtaSeconds?: number | null;
-    windowMinutes?: number | null;
-    resetsAt?: string | null;
-  } = {},
+  { exhausted = false, ...rest }: Partial<RateWindowSnapshot> & { exhausted?: boolean } = {},
 ) {
-  return {
-    usedPercent,
-    remainingPercent: 100 - usedPercent,
-    windowMinutes: opts.windowMinutes ?? null,
-    resetsAt: opts.resetsAt ?? null,
-    resetDescription: opts.resetDescription ?? null,
-    isExhausted: opts.exhausted ?? false,
-    reservePercent: opts.reservePercent ?? null,
-    reserveDescription: opts.reserveDescription ?? null,
-    reserveWillLastToReset: opts.reserveWillLastToReset ?? false,
-    reserveEtaSeconds: opts.reserveEtaSeconds ?? null,
-  };
+  return makeRateWindow(usedPercent, { isExhausted: exhausted, reserveWillLastToReset: false, ...rest });
 }
 
 function provider(

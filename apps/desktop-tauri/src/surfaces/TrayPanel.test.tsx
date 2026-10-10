@@ -73,27 +73,14 @@ import type {
   ProviderUsageSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
-import { makeSettings } from "../test/fixtures";
-
-function rateWindow(used: number) {
-  return {
-    usedPercent: used,
-    remainingPercent: 100 - used,
-    windowMinutes: null,
-    resetsAt: null,
-    resetDescription: null,
-    isExhausted: false,
-    reservePercent: null,
-    reserveDescription: null,
-  };
-}
+import { makeRateWindow, makeSettings } from "../test/fixtures";
 
 function provider(id: string, displayName: string, used = 20): ProviderUsageSnapshot {
   return {
     providerId: id,
     displayName,
-    primary: rateWindow(used),
-    selectedMetric: rateWindow(used),
+    primary: makeRateWindow(used),
+    selectedMetric: makeRateWindow(used),
     primaryLabel: "Monthly",
     secondary: null,
     modelSpecific: null,
@@ -118,9 +105,9 @@ function providerWithThreeQuotaWindows(
   displayName: string,
 ): ProviderUsageSnapshot {
   const snapshot = provider(id, displayName);
-  snapshot.secondary = rateWindow(35);
+  snapshot.secondary = makeRateWindow(35);
   snapshot.secondaryLabel = "Weekly";
-  snapshot.tertiary = rateWindow(50);
+  snapshot.tertiary = makeRateWindow(50);
   snapshot.tertiaryLabel = "Monthly";
   return snapshot;
 }

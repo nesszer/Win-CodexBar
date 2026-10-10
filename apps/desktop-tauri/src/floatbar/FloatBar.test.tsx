@@ -41,7 +41,7 @@ import type {
   RateWindowSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
-import { makeSettings } from "../test/fixtures";
+import { makeRateWindow, makeSettings } from "../test/fixtures";
 
 type RateWindowOptions = {
   exhausted?: boolean;
@@ -51,22 +51,14 @@ type RateWindowOptions = {
   descriptionIsDetail?: boolean;
 };
 
-function rateWindow(
-  used: number,
-  opts: RateWindowOptions = {},
-): RateWindowSnapshot {
-  return {
-    usedPercent: used,
-    remainingPercent: 100 - used,
-    windowMinutes: null,
+function rateWindow(used: number, opts: RateWindowOptions = {}): RateWindowSnapshot {
+  return makeRateWindow(used, {
     resetsAt: opts.resetsAt ?? null,
     resetDescription: opts.resetDescription ?? null,
     isExhausted: opts.exhausted ?? false,
     isInformational: opts.informational,
     descriptionIsDetail: opts.descriptionIsDetail,
-    reservePercent: null,
-    reserveDescription: null,
-  };
+  });
 }
 
 function snapshot(
