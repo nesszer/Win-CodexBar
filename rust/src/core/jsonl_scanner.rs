@@ -612,6 +612,9 @@ pub use codex::priority::{
 };
 pub(crate) use codex::{CodexForkParseResume, CodexParseMode};
 mod save_skip;
+#[cfg(test)]
+#[path = "jsonl_scanner/tests/fixtures.rs"]
+pub(crate) mod test_fixtures;
 pub(crate) use codex::source_rows::{
     read_source_rows, recover_rows, row_cache, row_cache_matches, row_cache_needs_recovery,
     row_priced_model, rows_from_records,

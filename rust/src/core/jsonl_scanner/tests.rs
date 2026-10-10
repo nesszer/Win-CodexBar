@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::test_fixtures::test_file_usage;
 use chrono::TimeZone;
 use std::io::Write;
 
@@ -1346,46 +1347,23 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
     cache.files.insert(
         "session.jsonl".to_string(),
         CostUsageFileUsage {
-            mtime_unix_ms: 0,
-            size: 100,
-            codex_file_identity: None,
-            days: HashMap::from([(
-                "2026-08-20".to_string(),
-                HashMap::from([("gpt-5.6-sol".to_string(), vec![1_000, 250, 100])]),
-            )]),
             parsed_bytes: Some(100),
-            codex_scan_target_size: None,
             last_model: Some("gpt-5.6-sol".to_string()),
-            last_totals: None,
             codex_token_timestamps_monotonic: Some(true),
-            codex_last_token_timestamp: None,
-            codex_session_id: None,
-            codex_forked_from_id: None,
-            codex_fork_accounting_state: None,
-            codex_lineage: CodexSessionLineage::Root,
-            codex_fork_timestamp: None,
-            codex_unresolved_fork_parent: false,
+            ..test_file_usage(
+                100,
+                HashMap::from([(
+                    "2026-08-20".to_string(),
+                    HashMap::from([("gpt-5.6-sol".to_string(), vec![1_000, 250, 100])]),
+                )]),
+            )
         },
     );
     cache.files.insert(
         "empty.jsonl".to_string(),
         CostUsageFileUsage {
-            mtime_unix_ms: 0,
-            size: 10,
-            codex_file_identity: None,
-            days: HashMap::new(),
             parsed_bytes: Some(10),
-            codex_scan_target_size: None,
-            last_model: None,
-            last_totals: None,
-            codex_token_timestamps_monotonic: None,
-            codex_last_token_timestamp: None,
-            codex_session_id: None,
-            codex_forked_from_id: None,
-            codex_fork_accounting_state: None,
-            codex_lineage: CodexSessionLineage::Root,
-            codex_fork_timestamp: None,
-            codex_unresolved_fork_parent: false,
+            ..test_file_usage(10, HashMap::new())
         },
     );
     cache.days.insert(
@@ -1416,25 +1394,16 @@ fn catch_up_snapshot_preserves_established_codex_cost_and_tokens() {
 #[test]
 fn ranged_catch_up_snapshot_excludes_historical_days_and_keeps_measurement_time() {
     let usage = |day: &str| CostUsageFileUsage {
-        mtime_unix_ms: 0,
-        size: 100,
-        codex_file_identity: None,
-        days: HashMap::from([(
-            day.to_string(),
-            HashMap::from([("gpt-5.6-sol".to_string(), vec![100, 25, 10, 4])]),
-        )]),
         parsed_bytes: Some(100),
-        codex_scan_target_size: None,
         last_model: Some("gpt-5.6-sol".to_string()),
-        last_totals: None,
         codex_token_timestamps_monotonic: Some(true),
-        codex_last_token_timestamp: None,
-        codex_session_id: None,
-        codex_forked_from_id: None,
-        codex_fork_accounting_state: None,
-        codex_lineage: CodexSessionLineage::Root,
-        codex_fork_timestamp: None,
-        codex_unresolved_fork_parent: false,
+        ..test_file_usage(
+            100,
+            HashMap::from([(
+                day.to_string(),
+                HashMap::from([("gpt-5.6-sol".to_string(), vec![100, 25, 10, 4])]),
+            )]),
+        )
     };
     let mut cache = CostUsageCache {
         last_scan_unix_ms: 1,
@@ -1604,27 +1573,13 @@ fn save_cache_persists_small_codex_artifact() {
         scan_until_key: Some("2026-01-31".to_string()),
         files: HashMap::from([(
             "a.jsonl".to_string(),
-            CostUsageFileUsage {
-                mtime_unix_ms: 0,
-                size: 100,
-                codex_file_identity: None,
-                days: HashMap::from([(
+            test_file_usage(
+                100,
+                HashMap::from([(
                     "2026-01-10".to_string(),
                     HashMap::from([("gpt-5.6-sol".to_string(), vec![10, 0, 1])]),
                 )]),
-                parsed_bytes: None,
-                codex_scan_target_size: None,
-                last_model: None,
-                last_totals: None,
-                codex_token_timestamps_monotonic: None,
-                codex_last_token_timestamp: None,
-                codex_session_id: None,
-                codex_forked_from_id: None,
-                codex_fork_accounting_state: None,
-                codex_lineage: CodexSessionLineage::Root,
-                codex_fork_timestamp: None,
-                codex_unresolved_fork_parent: false,
-            },
+            ),
         )]),
         ..Default::default()
     };
@@ -1678,24 +1633,7 @@ fn save_cache_refuses_non_bounded_provider_oversize() {
     let mut cache = CostUsageCache::default();
     cache.files.insert(
         "claude.jsonl".to_string(),
-        CostUsageFileUsage {
-            mtime_unix_ms: 0,
-            size: 100,
-            codex_file_identity: None,
-            days: HashMap::new(),
-            parsed_bytes: None,
-            codex_scan_target_size: None,
-            last_model: None,
-            last_totals: None,
-            codex_token_timestamps_monotonic: None,
-            codex_last_token_timestamp: None,
-            codex_session_id: None,
-            codex_forked_from_id: None,
-            codex_fork_accounting_state: None,
-            codex_lineage: CodexSessionLineage::Root,
-            codex_fork_timestamp: None,
-            codex_unresolved_fork_parent: false,
-        },
+        test_file_usage(100, HashMap::new()),
     );
 
     JsonlScanner::save_cache(ProviderId::Claude, &mut cache, Some(&cache_root));
@@ -1714,27 +1652,13 @@ fn save_cache_refusal_removes_preexisting_destination_artifact() {
     let mut cache = CostUsageCache::default();
     cache.files.insert(
         "big.jsonl".to_string(),
-        CostUsageFileUsage {
-            mtime_unix_ms: 0,
-            size: 100,
-            codex_file_identity: None,
-            days: HashMap::from([(
+        test_file_usage(
+            100,
+            HashMap::from([(
                 "2026-01-10".to_string(),
                 HashMap::from([("gpt-5.6-sol".to_string(), vec![10, 0, 1])]),
             )]),
-            parsed_bytes: None,
-            codex_scan_target_size: None,
-            last_model: None,
-            last_totals: None,
-            codex_token_timestamps_monotonic: None,
-            codex_last_token_timestamp: None,
-            codex_session_id: None,
-            codex_forked_from_id: None,
-            codex_fork_accounting_state: None,
-            codex_lineage: CodexSessionLineage::Root,
-            codex_fork_timestamp: None,
-            codex_unresolved_fork_parent: false,
-        },
+        ),
     );
 
     // Precreate a "stale" destination artifact so the refusal must remove

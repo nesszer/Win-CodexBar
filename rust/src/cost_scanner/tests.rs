@@ -1,5 +1,6 @@
 use super::*;
 use crate::codex_costs::codex_period_start;
+use crate::core::test_fixtures::test_file_usage;
 use crate::core::{CodexSessionLineage, CostUsagePricing};
 use chrono::{FixedOffset, Local, NaiveTime, TimeZone};
 use claude_pricing::FALLBACK_CLAUDE_MODEL;
@@ -1241,25 +1242,14 @@ fn write_codex_session_fixture_with_inputs(
 
 fn cached_usage_with_packed(day: &str, model: &str, packed: Vec<i64>) -> CostUsageFileUsage {
     CostUsageFileUsage {
-        mtime_unix_ms: 0,
-        size: 1,
-        codex_file_identity: None,
-        days: HashMap::from([(
-            day.to_string(),
-            HashMap::from([(model.to_string(), packed)]),
-        )]),
         parsed_bytes: Some(1),
-        codex_scan_target_size: None,
-        last_model: None,
-        last_totals: None,
-        codex_token_timestamps_monotonic: None,
-        codex_last_token_timestamp: None,
-        codex_session_id: None,
-        codex_forked_from_id: None,
-        codex_fork_accounting_state: None,
-        codex_lineage: CodexSessionLineage::Root,
-        codex_fork_timestamp: None,
-        codex_unresolved_fork_parent: false,
+        ..test_file_usage(
+            1,
+            HashMap::from([(
+                day.to_string(),
+                HashMap::from([(model.to_string(), packed)]),
+            )]),
+        )
     }
 }
 
@@ -2175,22 +2165,10 @@ fn cancelled_fresh_cache_hit_is_not_authoritative() {
         files: HashMap::from([(
             "cached.jsonl".to_string(),
             CostUsageFileUsage {
-                mtime_unix_ms: 0,
-                size: 100,
-                codex_file_identity: None,
-                days: usage.clone(),
                 parsed_bytes: Some(100),
-                codex_scan_target_size: None,
                 last_model: Some("gpt-5.6-sol".to_string()),
-                last_totals: None,
                 codex_token_timestamps_monotonic: Some(true),
-                codex_last_token_timestamp: None,
-                codex_session_id: None,
-                codex_forked_from_id: None,
-                codex_fork_accounting_state: None,
-                codex_lineage: CodexSessionLineage::Root,
-                codex_fork_timestamp: None,
-                codex_unresolved_fork_parent: false,
+                ..test_file_usage(100, usage.clone())
             },
         )]),
         days: usage,
