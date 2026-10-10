@@ -29,6 +29,9 @@ const GROQ_ENTERPRISE_REQUIRED: &str = "Groq usage metrics require a Groq Enterp
      The Prometheus metrics API returned 404 Not Found for this API key.";
 const GROQ_CREDENTIAL_TARGET: &str = "codexbar-groq";
 
+/// Every browser's `(browser name, cookie header)` for the console domain.
+type BrowserCookieHeaders = dyn Fn() -> Result<Vec<(String, String)>, ProviderError> + Sync;
+
 #[derive(Debug, Deserialize)]
 struct PrometheusResponse {
     status: String,
@@ -195,6 +198,7 @@ impl Provider for GroqProvider {
             ctx,
             &endpoints,
             &|name| std::env::var(name).ok(),
+            &|| crate::providers::browser_cookie_headers_for_domain(console::COOKIE_DOMAIN),
             Utc::now(),
         )
         .await
@@ -228,15 +232,18 @@ impl GroqProvider {
         ctx: &FetchContext,
         endpoints: &ConsoleEndpoints,
         env: &(dyn Fn(&str) -> Option<String> + Sync),
+        browser: &BrowserCookieHeaders,
         now: DateTime<Utc>,
     ) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
-            SourceMode::Web => Ok(self.fetch_console(ctx, endpoints, env, now).await?),
+            SourceMode::Web => Ok(self
+                .fetch_console(ctx, endpoints, env, browser, now)
+                .await?),
             SourceMode::OAuth => {
                 let api_key = metrics_api_key(ctx)?;
                 self.fetch_metrics(&endpoints.api_base, &api_key).await
             }
-            SourceMode::Auto => match self.fetch_console(ctx, endpoints, env, now).await {
+            SourceMode::Auto => match self.fetch_console(ctx, endpoints, env, browser, now).await {
                 Ok(result) => Ok(result),
                 Err(error) if error.allows_metrics_fallback() => {
                     let Ok(api_key) = metrics_api_key(ctx) else {
@@ -256,10 +263,11 @@ impl GroqProvider {
         ctx: &FetchContext,
         endpoints: &ConsoleEndpoints,
         env: &(dyn Fn(&str) -> Option<String> + Sync),
+        browser: &BrowserCookieHeaders,
         now: DateTime<Utc>,
     ) -> Result<ProviderFetchResult, ConsoleError> {
-        let session = console_session(ctx, env).ok_or(ConsoleError::MissingSession)?;
-        console::fetch_usage(&self.client, endpoints, &session, now).await
+        let sessions = console_sessions(ctx, env, browser);
+        console::fetch_first_usable(&self.client, endpoints, &sessions, now).await
     }
 
     async fn fetch_metrics(
@@ -274,27 +282,33 @@ impl GroqProvider {
     }
 }
 
-/// The session in upstream's order: the environment override, then the
-/// manual cookie, then a browser session unless the cookie source rules the
-/// browser out.
-fn console_session(
+/// Candidate sessions in upstream's order. The environment override and the
+/// manual cookie are used alone; otherwise every browser with a Stytch
+/// session is a candidate, unless the cookie source rules the browser out.
+fn console_sessions(
     ctx: &FetchContext,
     env: &(dyn Fn(&str) -> Option<String> + Sync),
-) -> Option<ConsoleSession> {
+    browser: &BrowserCookieHeaders,
+) -> Vec<ConsoleSession> {
     if let Some(session) = ConsoleSession::from_env(env) {
-        return Some(session);
+        return vec![session];
     }
     if let Some(header) = ctx.manual_cookie_header.as_deref() {
-        return ConsoleSession::from_cookie_header(header);
+        return ConsoleSession::from_cookie_header(header)
+            .into_iter()
+            .collect();
     }
     if ctx.manual_cookie_missing {
-        return None;
+        return Vec::new();
     }
-    match crate::providers::browser_cookie_header(&console::COOKIE_DOMAINS) {
-        Ok(header) => ConsoleSession::from_cookie_header(&header),
+    match browser() {
+        Ok(headers) => headers
+            .iter()
+            .filter_map(|(_, header)| ConsoleSession::from_cookie_header(header))
+            .collect(),
         Err(error) => {
             tracing::debug!(%error, "Groq console browser session is unavailable");
-            None
+            Vec::new()
         }
     }
 }

@@ -21,7 +21,8 @@ use crate::core::{
 
 pub(super) const SESSION_COOKIE: &str = "stytch_session";
 pub(super) const JWT_COOKIE: &str = "stytch_session_jwt";
-pub(super) const COOKIE_DOMAINS: [&str; 2] = ["groq.com", "console.groq.com"];
+/// Browser cookie matching includes subdomains, so this covers console.groq.com.
+pub(super) const COOKIE_DOMAIN: &str = "groq.com";
 const SESSION_JWT_ENV: &str = "GROQ_SESSION_JWT";
 const SESSION_TOKEN_ENV: &str = "GROQ_SESSION_TOKEN";
 const STYTCH_URL_ENV: &str = "GROQ_STYTCH_URL";
@@ -93,10 +94,20 @@ impl From<reqwest::Error> for ConsoleError {
 
 /// A console session: the long-lived opaque `stytch_session` token (exchanged
 /// for a fresh JWT) and/or the short-lived `stytch_session_jwt`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct ConsoleSession {
     pub(super) session_token: Option<String>,
     pub(super) direct_jwt: Option<String>,
+}
+
+impl std::fmt::Debug for ConsoleSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted = |value: &Option<String>| value.as_ref().map(|_| "<redacted>");
+        f.debug_struct("ConsoleSession")
+            .field("session_token", &redacted(&self.session_token))
+            .field("direct_jwt", &redacted(&self.direct_jwt))
+            .finish()
+    }
 }
 
 impl ConsoleSession {
@@ -183,7 +194,27 @@ pub(super) fn parse_activity(body: &[u8]) -> Result<Vec<ActivityRow>, ConsoleErr
         .map_err(|error| ConsoleError::Parse(error.to_string()))
 }
 
-pub(super) async fn fetch_usage(
+/// Try the sessions in order and move on when one is rejected, like upstream's
+/// `shouldRetryNextSession`; any other error stops the search.
+pub(super) async fn fetch_first_usable(
+    client: &Client,
+    endpoints: &ConsoleEndpoints,
+    sessions: &[ConsoleSession],
+    now: DateTime<Utc>,
+) -> Result<ProviderFetchResult, ConsoleError> {
+    let mut last_error = ConsoleError::MissingSession;
+    for session in sessions {
+        match fetch_usage(client, endpoints, session, now).await {
+            Err(error @ (ConsoleError::AccessDenied(_) | ConsoleError::InvalidSession(_))) => {
+                last_error = error;
+            }
+            result => return result,
+        }
+    }
+    Err(last_error)
+}
+
+async fn fetch_usage(
     client: &Client,
     endpoints: &ConsoleEndpoints,
     session: &ConsoleSession,

@@ -376,6 +376,18 @@ fn session_token_env_wins_over_the_jwt_env() {
     assert_eq!(ConsoleSession::from_env(|_| Some("  ".to_owned())), None);
 }
 
+#[test]
+fn session_debug_output_redacts_the_tokens() {
+    let session = ConsoleSession {
+        session_token: Some("opaque-secret".into()),
+        direct_jwt: None,
+    };
+    assert_eq!(
+        format!("{session:?}"),
+        r#"ConsoleSession { session_token: Some("<redacted>"), direct_jwt: None }"#
+    );
+}
+
 fn endpoints(server: &ServerGuard) -> ConsoleEndpoints {
     ConsoleEndpoints {
         api_base: Url::parse(&format!("{}/v1", server.url())).unwrap(),
@@ -430,13 +442,26 @@ async fn metrics_mock(server: &mut ServerGuard, hits: usize) -> Mock {
         .await
 }
 
+fn no_browser() -> Result<Vec<(String, String)>, ProviderError> {
+    panic!("the browser must not be read here")
+}
+
 async fn fetch(
     server: &ServerGuard,
     ctx: &FetchContext,
     env: &(dyn Fn(&str) -> Option<String> + Sync),
 ) -> Result<ProviderFetchResult, ProviderError> {
+    fetch_with_browser(server, ctx, env, &no_browser).await
+}
+
+async fn fetch_with_browser(
+    server: &ServerGuard,
+    ctx: &FetchContext,
+    env: &(dyn Fn(&str) -> Option<String> + Sync),
+    browser: &super::BrowserCookieHeaders,
+) -> Result<ProviderFetchResult, ProviderError> {
     GroqProvider::new()
-        .fetch_routed(ctx, &endpoints(server), env, now())
+        .fetch_routed(ctx, &endpoints(server), env, browser, now())
         .await
 }
 
@@ -637,4 +662,179 @@ async fn failed_refresh_uses_the_direct_jwt_or_falls_back() {
     stytch.assert_async().await;
     metrics.assert_async().await;
     assert_eq!(result.source_label, "api");
+}
+
+/// Org `org_parity_0008`, but a different token the activity mock rejects.
+fn stale_jwt() -> String {
+    jwt_with(r#"{"https://groq.com/organization":{"id":"org_parity_0008"}}"#)
+}
+
+fn browser_context(source_mode: SourceMode, api_key: Option<&str>) -> FetchContext {
+    FetchContext {
+        manual_cookie_missing: false,
+        ..context(source_mode, api_key)
+    }
+}
+
+#[tokio::test]
+async fn a_rejected_browser_session_moves_on_to_the_next_browser() {
+    let mut server = mockito::Server::new_async().await;
+    let stale = activity_mock(&mut server, &stale_jwt(), 401, 1).await;
+    let activity = activity_mock(&mut server, PACK_JWT, 200, 1).await;
+    let browser = || {
+        Ok(vec![
+            (
+                "Chrome".to_owned(),
+                format!("theme=dark; stytch_session_jwt={}", stale_jwt()),
+            ),
+            ("Edge".to_owned(), "theme=dark".to_owned()),
+            (
+                "Firefox".to_owned(),
+                format!("stytch_session_jwt={PACK_JWT}"),
+            ),
+        ])
+    };
+
+    let result = fetch_with_browser(
+        &server,
+        &browser_context(SourceMode::Web, None),
+        &no_env,
+        &browser,
+    )
+    .await
+    .unwrap();
+
+    stale.assert_async().await;
+    activity.assert_async().await;
+    assert_eq!(result.source_label, "console");
+    assert_eq!(details(&result), pack_card());
+}
+
+#[tokio::test]
+async fn auto_falls_back_to_metrics_when_every_browser_session_is_rejected() {
+    let mut server = mockito::Server::new_async().await;
+    let stale = activity_mock(&mut server, &stale_jwt(), 403, 2).await;
+    let metrics = metrics_mock(&mut server, 4).await;
+    let browser = || {
+        Ok(vec![
+            (
+                "Chrome".to_owned(),
+                format!("stytch_session_jwt={}", stale_jwt()),
+            ),
+            (
+                "Edge".to_owned(),
+                format!("stytch_session_jwt={}", stale_jwt()),
+            ),
+        ])
+    };
+
+    let result = fetch_with_browser(
+        &server,
+        &browser_context(SourceMode::Auto, Some(PACK_KEY)),
+        &no_env,
+        &browser,
+    )
+    .await
+    .unwrap();
+
+    stale.assert_async().await;
+    metrics.assert_async().await;
+    assert_eq!(result.source_label, "api");
+
+    let error = fetch_with_browser(
+        &server,
+        &browser_context(SourceMode::Web, None),
+        &no_env,
+        &browser,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.to_string(), "Groq console access denied: HTTP 403");
+}
+
+#[tokio::test]
+async fn a_console_api_error_stops_at_the_first_browser_session() {
+    let mut server = mockito::Server::new_async().await;
+    let failing = activity_mock(&mut server, &stale_jwt(), 500, 1).await;
+    let activity = activity_mock(&mut server, PACK_JWT, 200, 0).await;
+    let browser = || {
+        Ok(vec![
+            (
+                "Chrome".to_owned(),
+                format!("stytch_session_jwt={}", stale_jwt()),
+            ),
+            ("Edge".to_owned(), format!("stytch_session_jwt={PACK_JWT}")),
+        ])
+    };
+
+    let error = fetch_with_browser(
+        &server,
+        &browser_context(SourceMode::Web, None),
+        &no_env,
+        &browser,
+    )
+    .await
+    .unwrap_err();
+
+    failing.assert_async().await;
+    activity.assert_async().await;
+    assert_eq!(error.to_string(), "Groq console API error: HTTP 500");
+}
+
+#[tokio::test]
+async fn env_and_manual_sessions_are_used_without_reading_the_browser() {
+    let mut server = mockito::Server::new_async().await;
+    let activity = activity_mock(&mut server, PACK_JWT, 200, 2).await;
+
+    let from_env = fetch(&server, &browser_context(SourceMode::Web, None), &jwt_env)
+        .await
+        .unwrap();
+    let manual = FetchContext {
+        manual_cookie_header: Some(format!("stytch_session_jwt={PACK_JWT}")),
+        ..browser_context(SourceMode::Web, None)
+    };
+    let from_manual = fetch(&server, &manual, &no_env).await.unwrap();
+
+    activity.assert_async().await;
+    assert_eq!(from_env.source_label, "console");
+    assert_eq!(from_manual.source_label, "console");
+
+    let error = fetch(
+        &server,
+        &FetchContext {
+            manual_cookie_header: Some("theme=dark".to_owned()),
+            ..browser_context(SourceMode::Web, None)
+        },
+        &no_env,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "No Groq console session found. Sign in at console.groq.com in your browser."
+    );
+}
+
+#[tokio::test]
+async fn an_unreadable_browser_store_reports_a_missing_session() {
+    let server = mockito::Server::new_async().await;
+    let browser = || {
+        Err(ProviderError::Other(
+            "no cookies found for groq.com".to_owned(),
+        ))
+    };
+
+    let error = fetch_with_browser(
+        &server,
+        &browser_context(SourceMode::Web, None),
+        &no_env,
+        &browser,
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "No Groq console session found. Sign in at console.groq.com in your browser."
+    );
 }
