@@ -14,7 +14,7 @@ use codexbar::settings::Settings;
 use crate::state::AppState;
 
 use super::credential_alerts::FetchAttempt;
-use super::providers::quota_notification_account_identity_for;
+use super::warning_identity::WarningIdentity;
 use super::*;
 
 // ── Codex multi-account (ADR 0003, milestone 2) ──────────────────────
@@ -252,13 +252,14 @@ fn observe_codex_account_lane_outcome(
         return;
     }
 
-    let account_scope = quota_notification_account_identity_for(
+    let account_scope = WarningIdentity::new(
         ProviderId::Codex,
         "",
         account.email_hint.as_deref(),
         None,
         Some(account.id),
-    );
+    )
+    .threshold_key();
     match attempt {
         FetchAttempt::Succeeded => {
             manager.observe_credential_recovery(ProviderId::Codex, &account_scope);

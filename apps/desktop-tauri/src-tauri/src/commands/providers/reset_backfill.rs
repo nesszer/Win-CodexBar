@@ -70,7 +70,7 @@ fn backfill_slot_window(
         return;
     };
     // A stale reset is worse than a missing one.
-    let Ok(cached_dt) = chrono::DateTime::parse_from_rfc3339(cached_reset) else {
+    let Some(cached_dt) = crate::commands::parse_utc(cached_reset) else {
         return;
     };
     let now = chrono::Utc::now();

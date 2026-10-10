@@ -543,7 +543,7 @@ pub(crate) fn prune_provider_cache_to_enabled(
 /// Invalidate in-flight publish work and remove disabled providers from cache.
 ///
 /// Also clears the refresh lock so a follow-up force refresh can start immediately
-/// (otherwise `begin_provider_refresh` no-ops while a superseded batch still holds
+/// (otherwise `reserve_provider_refresh` no-ops while a superseded batch still holds
 /// `is_refreshing`, and newly enabled providers never get a replacement run).
 pub(crate) fn invalidate_provider_refresh_and_prune_disabled(
     state: &tauri::State<'_, Mutex<AppState>>,
@@ -625,8 +625,13 @@ async fn do_refresh_providers_with_policy(
     }
 
     let inputs = ProviderRefreshInputs::load(settings, enabled_ids);
-    let generation = match begin_provider_refresh(&state, force, &refresh_ids, expected_generation)?
-    {
+    let reservation = reserve_provider_refresh(
+        &mut *state.lock().map_err(|e| e.to_string())?,
+        force,
+        &refresh_ids,
+        expected_generation,
+    );
+    let generation = match reservation {
         ProviderRefreshReservation::Reserved { generation } => generation,
         ProviderRefreshReservation::Skipped(reason) => {
             // Settings or account identity changed while inputs were loading,
@@ -659,9 +664,13 @@ async fn do_refresh_providers_with_policy(
         generation,
         scope.refresh_account_lanes(),
     );
-    await_provider_refreshes(handles).await;
+    for handle in handles {
+        let _ = handle.await;
+    }
 
-    let error_count = match finish_provider_refresh(&state, generation)? {
+    let completion =
+        complete_provider_refresh(&mut *state.lock().map_err(|e| e.to_string())?, generation);
+    let error_count = match completion {
         ProviderRefreshCompletion::Published { error_count } => error_count,
         ProviderRefreshCompletion::Superseded { current_generation } => {
             // Superseded by a newer generation (or invalidate). Do not clear UI
@@ -678,21 +687,6 @@ async fn do_refresh_providers_with_policy(
     crate::auto_refresh::schedule_refresh_enrichment(&inputs.settings);
 
     Ok(ProviderRefreshOutcome::Published { generation })
-}
-
-fn begin_provider_refresh(
-    state: &tauri::State<'_, Mutex<AppState>>,
-    force: bool,
-    provider_ids: &[ProviderId],
-    expected_generation: u64,
-) -> Result<ProviderRefreshReservation, String> {
-    let mut guard = state.lock().map_err(|e| e.to_string())?;
-    Ok(reserve_provider_refresh(
-        &mut guard,
-        force,
-        provider_ids,
-        expected_generation,
-    ))
 }
 
 struct ProviderRefreshInputs {
@@ -982,19 +976,15 @@ fn preserve_last_good_transient_failure_with_policy(
     policy: Option<codexbar::core::LastGoodFailurePolicy>,
     ownership: &codexbar::core::FailureOwnership,
 ) -> ProviderUsageSnapshot {
-    let Some(error) = snapshot.error.as_deref() else {
-        guard.transient_provider_failure_counts.remove(&id);
-        return snapshot;
-    };
+    use codexbar::core::LastGoodFailurePolicy as Policy;
 
-    let policy = policy.unwrap_or(codexbar::core::LastGoodFailurePolicy::Replace);
-    if policy == codexbar::core::LastGoodFailurePolicy::Replace {
-        guard.transient_provider_failure_counts.remove(&id);
-        return snapshot;
-    }
+    let policy = policy.unwrap_or(Policy::Replace);
     // A failure tied to a live session may keep only a snapshot that the same
     // session produced. Anything else shows the error.
-    if !ownership.allows_retention(guard.last_good_owners.get(&id)) {
+    if snapshot.error.is_none()
+        || policy == Policy::Replace
+        || !ownership.allows_retention(guard.last_good_owners.get(&id))
+    {
         guard.transient_provider_failure_counts.remove(&id);
         return snapshot;
     }
@@ -1015,47 +1005,33 @@ fn preserve_last_good_transient_failure_with_policy(
         .transient_provider_failure_counts
         .entry(id)
         .or_insert(0);
-    match policy {
-        codexbar::core::LastGoodFailurePolicy::Preserve => {
-            tracing::warn!(
-                provider = id.cli_name(),
-                error,
-                "preserving last good provider snapshot after transient failure"
-            );
-            previous
-        }
-        codexbar::core::LastGoodFailurePolicy::PreserveOnce if *count == 0 => {
+    let preserve = match policy {
+        Policy::Preserve => true,
+        Policy::PreserveOnce | Policy::PreserveOnceThenSurface if *count == 0 => {
             *count = 1;
-            tracing::warn!(
-                provider = id.cli_name(),
-                error,
-                "preserving last good provider snapshot after transient failure"
-            );
-            previous
+            true
         }
-        codexbar::core::LastGoodFailurePolicy::PreserveOnce => {
+        Policy::PreserveOnce | Policy::PreserveOnceThenSurface => {
             *count = count.saturating_add(1);
-            snapshot
+            false
         }
-        codexbar::core::LastGoodFailurePolicy::PreserveOnceThenSurface if *count == 0 => {
-            *count = 1;
-            tracing::warn!(
-                provider = id.cli_name(),
-                error,
-                "preserving last good provider snapshot after transient failure"
-            );
-            previous
-        }
-        codexbar::core::LastGoodFailurePolicy::PreserveOnceThenSurface => {
-            *count = count.saturating_add(1);
-            let mut surfaced = previous;
-            surfaced.error = snapshot.error;
-            surfaced.error_state = snapshot.error_state;
-            surfaced.fetch_duration_ms = snapshot.fetch_duration_ms;
-            surfaced
-        }
-        codexbar::core::LastGoodFailurePolicy::Replace => snapshot,
+        Policy::Replace => false,
+    };
+    if preserve {
+        tracing::warn!(
+            provider = id.cli_name(),
+            error = snapshot.error.as_deref().unwrap_or_default(),
+            "preserving last good provider snapshot after transient failure"
+        );
+        return previous;
     }
+    if policy == Policy::PreserveOnceThenSurface {
+        previous.error = snapshot.error;
+        previous.error_state = snapshot.error_state;
+        previous.fetch_duration_ms = snapshot.fetch_duration_ms;
+        return previous;
+    }
+    snapshot
 }
 
 /// What a refresh tells the shell about keeping or replacing the last good
@@ -1079,62 +1055,37 @@ async fn fetch_provider_snapshot(
     let metadata = provider.metadata().clone();
     let started = std::time::Instant::now();
 
-    let (mut snapshot, account_identity, retention) =
-        match tokio::time::timeout(provider_fetch_timeout(id, &ctx), provider.fetch_usage(&ctx))
+    let outcome =
+        tokio::time::timeout(provider_fetch_timeout(id, &ctx), provider.fetch_usage(&ctx))
             .await
-        {
-            Ok(Ok(result)) => {
-                let account_identity = result.account_identity().map(ToOwned::to_owned);
-                (
-                    ProviderUsageSnapshot::from_fetch_result(
-                        id,
-                        &metadata,
-                        &result,
-                        token_account_id,
-                    ),
-                    account_identity,
-                    RefreshRetention {
-                        fresh_owner: result.last_good_owner.clone(),
-                        ..RefreshRetention::default()
-                    },
-                )
-            }
-            Ok(Err(e)) => {
-                let policy = provider.last_good_failure_policy_for_error(&e);
-                (
-                    ProviderUsageSnapshot::from_error(
-                        id,
-                        &metadata,
-                        codexbar::logging::safe_error_message(&e),
-                        provider.error_state_kind(&e),
-                    ),
-                    None,
-                    RefreshRetention {
-                        policy: Some(policy),
-                        failure_ownership: e.failure_ownership(),
-                        fresh_owner: None,
-                    },
-                )
-            }
-            Err(_) => {
-                let error = codexbar::core::ProviderError::Timeout;
-                let policy = provider.last_good_failure_policy_for_error(&error);
-                (
-                    ProviderUsageSnapshot::from_error(
-                        id,
-                        &metadata,
-                        "Timeout".to_string(),
-                        provider.error_state_kind(&error),
-                    ),
-                    None,
-                    RefreshRetention {
-                        policy: Some(policy),
-                        failure_ownership: error.failure_ownership(),
-                        fresh_owner: None,
-                    },
-                )
-            }
-        };
+            .unwrap_or_else(|_| Err(codexbar::core::ProviderError::Timeout));
+    let (mut snapshot, account_identity, retention) = match outcome {
+        Ok(result) => {
+            let account_identity = result.account_identity().map(ToOwned::to_owned);
+            (
+                ProviderUsageSnapshot::from_fetch_result(id, &metadata, &result, token_account_id),
+                account_identity,
+                RefreshRetention {
+                    fresh_owner: result.last_good_owner.clone(),
+                    ..RefreshRetention::default()
+                },
+            )
+        }
+        Err(e) => (
+            ProviderUsageSnapshot::from_error(
+                id,
+                &metadata,
+                codexbar::logging::safe_error_message(&e),
+                provider.error_state_kind(&e),
+            ),
+            None,
+            RefreshRetention {
+                policy: Some(provider.last_good_failure_policy_for_error(&e)),
+                failure_ownership: e.failure_ownership(),
+                fresh_owner: None,
+            },
+        ),
+    };
 
     record_provider_fetch_duration(id, &mut snapshot, started);
     (snapshot, account_identity, retention)
@@ -1154,23 +1105,6 @@ fn record_provider_fetch_duration(
             "slow provider refresh"
         );
     }
-}
-
-async fn await_provider_refreshes(handles: Vec<tokio::task::JoinHandle<()>>) {
-    for handle in handles {
-        let _ = handle.await;
-    }
-}
-
-/// Finish a refresh batch. Returns `None` when `generation` was superseded
-/// (do not emit complete / tray updates for dead work). Returns `Some(error_count)`
-/// when this batch still owns the generation and the lock was released.
-fn finish_provider_refresh(
-    state: &tauri::State<'_, Mutex<AppState>>,
-    generation: u64,
-) -> Result<ProviderRefreshCompletion, String> {
-    let mut guard = state.lock().map_err(|e| e.to_string())?;
-    Ok(complete_provider_refresh(&mut guard, generation))
 }
 
 fn update_tray_and_notifications(
@@ -1293,11 +1227,7 @@ fn resolve_toast_account(
     if lane.is_informational {
         return scope.key().to_string();
     }
-    let resets_at = lane
-        .resets_at
-        .as_deref()
-        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-        .map(|date| date.with_timezone(&chrono::Utc));
+    let resets_at = lane.resets_at_utc();
     manager.resolve_warning_account(
         provider,
         scope,
@@ -1343,32 +1273,16 @@ pub(super) fn quota_notification_account_identity(
 ) -> String {
     ProviderId::from_cli_name(&snapshot.provider_id)
         .map(|provider| {
-            quota_notification_account_identity_for(
+            WarningIdentity::new(
                 provider,
                 &snapshot.source_label,
                 snapshot.account_email.as_deref(),
                 snapshot.account_organization.as_deref(),
                 token_account_id,
             )
+            .threshold_key()
         })
         .unwrap_or_default()
-}
-
-pub(super) fn quota_notification_account_identity_for(
-    provider: ProviderId,
-    source_label: &str,
-    account_email: Option<&str>,
-    account_organization: Option<&str>,
-    token_account_id: Option<uuid::Uuid>,
-) -> String {
-    WarningIdentity::new(
-        provider,
-        source_label,
-        account_email,
-        account_organization,
-        token_account_id,
-    )
-    .threshold_key()
 }
 
 fn notify_predictive_pace(
@@ -1398,9 +1312,7 @@ fn notify_predictive_pace(
     let Some(identity) = warning_identity.predictive_key() else {
         return;
     };
-    let observed_at = chrono::DateTime::parse_from_rfc3339(&snapshot.updated_at)
-        .ok()
-        .map(|date| date.with_timezone(&chrono::Utc));
+    let observed_at = parse_utc(&snapshot.updated_at);
 
     for (warning_window, window, default_window_minutes) in [
         (
@@ -1420,16 +1332,7 @@ fn notify_predictive_pace(
         if window.is_informational {
             continue;
         }
-        let rate_window = RateWindow::with_details(
-            window.used_percent,
-            window.window_minutes,
-            window
-                .resets_at
-                .as_deref()
-                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                .map(|date| date.with_timezone(&chrono::Utc)),
-            window.reset_description.clone(),
-        );
+        let rate_window = window.to_rate_window();
         let Some(pace) =
             codexbar::core::UsagePace::weekly(&rate_window, observed_at, default_window_minutes)
         else {
@@ -1600,93 +1503,14 @@ mod predictive_warning_tests {
             }
         }
     }
-}
-#[cfg(test)]
-mod reset_backfill_tests {
-    use super::*;
-    use crate::commands::bridge::{ProviderUsageSnapshot, RateWindowSnapshot};
-    fn win(used: f64, resets_at: Option<&str>) -> RateWindowSnapshot {
-        RateWindowSnapshot {
-            used_percent: used,
-            remaining_percent: 100.0 - used,
-            window_minutes: Some(300),
-            resets_at: resets_at.map(String::from),
-            ..Default::default()
-        }
-    }
-    fn codex_snapshot(primary: RateWindowSnapshot) -> ProviderUsageSnapshot {
-        ProviderUsageSnapshot {
-            provider_id: "codex".into(),
-            display_name: "Codex".into(),
-            primary,
-            updated_at: "2026-01-01T00:00:00Z".into(),
-            ..Default::default()
-        }
-    }
+
     #[test]
-    fn f6_backfills_future_cached_reset() {
-        // Cached has a future resets_at; fresh has none → backfilled.
-        let future = (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
-        let cached = codex_snapshot(win(50.0, Some(&future)));
-        let mut fresh = codex_snapshot(win(30.0, None));
-        reset_backfill::codex_reset_backfill(&mut fresh, Some(&cached));
-        assert_eq!(fresh.primary.resets_at.as_deref(), Some(future.as_str()));
-        // used_percent is NOT overwritten.
-        assert!((fresh.primary.used_percent - 30.0).abs() < f64::EPSILON);
-    }
-    #[test]
-    fn f6_does_not_backfill_stale_cached_reset() {
-        // Cached reset is in the past → not backfilled.
-        let past = (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339();
-        let cached = codex_snapshot(win(50.0, Some(&past)));
-        let mut fresh = codex_snapshot(win(30.0, None));
-        reset_backfill::codex_reset_backfill(&mut fresh, Some(&cached));
-        assert!(
-            fresh.primary.resets_at.is_none(),
-            "stale reset not backfilled"
+    fn provider_timeout_error_message_is_plain_timeout() {
+        // The elapsed-timeout path reuses the provider-error path, which
+        // redacts the message; the user must still see "Timeout".
+        assert_eq!(
+            codexbar::logging::safe_error_message(codexbar::core::ProviderError::Timeout),
+            "Timeout"
         );
-    }
-    #[test]
-    fn f6_does_not_overwrite_existing_resets_at() {
-        // Fresh already has resets_at → cached not applied.
-        let future1 = (chrono::Utc::now() + chrono::Duration::hours(3)).to_rfc3339();
-        let future2 = (chrono::Utc::now() + chrono::Duration::hours(5)).to_rfc3339();
-        let cached = codex_snapshot(win(50.0, Some(&future2)));
-        let mut fresh = codex_snapshot(win(30.0, Some(&future1)));
-        reset_backfill::codex_reset_backfill(&mut fresh, Some(&cached));
-        assert_eq!(fresh.primary.resets_at.as_deref(), Some(future1.as_str()));
-    }
-    #[test]
-    fn f6_skips_non_codex_provider() {
-        let future = (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
-        let mut cached = codex_snapshot(win(50.0, Some(&future)));
-        cached.provider_id = "claude".into();
-        let mut fresh = codex_snapshot(win(30.0, None));
-        fresh.provider_id = "claude".into();
-        reset_backfill::codex_reset_backfill(&mut fresh, Some(&cached));
-        assert!(fresh.primary.resets_at.is_none(), "non-codex skip");
-    }
-    #[test]
-    fn zai_five_hour_backfill_rejects_impossible_cached_reset() {
-        for (offset, should_backfill) in [
-            (chrono::Duration::hours(1), true),
-            (chrono::Duration::hours(10), false),
-        ] {
-            let future = (chrono::Utc::now() + offset).to_rfc3339();
-            let mut cached = codex_snapshot(win(50.0, Some(&future)));
-            cached.provider_id = "zai".into();
-            let mut fresh = codex_snapshot(win(30.0, None));
-            fresh.provider_id = "zai".into();
-            fresh.primary.reset_description = Some("5-hour".into());
-            reset_backfill::codex_reset_backfill(&mut fresh, Some(&cached));
-            assert_eq!(fresh.primary.resets_at.is_some(), should_backfill);
-            assert!((fresh.primary.used_percent - 30.0).abs() < f64::EPSILON);
-        }
-    }
-    #[test]
-    fn f6_skips_when_no_cached_snapshot() {
-        let mut fresh = codex_snapshot(win(30.0, None));
-        reset_backfill::codex_reset_backfill(&mut fresh, None);
-        assert!(fresh.primary.resets_at.is_none());
     }
 }

@@ -1,7 +1,11 @@
 use super::*;
 use codexbar::core::ProviderId;
 
-pub(crate) fn fake_snapshot(id: &str, display_name: &str, used_percent: f64) -> ProviderUsageSnapshot {
+pub(crate) fn fake_snapshot(
+    id: &str,
+    display_name: &str,
+    used_percent: f64,
+) -> ProviderUsageSnapshot {
     fake_snapshot_with(id, display_name, used_percent, None, None, None)
 }
 

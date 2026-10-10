@@ -59,7 +59,27 @@ impl Default for RateWindowSnapshot {
     }
 }
 
+/// Parse an RFC 3339 bridge timestamp into UTC.
+pub(crate) fn parse_utc(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+}
+
 impl RateWindowSnapshot {
+    pub(crate) fn resets_at_utc(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.resets_at.as_deref().and_then(parse_utc)
+    }
+
+    pub(crate) fn to_rate_window(&self) -> RateWindow {
+        RateWindow::with_details(
+            self.used_percent,
+            self.window_minutes,
+            self.resets_at_utc(),
+            self.reset_description.clone(),
+        )
+    }
+
     pub(super) fn from_rate_window(rw: &RateWindow) -> Self {
         Self {
             used_percent: rw.used_percent,
