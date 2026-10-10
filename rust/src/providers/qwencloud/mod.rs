@@ -105,42 +105,19 @@ impl QwenCloudProvider {
             .await
             .ok_or(ProviderError::AuthRequired)?;
 
-        let usage_body = Self::post_api(
-            &client,
-            USAGE_API,
-            Map::new(),
-            &sec_token,
-            &cookie_header,
-            ctx,
-        )
-        .await?;
-
-        let subscription_body = Self::post_api_optional(
-            &client,
-            SUBSCRIPTION_API,
-            {
-                let mut data = Map::new();
-                data.insert(
-                    "commodityCode".into(),
-                    Value::String(PRODUCT_CODE.to_string()),
-                );
-                data
-            },
-            &sec_token,
-            &cookie_header,
-            ctx,
-        )
-        .await;
-
-        let quota_config_body = Self::post_api_optional(
-            &client,
-            QUOTA_CONFIG_API,
-            Map::new(),
-            &sec_token,
-            &cookie_header,
-            ctx,
-        )
-        .await;
+        let (client, sec_token, cookie_header) =
+            (&client, sec_token.as_str(), cookie_header.as_str());
+        let post = move |api: &'static str, data| {
+            Self::post_api(client, api, data, sec_token, cookie_header, ctx)
+        };
+        let usage_body = post(USAGE_API, Map::new()).await?;
+        let mut subscription_params = Map::new();
+        subscription_params.insert(
+            "commodityCode".into(),
+            Value::String(PRODUCT_CODE.to_string()),
+        );
+        let subscription_body = post(SUBSCRIPTION_API, subscription_params).await.ok();
+        let quota_config_body = post(QUOTA_CONFIG_API, Map::new()).await.ok();
 
         let snapshot = Self::parse(
             &usage_body,
@@ -282,19 +259,6 @@ impl QwenCloudProvider {
             )));
         }
         Ok(body.to_vec())
-    }
-
-    async fn post_api_optional(
-        client: &reqwest::Client,
-        api: &str,
-        data_parameters: Map<String, Value>,
-        sec_token: &str,
-        cookie_header: &str,
-        ctx: &FetchContext,
-    ) -> Option<Vec<u8>> {
-        Self::post_api(client, api, data_parameters, sec_token, cookie_header, ctx)
-            .await
-            .ok()
     }
 
     fn parse(
