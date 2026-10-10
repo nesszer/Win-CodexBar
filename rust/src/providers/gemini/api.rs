@@ -380,26 +380,12 @@ impl GeminiApi {
         None
     }
 
-    #[cfg(windows)]
     fn fnm_oauth_credentials() -> Option<OAuthClientCredentials> {
         #[cfg(windows)]
-        if let Some(local_appdata) = dirs::data_local_dir() {
-            let fnm_versions = local_appdata.join("fnm").join("node-versions");
-            return Self::fnm_oauth_credentials_from(&fnm_versions);
-        }
-
-        None
-    }
-
-    #[cfg(not(windows))]
-    fn fnm_oauth_credentials() -> Option<OAuthClientCredentials> {
+        let fnm_root = dirs::data_local_dir()?;
         #[cfg(not(windows))]
-        if let Some(data_dir) = dirs::data_dir() {
-            let fnm_versions = data_dir.join("fnm").join("node-versions");
-            return Self::fnm_oauth_credentials_from(&fnm_versions);
-        }
-
-        None
+        let fnm_root = dirs::data_dir()?;
+        Self::fnm_oauth_credentials_from(&fnm_root.join("fnm").join("node-versions"))
     }
 
     fn fnm_oauth_credentials_from(fnm_versions: &Path) -> Option<OAuthClientCredentials> {
