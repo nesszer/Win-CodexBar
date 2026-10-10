@@ -9,9 +9,10 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 mod cli;
+mod display;
 mod subscription;
 
-use subscription::usage_snapshot_from_amp_display_text;
+use display::{AmpDisplayUsage, parse_amp_display_text};
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
@@ -93,7 +94,7 @@ impl AmpProvider {
     }
 
     /// Fetch usage via Sourcegraph API
-    async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
+    async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<AmpDisplayUsage, ProviderError> {
         let token = self.read_access_token(ctx).await?;
 
         let client = crate::core::credentialed_http_client_builder()
@@ -124,7 +125,7 @@ impl AmpProvider {
         &self,
         json: &serde_json::Value,
         now: chrono::DateTime<Utc>,
-    ) -> Result<UsageSnapshot, ProviderError> {
+    ) -> Result<AmpDisplayUsage, ProviderError> {
         if let Some(display_text) = json
             .get("displayText")
             .or_else(|| json.get("display_text"))
@@ -133,9 +134,9 @@ impl AmpProvider {
                     .and_then(|result| result.get("displayText"))
             })
             .and_then(Value::as_str)
-            && let Some(usage) = usage_snapshot_from_amp_display_text(display_text, now)
+            && let Ok(parsed) = parse_amp_display_text(display_text, now)
         {
-            return Ok(usage);
+            return Ok(parsed);
         }
 
         // Parse Sourcegraph/Amp usage response
@@ -172,7 +173,10 @@ impl AmpProvider {
         let primary_window = RateWindow::with_details(used_percent, None, None, reset_time);
         let usage = UsageSnapshot::new(primary_window).with_login_method(plan);
 
-        Ok(usage)
+        Ok(AmpDisplayUsage {
+            usage,
+            details: Vec::new(),
+        })
     }
 }
 
@@ -224,19 +228,12 @@ impl Provider for AmpProvider {
         match ctx.source_mode {
             SourceMode::Auto => {
                 if let Ok(usage) = cli::fetch_usage().await {
-                    return Ok(ProviderFetchResult::new(usage, "cli"));
+                    return Ok(usage.into_fetch_result("cli"));
                 }
-                let usage = self.fetch_via_web(ctx).await?;
-                Ok(ProviderFetchResult::new(usage, "web"))
+                Ok(self.fetch_via_web(ctx).await?.into_fetch_result("web"))
             }
-            SourceMode::Web => {
-                let usage = self.fetch_via_web(ctx).await?;
-                Ok(ProviderFetchResult::new(usage, "web"))
-            }
-            SourceMode::Cli => {
-                let usage = cli::fetch_usage().await?;
-                Ok(ProviderFetchResult::new(usage, "cli"))
-            }
+            SourceMode::Web => Ok(self.fetch_via_web(ctx).await?.into_fetch_result("web")),
+            SourceMode::Cli => Ok(cli::fetch_usage().await?.into_fetch_result("cli")),
             SourceMode::OAuth => Err(ProviderError::UnsupportedSource(SourceMode::OAuth)),
         }
     }
@@ -256,11 +253,14 @@ impl Provider for AmpProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::subscription::{
-        AMP_MONTHLY_WINDOW_MINUTES, parse_amp_free_percent_remaining, parse_amp_subscription_usage,
-    };
+    use super::display::{parse_amp_free_tier, usage_snapshot_from_amp_display_text};
+    use super::subscription::{AMP_MONTHLY_WINDOW_MINUTES, parse_amp_subscription_usage};
     use super::*;
     use chrono::{TimeZone, Utc};
+
+    fn parse_amp_free_percent_remaining(text: &str) -> Option<f64> {
+        parse_amp_free_tier(&text.replace("**", "")).map(|free| free.used)
+    }
 
     #[test]
     fn dashboard_points_to_current_usage_page() {
@@ -302,9 +302,13 @@ mod tests {
     }
 
     #[test]
-    fn ignores_dollar_remaining_form() {
+    fn dollar_remaining_form_is_not_read_as_a_percentage() {
         let text = "Amp Free: $4.20 / $10 remaining (replenishes +$1 / hour)";
-        assert_eq!(parse_amp_free_percent_remaining(text), None);
+        let free = parse_amp_free_tier(text).expect("dollar form");
+        assert_eq!(free.quota, 10.0);
+        assert!((free.used - 5.8).abs() < 1e-9);
+        assert_eq!(free.hourly_replenishment, 1.0);
+        assert_eq!(free.window_hours, Some(10.0));
     }
 
     #[test]
@@ -415,7 +419,9 @@ Subscription Megawatt: 42% other usage and 88% orb usage remaining - resets upon
 orb usage 732.8h of 750h a1.small orb hours remaining - \
 period 2026-09-13 to 2026-10-13, resets upon renewal in 27 days";
 
-        let usage = super::cli::usage_from_amp_cli_output(text, now).expect("tier CLI output");
+        let usage = super::cli::usage_from_amp_cli_output(text, now)
+            .expect("tier CLI output")
+            .usage;
         assert_eq!(usage.primary_label.as_deref(), Some("Agent usage"));
         assert_eq!(usage.secondary_label.as_deref(), Some("Orb usage"));
         assert!((usage.primary.used_percent - 7.15).abs() < 0.0001);
@@ -425,8 +431,8 @@ period 2026-09-13 to 2026-10-13, resets upon renewal in 27 days";
 
 #[cfg(test)]
 mod current_subscription_tests {
+    use super::display::usage_snapshot_from_amp_display_text;
     use super::subscription::parse_amp_subscription_usage;
-    use super::*;
     use chrono::{TimeZone, Utc};
     #[test]
     fn parses_current_amp_subscription_line_format() {
