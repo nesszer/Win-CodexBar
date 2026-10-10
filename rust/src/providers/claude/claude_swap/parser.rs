@@ -212,9 +212,12 @@ fn parse_row(
 }
 
 /// Strictly parse the schema-v1 `cswap --list --json` envelope.
-pub fn parse_account_list(raw: &str) -> Result<ClaudeSwapAccountList, ClaudeSwapError> {
-    let value: Value = serde_json::from_str(raw).map_err(|_| ClaudeSwapError::NotJsonObject)?;
-    let object = value.as_object().ok_or(ClaudeSwapError::NotJsonObject)?;
+/// Parse a schema-v1 object and surface a reported `error` envelope before
+/// any command-specific field is read.
+fn parse_envelope(raw: &str) -> Result<serde_json::Map<String, Value>, ClaudeSwapError> {
+    let Ok(Value::Object(object)) = serde_json::from_str::<Value>(raw) else {
+        return Err(ClaudeSwapError::NotJsonObject);
+    };
 
     let schema_version = object
         .get("schemaVersion")
@@ -248,6 +251,11 @@ pub fn parse_account_list(raw: &str) -> Result<ClaudeSwapAccountList, ClaudeSwap
             },
         });
     }
+    Ok(object)
+}
+
+pub fn parse_account_list(raw: &str) -> Result<ClaudeSwapAccountList, ClaudeSwapError> {
+    let object = parse_envelope(raw)?;
 
     let raw_accounts = object
         .get("accounts")
@@ -318,41 +326,7 @@ pub fn parse_account_list(raw: &str) -> Result<ClaudeSwapAccountList, ClaudeSwap
 
 /// Strictly parse the schema-v1 `cswap --switch-to <slot> --json` envelope.
 pub fn parse_switch_result(raw: &str) -> Result<ClaudeSwapSwitchResult, ClaudeSwapError> {
-    let value: Value = serde_json::from_str(raw).map_err(|_| ClaudeSwapError::NotJsonObject)?;
-    let object = value.as_object().ok_or(ClaudeSwapError::NotJsonObject)?;
-
-    let schema_version = object
-        .get("schemaVersion")
-        .and_then(Value::as_i64)
-        .ok_or(ClaudeSwapError::MissingSchemaVersion)?;
-    if schema_version != 1 {
-        return Err(ClaudeSwapError::UnsupportedSchemaVersion(schema_version));
-    }
-    if let Some(error) = object.get("error").and_then(Value::as_object) {
-        let kind = sanitize_display(
-            error.get("type").and_then(Value::as_str).unwrap_or("Error"),
-            MAX_LABEL_CHARS,
-        );
-        let message = sanitize_display(
-            error
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown error"),
-            MAX_DIAGNOSTIC_CHARS,
-        );
-        return Err(ClaudeSwapError::ReportedError {
-            kind: if kind.is_empty() {
-                "Error".to_string()
-            } else {
-                kind
-            },
-            message: if message.is_empty() {
-                "unknown error".to_string()
-            } else {
-                message
-            },
-        });
-    }
+    let object = parse_envelope(raw)?;
 
     let switched = object
         .get("switched")

@@ -301,8 +301,12 @@ fn wait_bounded_for_child(child: &mut Child) {
     }
 }
 
+/// No job containment off Windows; the uninhabited guard keeps one call shape.
 #[cfg(not(windows))]
-fn terminate_child_tree(child: &mut Child) {
+type ProcessTreeGuard = std::convert::Infallible;
+
+#[cfg(not(windows))]
+fn terminate_child_tree(child: &mut Child, _tree: Option<ProcessTreeGuard>) {
     if let Err(error) = child.kill() {
         tracing::warn!(%error, "failed to kill the direct claude-swap child");
     }
@@ -356,13 +360,12 @@ fn run_bounded(
             return Err(ClaudeSwapError::Process(error));
         }
     };
+    #[cfg(not(windows))]
+    let mut process_tree: Option<ProcessTreeGuard> = None;
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
-            #[cfg(windows)]
             terminate_child_tree(&mut child, process_tree.take());
-            #[cfg(not(windows))]
-            terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::Process(
                 "Failed to capture stdout.".to_string(),
             ));
@@ -371,10 +374,7 @@ fn run_bounded(
     let stderr = match child.stderr.take() {
         Some(stderr) => stderr,
         None => {
-            #[cfg(windows)]
             terminate_child_tree(&mut child, process_tree.take());
-            #[cfg(not(windows))]
-            terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::Process(
                 "Failed to capture stderr.".to_string(),
             ));
@@ -418,10 +418,7 @@ fn run_bounded(
             Ok(Some(_status)) => child_exited = true,
             Ok(None) => {}
             Err(e) => {
-                #[cfg(windows)]
                 terminate_child_tree(&mut child, process_tree.take());
-                #[cfg(not(windows))]
-                terminate_child_tree(&mut child);
                 return Err(ClaudeSwapError::Process(e.to_string()));
             }
         }
@@ -432,19 +429,13 @@ fn run_bounded(
         // A disconnected channel only means failure when a reader ended
         // without delivering its outcome; after both readers send it is normal.
         if disconnected && !readers_done {
-            #[cfg(windows)]
             terminate_child_tree(&mut child, process_tree.take());
-            #[cfg(not(windows))]
-            terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::Process(
                 "claude-swap output streams closed unexpectedly.".to_string(),
             ));
         }
         if Instant::now() >= deadline {
-            #[cfg(windows)]
             terminate_child_tree(&mut child, process_tree.take());
-            #[cfg(not(windows))]
-            terminate_child_tree(&mut child);
             return Err(ClaudeSwapError::TimedOut(timeout.as_secs()));
         }
         std::thread::sleep(POLL_INTERVAL);
