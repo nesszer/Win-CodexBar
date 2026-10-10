@@ -772,11 +772,6 @@ impl ClaudeWebApiFetcher {
     fn format_reset_time(dt: DateTime<Utc>) -> String {
         dt.format("%b %-d at %-I:%M%p").to_string()
     }
-
-    /// Convert rate limit tier to plan name
-    fn tier_to_plan_name(tier: &str) -> String {
-        super::claude_plan_label(tier)
-    }
 }
 
 impl Default for ClaudeWebApiFetcher {
@@ -953,11 +948,11 @@ mod tests {
     #[test]
     fn labels_max_5x_and_20x_plans() {
         assert_eq!(
-            ClaudeWebApiFetcher::tier_to_plan_name("default_claude_max_5x"),
+            crate::providers::claude::claude_plan_label("default_claude_max_5x"),
             "Claude Max 5x"
         );
         assert_eq!(
-            ClaudeWebApiFetcher::tier_to_plan_name("v2_default_claude_max_20x"),
+            crate::providers::claude::claude_plan_label("v2_default_claude_max_20x"),
             "Claude Max 20x"
         );
     }

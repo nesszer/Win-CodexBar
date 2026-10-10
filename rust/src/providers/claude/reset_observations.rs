@@ -51,16 +51,6 @@ pub struct ClaudeResetObservationMergeResult {
     pub changed: bool,
 }
 
-pub fn default_store_path() -> Result<PathBuf, ClaudeResetObservationError> {
-    let root = dirs::config_dir().ok_or_else(|| {
-        ClaudeResetObservationError::Read(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "configuration directory not found",
-        ))
-    })?;
-    Ok(root.join("CodexBar").join(STORE_RELATIVE_PATH))
-}
-
 pub fn store_path(config_root: &Path) -> PathBuf {
     config_root.join(STORE_RELATIVE_PATH)
 }

@@ -1297,43 +1297,6 @@ fn detect_claude_version() -> Option<String> {
     }
 }
 
-/// Strip ANSI escape codes from text
-fn strip_ansi(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\x1B' {
-            // Skip CSI sequences: ESC[...letter
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                let mut final_char = None;
-                while let Some(&next) = chars.peek() {
-                    chars.next();
-                    if next.is_ascii_alphabetic() {
-                        final_char = Some(next);
-                        break;
-                    }
-                }
-                if final_char == Some('C') {
-                    result.push(' ');
-                }
-            // Skip OSC sequences: ESC]...BEL
-            } else if chars.peek() == Some(&']') {
-                for next in chars.by_ref() {
-                    if next == '\x07' || next == '\\' {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
-}
-
 fn is_non_interactive_slash_command_response(text: &str) -> bool {
     let mentions_usage_and_exit = text.contains("/usage") && text.contains("/exit");
     let says_entered_commands =
@@ -1459,12 +1422,11 @@ fn extract_inline_reset_description(text: &str) -> Option<String> {
     Some(text[pos..].trim().to_string())
 }
 
-/// Clean up a plan name by removing ANSI codes and extra whitespace
+/// Clean up a plan name from rendered (escape-free) text: drop bracketed
+/// codes like `[22m` and trim.
 fn clean_plan_name(text: &str) -> String {
-    let cleaned = strip_ansi(text);
-    // Remove bracketed codes like [22m
     let re = Regex::new(r"\[\d+m").unwrap_or_else(|_| Regex::new(".^").unwrap());
-    let result = re.replace_all(&cleaned, "");
+    let result = re.replace_all(text, "");
     result.trim().to_string()
 }
 

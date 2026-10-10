@@ -186,7 +186,7 @@ fn a_cursor_sequence_after_plain_text_switches_to_replay() {
 #[test]
 fn differential_redraw_fixture_keeps_the_scoped_weekly_quota() {
     // Plain escape stripping fuses the redraw fragments, which is the bug.
-    let stripped = crate::providers::claude::strip_ansi(USAGE_FIXTURE);
+    let stripped = strip_ansi(USAGE_FIXTURE);
     assert!(stripped.contains("51%usd"), "{stripped}");
 
     let provider = ClaudeProvider::new();
@@ -242,7 +242,44 @@ fn rendered_text_never_carries_an_escape() {
         for preserve in [true, false] {
             let rendered = render(input, preserve);
             assert!(!rendered.contains('\u{1b}'), "{rendered:?}");
-            assert_eq!(crate::providers::claude::strip_ansi(&rendered), rendered);
+            assert_eq!(strip_ansi(&rendered), rendered);
         }
     }
+}
+
+/// Plain escape stripping, the pre-replay behavior these tests compare against.
+fn strip_ansi(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1B' {
+            // Skip CSI sequences: ESC[...letter
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                let mut final_char = None;
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next.is_ascii_alphabetic() {
+                        final_char = Some(next);
+                        break;
+                    }
+                }
+                if final_char == Some('C') {
+                    result.push(' ');
+                }
+            // Skip OSC sequences: ESC]...BEL
+            } else if chars.peek() == Some(&']') {
+                for next in chars.by_ref() {
+                    if next == '\x07' || next == '\\' {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
 }
