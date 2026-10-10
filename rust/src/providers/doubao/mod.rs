@@ -16,6 +16,7 @@ use crate::core::{
     FetchContext, IconLane, NamedRateWindow, Provider, ProviderError, ProviderFetchResult,
     ProviderId, RateWindow, SourceMode, UsageSnapshot, hex, hmac_sha256, sha256_hex,
 };
+use crate::providers::resolve_api_key;
 
 const DOUBAO_API_URL: &str = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions";
 const DOUBAO_CODING_PLAN_URL: &str =
@@ -972,35 +973,6 @@ fn selected_ark_api_key(ctx: &FetchContext) -> Result<String, ProviderError> {
         .filter(|key| !key.is_empty())
         .map(str::to_string)
         .ok_or(ProviderError::AuthRequired)
-}
-
-fn resolve_api_key(
-    explicit: Option<&str>,
-    credential_target: &str,
-    env_names: &[&str],
-) -> Result<String, ProviderError> {
-    if let Some(key) = explicit
-        && !key.trim().is_empty()
-    {
-        return Ok(key.trim().to_string());
-    }
-    if let Ok(entry) = keyring::Entry::new(credential_target, "api_key")
-        && let Ok(key) = entry.get_password()
-        && !key.trim().is_empty()
-    {
-        return Ok(key);
-    }
-    for env in env_names {
-        if let Ok(key) = std::env::var(env)
-            && !key.trim().is_empty()
-        {
-            return Ok(key);
-        }
-    }
-    Err(ProviderError::NotInstalled(format!(
-        "API key not found. Set {} in Preferences or environment.",
-        env_names.join(" / ")
-    )))
 }
 
 #[cfg(test)]
