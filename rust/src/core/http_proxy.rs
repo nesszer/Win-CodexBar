@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn validation_error_when_enabled_and_bad() {
+    fn resolve_proxy_errors_when_enabled_and_bad() {
         let s = HttpProxySettings::from_parts(true, "ftp://x", "", "");
         assert!(resolve_proxy(&s).is_err());
     }
