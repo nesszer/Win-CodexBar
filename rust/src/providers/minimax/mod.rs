@@ -30,6 +30,7 @@ use billing::{MiniMaxBillingSummary, attach_billing_summary, parse_billing_summa
 const CODING_PLAN_PATH: &str = "/user-center/payment/coding-plan";
 const CODING_PLAN_QUERY: &str = "cycle_type=3";
 const JSON_ACCEPT: &str = "application/json, text/plain, */*";
+const HTML_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
 fn http_client() -> Result<reqwest::Client, ProviderError> {
     crate::core::credentialed_http_client_builder()
@@ -433,7 +434,7 @@ impl MiniMaxProvider {
             &region.coding_plan_url(),
             cookie_header,
             region,
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            HTML_ACCEPT,
             false,
         )
         .send()
