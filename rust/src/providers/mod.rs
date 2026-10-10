@@ -46,6 +46,7 @@ pub mod gitkraken;
 pub mod grok;
 pub mod groq;
 pub mod helmcode;
+pub(crate) mod http_util;
 pub mod huggingface;
 pub mod hyper;
 pub mod infini;
