@@ -132,54 +132,43 @@ pub(super) fn scope_key(account_id: Option<&str>, auth_path: &Path) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-pub(super) fn load(scope: &str) -> AccountState {
-    let Some(path) = state_path() else {
-        return AccountState::default();
-    };
-    let Ok(raw) = crate::secure_file::read_string(&path) else {
-        return AccountState::default();
-    };
-    let Ok(file) = serde_json::from_str::<StateFile>(&raw) else {
-        return AccountState::default();
-    };
-    if file.version != STATE_VERSION {
-        return AccountState::default();
-    }
-    file.accounts.get(scope).cloned().unwrap_or_default()
-}
-
-pub(super) fn save(scope: &str, state: &AccountState) {
-    let Some(path) = state_path() else {
-        log_reset_diagnostic(
-            "candidatePersistence",
-            "skipped",
-            ResetDiagnosticReason::StoreUnavailable,
-        );
-        return;
-    };
-    let mut file = crate::secure_file::read_string(&path)
+/// An unreadable, malformed or other-version state file reads as absent.
+fn read_state_file(path: &Path) -> Option<StateFile> {
+    crate::secure_file::read_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str::<StateFile>(&raw).ok())
         .filter(|file| file.version == STATE_VERSION)
-        .unwrap_or_else(|| StateFile {
-            version: STATE_VERSION,
-            accounts: HashMap::new(),
-        });
-    file.accounts.insert(scope.to_string(), state.clone());
-    let Some(parent) = path.parent() else {
+}
+
+pub(super) fn load(scope: &str) -> AccountState {
+    state_path()
+        .and_then(|path| read_state_file(&path))
+        .and_then(|file| file.accounts.get(scope).cloned())
+        .unwrap_or_default()
+}
+
+pub(super) fn save(scope: &str, state: &AccountState) {
+    let skipped = || {
         log_reset_diagnostic(
             "candidatePersistence",
             "skipped",
             ResetDiagnosticReason::StoreUnavailable,
         );
+    };
+    let Some(path) = state_path() else {
+        skipped();
         return;
     };
-    if std::fs::create_dir_all(parent).is_err() {
-        log_reset_diagnostic(
-            "candidatePersistence",
-            "skipped",
-            ResetDiagnosticReason::StoreUnavailable,
-        );
+    let mut file = read_state_file(&path).unwrap_or_else(|| StateFile {
+        version: STATE_VERSION,
+        accounts: HashMap::new(),
+    });
+    file.accounts.insert(scope.to_string(), state.clone());
+    if path
+        .parent()
+        .is_none_or(|parent| std::fs::create_dir_all(parent).is_err())
+    {
+        skipped();
         return;
     }
     if let Ok(raw) = serde_json::to_string_pretty(&file) {
@@ -413,91 +402,67 @@ fn maybe_store_delayed_candidate(
     exact_oauth: bool,
     observed_at: DateTime<Utc>,
 ) {
+    match delayed_candidate_admission(
+        state,
+        initial,
+        confirmation,
+        confirmation_inventory,
+        exact_oauth,
+        observed_at,
+    ) {
+        Ok(candidate) => {
+            state.candidate = Some(candidate);
+            log_reset_diagnostic(
+                "candidateCreation",
+                "created",
+                ResetDiagnosticReason::CandidateCreated,
+            );
+        }
+        Err(reason) => log_reset_diagnostic("candidateCreation", "rejected", reason),
+    }
+}
+
+/// The checks run in a fixed order; the first failure is the logged reason.
+fn delayed_candidate_admission(
+    state: &AccountState,
+    initial: &UsageSnapshot,
+    confirmation: &UsageSnapshot,
+    confirmation_inventory: Option<&CreditInventory>,
+    exact_oauth: bool,
+    observed_at: DateTime<Utc>,
+) -> Result<DelayedCandidate, ResetDiagnosticReason> {
+    use ResetDiagnosticReason as Reason;
     if !exact_oauth {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::SourceNotExactOAuth,
-        );
-        return;
+        return Err(Reason::SourceNotExactOAuth);
     }
     if !plans_match(state.plan.as_deref(), initial, confirmation) {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::PlanMismatch,
-        );
-        return;
+        return Err(Reason::PlanMismatch);
     }
-    let Some(previous_weekly) = state.published_weekly.as_ref() else {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::MissingPreviousSnapshot,
-        );
-        return;
-    };
-    let Some(initial_weekly) = weekly(initial) else {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::MissingWeeklyWindow,
-        );
-        return;
-    };
-    let Some(confirmation_weekly) = weekly(confirmation) else {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::MissingWeeklyWindow,
-        );
-        return;
-    };
-    let Some(previous_inventory) = state.credit_inventory.as_ref() else {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::MissingCreditInventory,
-        );
-        return;
-    };
-    let Some(confirmation_inventory) = confirmation_inventory else {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::MissingCreditInventory,
-        );
-        return;
-    };
+    let previous_weekly = state
+        .published_weekly
+        .as_ref()
+        .ok_or(Reason::MissingPreviousSnapshot)?;
+    let initial_weekly = weekly(initial).ok_or(Reason::MissingWeeklyWindow)?;
+    let confirmation_weekly = weekly(confirmation).ok_or(Reason::MissingWeeklyWindow)?;
+    let previous_inventory = state
+        .credit_inventory
+        .as_ref()
+        .ok_or(Reason::MissingCreditInventory)?;
+    let confirmation_inventory = confirmation_inventory.ok_or(Reason::MissingCreditInventory)?;
     if previous_inventory.available_count == 0 || previous_inventory != confirmation_inventory {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::ChangedCreditInventory,
-        );
-        return;
+        return Err(Reason::ChangedCreditInventory);
     }
     if !supported_delayed_boundary(previous_weekly, initial_weekly)
         || !supported_delayed_boundary(previous_weekly, confirmation_weekly)
     {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::UnsupportedResetBoundary,
-        );
-        return;
+        return Err(Reason::UnsupportedResetBoundary);
     }
     if boundary_distance_seconds(initial_weekly, confirmation_weekly).abs()
         >= RESET_TOLERANCE_SECONDS
     {
-        log_reset_diagnostic(
-            "candidateCreation",
-            "rejected",
-            ResetDiagnosticReason::InconsistentResetBoundary,
-        );
-        return;
+        return Err(Reason::InconsistentResetBoundary);
     }
-    state.candidate = Some(DelayedCandidate {
+    Ok(DelayedCandidate {
         evidence_version: EVIDENCE_VERSION,
         first_observed_at: initial.updated_at,
         created_at: observed_at,
@@ -505,12 +470,7 @@ fn maybe_store_delayed_candidate(
         weekly: confirmation_weekly.clone(),
         plan: confirmation.login_method.clone(),
         inventory: confirmation_inventory.clone(),
-    });
-    log_reset_diagnostic(
-        "candidateCreation",
-        "created",
-        ResetDiagnosticReason::CandidateCreated,
-    );
+    })
 }
 
 fn delayed_candidate_decision(
