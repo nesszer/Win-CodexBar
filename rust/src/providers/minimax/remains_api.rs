@@ -7,7 +7,7 @@ use chrono::Utc;
 
 use crate::core::{FetchContext, ProviderError, ProviderFetchResult};
 
-use super::{MiniMaxRegion, coding_plan, coding_plan_html};
+use super::{JSON_ACCEPT, MiniMaxRegion, check_status, coding_plan, coding_plan_html, http_client};
 
 fn resolve_plain_api_key(explicit: Option<&str>, environment: Option<&str>) -> Option<String> {
     explicit
@@ -46,31 +46,13 @@ async fn fetch_remains_once_via_api_key(
     api_key: &str,
     url: &str,
 ) -> Result<coding_plan::MiniMaxCodingPlanSnapshot, ProviderError> {
-    let client = crate::core::credentialed_http_client_builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| ProviderError::Other(e.to_string()))?;
-
-    let response = client
+    let response = http_client()?
         .get(url)
         .header("Authorization", format!("Bearer {api_key}"))
-        .header("Accept", "application/json, text/plain, */*")
+        .header("Accept", JSON_ACCEPT)
         .send()
         .await?;
-
-    let status = response.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return Err(ProviderError::AuthRequired);
-    }
-    if !status.is_success() {
-        let message = format!("MiniMax remains (api key) returned status {status}");
-        if status == reqwest::StatusCode::NOT_FOUND
-            || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
-        {
-            return Err(ProviderError::Parse(message));
-        }
-        return Err(ProviderError::Other(message));
-    }
+    check_status(response.status(), "remains (api key)", true)?;
 
     let json: serde_json::Value = response
         .json()
@@ -81,7 +63,40 @@ async fn fetch_remains_once_via_api_key(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_plain_api_key;
+    use super::super::http_tests::{JSON_ACCEPT, assert_status_error};
+    use super::{fetch_remains_once_via_api_key, resolve_plain_api_key};
+
+    #[tokio::test]
+    async fn api_key_remains_request_maps_statuses() {
+        let cases: [(usize, Option<&str>); 4] = [
+            (401, None),
+            (403, None),
+            (
+                404,
+                Some("Parse:MiniMax remains (api key) returned status 404 Not Found"),
+            ),
+            (
+                503,
+                Some("Other:MiniMax remains (api key) returned status 503 Service Unavailable"),
+            ),
+        ];
+        for (status, expected) in cases {
+            let mut server = mockito::Server::new_async().await;
+            let mock = server
+                .mock("GET", "/remains")
+                .match_header("authorization", "Bearer fixture-key")
+                .match_header("accept", JSON_ACCEPT)
+                .with_status(status)
+                .expect(1)
+                .create_async()
+                .await;
+            let result =
+                fetch_remains_once_via_api_key("fixture-key", &format!("{}/remains", server.url()))
+                    .await;
+            mock.assert_async().await;
+            assert_status_error(result.map(|_| ()), expected, status);
+        }
+    }
 
     #[test]
     fn plain_api_key_prefers_explicit_then_environment_without_mutating_process_env() {

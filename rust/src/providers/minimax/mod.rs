@@ -22,6 +22,67 @@ use crate::providers::json;
 
 const CODING_PLAN_PATH: &str = "/user-center/payment/coding-plan";
 const CODING_PLAN_QUERY: &str = "cycle_type=3";
+const JSON_ACCEPT: &str = "application/json, text/plain, */*";
+
+fn http_client() -> Result<reqwest::Client, ProviderError> {
+    crate::core::credentialed_http_client_builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| ProviderError::Other(e.to_string()))
+}
+
+fn is_auth_status(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN
+}
+
+/// 401/403 read as AuthRequired and other failures as
+/// "MiniMax {what} returned status {status}". With `not_found_is_parse`,
+/// 404/405 read as Parse so the caller tries its next URL.
+fn check_status(
+    status: reqwest::StatusCode,
+    what: &str,
+    not_found_is_parse: bool,
+) -> Result<(), ProviderError> {
+    if is_auth_status(status) {
+        return Err(ProviderError::AuthRequired);
+    }
+    if status.is_success() {
+        return Ok(());
+    }
+    let message = format!("MiniMax {what} returned status {status}");
+    if not_found_is_parse
+        && (status == reqwest::StatusCode::NOT_FOUND
+            || status == reqwest::StatusCode::METHOD_NOT_ALLOWED)
+    {
+        return Err(ProviderError::Parse(message));
+    }
+    Err(ProviderError::Other(message))
+}
+
+/// Browser-shaped console GET: cookie, `accept`, the optional XHR marker,
+/// then the Chrome UA, language, origin and coding-plan referer.
+fn console_get(
+    client: &reqwest::Client,
+    url: &str,
+    cookie_header: &str,
+    region: MiniMaxRegion,
+    accept: &str,
+    xhr: bool,
+) -> reqwest::RequestBuilder {
+    let base = region.base_url();
+    let mut request = client
+        .get(url)
+        .header("Cookie", cookie_header)
+        .header("Accept", accept);
+    if xhr {
+        request = request.header("X-Requested-With", "XMLHttpRequest");
+    }
+    request
+        .header("User-Agent", MiniMaxProvider::WEB_USER_AGENT)
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .header("Origin", base)
+        .header("Referer", format!("{base}/user-center/payment/coding-plan"))
+}
 
 #[derive(Debug, Deserialize)]
 struct MiniMaxBillingHistoryPayload {
@@ -291,10 +352,7 @@ impl MiniMaxProvider {
         api_key: &str,
         region: MiniMaxRegion,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let client = crate::core::credentialed_http_client_builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = http_client()?;
 
         let base_url = region.api_base_url();
         let resp = client
@@ -306,19 +364,7 @@ impl MiniMaxProvider {
             .header("MM-API-Source", "CodexBar")
             .send()
             .await?;
-
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
-            || resp.status() == reqwest::StatusCode::FORBIDDEN
-        {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !resp.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "MiniMax API returned status {}",
-                resp.status()
-            )));
-        }
+        check_status(resp.status(), "API", false)?;
 
         let json: serde_json::Value = resp
             .json()
@@ -390,31 +436,17 @@ impl MiniMaxProvider {
         cookie_header: &str,
         region: MiniMaxRegion,
     ) -> Result<MiniMaxBillingSummary, ProviderError> {
-        let client = crate::core::credentialed_http_client_builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = http_client()?;
 
         let response = client
             .get(region.billing_history_url())
             .query(&[("page", "1"), ("limit", "100"), ("aggregate", "false")])
             .header("Cookie", cookie_header)
-            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept", JSON_ACCEPT)
             .header("X-Requested-With", "XMLHttpRequest")
             .send()
             .await?;
-
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED
-            || response.status() == reqwest::StatusCode::FORBIDDEN
-        {
-            return Err(ProviderError::AuthRequired);
-        }
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "MiniMax billing returned status {}",
-                response.status()
-            )));
-        }
+        check_status(response.status(), "billing", false)?;
 
         let json: serde_json::Value = response
             .json()
@@ -434,39 +466,19 @@ impl MiniMaxProvider {
         cookie_header: &str,
         region: MiniMaxRegion,
     ) -> Result<UsageSnapshot, ProviderError> {
-        let client = crate::core::credentialed_http_client_builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = http_client()?;
 
-        let coding_url = region.coding_plan_url();
-        let base = region.base_url();
-        let response = client
-            .get(&coding_url)
-            .header("Cookie", cookie_header)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-            .header("User-Agent", Self::WEB_USER_AGENT)
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Origin", base)
-            .header(
-                "Referer",
-                &format!("{base}/user-center/payment/coding-plan"),
-            )
-            .send()
-            .await?;
-
-        let status = response.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-            return Err(ProviderError::AuthRequired);
-        }
-        if !status.is_success() {
-            return Err(ProviderError::Other(format!(
-                "MiniMax coding plan returned status {status}"
-            )));
-        }
+        let response = console_get(
+            &client,
+            &region.coding_plan_url(),
+            cookie_header,
+            region,
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            false,
+        )
+        .send()
+        .await?;
+        check_status(response.status(), "coding plan", false)?;
 
         let content_type = response
             .headers()
@@ -555,41 +567,12 @@ impl MiniMaxProvider {
         region: MiniMaxRegion,
         now: DateTime<Utc>,
     ) -> Result<coding_plan::MiniMaxCodingPlanSnapshot, ProviderError> {
-        let client = crate::core::credentialed_http_client_builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = http_client()?;
 
-        let base = region.base_url();
-        let response = client
-            .get(url)
-            .header("Cookie", cookie_header)
-            .header("Accept", "application/json, text/plain, */*")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("User-Agent", Self::WEB_USER_AGENT)
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Origin", base)
-            .header(
-                "Referer",
-                &format!("{base}/user-center/payment/coding-plan"),
-            )
+        let response = console_get(&client, url, cookie_header, region, JSON_ACCEPT, true)
             .send()
             .await?;
-
-        let status = response.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-            return Err(ProviderError::AuthRequired);
-        }
-        if !status.is_success() {
-            let msg = format!("MiniMax remains returned status {status}");
-            // 404/405 → try next URL; other → stop
-            if status == reqwest::StatusCode::NOT_FOUND
-                || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
-            {
-                return Err(ProviderError::Parse(msg));
-            }
-            return Err(ProviderError::Other(msg));
-        }
+        check_status(response.status(), "remains", true)?;
 
         let content_type = response
             .headers()
@@ -1030,6 +1013,9 @@ impl Provider for MiniMaxProvider {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::Cli]
     }
 }
+
+#[cfg(test)]
+mod http_tests;
 
 #[cfg(test)]
 mod tests {
