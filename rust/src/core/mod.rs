@@ -32,7 +32,6 @@ mod timezone;
 mod token_accounts;
 mod usage_pace;
 mod usage_snapshot;
-mod widget_snapshot;
 
 pub use adaptive_refresh::*;
 pub use aws_signing::*;
@@ -67,4 +66,3 @@ pub use timezone::{local_timezone_name, try_local_timezone_name};
 pub use token_accounts::*;
 pub use usage_pace::*;
 pub use usage_snapshot::*;
-pub use widget_snapshot::*;
