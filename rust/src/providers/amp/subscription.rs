@@ -108,46 +108,6 @@ impl AmpSubscriptionUsage {
     }
 }
 
-/// Parse Amp Free percentage lines from CLI/display text (upstream 0.42.1+ shape).
-///
-/// Matches lines like:
-/// - `Amp Free: 72% remaining today`
-/// - `Amp Free: 72% remaining (resets daily)`
-///
-/// Returns **used** percent (100 - remaining). The CLI fetch path passes its
-/// `amp usage` output through this parser before falling back to the API path.
-pub(super) fn parse_amp_free_percent_remaining(text: &str) -> Option<f64> {
-    let text = text.replace("**", "");
-    for line in text.lines() {
-        let line = line.trim();
-        let lower = line.to_ascii_lowercase();
-        if !lower.starts_with("amp free:") {
-            continue;
-        }
-        let rest = line["amp free:".len()..].trim();
-        // Prefer percentage form over dollar `$used / $quota remaining`.
-        let Some(percent_idx) = rest.find('%') else {
-            continue;
-        };
-        let number_part = rest[..percent_idx].trim();
-        // Reject dollar amounts mistaken for percentages (e.g. "$12 remaining").
-        if number_part.contains('$') {
-            continue;
-        }
-        let after = rest[percent_idx + 1..].trim().to_ascii_lowercase();
-        if !after.starts_with("remaining") {
-            continue;
-        }
-        let remaining: f64 = number_part.replace(',', "").parse().ok()?;
-        if !remaining.is_finite() {
-            continue;
-        }
-        let clamped = remaining.clamp(0.0, 100.0);
-        return Some(100.0 - clamped);
-    }
-    None
-}
-
 fn normalize_amp_subscription_line(line: &str) -> String {
     let trimmed = line.trim();
     let Some(rest) = trimmed.strip_prefix("Amp ") else {
@@ -339,34 +299,9 @@ fn add_calendar_months(
     now.checked_add_months(chrono::Months::new(u32::try_from(months).ok()?))
 }
 
-/// Build a [`UsageSnapshot`] from Amp Free / subscription display text.
-///
-/// Subscription (Megawatt) wins for primary/secondary windows when present:
-/// - primary = other usage
-/// - secondary = orb usage
-///
-/// Free percent path fills primary when there is no subscription match.
-pub(super) fn usage_snapshot_from_amp_display_text(
-    text: &str,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Option<UsageSnapshot> {
-    if let Some(sub) = parse_amp_subscription_usage(text, now) {
-        return Some(usage_snapshot_from_subscription(sub));
-    }
-
-    let free_used = parse_amp_free_percent_remaining(text)?;
-    // Upstream 0.49.6 #2601: the Amp Free daily tier resets at 8:00 PM
-    // America/New_York, not local midnight.
-    let primary = RateWindow::with_details(
-        free_used,
-        Some(24 * 60),
-        next_free_tier_reset(now),
-        Some("resets daily".to_string()),
-    );
-    Some(UsageSnapshot::new(primary).with_login_method("Amp Free"))
-}
-
-fn usage_snapshot_from_subscription(sub: AmpSubscriptionUsage) -> UsageSnapshot {
+/// Map a parsed subscription to quota windows: primary = other/agent usage,
+/// secondary = orb usage.
+pub(super) fn usage_snapshot_from_subscription(sub: AmpSubscriptionUsage) -> UsageSnapshot {
     let AmpSubscriptionUsage {
         plan,
         reset_description,
@@ -470,7 +405,7 @@ fn tier_allowance_description(
 }
 
 /// Next 8:00 PM America/New_York boundary strictly after `now`.
-fn next_free_tier_reset(
+pub(super) fn next_free_tier_reset(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<chrono::DateTime<chrono::Utc>> {
     use chrono::{Datelike, TimeZone};
@@ -490,7 +425,7 @@ fn next_free_tier_reset(
         .map(|dt| dt.with_timezone(&chrono::Utc))
 }
 
-fn parse_amp_number(raw: &str) -> Option<f64> {
+pub(super) fn parse_amp_number(raw: &str) -> Option<f64> {
     let value: f64 = raw.replace(',', "").parse().ok()?;
     value.is_finite().then_some(value)
 }

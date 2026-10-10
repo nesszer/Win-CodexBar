@@ -1020,7 +1020,7 @@ impl Settings {
         self.provider_configs.entry(id).or_default()
     }
 
-    /// Cookie source for `id`. Kimi and Charm Hyper follow upstream's
+    /// Cookie source for `id`. Kimi, Charm Hyper and Groq follow upstream's
     /// automatic default; providers with no specific default retain the
     /// legacy manual default.
     pub fn cookie_source(&self, id: ProviderId) -> &str {
@@ -1028,7 +1028,7 @@ impl Settings {
             .get(&id)
             .and_then(|c| c.cookie_source.as_deref())
             .unwrap_or(match id {
-                ProviderId::Kimi | ProviderId::Hyper => "auto",
+                ProviderId::Kimi | ProviderId::Hyper | ProviderId::Groq => "auto",
                 _ => DEFAULT_COOKIE_SOURCE,
             })
     }
