@@ -72,37 +72,6 @@ export default function MenuSurface({
   );
 }
 
-interface MenuSummaryProps {
-  total: number;
-  errorCount: number;
-  isRefreshing: boolean;
-  lastRefresh: { providerCount: number; errorCount: number } | null;
-}
-
-export function MenuSummary({
-  total,
-  errorCount,
-  isRefreshing,
-  lastRefresh,
-}: MenuSummaryProps) {
-  const { t } = useLocale();
-  const providersLabel = t("SummaryProvidersLabel");
-  const providerLabel =
-    total === 1 && providersLabel.toLocaleLowerCase("en-US") === "providers"
-      ? "provider"
-      : providersLabel;
-  const parts: string[] = [`${total} ${providerLabel}`];
-  if (isRefreshing) {
-    parts.push(t("SummaryRefreshing"));
-  } else if (lastRefresh && lastRefresh.errorCount > 0) {
-    parts.push(`${lastRefresh.errorCount} ${t("SummaryFailed")}`);
-  }
-  if (!isRefreshing && errorCount > 0) {
-    parts.push(`${errorCount} ${t("SummaryWithErrors")}`);
-  }
-  return <div className="menu-surface__summary">{parts.join(" · ")}</div>;
-}
-
 interface MenuEmptyProps {
   isLoading: boolean;
   onSettings: () => void;

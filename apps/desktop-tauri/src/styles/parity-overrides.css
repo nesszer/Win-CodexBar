@@ -1,0 +1,394 @@
+/* ── Reorg overlay: bold section title + caption ──────────────────── */
+.settings-section__title--bold {
+  font-size: var(--font-body);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.settings-section__caption {
+  margin: 0 0 8px;
+  font-size: var(--font-caption);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Usage & Spend table */
+.usage-spend-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-body);
+}
+.usage-spend-table th,
+.usage-spend-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+.usage-spend-table th {
+  font-weight: 600;
+  color: var(--text-secondary, #a1a1a6);
+  font-size: var(--font-caption);
+}
+.usage-spend-table__source {
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+}
+
+.usage-spend-daily {
+  margin-top: 20px;
+}
+
+.usage-spend-daily h4 {
+  margin: 0;
+}
+
+.usage-spend-daily__table {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+
+.usage-spend-daily__toggle {
+  margin-top: 8px;
+}
+
+/* About update controls block */
+.about-update-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.about-channel-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.about-channel-row .settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: auto;
+}
+
+.about-channel-row .settings-field__label {
+  white-space: nowrap;
+}
+
+.about-channel-row .select {
+  min-width: 100px;
+  text-align: center;
+  text-align-last: center;
+}
+
+.about-channel-description {
+  margin: 2px 0 0;
+  max-width: 320px;
+  font-size: 11px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.55));
+  text-align: center;
+}
+
+/* ── macOS parity: inline error subtitle, divider spacing, footer icon
+      opacity, and card bottom padding (final overlay) ─────────────────── */
+
+.menu-card__content {
+  padding-bottom: 6px;
+}
+
+.menu-surface__footer-icon {
+  opacity: 0.5;
+}
+.menu-surface__footer-row:hover .menu-surface__footer-icon,
+.menu-surface__footer-row:focus-visible .menu-surface__footer-icon {
+  opacity: 0.8;
+}
+
+/* ── Provider tab status dots removed (replaced by .provider-grid__dot) */
+
+/* ── Plan badge pill ────────────────────────────────────────────────── */
+.menu-card__plan-badge {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+[data-theme="light"] .menu-card__plan-badge {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Card header: name + badge on same row ──────────────────────────── */
+.menu-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--menu-card-header-column-gap);
+}
+.menu-card__name-group {
+  display: flex;
+  min-width: 0;
+}
+
+.menu-surface--tray .provider-grid {
+  grid-template-columns: repeat(10, 24px);
+  gap: 8px 6px;
+}
+
+.menu-surface--tray .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 26px);
+  justify-content: start;
+  gap: 8px 7px;
+}
+
+.menu-surface--tray .provider-grid__item {
+  width: 24px;
+  min-height: 26px;
+  padding: 3px 0;
+  gap: 0;
+  justify-content: center;
+}
+
+.provider-grid__label {
+  max-width: 32px;
+}
+
+.menu-surface--tray .provider-grid__label {
+  display: none;
+}
+
+.provider-grid--compact {
+  grid-template-columns: repeat(8, 34px);
+  gap: 7px 4px;
+  padding-top: 7px;
+  padding-bottom: 5px;
+}
+
+.menu-surface--tray .provider-grid--compact .provider-grid__item {
+  min-height: 26px;
+  gap: 0;
+}
+
+.provider-grid--compact .provider-grid__label {
+  max-width: 32px;
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+}
+
+.menu-surface--tray .provider-grid__weekly-track,
+.menu-surface--tray .provider-grid--compact .provider-grid__weekly-track {
+  width: 18px;
+  height: 3px;
+  margin-top: 2px;
+}
+
+.provider-grid__item--more {
+  color: var(--text-secondary);
+}
+
+.provider-grid__item--more .provider-grid__icon-overview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.10);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.provider-grid__item--more:hover .provider-grid__icon-overview {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+
+.settings-tabs {
+  gap: 4px;
+  padding: 5px 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.settings-tab {
+  border: 1px solid transparent;
+  min-height: 42px;
+  padding: 5px 12px 6px;
+}
+
+.settings-tab:hover:not(.settings-tab--active) {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.settings-tab--active,
+.settings-tab[aria-selected="true"] {
+  border-color: rgba(10, 132, 255, 0.48);
+  background: rgba(10, 132, 255, 0.18);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.12);
+}
+
+.settings-tab--active .settings-tab__icon,
+.settings-tab[aria-selected="true"] .settings-tab__icon {
+  color: var(--accent);
+}
+
+.provider-detail-error {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-color: rgba(255, 69, 58, 0.24);
+  background: rgba(255, 69, 58, 0.07);
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.provider-detail-error__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provider-detail-error__header strong {
+  color: #ff6b62;
+  font-size: 0.82rem;
+}
+
+.provider-detail-error p {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+@media (max-height: 620px) {
+  .menu-surface--tray .provider-grid {
+    gap: 6px 5px;
+    padding-top: 6px;
+    padding-bottom: 5px;
+  }
+
+  .menu-surface--tray .provider-grid__item {
+    min-height: 36px;
+  }
+}
+.agent-sessions {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 12px;
+}
+
+.agent-sessions__header,
+.agent-sessions__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-sessions__row {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: var(--surface-elevated);
+  cursor: pointer;
+}
+
+.agent-sessions__name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.agent-sessions__error {
+  color: var(--provider-status-error);
+}
+
+/* ── Per-provider accent color override (#2972) ─────────────────── */
+.provider-detail-accent-color {
+  margin-top: 16px;
+}
+
+.accent-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.accent-color-picker {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+}
+
+.accent-color-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  background: var(--surface-elevated);
+  color: inherit;
+}
+
+/* ── Mistral monthly spend row (#2821, #2947) ──────────────────── */
+.menu-card__monthly-spend {
+  margin-top: 4px;
+  font-weight: 500;
+}
+/* Shared Windows typography and control sizing. */
+button, input, select, textarea {
+  font-family: var(--font-ui);
+}
+
+
+.select, .number-input, .text-input {
+  min-height: 28px;
+}
+.select {
+  max-width: 240px;
+}
+
+/* Account login actions follow each provider's account list. */
+.codex-menu-accounts__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.codex-menu-accounts__usage {
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.codex-menu-accounts__action {
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.codex-menu-accounts__action:disabled { opacity: 0.5; cursor: default; }

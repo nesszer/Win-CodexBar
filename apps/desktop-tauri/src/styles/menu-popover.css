@@ -1,0 +1,466 @@
+/* ──────────────────────────────────────────────────────────────────────
+   Menu-bar popover surface (tray panel)
+
+   Structural parity with upstream SwiftUI `MenuContent` /
+   `UsageMenuCardView` (CodexBar/Sources/CodexBar/MenuCardView.swift).
+   Numbers below come straight from the Swift source:
+
+     • menuCardBaseWidth        310pt   → 310px outer card width
+     • UsageMenuCardView pad    H 16, V 2
+     • Outer VStack spacing     8       (between cards)
+     • Header VStack spacing    3
+     • Body VStack spacing      6 / 12  (between sections)
+     • UsageProgressBar height  6pt
+     • Divider                  1pt hairline (system separator)
+
+   Real macOS uses NSVisualEffectView (vibrant menu material). HTML
+   can't replicate that, so we render onto `--menu-popover-bg` with a
+   subtle hairline divider that reads similarly under both themes.
+   ────────────────────────────────────────────────────────────────────── */
+
+.menu-surface {
+  display: flex;
+  flex-direction: column;
+  /* upstream MenuContent VStack(spacing: 8) */
+  gap: 8px;
+  /* upstream .padding(.horizontal, 10) .padding(.vertical, 6) */
+  padding: 6px 10px;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+.settings-field input[type="range"] {
+  width: 150px;
+  accent-color: var(--accent);
+}
+
+.settings-field input[type="range"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Wordmark cluster: small accent badge + "CodexBar" title.
+   Mirrors a menu-bar app brand glyph so the header isn't pure text. */
+
+.menu-surface__body {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.menu-surface__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.menu-surface__empty p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.menu-surface__hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.menu-surface__spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent-muted);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.menu-surface__primary-btn {
+  margin-top: 4px;
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+
+.menu-surface__primary-btn:hover {
+  filter: brightness(1.08);
+}
+
+/* ── Card stack (one full UsageMenuCardView per provider) ───────────── */
+
+.menu-stack {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Unlock html/body overflow for tray panel auto-sizing */
+body:has(.menu-surface--tray) {
+  overflow: visible;
+  min-height: 0;
+}
+html:has(.menu-surface--tray) {
+  overflow: visible;
+}
+
+/* Tray variant — auto-sized by JS, no forced min-height. */
+.menu-surface--tray {
+  min-height: 0;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  /* Auto-size to content; JS resizes the Tauri window to match.
+     No max-height here — JS sets an explicit pixel cap after measuring. */
+  height: auto;
+  box-sizing: border-box;
+}
+.menu-surface--tray .menu-surface__body {
+  flex: 0 1 auto;
+  overflow-y: visible;
+  overflow-x: hidden;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  scrollbar-width: none;
+}
+.menu-surface--tray .menu-surface__body::-webkit-scrollbar {
+  display: none;
+}
+.menu-surface--tray .menu-surface__footer {
+  flex-shrink: 0;
+}
+.menu-surface--tray .menu-stack {
+  gap: 2px;
+  flex: 0 0 auto;
+  max-height: none;
+  overflow: visible;
+  min-width: 0;
+}
+
+/* Tray cards — flush layout matching macOS panel (no card containers) */
+.menu-surface--tray .menu-stack__item {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+/* Selected card — subtle highlight like macOS active provider */
+.menu-surface--tray .menu-stack__item--selected {
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 4px;
+}
+/* Tray separators — subtle hairlines matching macOS card dividers */
+.menu-surface--tray .menu-stack__sep {
+  height: 0.5px;
+  margin: 2px 16px;
+  background: rgba(255, 255, 255, 0.08);
+}
+[data-theme="light"] .menu-surface--tray .menu-stack__sep {
+  background: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .menu-surface--tray .menu-stack__item {
+  background: rgba(0, 0, 0, 0.03);
+  border: 0.5px solid rgba(0, 0, 0, 0.04);
+}
+[data-theme="light"] .menu-surface--tray .menu-stack__item--selected {
+  background: rgba(0, 0, 0, 0.06);
+  border: none;
+}
+/* Tray grid — flush with no background container, matching macOS */
+.menu-surface--tray .provider-grid {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 8px 12px 6px;
+  justify-content: start;
+}
+
+.menu-surface--tray .provider-grid--sparse .provider-grid__item {
+  width: 26px;
+}
+
+.menu-surface--tray .provider-grid--sparse .provider-grid__label {
+  display: none;
+}
+/* Divider between provider grid and card stack */
+.menu-surface--tray .provider-grid__divider {
+  height: 1px;
+  margin: 2px 0;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Tray font sizing — match macOS: .headline=13pt, .footnote=10pt */
+/* macOS v0.32.2: H padding 20, header-only V padding 7, section V padding 6 */
+.menu-surface--tray .menu-card {
+  gap: 6px;
+  padding: var(--menu-card-header-only-y) var(--menu-card-x);
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.menu-surface--tray .menu-card--with-details {
+  padding-top: var(--menu-card-section-y);
+  padding-bottom: var(--menu-card-section-y);
+}
+
+/* Tray name-group — row layout like macOS: HStack { name — Spacer — email } */
+.menu-surface--tray .menu-card__name-group {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+/* Tray name + email — macOS: .font(.headline) = 13pt semibold */
+.menu-surface--tray .menu-card__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-surface--tray .menu-card__email {
+  flex: 0 1 auto;
+  text-align: right;
+  max-width: 55%;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Tray subtitle + error — match macOS .footnote=10pt */
+.menu-surface--tray .menu-card__subtitle,
+.menu-surface--tray .menu-card__error-text {
+  font-size: 10px;
+}
+
+/* Copy-to-clipboard button — matches macOS CopyIconButton (doc.on.doc, 18×18) */
+.menu-card__copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.12s, background 0.12s;
+}
+.menu-card__copy-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Tray plan badge — plain text like macOS (not a pill) */
+.menu-surface--tray .menu-card__plan-badge {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* ── Context actions (detail mode) ──────────────────────────────────
+   Matches macOS actionsSection: "Usage Dashboard" + "Status Page"
+   with SF Symbol–style icons. Shown only in detail (single provider) mode. */
+.context-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 0 0 auto;
+  margin-top: 4px;
+  padding: 0 10px;
+}
+.context-actions__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: rgba(255, 255, 255, 0.10);
+}
+[data-theme="light"] .context-actions__divider {
+  background: rgba(0, 0, 0, 0.10);
+}
+.context-actions__btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary, #f5f5f7);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.context-actions__btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+[data-theme="light"] .context-actions__btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.context-actions__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  font-size: 13px;
+}
+
+/* Tray card content — match macOS spacing values from SwiftUI source */
+.menu-surface--tray .menu-card__divider {
+  margin: 3px 0;
+}
+/* macOS: VStack(spacing: 12) for content sections */
+.menu-surface--tray .menu-card__content {
+  gap: 12px;
+}
+/* macOS: MetricRow VStack(spacing: 6) */
+.menu-surface--tray .menu-metric {
+  gap: 6px;
+}
+/* macOS: .font(.body) .fontWeight(.medium) for metric titles */
+.menu-surface--tray .menu-metric__title {
+  font-size: 13px;
+  font-weight: 500;
+}
+/* macOS: UsageProgressBar .frame(height: 6) */
+.menu-surface--tray .menu-metric__bar {
+  height: 6px;
+  border-radius: 3px;
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+.menu-surface--tray .menu-metric__pct,
+.menu-surface--tray .menu-metric__reset,
+.menu-surface--tray .menu-metric__status,
+.menu-surface--tray .menu-metric__detail {
+  font-size: 10px;
+}
+.menu-surface--tray .menu-metric__reserve {
+  margin-top: 0;
+  font-size: 10px;
+}
+/* Secondary charts and pace are available inside the Usage details disclosure. */
+.menu-surface--tray .menu-card__local-grid {
+  gap: 9px 20px;
+}
+.menu-surface--tray .menu-card__local-usage {
+  padding-top: 2px;
+}
+.menu-surface--tray .menu-card__local-note {
+  font-size: 10px;
+  line-height: 1.25;
+}
+/* Hide cost section in tray — macOS compact popover only shows usage metrics */
+.menu-surface--tray .menu-card__cost,
+.menu-surface--tray .menu-card__content > .menu-card__divider:has(+ .menu-card__cost) {
+  display: none;
+}
+
+.menu-card__local-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.menu-card__local-grid > div,
+.menu-card__local-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.menu-card__local-label,
+.menu-card__local-note {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.menu-card__local-grid strong {
+  font-size: 13px;
+  line-height: 1.15;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.menu-card__local-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 68px;
+  margin-top: 2px;
+}
+.menu-card__local-chart span {
+  width: 8px;
+  border-radius: 2px 2px 0 0;
+  background: #bf8337;
+}
+.menu-card__local-note strong {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.menu-card__local-note span {
+  overflow: visible;
+  text-overflow: initial;
+  white-space: normal;
+  line-height: 1.3;
+}
+
+/* Tray footer — match macOS NSMenuItem native look (10pt, ~16px row height) */
+.menu-surface--tray .menu-surface__footer {
+  padding: 4px 0 3px;
+  margin-top: 2px;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.12);
+}
+.menu-surface--tray .menu-surface__footer-row {
+  padding: 3px 16px;
+  font-size: 11px;
+  line-height: 1.3;
+  min-height: 18px;
+}
+/* Indent must override the tray padding above so iconless rows (Settings /
+   About / Quit) align with the iconified Refresh row. */
+.menu-surface--tray .menu-surface__footer-row--no-icon {
+  padding-left: calc(16px + 14px + 8px);
+}
+.menu-surface--tray .menu-surface__footer-icon {
+  font-size: 11px;
+  width: 14px;
+  opacity: 0.7;
+}
+/* Zoom row keeps a taller (16px) slider hit area even though the tray
+   footer's row padding/font-size are otherwise compacted. */
+.menu-surface--tray .menu-surface__footer-zoom {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.menu-surface--tray .menu-surface__footer-zoom-value {
+  font-size: 10px;
+}
+

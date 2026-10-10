@@ -16,9 +16,7 @@ vi.mock("../../../lib/tauri", () => ({
   exportPreferences: mocks.exportPreferences,
   importPreferences: mocks.importPreferences,
 }));
-vi.mock("../../../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key }),
-}));
+vi.mock("../../../hooks/useLocale", () => import("../../../test/mocks/locale"));
 
 import PreferencesTransferSection from "./PreferencesTransferSection";
 

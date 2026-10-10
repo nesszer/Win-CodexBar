@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => {
 });
 vi.mock("../lib/tauri", () => mocks);
 vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
-vi.mock("../hooks/useLocale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
+vi.mock("../hooks/useLocale", () => import("../test/mocks/locale"));
 import ClaudeAccountsMenu from "./ClaudeAccountsMenu";
 
 const first: ClaudeAccount = { id: "first:org", email: "first@example.com", organization: "Personal", plan: "max", isActive: true, isSaved: true };

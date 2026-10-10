@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderDetail } from "../../../../types/bridge";
 import { MenuBarMetricSection } from "./MenuBarMetricSection";
+import { makeRateWindow } from "../../../../test/fixtures";
 
 function provider(extra = true): ProviderDetail {
   return {
@@ -23,7 +24,7 @@ function provider(extra = true): ProviderDetail {
     modelSpecific: null,
     tertiary: null,
     extraRateWindows: extra
-      ? [{ id: "additional_budget", title: "Additional Budget", window: rateWindow(42) }]
+      ? [{ id: "additional_budget", title: "Additional Budget", window: makeRateWindow(42) }]
       : [],
     cost: null,
     pace: null,
@@ -45,9 +46,9 @@ function mistral(observed = true): ProviderDetail {
     displayName: "Mistral",
     primaryMetricLabel: "Included API",
     monthlyPlanWindowId: "mistral-monthly-plan",
-    session: observed ? rateWindow(2) : null,
+    session: observed ? makeRateWindow(2) : null,
     extraRateWindows: observed
-      ? [{ id: "mistral-monthly-plan", title: "Monthly Plan", window: rateWindow(42) }]
+      ? [{ id: "mistral-monthly-plan", title: "Monthly Plan", window: makeRateWindow(42) }]
       : [],
     hasSnapshot: observed,
   };
@@ -55,19 +56,6 @@ function mistral(observed = true): ProviderDetail {
 
 function optionNames() {
   return screen.getAllByRole("option").map((option) => option.textContent);
-}
-
-function rateWindow(usedPercent: number) {
-  return {
-    usedPercent,
-    remainingPercent: 100 - usedPercent,
-    windowMinutes: null,
-    resetsAt: null,
-    resetDescription: null,
-    isExhausted: false,
-    reservePercent: null,
-    reserveDescription: null,
-  };
 }
 
 describe("MenuBarMetricSection", () => {
@@ -94,7 +82,7 @@ describe("MenuBarMetricSection", () => {
       providerMetrics: { opencodego: "tertiary" },
     });
 
-    const observed = { ...base, tertiary: rateWindow(37) };
+    const observed = { ...base, tertiary: makeRateWindow(37) };
     rerender(
       <MenuBarMetricSection
         provider={observed}
@@ -110,7 +98,7 @@ describe("MenuBarMetricSection", () => {
 
   it("keeps the generic tertiary label when no provider key is declared", () => {
     const base = provider(false);
-    base.tertiary = rateWindow(37);
+    base.tertiary = makeRateWindow(37);
 
     render(
       <MenuBarMetricSection
@@ -206,7 +194,7 @@ describe("MenuBarMetricSection", () => {
     const aixy = provider();
     aixy.id = "aixy";
     aixy.displayName = "Aixy";
-    aixy.weekly = rateWindow(40);
+    aixy.weekly = makeRateWindow(40);
     render(
       <MenuBarMetricSection
         provider={aixy}
@@ -225,7 +213,7 @@ it("offers the provider-declared lane labels in the metric picker", () => {
     const base = provider(false);
     base.id = "litellm";
     base.displayName = "LiteLLM";
-    base.weekly = rateWindow(30);
+    base.weekly = makeRateWindow(30);
     base.primaryLabel = "Fuel Pack";
     base.secondaryLabel = "Gemini Pro";
 
@@ -247,7 +235,7 @@ it("offers the provider-declared lane labels in the metric picker", () => {
 
 it("keeps the generic metric labels when the provider declares none", () => {
     const base = provider(false);
-    base.weekly = rateWindow(30);
+    base.weekly = makeRateWindow(30);
 
     render(
       <MenuBarMetricSection

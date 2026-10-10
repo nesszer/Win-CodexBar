@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { claudeReconciliationState } from "../lib/tauri";
 import type { ClaudeReconciliationSnapshot } from "../types/bridge";
+import { useTauriEvent } from "./useTauriEvent";
 
 const isTerminal = (snapshot: ClaudeReconciliationSnapshot) => snapshot.status !== "pending";
 
@@ -35,14 +35,14 @@ export function useClaudeReconciliation() {
     setSnapshot(current => selectClaudeReconciliation(current, candidate));
   }, []);
 
+  useTauriEvent<ClaudeReconciliationSnapshot>(
+    "claude-reconciliation-changed",
+    event => accept(event.payload),
+    [accept],
+  );
+
   useEffect(() => {
     let mounted = true;
-    const unlisten = listen<ClaudeReconciliationSnapshot>(
-      "claude-reconciliation-changed",
-      event => {
-        if (mounted) accept(event.payload);
-      },
-    );
     void claudeReconciliationState()
       .then(current => {
         if (mounted && current) accept(current);
@@ -50,7 +50,6 @@ export function useClaudeReconciliation() {
       .catch(() => {});
     return () => {
       mounted = false;
-      void unlisten.then(dispose => dispose()).catch(() => {});
     };
   }, [accept]);
 

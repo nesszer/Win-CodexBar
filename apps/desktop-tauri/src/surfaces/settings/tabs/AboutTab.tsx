@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
 import { useUpdateState } from "../../../hooks/useUpdateState";
 import { getAppInfo, openExternalUrl } from "../../../lib/tauri";
-import { Field, Select, Toggle } from "../../../components/FormControls";
-import type { AppInfoBridge, UpdateChannel } from "../../../types/bridge";
+import { SettingSelect, SettingToggle } from "../../../components/FormControls";
+import type { AppInfoBridge } from "../../../types/bridge";
 import type { LocaleKey } from "../../../i18n/keys";
 import type { TabProps } from "../settingsTabs";
 import codexbarIcon from "../../../assets/codexbar-icon.png";
@@ -28,6 +28,7 @@ const ABOUT_LINKS: ReadonlyArray<{ labelKey: LocaleKey; url: string }> = [
 
 export default function AboutTab({ settings, set, saving }: TabProps) {
   const { t } = useLocale();
+  const ctl = { settings, set, saving };
   const [appInfo, setAppInfo] = useState<AppInfoBridge | null>(null);
   const { updateState, checkNow, download, apply, openRelease } =
     useUpdateState();
@@ -109,30 +110,23 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
       <div className="about-divider" />
 
       <div className="about-update-controls">
-        <Field
+        <SettingToggle
+          ctl={ctl}
+          field="autoDownloadUpdates"
           label={t("AutoDownloadUpdates")}
           description={t("AutoDownloadUpdatesHelper")}
-          leading
-        >
-          <Toggle
-            checked={settings.autoDownloadUpdates}
-            disabled={saving}
-            onChange={(v) => set({ autoDownloadUpdates: v })}
-          />
-        </Field>
+        />
 
         <div className="about-channel-row">
-          <Field label={t("UpdateChannelChoice")}>
-            <Select
-              value={settings.updateChannel}
-              disabled={saving}
-              options={[
-                { value: "stable", label: t("UpdateChannelStableOption") },
-                { value: "beta", label: t("UpdateChannelBetaOption") },
-              ]}
-              onChange={(v) => set({ updateChannel: v as UpdateChannel })}
-            />
-          </Field>
+          <SettingSelect
+            ctl={ctl}
+            field="updateChannel"
+            label={t("UpdateChannelChoice")}
+            options={[
+              { value: "stable", label: t("UpdateChannelStableOption") },
+              { value: "beta", label: t("UpdateChannelBetaOption") },
+            ]}
+          />
           <p className="about-channel-description">
             {t("UpdateChannelChoiceHelper")}
           </p>

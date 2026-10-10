@@ -1,9 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key }),
-}));
+vi.mock("../../../hooks/useLocale", () => import("../../../test/mocks/locale"));
 
 // Mock Tauri invoke for get_available_languages
 vi.mock("@tauri-apps/api/core", () => ({
@@ -37,80 +35,22 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 import GeneralTab from "./GeneralTab";
 import type { SettingsSnapshot } from "../../../types/bridge";
+import { makeSettings } from "../../../test/fixtures";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
-const settings: SettingsSnapshot = {
+const settings: SettingsSnapshot = makeSettings({
   enabledProviders: [],
-  preferredCurrencyCode: "AUTO",
-  refreshIntervalSecs: 300,
-    adaptiveRefresh: false,
-  refreshAllProvidersOnMenuOpen: false,
-  lowPowerMode: false,
-  startAtLogin: false,
-  startMinimized: false,
-  showNotifications: true,
-  soundEnabled: true,
-  notificationSoundTheme: "windows",
-  notificationSoundPaths: {
-    predictiveWarning: null,
-    highUsage: null,
-    criticalUsage: null,
-    exhausted: null,
-    statusIssue: null,
-    sessionDepleted: null,
-    sessionRestored: null,
-  },
-  highUsageThreshold: 70,
-  criticalUsageThreshold: 90,
-  predictivePaceWarningEnabled: false,
-  credentialExpiryNotificationsEnabled: false,
-  trayIconMode: "single",
-  switcherShowsIcons: true,
   menuBarShowsHighestUsage: true,
   menuBarShowsPercent: true,
-  menuBarColorPace: false,
   showAsUsed: false,
   showAllTokenAccountsInMenu: true,
-  enableAnimations: true,
-  resetTimeRelative: true,
   menuBarDisplayMode: "compact",
-  overviewLayout: "detailed",
-  windowScalePercent: 125,
-  trayScalePercent: 100,
-  trayPanelAlwaysOnTop: false,
-  powertoysStatusPipeEnabled: false,
-  hidePersonalInfo: false,
-  autoDownloadUpdates: false,
-  installUpdatesOnQuit: false,
   globalShortcut: "",
-  switcherShortcuts: {},
-  codexCustomSessionsDirs: [],
-  updateChannel: "stable",
-  uiLanguage: "english",
-  theme: "dark",
   claudeAvoidKeychainPrompts: true,
-  codexSparkUsageVisible: true,
-  disableKeychainAccess: false,
-  providerMetrics: {},
-  floatBarEnabled: false,
   floatBarOpacity: 0.9,
-  floatBarScale: 100,
-  floatBarOrientation: "horizontal",
-  floatBarStyle: "floating",
-  floatBarClickThrough: false,
-  floatBarProviderIds: [],
-  floatBarDarkText: false,
-  floatBarShowResetInline: false,
-  floatBarShowCost: false,
-  claudeDailyRoutinesUsageVisible: true,
-  claudeAllowReadingClaudeCodeCredentials: false,
-  alibabaTokenPlanRegion: "cn",
-  weeklyProgressWorkDays: null,
-    costSummaryDisplayStyle: "compact",
-    providerAccentColors: {},
-  showResetWhenExhausted: false,
-};
+  preferredCurrencyCode: "AUTO",
+});
 
 describe("GeneralTab running version", () => {
   it("shows the running app version on the general tab", async () => {

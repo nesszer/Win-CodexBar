@@ -17,7 +17,7 @@ vi.mock("@tauri-apps/api/event", () => ({
     return Promise.resolve(() => mocks.listeners.delete(event));
   },
 }));
-vi.mock("../hooks/useLocale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
+vi.mock("../hooks/useLocale", () => import("../test/mocks/locale"));
 import GrokAccountsMenu from "./GrokAccountsMenu";
 
 const first: GrokAccount = {

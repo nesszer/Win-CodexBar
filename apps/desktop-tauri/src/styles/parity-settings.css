@@ -1,0 +1,529 @@
+/* ── Settings: macOS toolbar-style tab bar ────────────────────────── */
+.settings-surface {
+  max-width: none;
+  padding: 0;
+}
+.settings {
+  background: var(--app-bg);
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Custom title bar for decoration-less Settings window */
+.settings-titlebar {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  background: #1e1e1e;
+  -webkit-app-region: drag;
+  user-select: none;
+  flex-shrink: 0;
+}
+.settings-titlebar__title {
+  flex: 1;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.02em;
+}
+
+.settings-titlebar__controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-self: stretch;
+  margin-right: -4px;
+}
+
+.settings-titlebar__control {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  min-width: 46px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-titlebar__control svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.settings-titlebar__control--minimize::before {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+  border-radius: 1px;
+}
+
+.settings-titlebar__control:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.settings-titlebar__control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.settings-titlebar__control--close:hover {
+  background: #e81123;
+  color: #fff;
+}
+.settings-tabs {
+  display: flex;
+  margin: 0 0 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
+  /* `safe`: when long translations overflow, start-align instead of pushing the
+     first tabs past the left edge where scrolling can't reach them. */
+  justify-content: safe center;
+  overflow-x: auto;
+  /* Only shows when the tabs still overflow (very narrow window). */
+  scrollbar-width: thin;
+}
+[data-theme="light"] .settings-tabs {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0));
+}
+.settings-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  /* Shrink before overflowing: multi-word labels wrap to two lines. */
+  flex: 0 1 auto;
+  min-width: 56px;
+  border-radius: 6px;
+  white-space: normal;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  transition: background 0.12s ease, color 0.12s ease;
+  cursor: pointer;
+}
+.settings-tab__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 1;
+  color: inherit;
+}
+.settings-tab__icon > svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.settings-tab__label {
+  display: block;
+  line-height: 1.1;
+  text-align: center;
+}
+.settings-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+[data-theme="light"] .settings-tab:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+.settings-tab--active {
+  font-weight: 500;
+}
+[data-theme="light"] .settings-tab--active {
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--accent);
+}
+
+/* ── Settings body container: padded, centered, capped at 560px ─── */
+.settings-body {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 16px 20px 24px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.settings-body--providers {
+  max-width: 100%;
+  overflow: clip;
+}
+.settings-status {
+  max-width: 560px;
+  margin: 6px auto 0;
+}
+.settings-status-slot {
+  position: relative;
+  z-index: 5;
+}
+.settings-status--floating {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 6px 0 0;
+  white-space: nowrap;
+  background: var(--app-bg);
+  box-shadow: inset 0 0 0 100vmax rgba(10, 132, 255, 0.08), 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Grouped form (SwiftUI Form .grouped) ─────────────────────────── */
+.settings-section {
+  margin: 0 0 0;
+  padding: 0 0 10px;
+  background: transparent;
+  gap: 12px;
+}
+.settings-section:last-child {
+  padding-bottom: 0;
+}
+.settings-section + .settings-section {
+  padding-top: 14px;
+}
+.settings-section__title {
+  margin: 0 0 8px;
+  font-size: var(--font-caption);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.settings-section__hint {
+  margin: 8px 4px 0;
+  font-size: var(--font-caption);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.settings-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: center;
+  padding: 5px 0;
+  border-radius: 0;
+  background: transparent;
+  transition: none;
+}
+.settings-field--leading {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+}
+[data-theme="light"] .settings-field {
+  background: transparent;
+}
+.settings-field:hover {
+  background: transparent;
+}
+[data-theme="light"] .settings-field:hover {
+  background: transparent;
+}
+.settings-field__label {
+  display: block;
+  font-size: var(--font-body);
+  font-weight: 400;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.settings-field__desc {
+  display: block;
+  font-size: var(--font-caption);
+  color: var(--text-muted);
+  line-height: 1.25;
+  margin-top: 1px;
+}
+
+.settings-field__text {
+  min-width: 0;
+  align-self: center;
+}
+
+.settings-field__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+}
+
+/* Flat field stack: matches upstream SwiftUI VStack + Divider() per
+   section. No card container, just a 1px divider between sibling
+   fields (the divider rule below). */
+.settings-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 0;
+  background: transparent;
+  transition: none;
+}
+.settings-section__group > .settings-field {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+/* ── Form controls: native-feeling macOS look ─────────────────────── */
+/* `.toggle` is now a native checkbox; styles defined earlier in this
+   file. The earlier macOS toggle-switch overrides have been removed. */
+
+.select,
+.number-input,
+.text-input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  font-size: var(--font-body);
+  color: var(--text-primary);
+  height: 22px;
+  box-shadow: none;
+}
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 28px 0 10px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238e8e93'/%3E%3C/svg%3E");
+  background-size: 10px 6px;
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  line-height: 20px;
+}
+[data-theme="dark"] .select,
+[data-theme="dark"] .provider-detail-select,
+[data-theme="dark"] .settings-select {
+  color-scheme: dark;
+}
+[data-theme="dark"] .select option,
+[data-theme="dark"] .provider-detail-select option,
+[data-theme="dark"] .settings-select option {
+  color: var(--text-primary);
+  background: var(--app-bg);
+}
+[data-theme="dark"] .select option:checked,
+[data-theme="dark"] .provider-detail-select option:checked,
+[data-theme="dark"] .settings-select option:checked {
+  color: #fff;
+  background: var(--accent);
+}
+.text-input {
+  padding: 0 10px;
+  line-height: 20px;
+}
+.number-input {
+  width: 52px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+}
+[data-theme="light"] .select,
+[data-theme="light"] .provider-detail-select,
+[data-theme="light"] .settings-select {
+  color-scheme: light;
+}
+[data-theme="light"] .select,
+[data-theme="light"] .number-input,
+[data-theme="light"] .text-input {
+  background-color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: none;
+}
+[data-theme="light"] .select option,
+[data-theme="light"] .provider-detail-select option,
+[data-theme="light"] .settings-select option {
+  background: #fff;
+  color: var(--text-primary);
+}
+[data-theme="light"] .select option:checked,
+[data-theme="light"] .provider-detail-select option:checked,
+[data-theme="light"] .settings-select option:checked {
+  background: var(--accent);
+  color: #fff;
+}
+.select:focus,
+.number-input:focus,
+.text-input:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+/* ── Provider sidebar (Preferences › Providers) ───────────────────── */
+/* provider-split consolidated above (line ~1765) */
+/* providers-sidebar overrides consolidated above (line ~1981) */
+.providers-sidebar::-webkit-scrollbar {
+  width: 10px;
+}
+.providers-sidebar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  margin: 4px 0;
+}
+.providers-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 5px;
+}
+.providers-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.65);
+}
+[data-theme="light"] .providers-sidebar-shell {
+  background: rgba(0, 0, 0, 0.025);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+}
+.providers-sidebar__row {
+  grid-template-columns: 12px var(--icon-sidebar) 1fr auto auto auto;
+  padding: 6px 8px;
+}
+.providers-sidebar__name {
+  font-size: var(--font-body);
+  font-weight: 500;
+}
+.providers-sidebar__subtitle {
+  font-size: var(--font-caption);
+}
+
+/* ── Provider detail pane ─────────────────────────────────────────── */
+.provider-detail {
+  background: var(--surface-elevated);
+  border-radius: 10px;
+  padding: 16px 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  flex: 1;
+}
+.provider-detail-title {
+  font-size: var(--font-title3);
+  font-weight: 600;
+}
+
+/* ── About pane parity ────────────────────────────────────────────── */
+.about-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  gap: 12px;
+  padding: 4px 20px 24px;
+}
+.about-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+.about-icon {
+  width: var(--icon-about);
+  height: var(--icon-about);
+  border-radius: var(--about-icon-radius);
+  object-fit: contain;
+}
+.about-title-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.about-title {
+  font-size: var(--font-title3);
+  font-weight: 700;
+  margin: 0;
+}
+.about-version {
+  margin: 0;
+  font-size: var(--font-caption);
+  color: var(--text-secondary);
+  font-style: normal;
+}
+.about-tagline {
+  margin: 0;
+  font-size: var(--font-caption);
+  color: var(--text-secondary);
+  font-style: normal;
+}
+.about-links {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  text-align: center;
+  font-size: var(--font-caption);
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+  appearance: none;
+}
+.about-link:hover {
+  background: rgba(10, 132, 255, 0.10);
+  border-color: rgba(10, 132, 255, 0.28);
+  text-decoration: none;
+}
+.about-link--inline {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-eyebrow);
+  vertical-align: baseline;
+}
+.about-link--inline:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+.about-divider {
+  width: 100%;
+  height: 1px;
+  background: var(--panel-border);
+  margin: 4px 0;
+}
+.about-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+

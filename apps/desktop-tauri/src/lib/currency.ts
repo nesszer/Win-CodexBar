@@ -3,10 +3,6 @@ import { CURRENCY_CATALOG } from "./currencyCatalog.generated";
 // The catalog (order, symbols, offline rates) is generated from rust/src/currency.rs.
 export const SUPPORTED_CURRENCIES: readonly string[] = CURRENCY_CATALOG.map((entry) => entry.code);
 
-export const FALLBACK_CURRENCY_RATES: Record<string, number> = Object.fromEntries(
-  CURRENCY_CATALOG.map((entry) => [entry.code, entry.fallbackRate]),
-);
-
 export const CURRENCY_PICKER_OPTIONS: ReadonlyArray<{ value: string; label: string }> =
   CURRENCY_CATALOG.map((entry) => ({ value: entry.code, label: `${entry.code} (${entry.symbol})` }));
 
@@ -66,17 +62,6 @@ export function formatDisplayCurrency(
   } catch {
     return `${converted.toFixed(2)} ${preferred}`;
   }
-}
-
-export function mergeValidCurrencyRates(input: Record<string, number>): Record<string, number> {
-  const rates = { ...FALLBACK_CURRENCY_RATES };
-  for (const code of SUPPORTED_CURRENCIES) {
-    const value = input[code];
-    if (Number.isFinite(value) && value > 0 && (code !== "USD" || Math.abs(value - 1) <= Number.EPSILON)) {
-      rates[code] = value;
-    }
-  }
-  return rates;
 }
 
 export function sumDisplayCurrencyAmounts(

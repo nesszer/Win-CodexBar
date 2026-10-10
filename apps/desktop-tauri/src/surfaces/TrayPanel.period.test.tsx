@@ -59,42 +59,15 @@ import TrayPanel from "./TrayPanel";
 import { LocaleProvider } from "../i18n/LocaleProvider";
 import { buildBundle } from "../test/localeHarness";
 import type { ProviderUsageSnapshot, SettingsSnapshot } from "../types/bridge";
+import { makeRateWindow, makeUsageSnapshot } from "../test/fixtures";
 
-function rateWindow(used: number) {
-  return {
-    usedPercent: used,
-    remainingPercent: 100 - used,
-    windowMinutes: null,
-    resetsAt: null,
-    resetDescription: null,
-    isExhausted: false,
-    reservePercent: null,
-    reserveDescription: null,
-  };
-}
-
-const codex: ProviderUsageSnapshot = {
-  providerId: "codex",
+const codex: ProviderUsageSnapshot = makeUsageSnapshot("codex", {
   displayName: "Codex",
-  primary: rateWindow(35),
-  selectedMetric: rateWindow(35),
+  primary: makeRateWindow(35),
+  selectedMetric: makeRateWindow(35),
   primaryLabel: "Monthly",
-  secondary: null,
-  modelSpecific: null,
-  tertiary: null,
-  extraRateWindows: [],
-  cost: null,
-  planName: null,
-  accountEmail: null,
-  sourceLabel: "auto",
-  updatedAt: "2026-05-24T00:00:00Z",
-  error: null,
-  errorState: "ready",
-  pace: null,
-  accountOrganization: null,
-  trayStatusLabel: null,
   fetchDurationMs: null,
-};
+});
 
 const settings = {
   enabledProviders: ["codex"],

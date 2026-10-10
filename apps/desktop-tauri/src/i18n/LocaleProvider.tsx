@@ -7,8 +7,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getLocaleStrings, setUiLanguage } from "../lib/tauri";
+import { useTauriEvent } from "../hooks/useTauriEvent";
 import type {
   Language,
   LocaleChangedPayload,
@@ -59,28 +59,15 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     });
-
-    let unlisten: UnlistenFn | null = null;
-    listen<LocaleChangedPayload>("locale-changed", (event) => {
-      load(event.payload).catch(() => {
-        // Best-effort refetch — the next manual reload will retry.
-      });
-    })
-      .then((fn) => {
-        if (cancelled) {
-          fn();
-        } else {
-          unlisten = fn;
-        }
-      })
-      .catch(() => {
-        /* listen failures are non-fatal */
-      });
-
     return () => {
       cancelled = true;
-      if (unlisten) unlisten();
     };
+  }, [load]);
+
+  useTauriEvent<LocaleChangedPayload>("locale-changed", (event) => {
+    load(event.payload).catch(() => {
+      // Best-effort refetch — the next manual reload will retry.
+    });
   }, [load]);
 
   const setLanguage = useCallback(

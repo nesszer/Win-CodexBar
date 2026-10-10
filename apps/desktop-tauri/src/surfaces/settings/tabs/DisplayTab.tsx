@@ -1,13 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
-import { Field, Select, Toggle } from "../../../components/FormControls";
-import type {
-  MenuBarDisplayMode,
-  OverviewLayout,
-  ProviderCatalogEntry,
-  TrayIconMode,
-  TrayVisibilityStatusDto,
-} from "../../../types/bridge";
+import { SettingSelect, SettingToggle } from "../../../components/FormControls";
+import type { ProviderCatalogEntry, TrayVisibilityStatusDto } from "../../../types/bridge";
 import type { TabProps } from "../settingsTabs";
 import FloatBarSettingsSection from "../../../floatbar/SettingsSection";
 import SwitcherShortcutsSection from "../SwitcherShortcutsSection";
@@ -24,6 +18,7 @@ export default function DisplayTab({
   providers?: ProviderCatalogEntry[];
 }) {
   const { t } = useLocale();
+  const ctl = { settings, set, saving };
   const [trayVisibility, setTrayVisibility] = useState<TrayVisibilityStatusDto | null>(null);
 
   useEffect(() => {
@@ -45,134 +40,92 @@ export default function DisplayTab({
       {mode === "menuBar" && <section className="settings-section">
         <h3 className="settings-section__title">{t("MenuBar")}</h3>
         <div className="settings-section__group">
-          <Field
+          <SettingSelect
+            ctl={ctl}
+            field="trayIconMode"
             label={t("TrayIconModeLabel")}
             description={t("TrayIconModeHelper")}
-          >
-            <Select
-              value={settings.trayIconMode}
-              disabled={saving}
-              options={[
-                { value: "single", label: t("TrayIconModeSingle") },
-                { value: "perProvider", label: t("TrayIconModePerProvider") },
-                { value: "stacked", label: t("TrayIconModeStacked") },
-              ]}
-              onChange={(v) => set({ trayIconMode: v as TrayIconMode })}
-            />
-          </Field>
+            options={[
+              { value: "single", label: t("TrayIconModeSingle") },
+              { value: "perProvider", label: t("TrayIconModePerProvider") },
+              { value: "stacked", label: t("TrayIconModeStacked") },
+            ]}
+          />
           {settings.trayIconMode === "stacked" && (
             <>
-              <Field label={t("StackedTrayTopProvider")}>
-                <Select
-                  value={settings.stackedTrayTopProvider ?? ""}
-                  disabled={saving}
-                  options={[
-                    { value: "", label: t("Automatic") },
-                    ...stackedProviderOptions.filter(
-                      (provider) =>
-                        provider.value !== settings.stackedTrayBottomProvider,
-                    ),
-                  ]}
-                  onChange={(provider) =>
-                    set({ stackedTrayTopProvider: provider })
-                  }
-                />
-              </Field>
-              <Field label={t("StackedTrayBottomProvider")}>
-                <Select
-                  value={settings.stackedTrayBottomProvider ?? ""}
-                  disabled={saving}
-                  options={[
-                    { value: "", label: t("Automatic") },
-                    ...stackedProviderOptions.filter(
-                      (provider) =>
-                        provider.value !== settings.stackedTrayTopProvider,
-                    ),
-                  ]}
-                  onChange={(provider) =>
-                    set({ stackedTrayBottomProvider: provider })
-                  }
-                />
-              </Field>
+              <SettingSelect
+                ctl={ctl}
+                field="stackedTrayTopProvider"
+                label={t("StackedTrayTopProvider")}
+                options={[
+                  { value: "", label: t("Automatic") },
+                  ...stackedProviderOptions.filter(
+                    (provider) =>
+                      provider.value !== settings.stackedTrayBottomProvider,
+                  ),
+                ]}
+              />
+              <SettingSelect
+                ctl={ctl}
+                field="stackedTrayBottomProvider"
+                label={t("StackedTrayBottomProvider")}
+                options={[
+                  { value: "", label: t("Automatic") },
+                  ...stackedProviderOptions.filter(
+                    (provider) =>
+                      provider.value !== settings.stackedTrayTopProvider,
+                  ),
+                ]}
+              />
             </>
           )}
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="switcherShowsIcons"
             label={t("ShowProviderIcons")}
             description={t("ShowProviderIconsHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.switcherShowsIcons}
-              disabled={saving}
-              onChange={(v) => set({ switcherShowsIcons: v })}
-            />
-          </Field>
-          <Field
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="menuBarShowsHighestUsage"
             label={t("PreferHighestUsage")}
             description={t("PreferHighestUsageHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.menuBarShowsHighestUsage}
-              disabled={saving || settings.trayIconMode === "stacked"}
-              onChange={(v) => set({ menuBarShowsHighestUsage: v })}
-            />
-          </Field>
-          <Field
+            disabled={saving || settings.trayIconMode === "stacked"}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="menuBarShowsPercent"
             label={t("ShowPercentInTray")}
             description={t("ShowPercentInTrayHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.menuBarShowsPercent}
-              disabled={saving || settings.trayIconMode === "stacked"}
-              onChange={(v) => set({ menuBarShowsPercent: v })}
-            />
-          </Field>
-          <Field
+            disabled={saving || settings.trayIconMode === "stacked"}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="menuBarColorPace"
             label={t("ColorPaceInTray")}
             description={t("ColorPaceInTrayHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.menuBarColorPace ?? false}
-              ariaLabel={t("ColorPaceInTray")}
-              disabled={saving}
-              onChange={(v) => set({ menuBarColorPace: v })}
-            />
-          </Field>
-          <Field
+            ariaLabel={t("ColorPaceInTray")}
+          />
+          <SettingSelect
+            ctl={ctl}
+            field="menuBarDisplayMode"
             label={t("DisplayModeLabel")}
             description={t("DisplayModeHelper")}
-          >
-            <Select
-              value={settings.menuBarDisplayMode}
-              disabled={saving}
-              options={[
-                { value: "detailed", label: t("DisplayModeDetailed") },
-                { value: "compact", label: t("DisplayModeCompact") },
-                { value: "minimal", label: t("DisplayModeMinimal") },
-              ]}
-              onChange={(v) =>
-                set({ menuBarDisplayMode: v as MenuBarDisplayMode })
-              }
-            />
-          </Field>
-          <Field
+            options={[
+              { value: "detailed", label: t("DisplayModeDetailed") },
+              { value: "compact", label: t("DisplayModeCompact") },
+              { value: "minimal", label: t("DisplayModeMinimal") },
+            ]}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="promoteTrayIcon"
             label={t("PromoteTrayIconLabel")}
-            description={
-              trayVisibility?.support === "supported"
+            description={trayVisibility?.support === "supported"
                 ? t("PromoteTrayIconHelper")
-                : t("PromoteTrayIconUnsupportedHint")
-            }
-            leading
-          >
-            <Toggle
-              checked={settings.promoteTrayIcon ?? false}
-              disabled={saving || trayVisibility?.support !== "supported"}
-              onChange={(v) => set({ promoteTrayIcon: v })}
-            />
-          </Field>
+                : t("PromoteTrayIconUnsupportedHint")}
+            disabled={saving || trayVisibility?.support !== "supported"}
+          />
         </div>
       </section>}
 
@@ -180,85 +133,56 @@ export default function DisplayTab({
       {mode === "menu" && <section className="settings-section">
         <h3 className="settings-section__title">{t("TabMenu")}</h3>
         <div className="settings-section__group">
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="trayPanelAlwaysOnTop"
             label={t("TrayPanelAlwaysOnTopLabel")}
             description={t("TrayPanelAlwaysOnTopHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.trayPanelAlwaysOnTop}
-              ariaLabel={t("TrayPanelAlwaysOnTopLabel")}
-              disabled={saving}
-              onChange={(v) => set({ trayPanelAlwaysOnTop: v })}
-            />
-          </Field>
-          <Field
+            ariaLabel={t("TrayPanelAlwaysOnTopLabel")}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="showAsUsed"
             label={t("ShowAsUsedLabel")}
             description={t("ShowAsUsedHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.showAsUsed}
-              disabled={saving}
-              onChange={(v) => set({ showAsUsed: v })}
-            />
-          </Field>
-          <Field
+          />
+          <SettingSelect
+            ctl={ctl}
+            field="overviewLayout"
             label={t("OverviewLayoutLabel")}
             description={t("OverviewLayoutHelper")}
-          >
-            <Select
-              value={settings.overviewLayout}
-              disabled={saving}
-              options={[
-                { value: "detailed", label: t("OverviewLayoutDetailed") },
-                { value: "compact", label: t("OverviewLayoutCompact") },
-              ]}
-              onChange={(v) => set({ overviewLayout: v as OverviewLayout })}
-            />
-          </Field>
-          <Field
+            options={[
+              { value: "detailed", label: t("OverviewLayoutDetailed") },
+              { value: "compact", label: t("OverviewLayoutCompact") },
+            ]}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="showAllTokenAccountsInMenu"
             label={t("ShowAllTokenAccountsLabel")}
             description={t("ShowAllTokenAccountsHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.showAllTokenAccountsInMenu}
-              disabled={saving}
-              onChange={(v) => set({ showAllTokenAccountsInMenu: v })}
-            />
-          </Field>
-          <Field
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="resetTimeRelative"
             label={t("ResetTimeRelative")}
             description={t("ResetTimeRelativeHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.resetTimeRelative}
-              disabled={saving}
-              onChange={(v) => set({ resetTimeRelative: v })}
-            />
-          </Field>
-          <Field
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="showResetWhenExhausted"
             label={t("ShowResetWhenExhausted")}
             description={t("ShowResetWhenExhaustedHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.showResetWhenExhausted}
-              ariaLabel={t("ShowResetWhenExhausted")}
-              disabled={saving}
-              onChange={(v) => set({ showResetWhenExhausted: v })}
-            />
-          </Field>
-          <Field label={t("ShowPace")} description={t("ShowPaceHelper")} leading>
-            <Toggle
-              checked={settings.showPace ?? true}
-              ariaLabel={t("ShowPace")}
-              disabled={saving}
-              onChange={(v) => set({ showPace: v })}
-            />
-          </Field>
+            ariaLabel={t("ShowResetWhenExhausted")}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="showPace"
+            checked={settings.showPace ?? true}
+            label={t("ShowPace")}
+            description={t("ShowPaceHelper")}
+            ariaLabel={t("ShowPace")}
+          />
         </div>
       </section>}
 

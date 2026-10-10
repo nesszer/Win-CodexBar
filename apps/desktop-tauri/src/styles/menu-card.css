@@ -1,0 +1,558 @@
+/* ── Provider card — direct mirror of UsageMenuCardView ─────────────── */
+
+.menu-card {
+  --menu-card-x: 20px;
+  --menu-card-header-only-y: 7px;
+  --menu-card-section-y: 6px;
+  --menu-card-header-line-gap: 4px;
+  --menu-card-header-column-gap: 12px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  align-items: stretch;
+}
+
+/* ── Multi-account Codex lanes (ADR 0003, option A) ─────────────────── */
+
+.codex-menu-accounts {
+  margin-top: 4px;
+  border-top: 1px solid var(--divider, var(--provider-row-divider, rgba(128, 128, 128, 0.18)));
+  padding-top: 4px;
+}
+
+.codex-menu-accounts__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--provider-row-text-secondary);
+  user-select: none;
+}
+
+.codex-menu-accounts__summary::-webkit-details-marker {
+  display: none;
+}
+
+.codex-menu-accounts__summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 0.8em;
+  color: var(--provider-row-text-secondary);
+  transition: transform 0.12s;
+}
+
+.codex-menu-accounts[open] > .codex-menu-accounts__summary::before {
+  transform: rotate(90deg);
+}
+
+.codex-menu-accounts__count {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--provider-row-text-secondary);
+}
+
+.codex-menu-accounts__error {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--provider-status-error);
+}
+
+.codex-menu-accounts__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.codex-menu-accounts__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.codex-menu-accounts__row--active .codex-menu-accounts__email {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.codex-menu-accounts__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.codex-menu-accounts__email {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  color: var(--provider-row-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.codex-menu-accounts__badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--provider-status-ok, #4ade80);
+}
+
+.codex-menu-accounts__usage {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  font-size: 0.66rem;
+  color: var(--provider-row-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.codex-menu-accounts__usage > span + span::before {
+  content: "·";
+  margin: 0 5px;
+  opacity: 0.65;
+}
+
+.codex-menu-accounts__usage-status {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.codex-menu-accounts__bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--provider-row-divider, rgba(128, 128, 128, 0.18));
+  overflow: hidden;
+}
+
+.codex-menu-accounts__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent, currentColor);
+}
+
+.codex-menu-accounts__bar-fill[data-level="critical"] {
+  background: var(--usage-bar-critical, var(--accent));
+}
+
+.codex-menu-accounts__bar-fill[data-level="exhausted"] {
+  background: var(--usage-bar-exhausted, var(--accent));
+}
+
+.codex-menu-accounts__switch {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  white-space: nowrap;
+  border-radius: 5px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--provider-row-divider, rgba(128, 128, 128, 0.3));
+  cursor: pointer;
+}
+
+.codex-menu-accounts__row-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.codex-menu-accounts__switch:hover:not(:disabled) {
+  border-color: var(--accent, currentColor);
+}
+
+.codex-menu-accounts__switch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Header VStack(spacing: 4) with two HStacks */
+.menu-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--menu-card-header-line-gap);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.menu-card__refresh-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Provider brand badge + display name cluster. Tauri-only addition that
+   gives each card a recognizable provider mark before the name. */
+.menu-card__name-group {
+  flex: 1 1 auto;
+}
+
+/* email: Font.subheadline secondary ≈ 12px */
+.menu-card__email {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-card__subtitle-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--menu-card-header-column-gap);
+}
+
+/* Error block — simple block layout that respects parent width for text wrapping.
+   Avoids the flex sizing issues that cause text to overflow the panel. */
+.menu-card__error-block {
+  display: block;
+  position: relative;
+  overflow: clip;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 0 2px;
+}
+.menu-card__error-text {
+  display: block;
+  color: var(--provider-status-error);
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  padding-right: 20px; /* space for copy button */
+  box-sizing: border-box;
+}
+.menu-card__error-block .menu-card__copy-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+/* subtitle: Font.footnote secondary ≈ 11px */
+.menu-card__subtitle {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-card__pricing-status {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--divider, var(--provider-row-divider, rgba(128, 128, 128, 0.18)));
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-card__pricing-status strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.menu-card__pricing-status small {
+  margin-top: 2px;
+  color: var(--text-tertiary, var(--text-secondary));
+  line-height: 1.4;
+}
+
+.menu-card__content {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Metric row ─────────────────────────────────────────────────────── */
+
+.menu-metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-metric__title {
+  color: var(--text-primary);
+}
+
+.menu-metric__bar-fill {
+  background: var(--provider-accent, var(--usage-bar-normal));
+}
+
+.menu-metric__bar-fill[data-level="high"] { background: var(--usage-bar-high); }
+.menu-metric__bar-fill[data-level="critical"] { background: var(--usage-bar-critical); }
+.menu-metric__bar-fill[data-level="exhausted"] { background: var(--usage-bar-exhausted); }
+
+/* HStack(.firstTextBaseline) percent label — reset countdown */
+.menu-metric__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0; /* allow children to shrink/ellipsis inside flex */
+}
+
+.menu-metric__pct {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+/* A live forecast is its own full-width row. Release the base percent label's
+   no-shrink rule so refreshed text is constrained by the row and tail-truncated
+   inside the fixed tray width instead of painting past it. */
+.menu-metric__forecast .menu-metric__pct {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Detail-backed window description (for example spend amounts): its own
+   secondary line under the metric row, never reset wording. */
+.menu-metric__detail {
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.menu-metric__reset {
+  color: var(--text-secondary);
+  /* Upstream 0.49.0 #2742 (refs #2182): long metric reset and pace details
+     wrap to a second line instead of truncating, so non-English locales keep
+     the full reset information. #2846: the percent value keeps its own line
+     slot (row only stacks when both cannot fit) and the two-line clamp keeps
+     cached card heights bounded. */
+  min-width: 0;
+  max-width: 62%;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.menu-metric__exhausted {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--provider-status-error);
+}
+
+/* Upstream 0.69.0 #4091 status row: a window blocked by a longer exhausted
+   pool shows its title and one secondary footnote line instead of a bar. */
+.menu-metric__status {
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-metric__reserve {
+  opacity: 0.7;
+}
+
+.menu-metric__budget {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.menu-metric__budget-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.menu-metric__budget-header span:last-child {
+  color: var(--text-secondary);
+}
+
+.menu-metric__budget-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.menu-metric__budget-pill {
+  padding: 2px 6px;
+  border: 1px solid var(--usage-bar-track);
+  border-radius: 999px;
+  background: var(--surface-elevated);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pace-details-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 2px;
+}
+
+.pace-details-chart svg {
+  width: 100%;
+  height: 76px;
+  overflow: visible;
+}
+
+.pace-details-chart__grid {
+  stroke: var(--usage-bar-track);
+  stroke-width: 1;
+}
+
+.pace-details-chart__ideal {
+  stroke: var(--chart-credits-fg);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__actual {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__projection {
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__point {
+  fill: var(--accent);
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__legend {
+  display: flex;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.pace-details-chart__legend span::before {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+  background: var(--text-secondary);
+  content: "";
+}
+
+.pace-details-chart__legend span[data-series="actual"]::before {
+  background: var(--accent);
+}
+
+.pace-details-chart__legend span[data-series="ideal"]::before {
+  background: var(--chart-credits-fg);
+}
+
+/* ── Cost section (upstream `tokenUsage` block) ─────────────────────── */
+
+.menu-card__cost-line {
+  font-size: 11px; /* upstream: .font(.footnote) */
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-card__cost-line--muted {
+  color: var(--text-secondary);
+}
+
+/* ── Pace section (Tauri-only; sits below cost in the same card) ────── */
+
+.menu-card__pace {
+  gap: 4px;
+}
+
+.menu-card__pace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.menu-card__pace-label {
+  font-weight: 600;
+}
+
+.menu-card__pace-label[data-pace="slow"] { color: var(--pace-slow-fg); }
+.menu-card__pace-label[data-pace="steady"] { color: var(--pace-steady-fg); }
+.menu-card__pace-label[data-pace="racing"] { color: var(--pace-racing-fg); }
+.menu-card__pace-label[data-pace="burning"] { color: var(--pace-burning-fg); }
+
+.menu-card__pace-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.menu-card__pace-fill {
+  background: var(--usage-bar-normal);
+}
+
+.menu-card__pace-fill[data-pace="slow"] { background: var(--pace-slow-fg); }
+.menu-card__pace-fill[data-pace="steady"] { background: var(--pace-steady-fg); }
+.menu-card__pace-fill[data-pace="racing"] { background: var(--pace-racing-fg); }
+.menu-card__pace-fill[data-pace="burning"] { background: var(--pace-burning-fg); }
+
+.menu-card__pace-fill--expected {
+  background: var(--pace-track-expected-fg) !important;
+}
+
+.menu-card__pace-eta {
+  font-weight: 500;
+  color: var(--pace-racing-fg);
+}
+
+.menu-card__pace-ok {
+  font-weight: 500;
+  color: var(--pace-steady-fg);
+}
+
+.menu-card__charts {
+  gap: 10px;
+}
+

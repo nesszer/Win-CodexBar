@@ -1,9 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key, language: "english" }),
-}));
+vi.mock("../../../hooks/useLocale", () => import("../../../test/mocks/locale"));
 // The FloatBar section pulls in its own bridge dependencies; it is irrelevant
 // to the display controls under test.
 vi.mock("../../../floatbar/SettingsSection", () => ({

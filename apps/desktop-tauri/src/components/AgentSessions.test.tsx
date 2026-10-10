@@ -11,9 +11,7 @@ vi.mock("../lib/tauri", () => ({
   focusAgentSession: api.focusAgentSession,
 }));
 // t(key) returns the key, so provider labels assert against locale-key names.
-vi.mock("../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key, language: "english" }),
-}));
+vi.mock("../hooks/useLocale", () => import("../test/mocks/locale"));
 
 import AgentSessions from "./AgentSessions";
 import type { AgentSession } from "../types/bridge";

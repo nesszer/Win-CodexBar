@@ -1,5 +1,4 @@
 import type { PaceSnapshot } from "../../types/bridge";
-import type { LocaleKey } from "../../i18n/keys";
 
 /**
  * Broad pace categories used for the tray / pop-out pace badge.
@@ -25,18 +24,5 @@ export function paceCategory(stage: PaceSnapshot["stage"]): PaceCategory {
       return "burning";
     default:
       return "steady";
-  }
-}
-
-export function paceCategoryKey(category: PaceCategory): LocaleKey {
-  switch (category) {
-    case "slow":
-      return "TrayPaceBadgeSlow";
-    case "steady":
-      return "TrayPaceBadgeSteady";
-    case "racing":
-      return "TrayPaceBadgeRacing";
-    case "burning":
-      return "TrayPaceBadgeBurning";
   }
 }

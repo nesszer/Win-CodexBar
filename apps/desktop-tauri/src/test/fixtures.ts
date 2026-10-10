@@ -1,0 +1,128 @@
+import type {
+  ProviderUsageSnapshot,
+  RateWindowSnapshot,
+  SettingsSnapshot,
+} from "../types/bridge";
+
+/** A complete SettingsSnapshot with stable defaults; tests pass only the fields they assert on. */
+export function makeSettings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
+  return {
+    enabledProviders: ["codex", "claude"],
+    refreshIntervalSecs: 300,
+    adaptiveRefresh: false,
+    refreshAllProvidersOnMenuOpen: false,
+    lowPowerMode: false,
+    startAtLogin: false,
+    startMinimized: false,
+    showNotifications: true,
+    soundEnabled: true,
+    notificationSoundTheme: "windows",
+    notificationSoundPaths: {
+      predictiveWarning: null,
+      highUsage: null,
+      criticalUsage: null,
+      exhausted: null,
+      statusIssue: null,
+      sessionDepleted: null,
+      sessionRestored: null,
+    },
+    highUsageThreshold: 70,
+    criticalUsageThreshold: 90,
+    predictivePaceWarningEnabled: false,
+    credentialExpiryNotificationsEnabled: false,
+    trayIconMode: "single",
+    switcherShowsIcons: true,
+    menuBarShowsHighestUsage: false,
+    menuBarShowsPercent: false,
+    menuBarColorPace: false,
+    showAsUsed: true,
+    showAllTokenAccountsInMenu: false,
+    enableAnimations: true,
+    resetTimeRelative: true,
+    showResetWhenExhausted: false,
+    menuBarDisplayMode: "detailed",
+    overviewLayout: "detailed",
+    hidePersonalInfo: false,
+    updateChannel: "stable",
+    autoDownloadUpdates: false,
+    installUpdatesOnQuit: false,
+    globalShortcut: "Ctrl+Shift+U",
+    switcherShortcuts: {},
+    codexCustomSessionsDirs: [],
+    uiLanguage: "english",
+    // "dark" (not "auto") so useTheme's effect short-circuits before ever
+    // touching window.matchMedia, which jsdom doesn't implement here.
+    theme: "dark",
+    windowScalePercent: 125,
+    trayScalePercent: 100,
+    trayPanelAlwaysOnTop: false,
+    powertoysStatusPipeEnabled: false,
+    claudeAvoidKeychainPrompts: false,
+    codexSparkUsageVisible: true,
+    disableKeychainAccess: false,
+    providerMetrics: {},
+    floatBarEnabled: false,
+    floatBarOpacity: 80,
+    floatBarScale: 100,
+    floatBarOrientation: "horizontal",
+    floatBarStyle: "floating",
+    floatBarClickThrough: false,
+    floatBarProviderIds: [],
+    floatBarDarkText: false,
+    floatBarShowResetInline: false,
+    floatBarShowCost: false,
+    claudeDailyRoutinesUsageVisible: true,
+    claudeAllowReadingClaudeCodeCredentials: false,
+    alibabaTokenPlanRegion: "cn",
+    weeklyProgressWorkDays: null,
+    costSummaryDisplayStyle: "compact",
+    providerAccentColors: {},
+    ...overrides,
+  };
+}
+
+/** A non-exhausted rate window at `usedPercent`, with no reset or reserve data unless overridden. */
+export function makeRateWindow(
+  usedPercent = 0,
+  overrides: Partial<RateWindowSnapshot> = {},
+): RateWindowSnapshot {
+  return {
+    usedPercent,
+    remainingPercent: 100 - usedPercent,
+    windowMinutes: null,
+    resetsAt: null,
+    resetDescription: null,
+    isExhausted: false,
+    reservePercent: null,
+    reserveDescription: null,
+    ...overrides,
+  };
+}
+
+/** A ready snapshot for `providerId` with 0% primary and selected windows and no optional data. */
+export function makeUsageSnapshot(
+  providerId: string,
+  overrides: Partial<ProviderUsageSnapshot> = {},
+): ProviderUsageSnapshot {
+  return {
+    providerId,
+    displayName: providerId,
+    primary: makeRateWindow(),
+    selectedMetric: makeRateWindow(),
+    secondary: null,
+    modelSpecific: null,
+    tertiary: null,
+    extraRateWindows: [],
+    cost: null,
+    planName: null,
+    accountEmail: null,
+    sourceLabel: "auto",
+    updatedAt: "2026-05-24T00:00:00Z",
+    error: null,
+    errorState: "ready",
+    pace: null,
+    accountOrganization: null,
+    trayStatusLabel: null,
+    ...overrides,
+  };
+}

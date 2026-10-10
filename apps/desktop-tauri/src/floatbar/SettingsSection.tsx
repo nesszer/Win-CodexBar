@@ -1,18 +1,6 @@
 import { useCallback, useState } from "react";
-import { Field, Select, Toggle } from "../components/FormControls";
+import { Field, SettingSelect, SettingToggle, type SettingsControl } from "../components/FormControls";
 import { useLocale } from "../hooks/useLocale";
-import type {
-  FloatBarOrientation,
-  FloatBarStyle,
-  SettingsSnapshot,
-  SettingsUpdate,
-} from "../types/bridge";
-
-interface Props {
-  settings: SettingsSnapshot;
-  saving: boolean;
-  set: (patch: SettingsUpdate) => void;
-}
 
 function useDraftNumber(value: number) {
   const [draft, setDraft] = useState(value);
@@ -43,8 +31,9 @@ function useDraftNumber(value: number) {
  * in the Display tab — kept in this module so the Display tab only
  * imports a single component.
  */
-export default function FloatBarSettingsSection({ settings, saving, set }: Props) {
+export default function FloatBarSettingsSection({ settings, saving, set }: SettingsControl) {
   const { t } = useLocale();
+  const ctl = { settings, set, saving };
   const opacity = useDraftNumber(settings.floatBarOpacity);
   const scale = useDraftNumber(settings.floatBarScale);
   const commitOpacity = () => {
@@ -58,45 +47,34 @@ export default function FloatBarSettingsSection({ settings, saving, set }: Props
     <section className="settings-section">
       <h3 className="settings-section__title">{t("FloatBarSectionTitle")}</h3>
       <div className="settings-section__group">
-        <Field
+        <SettingToggle
+          ctl={ctl}
+          field="floatBarEnabled"
           label={t("FloatBarShowFloatingBar")}
           description={t("FloatBarShowFloatingBarHelper")}
-          leading
-        >
-          <Toggle
-            checked={settings.floatBarEnabled}
-            disabled={saving}
-            onChange={(v) => set({ floatBarEnabled: v })}
-          />
-        </Field>
-        <Field
+        />
+        <SettingSelect
+          ctl={ctl}
+          field="floatBarOrientation"
           label={t("FloatBarOrientation")}
           description={t("FloatBarOrientationHelper")}
-        >
-          <Select
-            value={settings.floatBarOrientation}
-            disabled={saving || !settings.floatBarEnabled}
-            options={[
-              { value: "horizontal", label: t("FloatBarOrientationHorizontal") },
-              { value: "vertical", label: t("FloatBarOrientationVertical") },
-            ]}
-            onChange={(v) => set({ floatBarOrientation: v as FloatBarOrientation })}
-          />
-        </Field>
-        <Field
+          disabled={saving || !settings.floatBarEnabled}
+          options={[
+            { value: "horizontal", label: t("FloatBarOrientationHorizontal") },
+            { value: "vertical", label: t("FloatBarOrientationVertical") },
+          ]}
+        />
+        <SettingSelect
+          ctl={ctl}
+          field="floatBarStyle"
           label={t("FloatBarStyle")}
           description={t("FloatBarStyleHelper")}
-        >
-          <Select
-            value={settings.floatBarStyle}
-            disabled={saving || !settings.floatBarEnabled}
-            options={[
-              { value: "floating", label: t("FloatBarStyleFloating") },
-              { value: "taskbar", label: t("FloatBarStyleTaskbar") },
-            ]}
-            onChange={(v) => set({ floatBarStyle: v as FloatBarStyle })}
-          />
-        </Field>
+          disabled={saving || !settings.floatBarEnabled}
+          options={[
+            { value: "floating", label: t("FloatBarStyleFloating") },
+            { value: "taskbar", label: t("FloatBarStyleTaskbar") },
+          ]}
+        />
         <Field
           label={`${t("FloatBarOpacity")} (${opacity.draft}%)`}
           description={t("FloatBarOpacityHelper")}
@@ -135,50 +113,34 @@ export default function FloatBarSettingsSection({ settings, saving, set }: Props
             aria-label={t("FloatBarSizeAriaLabel")}
           />
         </Field>
-        <Field
+        <SettingToggle
+          ctl={ctl}
+          field="floatBarShowCost"
           label={t("FloatBarShowCost")}
           description={t("FloatBarShowCostDescription")}
-          leading
-        >
-          <Toggle
-            checked={settings.floatBarShowCost}
-            disabled={saving || !settings.floatBarEnabled}
-            onChange={(v) => set({ floatBarShowCost: v })}
-          />
-        </Field>
-        <Field
+          disabled={saving || !settings.floatBarEnabled}
+        />
+        <SettingToggle
+          ctl={ctl}
+          field="floatBarShowResetInline"
           label={t("FloatBarShowResetInline")}
           description={t("FloatBarShowResetInlineHelper")}
-          leading
-        >
-          <Toggle
-            checked={settings.floatBarShowResetInline}
-            disabled={saving || !settings.floatBarEnabled}
-            onChange={(v) => set({ floatBarShowResetInline: v })}
-          />
-        </Field>
-        <Field
+          disabled={saving || !settings.floatBarEnabled}
+        />
+        <SettingToggle
+          ctl={ctl}
+          field="floatBarDarkText"
           label={t("FloatBarInvertColors")}
           description={t("FloatBarInvertColorsHelper")}
-          leading
-        >
-          <Toggle
-            checked={settings.floatBarDarkText}
-            disabled={saving || !settings.floatBarEnabled}
-            onChange={(v) => set({ floatBarDarkText: v })}
-          />
-        </Field>
-        <Field
+          disabled={saving || !settings.floatBarEnabled}
+        />
+        <SettingToggle
+          ctl={ctl}
+          field="floatBarClickThrough"
           label={t("FloatBarClickThrough")}
           description={t("FloatBarClickThroughHelper")}
-          leading
-        >
-          <Toggle
-            checked={settings.floatBarClickThrough}
-            disabled={saving || !settings.floatBarEnabled}
-            onChange={(v) => set({ floatBarClickThrough: v })}
-          />
-        </Field>
+          disabled={saving || !settings.floatBarEnabled}
+        />
       </div>
     </section>
   );

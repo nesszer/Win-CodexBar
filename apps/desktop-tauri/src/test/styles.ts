@@ -7,13 +7,20 @@ import { expect } from "vitest";
 // on-disk directory.
 let cached: string | undefined;
 
-/** Contents of src/styles.css, read once per test file. */
+/**
+ * The stylesheet text behind src/styles.css, read once per test file. Its
+ * `@import` lines are inlined in order, so the result is the full cascade.
+ */
 export function loadStyles(): string {
   if (cached === undefined) {
     if (!import.meta.dirname) {
       throw new Error("import.meta.dirname unavailable to vitest runner");
     }
-    cached = readFileSync(`${import.meta.dirname}/../styles.css`, "utf8");
+    const src = `${import.meta.dirname}/..`;
+    cached = readFileSync(`${src}/styles.css`, "utf8").replace(
+      /^@import "\.\/([^"]+)";\r?\n/gm,
+      (_, file: string) => readFileSync(`${src}/${file}`, "utf8"),
+    );
   }
   return cached;
 }

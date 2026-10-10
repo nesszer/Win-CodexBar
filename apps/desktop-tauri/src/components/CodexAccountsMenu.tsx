@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
-import type {
-  CodexAccount,
-  CodexAccountsStateBridge,
-  CodexAccountUsageSnapshot,
-} from "../types/bridge";
+import { useEffect, useState } from "react";
+import type { CodexAccount, CodexAccountUsageSnapshot } from "../types/bridge";
+import { useCodexAccountsState } from "../hooks/useCodexAccountsState";
 import { useLocale } from "../hooks/useLocale";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
 import ProviderAccountsMenu from "./ProviderAccountsMenu";
@@ -13,7 +9,6 @@ import {
   codexAccountAdd,
   codexAccountReauthenticate,
   codexAccountSwitch,
-  getCodexAccountsState,
   refreshProviders,
 } from "../lib/tauri";
 
@@ -32,55 +27,25 @@ export default function CodexAccountsMenu({
   onLayoutChange?: () => void;
 }) {
   const { t } = useLocale();
-  const [accounts, setAccounts] = useState<CodexAccount[]>([]);
-  const [snapshots, setSnapshots] = useState<
-    Record<string, CodexAccountUsageSnapshot>
-  >({});
-  const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
-  const [accountOrdinals, setAccountOrdinals] = useState<Record<string, number>>({});
-  const [accountNeedsAuthentication, setAccountNeedsAuthentication] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
+  const {
+    accounts,
+    snapshots,
+    displayNames,
+    accountOrdinals,
+    needsAuthentication: accountNeedsAuthentication,
+    loading,
+    error,
+    setError,
+    load,
+  } = useCodexAccountsState();
   const [pending, setPending] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const busy = loading || pending;
-  const [error, setError] = useState<string | null>(null);
   const [switched, setSwitched] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const next: CodexAccountsStateBridge = await getCodexAccountsState();
-      setAccounts(next.accounts);
-      setDisplayNames(next.displayNames ?? {});
-      setAccountOrdinals(next.accountOrdinals);
-      setSnapshots(next.snapshots);
-      setAccountNeedsAuthentication(next.needsAuthentication ?? {});
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   useEffect(() => {
     onLayoutChange?.();
   }, [accounts, snapshots, error, pending, switched, onLayoutChange]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const unlistenPromise = listen("codex-accounts-updated", () => {
-      if (!cancelled) void load();
-    });
-    return () => {
-      cancelled = true;
-      void unlistenPromise.then((fn) => fn());
-    };
-  }, [load]);
 
   const run = async (action: () => Promise<unknown>, login = false) => {
     setSwitched(false);

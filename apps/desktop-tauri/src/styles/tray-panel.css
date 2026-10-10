@@ -1,0 +1,307 @@
+/* ── Tray Panel ───────────────────────────────────────────────────── */
+
+/* Hide the panel during the initial resize + reposition dance so the
+   user never sees the window jump around.  Once layout is measured and
+   the window is anchored in its final position, .tray-panel-reveal--ready
+   fades the content in smoothly. */
+html:has(.tray-panel-reveal),
+body:has(.tray-panel-reveal) {
+  background: var(--menu-popover-bg);
+}
+.tray-panel-reveal {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--menu-popover-bg);
+  opacity: 0;
+}
+.tray-panel-reveal--ready {
+  opacity: 1;
+  transition: opacity 80ms ease-out;
+}
+
+.tray-panel-reveal--dense .menu-surface--tray {
+  min-height: 100vh;
+}
+
+/* User-resized flyout: the window is a fixed (remembered) size, so the surface
+   fills the viewport height and its body scrolls instead of the window growing
+   to fit content. */
+.tray-panel-reveal--usersized {
+  height: 100vh;
+  min-height: 0;
+}
+.tray-panel-reveal--usersized .menu-surface--tray {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  max-height: 100%;
+}
+
+/* User-sized flyout body must scroll vertically when content overflows the
+   remembered window height — the base `.menu-surface--tray .menu-surface__body`
+   rule (below) uses `overflow-y: visible` because auto-fit sizes the window to
+   content instead of scrolling. Usersized mode is a fixed window, so it needs
+   the opposite: clip + scroll. The body also flex-grows to absorb any free
+   space so the footer (Zoom/Refresh/Settings/About/Quit) pins to the bottom
+   edge instead of floating mid-panel after the user widens the flyout.
+   Scoped to `--usersized` only; auto-fit path is untouched. Applies in both
+   narrow (single column) and wide (side-by-side, see the 640px media query
+   below) layouts. */
+.tray-panel-reveal--usersized .menu-surface--tray .menu-surface__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Side-by-side provider cards once the user has widened the flyout enough to
+   fit two columns. The columns are independent so a tall card in one column
+   doesn't force empty space under the shorter card beside it. */
+@media (min-width: 640px) {
+  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack {
+    display: flex;
+    flex-direction: row;
+    align-content: flex-start;
+    align-items: flex-start;
+    gap: 12px 16px;
+    width: 100%;
+  }
+
+  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__column {
+    flex: 1 1 0;
+    min-width: min(300px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__sep {
+    display: none;
+  }
+}
+
+/* Flyout window handles. Resize grips are invisible strips on every edge and
+   corner (a moved flyout can face open screen on any side); the cursor change
+   signals they're draggable. The move strip spans the top between the corner
+   grips, under the top edge grip, and shows a small grab bar. */
+.tray-resize {
+  position: fixed;
+  z-index: 50;
+}
+.tray-resize--top,
+.tray-resize--bottom {
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+.tray-resize--top {
+  top: 0;
+}
+.tray-resize--bottom {
+  bottom: 0;
+}
+.tray-resize--left,
+.tray-resize--right {
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+.tray-resize--left {
+  left: 0;
+}
+.tray-resize--right {
+  right: 0;
+}
+.tray-resize--topleft,
+.tray-resize--topright,
+.tray-resize--bottomleft,
+.tray-resize--bottomright {
+  width: 14px;
+  height: 14px;
+  z-index: 51;
+}
+.tray-resize--topleft {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.tray-resize--bottomright {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+.tray-resize--topright {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.tray-resize--bottomleft {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+.tray-move-handle {
+  position: fixed;
+  top: 0;
+  left: 14px;
+  right: 14px;
+  height: 12px;
+  z-index: 49;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+}
+.tray-move-handle__grip {
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: background 120ms ease-out;
+}
+.tray-move-handle:hover .tray-move-handle__grip {
+  background: rgba(255, 255, 255, 0.36);
+}
+[data-theme="light"] .tray-move-handle__grip {
+  background: rgba(0, 0, 0, 0.14);
+}
+[data-theme="light"] .tray-move-handle:hover .tray-move-handle__grip {
+  background: rgba(0, 0, 0, 0.32);
+}
+/* Keep the tray surface's first row clear of the move strip. */
+.tray-panel-reveal .menu-surface--tray {
+  padding-top: 12px;
+}
+
+/* spin animation for refresh */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Update Banner ────────────────────────────────────────────────── */
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.update-banner--checking {
+  background: rgba(10, 132, 255, 0.08);
+  color: var(--accent);
+}
+
+.update-banner--available {
+  background: rgba(93, 220, 130, 0.12);
+  color: #6edd97;
+}
+
+.update-banner--downloading {
+  background: rgba(10, 132, 255, 0.08);
+  color: var(--accent);
+}
+
+.update-banner--ready {
+  background: rgba(93, 220, 130, 0.15);
+  color: #6edd97;
+}
+
+.update-banner--error {
+  background: rgba(255, 108, 108, 0.1);
+  color: var(--provider-status-error);
+}
+
+.update-banner__action {
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+
+.update-banner__action:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Mini bar chart ─────────────────────────────────────────────────── */
+
+.mini-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mini-chart--empty {
+  opacity: 0.5;
+}
+
+.mini-chart__label {
+  /* Match upstream `.font(.body).fontWeight(.medium)` — same weight as the
+     "Cost" / "Pace" group titles. Not uppercase, not eyebrow-tinted. */
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.mini-chart__empty-msg {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.mini-chart__svg {
+  display: block;
+  border-radius: 4px;
+  overflow: visible;
+  max-width: 100%;
+}
+
+.mini-chart__axis {
+  position: relative;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  padding: 0 2px;
+}
+
+.mini-chart__axis > span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.mini-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 2px;
+}
+
+.mini-chart__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.mini-chart__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+

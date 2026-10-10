@@ -1,0 +1,772 @@
+/*
+ * Theme tokens (Phase 12).
+ *
+ * `:root` holds the dark defaults so legacy selectors that consume these
+ * custom properties keep working even before the app sets `data-theme`.
+ * `[data-theme="dark"]` mirrors `:root` so a dark override can be forced
+ * explicitly, and `[data-theme="light"]` provides a full light counterpart.
+ *
+ * Phase 10 (charts) MAY add new `--chart-*` tokens — keep them in their own
+ * grouping and remember to provide a light value here whenever a chart token
+ * gets added to either theme.
+ */
+:root {
+  color-scheme: dark;
+  --font-ui: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-ui);
+  text-rendering: optimizeLegibility;
+  background: var(--app-bg, #1c1c1e);
+  color: var(--text-primary, #f5f5f7);
+
+  /* ── SwiftUI typography tokens (macOS parity) ─────────────────────
+     Mirror the SwiftUI text styles used by the upstream menu / Preferences:
+       .body       → 13px / regular   (.fontWeight default)
+       .body.medium→ 13px / 500
+       .headline   → 13px / 600       (semibold)
+       .subheadline→ 12px / regular
+       .footnote   → 11px / regular
+       .caption    → 11px / regular
+       .caption2   → 10px / regular
+       .title3     → 17px / 600
+  */
+  --font-body: 13px;
+  --font-body-weight: 400;
+  --font-medium-weight: 500;
+  --font-headline: 13px;
+  --font-headline-weight: 600;
+  --font-subheadline: 12px;
+  --font-footnote: 11px;
+  --font-caption: 11px;
+  --font-caption2: 10px;
+  --font-title: 20px;
+  --font-title3: 17px;
+  --line-tight: 1.3;
+
+  /* macOS layout / sizing tokens */
+  --bar-height: 6px;
+  --bar-radius: 3px;
+  --menu-width: 280px;
+  --sidebar-width: 200px;
+  --icon-menu: 16px;
+  --icon-sidebar: 20px;
+  --icon-about: 92px;
+  --about-icon-radius: 16px;
+
+  /* ── General surfaces / text ───────────────────────────────────── */
+  --app-bg: #1c1c1e;
+  --app-bg-gradient-top: transparent;
+  --app-bg-gradient-from: #1c1c1e;
+  --app-bg-gradient-to: #1c1c1e;
+  --panel-bg: rgba(44, 44, 46, 0.95);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --surface-elevated: rgba(255, 255, 255, 0.05);
+  --text-primary: #f5f5f7;
+  --text-secondary: #8e8e93;
+  --text-muted: rgba(235, 235, 245, 0.5);
+  --text-eyebrow: #8e8e93;
+  --accent: #0a84ff;
+  --accent-muted: rgba(10, 132, 255, 0.25);
+  --focus-ring: rgba(10, 132, 255, 0.5);
+
+  /* Provider sidebar tokens (Phase 6a). */
+  --provider-row-bg: rgba(255, 255, 255, 0.03);
+  --provider-row-bg-hover: rgba(255, 255, 255, 0.07);
+  --provider-row-bg-selected: rgba(10, 132, 255, 0.15);
+  --provider-row-border-selected: rgba(10, 132, 255, 0.35);
+  --provider-row-accent-selected: rgba(10, 132, 255, 0.8);
+  --provider-row-text-primary: #f5f5f7;
+  --provider-row-text-secondary: rgba(235, 235, 245, 0.5);
+  --provider-row-text-disabled: rgba(235, 235, 245, 0.3);
+  --provider-row-drop-outline: rgba(10, 132, 255, 0.5);
+  --provider-status-ok: #22c55e;
+  --provider-status-stale: #f59e0b;
+  --provider-status-error: #ff453a; /* macOS NSColor.systemRed */
+  --provider-status-disabled: rgba(235, 235, 245, 0.28);
+  --provider-status-loading: #60a5fa;
+  --provider-icon-ring: rgba(255, 255, 255, 0.06);
+  --provider-icon-bg: rgba(255, 255, 255, 0.04);
+
+  /* Phase 10 — chart palette. Provider-key tokens mirror the egui
+     `native_ui/theme.rs::provider_color` mapping so the web shell and
+     the legacy tray render the same colors. Phase 12 (theming) will add
+     light-mode overrides here; keep these tokens CHART-scoped to avoid
+     colliding with layout tokens. */
+  --chart-claude: rgb(204, 124, 94);
+  --chart-codex: rgb(73, 163, 176);
+  --chart-gemini: rgb(171, 135, 234);
+  --chart-cursor: rgb(245, 78, 0);
+  --chart-copilot: rgb(168, 85, 247);
+  --chart-jetbrains: rgb(255, 51, 153);
+  --chart-antigravity: rgb(96, 186, 126);
+  --chart-augment: rgb(26, 160, 73);
+  --chart-amp: rgb(243, 78, 63);
+  --chart-factory: rgb(255, 107, 53);
+  --chart-droid: rgb(255, 107, 53);
+  --chart-kimi: rgb(254, 96, 60);
+  --chart-kimik2: rgb(76, 0, 255);
+  --chart-kiro: rgb(144, 70, 255);
+  --chart-opencode: rgb(59, 130, 246);
+  --chart-minimax: rgb(254, 96, 60);
+  --chart-vertexai: rgb(66, 133, 244);
+  --chart-zai: rgb(232, 90, 106);
+  --chart-alibaba: rgb(255, 106, 0);
+  --chart-nanogpt: rgb(104, 127, 161);
+  --chart-mistral: rgb(255, 82, 41);
+  --chart-codebuff: rgb(0, 255, 149);
+  --chart-deepseek: rgb(77, 107, 254);
+  --chart-windsurf: rgb(34, 197, 94);
+  --chart-elevenlabs: rgb(17, 24, 39);
+  --chart-deepgram: rgb(19, 239, 147);
+  --chart-grok: rgb(0, 0, 0);
+  --chart-groq: rgb(245, 80, 54);
+  --chart-llmproxy: rgb(79, 70, 229);
+
+  /* Default cost/credits series colors (match egui credits teal). */
+  --chart-cost: rgb(93, 135, 255);
+  --chart-credits: rgb(73, 163, 176);
+  --chart-peak: rgb(255, 200, 50);
+
+  /* Service palette for UsageBreakdownChart — mirrors
+     `native_ui/charts.rs::color_for_service`. */
+  --chart-service-cli: rgb(66, 140, 245);
+  --chart-service-review: rgb(240, 135, 46);
+  --chart-service-api: rgb(117, 191, 92);
+  --chart-service-1: rgb(204, 115, 235);
+  --chart-service-2: rgb(66, 199, 219);
+  --chart-service-3: rgb(240, 188, 66);
+  --chart-service-4: rgb(235, 87, 87);
+  --chart-service-5: rgb(156, 156, 156);
+
+  /* Tooltip surface — reused by all chart tooltips. */
+  --chart-tooltip-bg: rgba(44, 44, 46, 0.96);
+  --chart-tooltip-border: rgba(255, 255, 255, 0.12);
+  --chart-tooltip-text: #f5f5f7;
+
+  /* Tray popover — approximates NSVisualEffectView "menu" material.
+     Real macOS uses a vibrant blur; we fall back to an opaque/elevated
+     surface plus a subtle hairline divider to stay flush with the
+     window edge like the upstream NSMenu. */
+  --menu-popover-bg: var(--app-bg);
+  --menu-popover-divider: rgba(255, 255, 255, 0.10);
+  --menu-popover-divider-strong: rgba(255, 255, 255, 0.16);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --app-bg: #1c1c1e;
+  --app-bg-gradient-top: transparent;
+  --app-bg-gradient-from: #1c1c1e;
+  --app-bg-gradient-to: #1c1c1e;
+  --panel-bg: rgba(44, 44, 46, 0.95);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --surface-elevated: rgba(255, 255, 255, 0.05);
+  --text-primary: #f5f5f7;
+  --text-secondary: #8e8e93;
+  --text-muted: rgba(235, 235, 245, 0.5);
+  --text-eyebrow: #8e8e93;
+  --accent: #0a84ff;
+  --accent-muted: rgba(10, 132, 255, 0.25);
+  --focus-ring: rgba(10, 132, 255, 0.5);
+
+  --provider-row-bg: rgba(255, 255, 255, 0.03);
+  --provider-row-bg-hover: rgba(255, 255, 255, 0.07);
+  --provider-row-bg-selected: rgba(10, 132, 255, 0.15);
+  --provider-row-border-selected: rgba(10, 132, 255, 0.35);
+  --provider-row-accent-selected: rgba(10, 132, 255, 0.8);
+  --provider-row-text-primary: #f5f5f7;
+  --provider-row-text-secondary: rgba(235, 235, 245, 0.5);
+  --provider-row-text-disabled: rgba(235, 235, 245, 0.3);
+  --provider-row-drop-outline: rgba(10, 132, 255, 0.5);
+  --provider-status-ok: #22c55e;
+  --provider-status-stale: #f59e0b;
+  --provider-status-error: #ff453a; /* macOS NSColor.systemRed */
+  --provider-status-disabled: rgba(235, 235, 245, 0.28);
+  --provider-status-loading: #60a5fa;
+  --provider-icon-ring: rgba(255, 255, 255, 0.06);
+  --provider-icon-bg: rgba(255, 255, 255, 0.04);
+
+  --usage-bar-track: rgba(255, 255, 255, 0.15);
+  --usage-bar-normal: #0a84ff;
+  --usage-bar-high: #ffd166;
+  --usage-bar-critical: #ff9f43;
+  --usage-bar-exhausted: #ff6c6c;
+
+  --pace-slow-bg: rgba(96, 165, 250, 0.16);
+  --pace-slow-fg: #60a5fa;
+  --pace-steady-bg: rgba(34, 197, 94, 0.14);
+  --pace-steady-fg: #22c55e;
+  --pace-racing-bg: rgba(251, 146, 60, 0.18);
+  --pace-racing-fg: #fb923c;
+  --pace-burning-bg: rgba(239, 71, 111, 0.18);
+  --pace-burning-fg: #ef476f;
+
+  --pace-track-expected-fg: rgba(10, 132, 255, 0.45);
+  --chart-cost-fg: #0a84ff;
+  --chart-credits-fg: #06d6a0;
+
+  --chart-tooltip-bg: rgba(44, 44, 46, 0.96);
+  --chart-tooltip-border: rgba(255, 255, 255, 0.12);
+  --chart-tooltip-text: #f5f5f7;
+
+  /* Tray popover — approximates NSVisualEffectView "menu" material.
+     Real macOS uses a vibrant blur; we fall back to an opaque/elevated
+     surface plus a subtle hairline divider to stay flush with the
+     window edge like the upstream NSMenu. */
+  --menu-popover-bg: var(--app-bg);
+  --menu-popover-divider: rgba(255, 255, 255, 0.10);
+  --menu-popover-divider-strong: rgba(255, 255, 255, 0.16);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --app-bg: #f5f5f7;
+  --app-bg-gradient-top: transparent;
+  --app-bg-gradient-from: #f5f5f7;
+  --app-bg-gradient-to: #f5f5f7;
+  --panel-bg: rgba(255, 255, 255, 0.96);
+  --panel-border: rgba(0, 0, 0, 0.12);
+  --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  --surface-elevated: rgba(0, 0, 0, 0.04);
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: rgba(60, 60, 67, 0.5);
+  --text-eyebrow: #6e6e73;
+  --accent: #007aff;
+  --accent-muted: rgba(0, 122, 255, 0.2);
+  --focus-ring: rgba(0, 122, 255, 0.4);
+
+  --provider-row-bg: rgba(0, 0, 0, 0.02);
+  --provider-row-bg-hover: rgba(0, 0, 0, 0.05);
+  --provider-row-bg-selected: rgba(0, 122, 255, 0.1);
+  --provider-row-border-selected: rgba(0, 122, 255, 0.35);
+  --provider-row-accent-selected: rgba(0, 122, 255, 0.8);
+  --provider-row-text-primary: #1d1d1f;
+  --provider-row-text-secondary: rgba(60, 60, 67, 0.5);
+  --provider-row-text-disabled: rgba(60, 60, 67, 0.3);
+  --provider-row-drop-outline: rgba(0, 122, 255, 0.5);
+  --provider-status-ok: #15803d;
+  --provider-status-stale: #b45309;
+  --provider-status-error: #b91c1c;
+  --provider-status-disabled: rgba(60, 60, 67, 0.28);
+  --provider-status-loading: #007aff;
+  --provider-icon-ring: rgba(0, 0, 0, 0.08);
+  --provider-icon-bg: rgba(0, 0, 0, 0.04);
+
+  --chart-tooltip-bg: rgba(255, 255, 255, 0.96);
+  --chart-tooltip-border: rgba(0, 0, 0, 0.12);
+  --chart-tooltip-text: #1d1d1f;
+
+  --menu-popover-bg: var(--app-bg);
+  --menu-popover-divider: rgba(0, 0, 0, 0.10);
+  --menu-popover-divider-strong: rgba(0, 0, 0, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--app-bg);
+  color: var(--text-primary);
+  overflow: hidden; /* prevent body-level scrollbar */
+}
+
+html {
+  background: var(--app-bg, #1c1c1e);
+  overflow: hidden;
+}
+
+.shell {
+  margin: 0 auto;
+  max-width: 720px;
+  padding: 16px;
+}
+
+/* Preferences window container — compact, native-feeling, no hero framing. */
+.settings-surface {
+  margin: 0 auto;
+  animation: surfaceFadeIn 80ms ease-out;
+}
+
+.grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.panel {
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
+}
+
+.panel h2 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stack li {
+  display: grid;
+  gap: 4px;
+}
+
+.stack span,
+.summary dd {
+  color: var(--text-secondary);
+}
+
+.summary {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.summary div {
+  display: grid;
+  gap: 4px;
+}
+
+.summary dt {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.summary dd {
+  margin: 0;
+}
+
+.error {
+  border-color: rgba(255, 108, 108, 0.28);
+}
+
+/* ── Settings ──────────────────────────────────────────────────────── */
+
+.settings {
+  gap: 0;
+}
+
+/* tab bar */
+.settings-tabs {
+  margin-bottom: 16px;
+}
+
+.settings-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* status strip */
+.settings-status {
+  padding: 8px 14px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(10, 132, 255, 0.08);
+}
+
+.settings-status--error {
+  color: var(--provider-status-error);
+  background: rgba(255, 108, 108, 0.1);
+}
+
+/* section grouping */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Section titles mirror upstream SwiftUI PreferencesView grouped form headers:
+   `.font(.caption)` `.foregroundStyle(.secondary)` `.textCase(.uppercase)`. */
+.settings-section__title {
+  padding: 0;
+  border-bottom: none;
+}
+
+.settings-section__title:first-child {
+  margin-top: 0;
+}
+
+/* field row */
+.settings-field {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-field__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-field__control {
+  flex-shrink: 0;
+}
+
+/* macOS-style checkbox (replaces iOS-style switch toggle) */
+.toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  display: inline-block;
+  position: relative;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.toggle:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.toggle:checked {
+  background: var(--accent, #0a84ff);
+  border-color: var(--accent, #0a84ff);
+}
+
+.toggle:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--accent, #0a84ff);
+  outline-offset: 1px;
+}
+
+.toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-theme="light"] .toggle {
+  border-color: rgba(0, 0, 0, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+}
+/* Checked state must beat the light base rule above (equal specificity,
+   source order would otherwise paint checked toggles white-on-white). */
+[data-theme="light"] .toggle:checked {
+  background: var(--accent, #007aff);
+  border-color: var(--accent, #007aff);
+}
+
+.toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--font-body, 0.82rem);
+  color: var(--text-primary);
+}
+
+.toggle-label--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* select dropdown */
+.select {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* number input */
+.number-input {
+  font-family: inherit;
+}
+
+.number-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* text input */
+.text-input {
+  width: 160px;
+  font-family: inherit;
+}
+
+.text-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Credential cards (API Keys / Cookies tabs) ──────────────────── */
+
+.credential-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.credential-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.12s;
+}
+
+.credential-card:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.credential-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.credential-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.credential-card__info strong {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.credential-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.credential-card__badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.credential-card__badge--set {
+  background: rgba(80, 200, 120, 0.15);
+  color: var(--provider-status-ok);
+}
+
+.credential-card__badge--unset {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+}
+
+.credential-card__masked {
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  color: var(--text-secondary);
+}
+
+.credential-card__label {
+  color: var(--text-eyebrow);
+  font-style: italic;
+}
+
+.credential-card__date {
+  color: var(--text-muted);
+}
+
+.credential-card__help {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.credential-card__link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text-eyebrow);
+  text-decoration: none;
+}
+
+.credential-card__link:hover {
+  text-decoration: underline;
+}
+
+.credential-card__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.credential-btn {
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.credential-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.credential-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.credential-btn--primary {
+  background: rgba(10, 132, 255, 0.15);
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.3);
+}
+
+.credential-btn--primary:hover:not(:disabled) {
+  background: rgba(10, 132, 255, 0.25);
+  color: var(--text-primary);
+}
+
+.credential-btn--danger {
+  color: var(--provider-status-error);
+  border-color: rgba(255, 108, 108, 0.22);
+}
+
+.credential-btn--danger:hover:not(:disabled) {
+  background: rgba(255, 108, 108, 0.12);
+  border-color: rgba(255, 108, 108, 0.4);
+}
+
+.credential-card__edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.credential-card__input {
+  width: 100% !important;
+}
+
+.credential-card__input--label {
+  max-width: 220px;
+}
+
+.credential-card__edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.credential-empty {
+  margin: 8px 0;
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.credential-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.credential-textarea {
+  width: 100% !important;
+  min-height: 60px;
+  resize: vertical;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 0.8rem;
+}
+
+/* ── About tab ───────────────────────────────────────────────────── */
+
+.about-header {
+  margin-bottom: 12px;
+}
+
+.about-title {
+  color: var(--text-primary);
+}
+
+.about-actions {
+  margin-bottom: 16px;
+}
+
+.about-update-msg {
+  font-size: 0.82rem;
+  color: var(--text-eyebrow);
+}
+
+.about-links {
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.about-link {
+  font: inherit;
+}
+
+.about-copyright {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.about-link--inline {
+  font-size: inherit;
+}
+

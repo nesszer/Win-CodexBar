@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   ProviderCatalogEntry,
   ProviderUsageSnapshot,
-  RateWindowSnapshot,
   SettingsSnapshot,
 } from "../../../types/bridge";
 
@@ -12,9 +11,7 @@ const hookMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../hooks/useProviders", () => hookMocks);
-vi.mock("../../../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key }),
-}));
+vi.mock("../../../hooks/useLocale", () => import("../../../test/mocks/locale"));
 vi.mock("../../../lib/tauri", () => ({
   reorderProviders: vi.fn().mockResolvedValue(undefined),
 }));
@@ -23,23 +20,7 @@ vi.mock("../providers/ProviderDetailPane", () => ({
 }));
 
 import ProvidersTab from "./ProvidersTab";
-
-function rateWindow(
-  usedPercent: number,
-  isInformational?: boolean,
-): RateWindowSnapshot {
-  return {
-    usedPercent,
-    remainingPercent: 100 - usedPercent,
-    windowMinutes: null,
-    resetsAt: null,
-    resetDescription: null,
-    isExhausted: false,
-    isInformational,
-    reservePercent: null,
-    reserveDescription: null,
-  };
-}
+import { makeRateWindow, makeUsageSnapshot } from "../../../test/fixtures";
 
 const provider: ProviderCatalogEntry = {
   id: "codex",
@@ -55,26 +36,13 @@ const settings = {
 
 describe("ProvidersTab", () => {
   it("shows the real secondary percentage when the primary is informational", () => {
-    const snapshot: ProviderUsageSnapshot = {
-      providerId: provider.id,
+    const snapshot: ProviderUsageSnapshot = makeUsageSnapshot(provider.id, {
       displayName: provider.displayName,
-      primary: rateWindow(0, true),
-      selectedMetric: rateWindow(42),
-      secondary: rateWindow(42),
-      modelSpecific: null,
-      tertiary: null,
-      extraRateWindows: [],
-      cost: null,
-      planName: null,
-      accountEmail: null,
-      sourceLabel: "auto",
+      primary: makeRateWindow(0, { isInformational: true }),
+      selectedMetric: makeRateWindow(42),
+      secondary: makeRateWindow(42),
       updatedAt: new Date().toISOString(),
-      error: null,
-      errorState: "ready",
-      pace: null,
-      accountOrganization: null,
-      trayStatusLabel: null,
-    };
+    });
     hookMocks.useProviders.mockReturnValue({ providers: [snapshot] });
 
     render(
