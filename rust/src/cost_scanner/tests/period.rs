@@ -15,10 +15,7 @@ fn date(y: i32, m: u32, d: u32) -> NaiveDate {
 
 /// Writes one Codex session under the `YYYY/MM/DD` partition for `day`.
 fn write_session_on(sessions_root: &Path, day: NaiveDate, input_tokens: u64) {
-    let day_dir = sessions_root
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(sessions_root, day);
     std::fs::create_dir_all(&day_dir).unwrap();
     // Local noon keeps the record on `day` in the local zone.
     let local_noon = Local

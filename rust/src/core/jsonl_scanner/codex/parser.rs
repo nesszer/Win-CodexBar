@@ -35,7 +35,11 @@ pub(super) struct CodexParserState {
     fork_parse_baseline: Option<CodexTotals>,
 }
 
-pub(super) enum CodexParseMode {
+pub(crate) enum CodexParseMode {
+    /// Resume from `start_offset` with the timestamp-order state of an already
+    /// decoded prefix. A known prefix only pays for the append boundary and
+    /// newly read token events; an unknown legacy prefix is intentionally
+    /// rejected by the caller and should be parsed from zero.
     Standard {
         start_offset: i64,
         initial_model: Option<String>,
@@ -43,12 +47,17 @@ pub(super) enum CodexParseMode {
         previous_token_timestamp: Option<String>,
         token_timestamps_monotonic: Option<bool>,
     },
+    /// Parse a forked child from byte zero with a parent cumulative baseline.
+    /// Kept separate from append-resume parsing so non-fork semantics remain
+    /// unchanged.
     ParentBaseline {
         baseline: CodexTotals,
         paginated_continuation: bool,
         remaining_inherited_totals: Option<CodexTotals>,
     },
     /// Continue an unfinished `ParentBaseline` parse at its saved cursor.
+    /// Upstream 0.67.0 resumes a resolved fork the same way instead of
+    /// rereading its prefix.
     ResumeParentBaseline(CodexForkParseResume),
     InferSubagent {
         start_ordinal: Option<i64>,
@@ -215,16 +224,6 @@ fn totals_delta(last: &CodexTotals, total: &CodexTotals) -> CodexTotals {
 }
 
 impl CodexParserState {
-    pub(super) fn new(initial_model: Option<String>, initial_totals: Option<CodexTotals>) -> Self {
-        Self::from_mode(CodexParseMode::Standard {
-            start_offset: 0,
-            initial_model,
-            initial_totals,
-            previous_token_timestamp: None,
-            token_timestamps_monotonic: None,
-        })
-    }
-
     pub(super) fn from_mode(mode: CodexParseMode) -> Self {
         let fork_parse_baseline = match &mode {
             CodexParseMode::ParentBaseline { baseline, .. } => Some(baseline.clone()),
@@ -361,10 +360,6 @@ impl CodexParserState {
         self.fork_baseline_inference
             .as_ref()
             .is_some_and(|inference| inference.locally_confirmed)
-    }
-
-    pub(super) fn process_line(&mut self, line: &str, range: &CostUsageDayRange) {
-        self.process_line_with_source_offset(line, range, 0);
     }
 
     pub(super) fn process_line_with_source_offset(

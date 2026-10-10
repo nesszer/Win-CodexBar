@@ -7,10 +7,11 @@
 //! just before the current time and "time passing" ages the persisted cache.
 
 use super::*;
+use crate::core::test_fixtures::test_file_usage;
 use crate::core::{
-    CodexPriorityTurnMetadata, CodexPriorityTurnsCursor, CodexSessionLineage,
-    CodexSourcePricingEvidence, CodexSourceRowCache, CodexSourceUsageRow, CostUsageCache,
-    CostUsageCacheBudget, CostUsageFileUsage, JsonlScanner, ProviderId,
+    CodexPriorityTurnMetadata, CodexPriorityTurnsCursor, CodexSourcePricingEvidence,
+    CodexSourceRowCache, CodexSourceUsageRow, CostUsageCache, CostUsageCacheBudget,
+    CostUsageFileUsage, JsonlScanner, ProviderId,
 };
 use crate::cost_scanner::codex::ambient_codex_trace_database_path;
 use crate::cost_scanner::codex::scan::{codex_priority_metadata_appeared, save_codex_cache};
@@ -679,22 +680,8 @@ fn vanished_database_keeps_its_evidence_and_metadata_key() {
 
 fn file_usage(days: DayModels) -> CostUsageFileUsage {
     CostUsageFileUsage {
-        mtime_unix_ms: 0,
-        size: 10,
-        codex_file_identity: None,
-        days,
         parsed_bytes: Some(10),
-        codex_scan_target_size: None,
-        last_model: None,
-        last_totals: None,
-        codex_token_timestamps_monotonic: None,
-        codex_last_token_timestamp: None,
-        codex_session_id: None,
-        codex_forked_from_id: None,
-        codex_fork_accounting_state: None,
-        codex_lineage: CodexSessionLineage::Root,
-        codex_fork_timestamp: None,
-        codex_unresolved_fork_parent: false,
+        ..test_file_usage(10, days)
     }
 }
 
