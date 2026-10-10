@@ -923,6 +923,146 @@ mod tests {
         i64::from(WEEKLY_WINDOW_MINUTES) * 60
     }
 
+    #[test]
+    fn persisted_series_map_by_name_in_session_then_weekly_order() {
+        let mut store = SessionEquivalentHistoryStore::default();
+        let scope = ForecastScope::new("pin-series", None);
+        let persisted = |name: &str, used: f64| quota_burndown::PersistedPlanSeries {
+            name: name.to_string(),
+            window_minutes: 1,
+            entries: vec![PersistedEntry::from_history(&entry(
+                1_700_000_000,
+                used,
+                1_700_018_000,
+            ))],
+        };
+        store.adopt_persisted(
+            &scope,
+            &[
+                persisted("weekly", 40.0),
+                persisted("monthly", 70.0),
+                persisted("session", 10.0),
+            ],
+        );
+        let shape: Vec<_> = store
+            .histories(&scope)
+            .iter()
+            .map(|h| (h.name, h.window_minutes, h.entries[0].used_percent))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                (PlanUtilizationSeriesName::Session, 300, 10.0),
+                (PlanUtilizationSeriesName::Weekly, 10_080, 40.0),
+            ]
+        );
+
+        let mut weekly_only = SessionEquivalentHistoryStore::default();
+        weekly_only.record(
+            &scope,
+            None,
+            Some(entry(1_700_000_000, 5.0, 1_700_600_000)),
+            7,
+        );
+        let names: Vec<_> = weekly_only
+            .histories(&scope)
+            .iter()
+            .map(|h| h.name)
+            .collect();
+        assert_eq!(names, vec![PlanUtilizationSeriesName::Weekly]);
+    }
+
+    #[test]
+    fn record_provider_windows_filters_and_clamps_both_windows() {
+        let now = ts(1_700_000_000);
+        let window = |minutes: u32, used: f64| RateWindow {
+            used_percent: used,
+            window_minutes: Some(minutes),
+            resets_at: Some(ts(1_700_018_000)),
+            ..RateWindow::new(0.0)
+        };
+        let recorded = |provider: &str| {
+            global_history_store()
+                .lock()
+                .unwrap()
+                .histories(&ForecastScope::new(provider, None))
+                .iter()
+                .map(|h| {
+                    (
+                        h.name,
+                        h.entries.iter().map(|e| e.used_percent).collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        record_provider_windows(
+            "pin-rec-a",
+            None,
+            &window(300, 120.0),
+            Some(&window(10_080, -3.0)),
+            now,
+        );
+        assert_eq!(
+            recorded("pin-rec-a"),
+            vec![
+                (PlanUtilizationSeriesName::Session, vec![100.0]),
+                (PlanUtilizationSeriesName::Weekly, vec![0.0]),
+            ]
+        );
+
+        let informational = RateWindow {
+            is_informational: true,
+            ..window(10_080, 50.0)
+        };
+        record_provider_windows(
+            "pin-rec-b",
+            None,
+            &window(300, 20.0),
+            Some(&informational),
+            now,
+        );
+        record_provider_windows(
+            "pin-rec-b",
+            None,
+            &window(300, 30.0),
+            Some(&window(43_200, 50.0)),
+            now,
+        );
+        record_provider_windows(
+            "pin-rec-b",
+            None,
+            &window(300, 40.0),
+            Some(&window(10_080, f64::NAN)),
+            now,
+        );
+        assert_eq!(
+            recorded("pin-rec-b"),
+            vec![(PlanUtilizationSeriesName::Session, vec![20.0, 30.0, 40.0])]
+        );
+
+        let informational_session = RateWindow {
+            is_informational: true,
+            ..window(300, 20.0)
+        };
+        record_provider_windows(
+            "pin-rec-c",
+            None,
+            &informational_session,
+            Some(&window(10_080, 50.0)),
+            now,
+        );
+        record_provider_windows(
+            "pin-rec-c",
+            None,
+            &window(60, 20.0),
+            Some(&window(10_080, 50.0)),
+            now,
+        );
+        record_provider_windows("pin-rec-c", None, &window(300, f64::INFINITY), None, now);
+        assert!(recorded("pin-rec-c").is_empty());
+    }
+
     /// Build three completed full-burn sessions with aligned weekly observations.
     fn three_sample_histories(
         base: i64,
