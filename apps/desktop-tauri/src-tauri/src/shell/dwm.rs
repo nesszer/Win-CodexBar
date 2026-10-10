@@ -168,25 +168,65 @@ unsafe extern "system" fn borderless_subclass_proc(
     }
 }
 
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Chrome {
+    Dark,
+    /// Keeps `WS_THICKFRAME` so the native resize affordance still works.
+    DarkResizable,
+    /// The erase color comes from the builder's `background_color`, which
+    /// tao paints on `WM_ERASEBKGND`.
+    LightPanel,
+}
+
+#[cfg(windows)]
+const DWMWCP_ROUND: u32 = 2;
+
+/// Win32 COLORREF (`0x00BBGGRR`).
+#[cfg(windows)]
+const fn colorref(r: u8, g: u8, b: u8) -> u32 {
+    ((b as u32) << 16) | ((g as u32) << 8) | r as u32
+}
+
+#[cfg(windows)]
+const PANEL_HAIRLINE: u32 = colorref(0x8A, 0x8B, 0x8E);
+
+#[cfg(windows)]
+impl Chrome {
+    fn keeps_resize_frame(self) -> bool {
+        self == Self::DarkResizable
+    }
+
+    fn corner_preference(self) -> Option<u32> {
+        (self == Self::LightPanel).then_some(DWMWCP_ROUND)
+    }
+
+    fn border_color(self) -> Option<u32> {
+        (self == Self::LightPanel).then_some(PANEL_HAIRLINE)
+    }
+}
+
 /// Eliminate the DWM caption bar by subclassing the window to zero the
 /// non-client area.  Safe to call on multiple windows — each gets its
 /// own subclass via `SetWindowSubclass`.
-///
-/// When `resizable` is true, `WS_THICKFRAME` is preserved so the native
-/// resize affordance still works.
 #[cfg(windows)]
 pub fn force_dark_caption(win: &tauri::WebviewWindow) {
-    force_dark_caption_inner(win, false);
+    apply_chrome(win, Chrome::Dark);
 }
 
 /// Same as [`force_dark_caption`] but keeps the resize frame.
 #[cfg(windows)]
 pub fn force_dark_caption_resizable(win: &tauri::WebviewWindow) {
-    force_dark_caption_inner(win, true);
+    apply_chrome(win, Chrome::DarkResizable);
 }
 
 #[cfg(windows)]
-fn force_dark_caption_inner(win: &tauri::WebviewWindow, keep_resize: bool) {
+pub fn light_panel_chrome(win: &tauri::WebviewWindow) {
+    apply_chrome(win, Chrome::LightPanel);
+}
+
+#[cfg(windows)]
+fn apply_chrome(win: &tauri::WebviewWindow, chrome: Chrome) {
     use raw_window_handle::HasWindowHandle;
 
     let Ok(handle) = win.window_handle() else {
@@ -224,6 +264,28 @@ fn force_dark_caption_inner(win: &tauri::WebviewWindow, keep_resize: bool) {
         );
         tracing::info!("dwm: dark_mode={r1:#x} caption_color={r2:#x}");
 
+        const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+        const DWMWA_BORDER_COLOR: u32 = 34;
+        // Windows 10 rejects both attributes and keeps square corners.
+        if let Some(corner) = chrome.corner_preference() {
+            let r = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &raw const corner as *const c_void,
+                4,
+            );
+            tracing::info!("dwm: corner_preference={r:#x}");
+        }
+        if let Some(border) = chrome.border_color() {
+            let r = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_BORDER_COLOR,
+                &raw const border as *const c_void,
+                4,
+            );
+            tracing::info!("dwm: border_color={r:#x}");
+        }
+
         // Extend DWM frame fully into client area
         let margins = Margins {
             left: -1,
@@ -250,6 +312,7 @@ fn force_dark_caption_inner(win: &tauri::WebviewWindow, keep_resize: bool) {
         const WS_CAPTION: isize = 0x00C00000;
         const WS_THICKFRAME: isize = 0x00040000;
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        let keep_resize = chrome.keeps_resize_frame();
         let new_style = if keep_resize {
             style & !WS_CAPTION
         } else {
@@ -288,3 +351,34 @@ pub fn force_dark_caption(_win: &tauri::WebviewWindow) {}
 
 #[cfg(not(windows))]
 pub fn force_dark_caption_resizable(_win: &tauri::WebviewWindow) {}
+
+#[cfg(not(windows))]
+pub fn light_panel_chrome(_win: &tauri::WebviewWindow) {}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colorref_is_bgr() {
+        assert_eq!(colorref(0xDE, 0xDE, 0xE2), 0x00E2_DEDE);
+        assert_eq!(colorref(0x8A, 0x8B, 0x8E), 0x008E_8B8A);
+    }
+
+    #[test]
+    fn only_the_light_panel_rounds_and_recolors_its_border() {
+        assert_eq!(Chrome::LightPanel.corner_preference(), Some(2));
+        assert_eq!(Chrome::LightPanel.border_color(), Some(0x008E_8B8A));
+        assert_eq!(Chrome::Dark.corner_preference(), None);
+        assert_eq!(Chrome::Dark.border_color(), None);
+        assert_eq!(Chrome::DarkResizable.corner_preference(), None);
+        assert_eq!(Chrome::DarkResizable.border_color(), None);
+    }
+
+    #[test]
+    fn only_the_resizable_dark_chrome_keeps_the_resize_frame() {
+        assert!(!Chrome::LightPanel.keeps_resize_frame());
+        assert!(!Chrome::Dark.keeps_resize_frame());
+        assert!(Chrome::DarkResizable.keeps_resize_frame());
+    }
+}

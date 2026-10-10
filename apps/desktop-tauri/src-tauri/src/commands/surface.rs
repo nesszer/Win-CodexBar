@@ -28,9 +28,6 @@ pub fn dismiss_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
     crate::shell::flyout_window::hide(&app)
 }
 
-/// Arm the gesture blur guard before a resize-grip drag or drag-reorder
-/// gesture starts its Win32/OLE modal loop, so the transient
-/// `Focused(false)` that loop produces doesn't auto-hide the flyout.
 #[tauri::command]
 pub fn begin_flyout_gesture(app: tauri::AppHandle) -> Result<(), String> {
     let state = app
@@ -78,9 +75,8 @@ pub async fn open_flyout_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Reveal the flyout window after the frontend's first layout pass. Called by
-/// `useTrayPanelLayout` once content has been measured/auto-fit (or the
-/// remembered fixed size re-applied), so Windows never shows a pre-measure
-/// blank/backing frame.
+/// `useTrayPanelLayout` once content has been measured and auto-fit, so
+/// Windows never shows a pre-measure blank/backing frame.
 ///
 /// No-ops when the flyout window doesn't exist or no one-shot reveal is pending.
 /// The window takes focus only as far as the pending reveal's activation
@@ -114,37 +110,6 @@ pub fn close_settings_window(
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     crate::shell::settings_window::dismiss(&app, &window)
-}
-
-/// Persist a user-chosen size (logical px) for the "Pop Out Dashboard" flyout
-/// window. Only the size is stored (via a size-only `StoredSize` entry — no
-/// fabricated `x`/`y`); the position is tracked separately, only once the
-/// user drags the flyout. The frontend calls this on genuine user drag-resizes, not on its own
-/// auto-fit resizes, so auto-fit sizes never freeze the panel.
-#[tauri::command]
-pub fn set_flyout_size(width: f64, height: f64) -> Result<(), String> {
-    let width = (width.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
-    let height = (height.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
-    crate::shell::flyout_window::save_stored_size(width, height);
-    Ok(())
-}
-
-/// Forget where the user dragged the flyout and anchor it to the tray again
-/// (double-click on the panel's move handle).
-#[tauri::command]
-pub fn reset_flyout_position(app: tauri::AppHandle) -> Result<(), String> {
-    crate::shell::flyout_window::reset_position(&app)
-}
-
-/// Return the remembered flyout size, if the user has manually resized it.
-/// The frontend uses this to decide whether to auto-fit (no stored size) or
-/// honor the user's size (stored) on open. Transparently migrates a
-/// pre-existing size stored under the legacy `SurfaceMode::TrayPanel`
-/// shared-window geometry key (from before the flyout became its own
-/// window), so upgrading users don't lose their remembered size.
-#[tauri::command]
-pub fn flyout_stored_size() -> Result<Option<(u32, u32)>, String> {
-    Ok(crate::shell::flyout_window::stored_size())
 }
 
 #[tauri::command]

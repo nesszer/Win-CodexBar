@@ -8,7 +8,6 @@ use crate::surface_target::SurfaceTarget;
 
 pub mod activation;
 pub(crate) mod dwm;
-mod flyout_placement;
 pub mod flyout_window;
 mod geometry;
 mod position;

@@ -222,6 +222,21 @@ describe("useSettings update", () => {
     expect(result.current.settings.windowScalePercent).toBe(150);
   });
 
+  it("reports a failed Panel scale save and reverts to the saved value", async () => {
+    const onDisk = { trayScalePercent: 100 } as unknown as SettingsSnapshot;
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(onDisk);
+    tauriMocks.updateSettings.mockRejectedValueOnce(new Error("disk busy"));
+    const { result } = renderHook(() => useSettings(onDisk));
+    await act(async () => {});
+
+    await act(async () => {
+      await result.current.update({ trayScalePercent: 150 });
+    });
+
+    expect(result.current.error).toBe("disk busy");
+    expect(result.current.settings.trayScalePercent).toBe(100);
+  });
+
   it("keeps the resolved shortcut map until the response supplies it", async () => {
     tauriMocks.updateSettings.mockReturnValueOnce(new Promise(() => {}));
     const initial = {

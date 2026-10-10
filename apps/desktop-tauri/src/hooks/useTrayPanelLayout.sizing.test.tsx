@@ -26,7 +26,7 @@ const tauriMocks = vi.hoisted(() => ({
 
 const windowMocks = vi.hoisted(() => ({
   setSize: vi.fn().mockResolvedValue(undefined),
-  innerSize: vi.fn().mockResolvedValue({ width: 328, height: 420 }),
+  innerSize: vi.fn().mockResolvedValue({ width: 310, height: 420 }),
   getCurrentWindow: vi.fn(),
   LogicalSize: vi.fn((width: number, height: number) => ({ width, height })),
   PhysicalSize: vi.fn((width: number, height: number) => ({ width, height })),
@@ -41,19 +41,20 @@ let surface: HTMLElement;
 let feedbackObserverCallbacks = 0;
 
 class StyleFeedbackResizeObserver {
-  private mutationObserver: MutationObserver | null = null;
+  private mutationObservers: MutationObserver[] = [];
 
   constructor(private readonly callback: ResizeObserverCallback) {}
 
   observe(target: Element): void {
-    this.mutationObserver = new MutationObserver(() => {
+    const mutationObserver = new MutationObserver(() => {
       feedbackObserverCallbacks += 1;
       this.callback([], this as unknown as ResizeObserver);
     });
-    this.mutationObserver.observe(target, {
+    mutationObserver.observe(target, {
       attributes: true,
       attributeFilter: ["style"],
     });
+    this.mutationObservers.push(mutationObserver);
   }
 
   unobserve(): void {
@@ -61,8 +62,10 @@ class StyleFeedbackResizeObserver {
   }
 
   disconnect(): void {
-    this.mutationObserver?.disconnect();
-    this.mutationObserver = null;
+    for (const mutationObserver of this.mutationObservers) {
+      mutationObserver.disconnect();
+    }
+    this.mutationObservers = [];
   }
 }
 
@@ -78,8 +81,6 @@ function mountSurface(): void {
   surface = document.querySelector<HTMLElement>(".menu-surface--tray")!;
 }
 
-/** Drive the auto-fit measure: jsdom rects are 0, so scrollHeight dominates →
- *  contentHeight = scrollHeight + 4 (measure pipeline, zoom=1). */
 function setScrollHeight(px: number): void {
   Object.defineProperty(surface, "scrollHeight", {
     configurable: true,
@@ -126,9 +127,6 @@ describe("useTrayPanelLayout sizing", () => {
     );
     windowMocks.getCurrentWindow.mockReturnValue({
       setSize: windowMocks.setSize,
-      close: vi.fn().mockResolvedValue(undefined),
-      scaleFactor: vi.fn().mockResolvedValue(SCALE),
-      onResized: vi.fn().mockResolvedValue(() => {}),
       innerSize: windowMocks.innerSize,
     } as never);
   });
@@ -202,8 +200,37 @@ describe("useTrayPanelLayout sizing", () => {
     );
   });
 
+  it("leaves no measuring overrides behind when style feedback overlaps the first pass", async () => {
+    vi.stubGlobal("ResizeObserver", StyleFeedbackResizeObserver);
+    setScrollHeight(1_200);
+    const html = document.documentElement;
+    const body = surface.querySelector<HTMLElement>(".menu-surface__body")!;
+    const stack = surface.querySelector<HTMLElement>(".menu-stack")!;
+
+    const { result } = renderHook(() => useTrayPanelLayout(hookProps()));
+    await waitFor(() => expect(result.current.layoutReady).toBe(true), {
+      timeout: 3000,
+    });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+    });
+
+    expect(feedbackObserverCallbacks).toBeGreaterThan(0);
+    expect(lastResize()).toEqual({ width: 310, height: 884 });
+    expect(surface.style.maxHeight).toBe("884px");
+    expect(surface.style.minHeight).toBe("");
+    expect(surface.style.height).toBe("");
+    expect(surface.style.overflow).toBe("");
+    expect(body.style.overflow).toBe("");
+    expect(body.style.flex).toBe("");
+    expect(stack.style.overflow).toBe("");
+    expect(document.body.style.overflow).toBe("");
+    expect(document.body.style.minHeight).toBe("");
+    expect(html.style.overflow).toBe("");
+  });
+
   it("commits stable small changes, locks the reporter pair on the larger member, tracks retained height in the DOM", async () => {
-    setScrollHeight(535); // → 539 logical → 674 physical
+    setScrollHeight(538); // → 539 logical → 674 physical
     const { result } = renderHook(() => useTrayPanelLayout(hookProps()));
     await waitFor(() => expect(result.current.layoutReady).toBe(true), {
       timeout: 3000,
@@ -215,48 +242,46 @@ describe("useTrayPanelLayout sizing", () => {
     ).toBe(true);
 
     // (1) Stable one-way +5-physical change COMMITS (no blanket deadband).
-    await nudgePass(result, 539, "543px"); // → 543 → 679 phys
-    expect(lastResize()).toEqual({ width: 328, height: 543 });
+    await nudgePass(result, 542, "543px"); // → 543 → 679 phys
+    expect(lastResize()).toEqual({ width: 310, height: 543 });
     expect(surface.style.maxHeight).toBe("543px");
 
     // (2) Reporter-class alternation: one commit to 549 (686 phys), then the
     // 543↔549 pair (679↔686 phys, span 7) is detected on the flip-down.
-    await nudgePass(result, 545, "549px"); // → 549 → 686 phys
-    expect(lastResize()).toEqual({ width: 328, height: 549 });
+    await nudgePass(result, 548, "549px"); // → 549 → 686 phys
+    expect(lastResize()).toEqual({ width: 310, height: 549 });
     expect(surface.style.maxHeight).toBe("549px");
     const lockedResizes = windowMocks.setSize.mock.calls.length;
     const lockedAnchors = tauriMocks.reanchorTrayPanel.mock.calls.length;
 
-    // Flip-down evidence (measure 539→543): detected, suppressed, and the DOM
-    // constraint stays the RETAINED height — never the smaller candidate.
-    await nudgePass(result, 539, "549px");
+    await nudgePass(result, 542, "549px");
     expect(windowMocks.setSize.mock.calls.length).toBe(lockedResizes);
     expect(tauriMocks.reanchorTrayPanel.mock.calls.length).toBe(lockedAnchors);
     expect(surface.style.maxHeight).toBe("549px");
 
     // (3) Repeated flips stay suppressed; surface stays at the retained 549.
-    await nudgePass(result, 545, "549px");
-    await nudgePass(result, 539, "549px");
+    await nudgePass(result, 548, "549px");
+    await nudgePass(result, 542, "549px");
     expect(windowMocks.setSize.mock.calls.length).toBe(lockedResizes);
     expect(tauriMocks.reanchorTrayPanel.mock.calls.length).toBe(lockedAnchors);
     expect(surface.style.maxHeight).toBe("549px");
     // Retained window (549 logical) fully contains BOTH measured sides
     // (543 and 549 candidates) — no clipping by construction.
-    expect(lastResize()).toEqual({ width: 328, height: 549 });
+    expect(lastResize()).toEqual({ width: 310, height: 549 });
 
     // (4) Real growth outside the pair clears the lock and commits once.
-    await nudgePass(result, 700, "704px"); // → 704 → 880 phys
-    expect(lastResize()).toEqual({ width: 328, height: 704 });
+    await nudgePass(result, 703, "704px"); // → 704 → 880 phys
+    expect(lastResize()).toEqual({ width: 310, height: 704 });
     expect(surface.style.maxHeight).toBe("704px");
 
     // Real shrink commits once.
-    await nudgePass(result, 410, "420px"); // → clamp 420 → 525 phys
-    expect(lastResize()).toEqual({ width: 328, height: 420 });
+    await nudgePass(result, 413, "420px"); // → clamp 420 → 525 phys
+    expect(lastResize()).toEqual({ width: 310, height: 420 });
     expect(surface.style.maxHeight).toBe("420px");
 
     // (5) No blanket absorption: a stable 1-physical-px change still commits.
-    await nudgePass(result, 417, "421px"); // → 421 → 526 phys
-    expect(lastResize()).toEqual({ width: 328, height: 421 });
+    await nudgePass(result, 420, "421px"); // → 421 → 526 phys
+    expect(lastResize()).toEqual({ width: 310, height: 421 });
     expect(surface.style.maxHeight).toBe("421px");
   }, 30_000); // 8 bounded 3s settling passes + 3s readiness can exceed Vitest's 5s default.
 
@@ -272,7 +297,7 @@ describe("useTrayPanelLayout sizing", () => {
       },
     );
 
-    setScrollHeight(535); // → 539 target (674 phys requested) → applied 669
+    setScrollHeight(538); // → 539 target (674 phys requested) → applied 669
     const { result } = renderHook(() => useTrayPanelLayout(hookProps()));
     await waitFor(() => expect(result.current.layoutReady).toBe(true), {
       timeout: 3000,
@@ -289,20 +314,43 @@ describe("useTrayPanelLayout sizing", () => {
     // target says 674: suppress (no setSize/reanchor), adopt the candidate.
     // The prior frame is 420 (525 phys), 144 px away from 669 — the A↔B
     // detector cannot fire here.
-    await nudgePass(result, 531, "535px"); // → 535 → 669 phys
+    await nudgePass(result, 534, "535px"); // → 535 → 669 phys
     expect(windowMocks.setSize.mock.calls.length).toBe(snappedResizes);
     expect(tauriMocks.reanchorTrayPanel.mock.calls.length).toBe(snappedAnchors);
     expect(surface.style.maxHeight).toBe("535px");
 
     // Identical next pass: now exact same-frame stable — still zero churn.
-    await nudgePass(result, 531, "535px");
+    await nudgePass(result, 534, "535px");
     expect(windowMocks.setSize.mock.calls.length).toBe(snappedResizes);
     expect(tauriMocks.reanchorTrayPanel.mock.calls.length).toBe(snappedAnchors);
     expect(surface.style.maxHeight).toBe("535px");
 
     // Recovery: a real +5-physical change from the reconciled frame commits.
-    await nudgePass(result, 535, "539px"); // → 539 → 674 phys
-    expect(lastResize()).toEqual({ width: 328, height: 539 });
+    await nudgePass(result, 538, "539px"); // → 539 → 674 phys
+    expect(lastResize()).toEqual({ width: 310, height: 539 });
     expect(surface.style.maxHeight).toBe("539px");
+  });
+
+  it("sizes the window at 310 px times the Panel scale and leaves the spare height above the footer out", async () => {
+    const body = surface.querySelector<HTMLElement>(".menu-surface__body")!;
+    const footer = surface.querySelector<HTMLElement>(".menu-surface__footer")!;
+    surface.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 800, height: 800 }) as DOMRect;
+    body.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 400, height: 400 }) as DOMRect;
+    footer.getBoundingClientRect = () =>
+      ({ top: 601, bottom: 799, height: 198 }) as DOMRect;
+    setScrollHeight(532);
+
+    const { result } = renderHook(() =>
+      useTrayPanelLayout(hookProps({ detailMode: false, zoom: 1.5 })),
+    );
+    await waitFor(() => expect(result.current.layoutReady).toBe(true), {
+      timeout: 3000,
+    });
+
+    expect(windowMocks.setSize.mock.calls[0][0]).toEqual({ width: 465, height: 200 });
+    expect(lastResize()).toEqual({ width: 465, height: 600 });
+    expect(surface.style.maxHeight).toBe("400px");
   });
 });

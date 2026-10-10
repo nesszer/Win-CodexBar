@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../hooks/useLocale", () => ({
@@ -48,12 +48,40 @@ function renderTab(
 }
 
 describe("DisplayTab menu settings", () => {
-  it("no longer offers the retired PopOut window scale", () => {
-    // Window scale only zoomed the retired PopOut layout. The tray panel
-    // has its own Zoom slider in its footer (trayScalePercent).
+  it("offers the tray Panel scale as its only slider, with no PopOut window scale", () => {
     const { container } = renderTab(vi.fn());
 
-    expect(container.querySelector('input[type="range"]')).toBeNull();
+    expect(
+      Array.from(container.querySelectorAll('input[type="range"]')).map((input) =>
+        input.getAttribute("aria-label"),
+      ),
+    ).toEqual(["PanelScaleLabel"]);
+  });
+
+  it("shows the saved Panel scale and saves the new one when the slider is released", async () => {
+    const set = vi.fn();
+    await act(async () => {
+      render(
+        <DisplayTab
+          mode="menu"
+          settings={{ ...baseSettings, trayScalePercent: 150 } as SettingsSnapshot}
+          set={set}
+          saving={false}
+        />,
+      );
+    });
+
+    const slider = screen.getByRole("slider", { name: "PanelScaleLabel" });
+    expect(slider).toHaveValue("150");
+    expect(screen.getByText("PanelScaleLabel (150%)")).toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: "125" } });
+    expect(screen.getByText("PanelScaleLabel (125%)")).toBeInTheDocument();
+    expect(set).not.toHaveBeenCalled();
+    fireEvent.pointerUp(slider);
+
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith({ trayScalePercent: 125 });
   });
 
   it("updates the exhausted reset display preference", () => {
