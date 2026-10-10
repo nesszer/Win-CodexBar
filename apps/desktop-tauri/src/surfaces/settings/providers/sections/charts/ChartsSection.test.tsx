@@ -8,7 +8,8 @@ vi.mock("../../../../../lib/tauri", () => ({
   getProviderChartData: vi.fn(),
   getSettingsSnapshot: vi.fn().mockResolvedValue({ enableAnimations: false }),
 }));
-vi.mock("../../../../../lib/providerCharts", () => ({
+vi.mock("../../../../../lib/providerCharts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../../../lib/providerCharts")>()),
   providerSupportsChartData: () => true,
 }));
 
@@ -129,6 +130,20 @@ describe("ChartsSection OpenAI API daily usage (upstream 0.66.0)", () => {
     expect(screen.getByText("Text tokens")).toBeTruthy();
     await waitFor(() => expect(mockChart).toHaveBeenCalled());
     expect(screen.queryByText("DetailChartCost")).toBeNull();
+  });
+
+  it("draws the per-day chart for the Groq console history", () => {
+    mockChart.mockResolvedValue(chartData({ providerId: "groq" }));
+    render(
+      <ChartsSection
+        providerId="groq"
+        accountEmail={null}
+        openAiApiUsage={openAiUsage}
+        t={(key) => key}
+      />,
+    );
+    expect(screen.getByText("OpenAIChartTitle", { selector: ".provider-detail-chart__title" })).toBeTruthy();
+    expect(screen.getByRole("listbox")).toBeTruthy();
   });
 
   it("renders nothing for openaiapi without usage or with an empty window", () => {
