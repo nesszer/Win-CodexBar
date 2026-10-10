@@ -65,23 +65,18 @@ fn parses_workspace_pair_as_team_context() {
 
 #[test]
 fn parses_successful_response_without_message() {
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "planName": "BigModel CN",
-            "limits": [{
-                "type": "TOKENS_LIMIT",
-                "used": 10,
-                "limit": 100,
-                "unit": 3,
-                "number": 5
-            }]
-        }
-    }))
-    .unwrap();
+    let data = serde_json::json!({
+        "planName": "BigModel CN",
+        "limits": [{
+            "type": "TOKENS_LIMIT",
+            "used": 10,
+            "limit": 100,
+            "unit": 3,
+            "number": 5
+        }]
+    });
 
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let usage = parse_data(data).unwrap().usage;
 
     assert_eq!(usage.login_method.as_deref(), Some("BigModel CN"));
     assert_eq!(usage.primary.used_percent, 10.0);
@@ -89,25 +84,20 @@ fn parses_successful_response_without_message() {
 
 #[test]
 fn parses_current_api_percentage_and_reset_time() {
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "limits": [{
-                "type": "TOKENS_LIMIT",
-                "unit": 3,
-                "number": 5,
-                "usage": 800000000,
-                "currentValue": 600000000,
-                "remaining": 200000000,
-                "percentage": 75,
-                "nextResetTime": 1770648402389_i64
-            }]
-        }
-    }))
-    .unwrap();
+    let data = serde_json::json!({
+        "limits": [{
+            "type": "TOKENS_LIMIT",
+            "unit": 3,
+            "number": 5,
+            "usage": 800000000,
+            "currentValue": 600000000,
+            "remaining": 200000000,
+            "percentage": 75,
+            "nextResetTime": 1770648402389_i64
+        }]
+    });
 
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let usage = parse_data(data).unwrap().usage;
 
     assert_eq!(usage.primary.used_percent, 75.0);
     assert_eq!(usage.primary.window_minutes, Some(300));
@@ -117,38 +107,31 @@ fn parses_current_api_percentage_and_reset_time() {
 #[test]
 fn five_hour_reset_plausibility_drops_impossible_timestamp() {
     let now = Utc::now();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {"limits": [
-            {
-                "type": "TOKENS_LIMIT",
-                "unit": 3,
-                "number": 5,
-                "percentage": 25,
-                "nextResetTime": (now + chrono::Duration::hours(10)).timestamp_millis()
-            },
-            {
-                "type": "TOKENS_LIMIT",
-                "unit": 6,
-                "number": 1,
-                "percentage": 9,
-                "nextResetTime": (now + chrono::Duration::days(6)).timestamp_millis()
-            },
-            {
-                "type": "TIME_LIMIT",
-                "unit": 5,
-                "number": 1,
-                "percentage": 22,
-                "nextResetTime": (now + chrono::Duration::days(20)).timestamp_millis()
-            }
-        ]}
-    }))
-    .unwrap();
+    let data = serde_json::json!({"limits": [
+        {
+            "type": "TOKENS_LIMIT",
+            "unit": 3,
+            "number": 5,
+            "percentage": 25,
+            "nextResetTime": (now + chrono::Duration::hours(10)).timestamp_millis()
+        },
+        {
+            "type": "TOKENS_LIMIT",
+            "unit": 6,
+            "number": 1,
+            "percentage": 9,
+            "nextResetTime": (now + chrono::Duration::days(6)).timestamp_millis()
+        },
+        {
+            "type": "TIME_LIMIT",
+            "unit": 5,
+            "number": 1,
+            "percentage": 22,
+            "nextResetTime": (now + chrono::Duration::days(20)).timestamp_millis()
+        }
+    ]});
 
-    let usage = ZaiProvider::new()
-        .parse_quota_response(&quota)
-        .unwrap()
-        .usage;
+    let usage = parse_data(data).unwrap().usage;
     assert_eq!(usage.primary.used_percent, 25.0);
     assert_eq!(usage.primary.window_minutes, Some(300));
     assert_eq!(usage.primary.reset_description.as_deref(), Some("5-hour"));
@@ -183,37 +166,32 @@ fn credit_limit_plan_drives_primary_and_weekly_windows() {
     // Upstream 0.49.0 #2724/#2712: credit-based Coding Plans report
     // CREDIT_LIMIT rows shaped like TOKENS_LIMIT. Without this, usage
     // sticks at 0% used / 100% remaining.
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "planName": "GLM Coding Lite",
-            "limits": [
-                {
-                    "type": "CREDIT_LIMIT",
-                    "unit": 3,
-                    "number": 5,
-                    "usage": 500,
-                    "currentValue": 475,
-                    "remaining": 25,
-                    "percentage": 95,
-                    "nextResetTime": 1770648402389_i64
-                },
-                {
-                    "type": "CREDIT_LIMIT",
-                    "unit": 6,
-                    "number": 1,
-                    "usage": 3000,
-                    "currentValue": 1200,
-                    "remaining": 1800,
-                    "percentage": 40
-                }
-            ]
-        }
-    }))
-    .unwrap();
+    let data = serde_json::json!({
+        "planName": "GLM Coding Lite",
+        "limits": [
+            {
+                "type": "CREDIT_LIMIT",
+                "unit": 3,
+                "number": 5,
+                "usage": 500,
+                "currentValue": 475,
+                "remaining": 25,
+                "percentage": 95,
+                "nextResetTime": 1770648402389_i64
+            },
+            {
+                "type": "CREDIT_LIMIT",
+                "unit": 6,
+                "number": 1,
+                "usage": 3000,
+                "currentValue": 1200,
+                "remaining": 1800,
+                "percentage": 40
+            }
+        ]
+    });
 
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let usage = parse_data(data).unwrap().usage;
 
     // Shortest window (5h credits) is the primary; longest (weekly) secondary.
     assert!((usage.primary.used_percent - 95.0).abs() < f64::EPSILON);
@@ -230,24 +208,19 @@ fn usage_signal_overrides_stale_percentage() {
     // Upstream 0.49.0 `parseLimit`: a positive `usage` total makes the
     // absolute used signal authoritative; the API's `percentage` is only
     // trusted without it.
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "limits": [{
-                "type": "CREDIT_LIMIT",
-                "unit": 3,
-                "number": 5,
-                "usage": 500,
-                "currentValue": 25,
-                "remaining": 475,
-                "percentage": 95
-            }]
-        }
-    }))
-    .unwrap();
+    let data = serde_json::json!({
+        "limits": [{
+            "type": "CREDIT_LIMIT",
+            "unit": 3,
+            "number": 5,
+            "usage": 500,
+            "currentValue": 25,
+            "remaining": 475,
+            "percentage": 95
+        }]
+    });
 
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let usage = parse_data(data).unwrap().usage;
 
     assert!((usage.primary.used_percent - 5.0).abs() < f64::EPSILON);
 }
@@ -256,24 +229,19 @@ fn usage_signal_overrides_stale_percentage() {
 fn time_limit_primary_carries_mcp_label_without_duration() {
     // Upstream 0.48.0: TIME_LIMIT (MCP) windows no longer keep explicit
     // duration minutes and label as "MCP", not the old monthly sentinel.
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "limits": [{
-                "type": "TIME_LIMIT",
-                "unit": 3,
-                "number": 5,
-                "usage": 100,
-                "currentValue": 20,
-                "remaining": 80,
-                "percentage": 25,
-                "nextResetTime": 123000_i64
-            }]
-        }
-    }))
-    .unwrap();
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let data = serde_json::json!({
+        "limits": [{
+            "type": "TIME_LIMIT",
+            "unit": 3,
+            "number": 5,
+            "usage": 100,
+            "currentValue": 20,
+            "remaining": 80,
+            "percentage": 25,
+            "nextResetTime": 123000_i64
+        }]
+    });
+    let usage = parse_data(data).unwrap().usage;
     assert_eq!(usage.primary.window_minutes, None);
     assert_eq!(usage.primary.reset_description.as_deref(), Some("MCP"));
     assert!(usage.primary.resets_at.is_some());
@@ -281,24 +249,19 @@ fn time_limit_primary_carries_mcp_label_without_duration() {
 
 #[test]
 fn bare_time_limit_primary_has_no_window_duration() {
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "limits": [{
-                "type": "TIME_LIMIT",
-                "unit": 1,
-                "number": 0,
-                "usage": 100,
-                "currentValue": 20,
-                "remaining": 80,
-                "percentage": 25,
-                "nextResetTime": 123000_i64
-            }]
-        }
-    }))
-    .unwrap();
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let data = serde_json::json!({
+        "limits": [{
+            "type": "TIME_LIMIT",
+            "unit": 1,
+            "number": 0,
+            "usage": 100,
+            "currentValue": 20,
+            "remaining": 80,
+            "percentage": 25,
+            "nextResetTime": 123000_i64
+        }]
+    });
+    let usage = parse_data(data).unwrap().usage;
     assert_eq!(usage.primary.window_minutes, None);
     assert_eq!(usage.primary.reset_description.as_deref(), Some("MCP"));
 }
@@ -308,28 +271,23 @@ fn mcp_limit_renders_separate_named_window() {
     // Upstream 0.48.0 GLM Coding Plan layout: coding-limit primary +
     // MCP as a named extra window; MCP 1-minute marker no longer maps
     // to a monthly sentinel secondary.
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "limits": [
-                {
-                    "type": "TOKENS_LIMIT",
-                    "unit": 6,
-                    "number": 1,
-                    "percentage": 34
-                },
-                {
-                    "type": "TIME_LIMIT",
-                    "unit": 5,
-                    "number": 1,
-                    "percentage": 10
-                }
-            ]
-        }
-    }))
-    .unwrap();
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let data = serde_json::json!({
+        "limits": [
+            {
+                "type": "TOKENS_LIMIT",
+                "unit": 6,
+                "number": 1,
+                "percentage": 34
+            },
+            {
+                "type": "TIME_LIMIT",
+                "unit": 5,
+                "number": 1,
+                "percentage": 10
+            }
+        ]
+    });
+    let usage = parse_data(data).unwrap().usage;
 
     assert_eq!(usage.primary.window_minutes, Some(10080));
     assert_eq!(
@@ -352,29 +310,24 @@ fn mcp_limit_renders_separate_named_window() {
 fn session_five_hour_window_becomes_primary_over_weekly() {
     // Upstream 0.48.0 GLM Coding Plan: 2+ TOKENS_LIMIT entries →
     // shortest (5-hour) window primary, longest (weekly) secondary.
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "limits": [
-                {
-                    "type": "TOKENS_LIMIT",
-                    "unit": 3,
-                    "number": 5,
-                    "percentage": 55,
-                    "nextResetTime": 1770648402389_i64
-                },
-                {
-                    "type": "TOKENS_LIMIT",
-                    "unit": 6,
-                    "number": 1,
-                    "percentage": 34
-                }
-            ]
-        }
-    }))
-    .unwrap();
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let data = serde_json::json!({
+        "limits": [
+            {
+                "type": "TOKENS_LIMIT",
+                "unit": 3,
+                "number": 5,
+                "percentage": 55,
+                "nextResetTime": 1770648402389_i64
+            },
+            {
+                "type": "TOKENS_LIMIT",
+                "unit": 6,
+                "number": 1,
+                "percentage": 34
+            }
+        ]
+    });
+    let usage = parse_data(data).unwrap().usage;
 
     assert_eq!(usage.primary.used_percent, 55.0);
     assert_eq!(usage.primary.window_minutes, Some(300));
@@ -388,51 +341,36 @@ fn session_five_hour_window_becomes_primary_over_weekly() {
 
 #[test]
 fn plan_name_falls_back_to_level_key() {
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": {
-            "level": "GLM Coding Plan",
-            "limits": []
-        }
-    }))
-    .unwrap();
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let data = serde_json::json!({
+        "level": "GLM Coding Plan",
+        "limits": []
+    });
+    let usage = parse_data(data).unwrap().usage;
     assert_eq!(usage.login_method.as_deref(), Some("GLM Coding Plan"));
 
     for key in ["plan", "plan_type", "packageName"] {
-        let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-            "code": 200,
-            "data": { key: "Coding Plan", "limits": [] }
-        }))
-        .unwrap();
-        let usage = provider.parse_quota_response(&quota).unwrap().usage;
+        let data = serde_json::json!({ key: "Coding Plan", "limits": [] });
+        let usage = parse_data(data).unwrap().usage;
         assert_eq!(usage.login_method.as_deref(), Some("Coding Plan"), "{key}");
     }
 }
 
 #[test]
 fn empty_plan_fields_fall_back_to_default() {
-    let provider = ZaiProvider::new();
-    let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
-        "code": 200,
-        "data": { "planName": "  ", "level": "", "limits": [] }
-    }))
-    .unwrap();
-    let usage = provider.parse_quota_response(&quota).unwrap().usage;
+    let data = serde_json::json!({ "planName": "  ", "level": "", "limits": [] });
+    let usage = parse_data(data).unwrap().usage;
     assert_eq!(usage.login_method.as_deref(), Some("z.ai"));
 }
 
 #[test]
 fn preserves_api_code_error_message() {
-    let provider = ZaiProvider::new();
     let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
         "code": 401,
         "message": "invalid token"
     }))
     .unwrap();
 
-    let error = provider.parse_quota_response(&quota).unwrap_err();
+    let error = ZaiProvider::new().parse_quota_response(&quota).unwrap_err();
 
     assert!(error.to_string().contains("invalid token"));
 }

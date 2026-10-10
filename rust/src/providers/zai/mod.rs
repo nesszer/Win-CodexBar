@@ -4,19 +4,10 @@
 //! Uses API token stored in Windows Credential Manager
 
 mod balance;
-pub mod mcp_details;
 pub mod region;
 mod reset_plausibility;
 pub mod settings;
 
-// Re-exports for MCP details menu
-#[allow(
-    unused_imports,
-    reason = "imports needed for future ZAI provider wiring"
-)]
-pub use mcp_details::{
-    McpDetailsMenu, ZaiLimitEntry, ZaiLimitType, ZaiLimitUnit, ZaiUsageDetail, ZaiUsageSnapshot,
-};
 pub use region::ZaiRegion;
 pub use settings::ZaiSettingsError;
 
@@ -253,26 +244,11 @@ impl ZaiProvider {
         })
     }
 
-    /// Validate endpoint overrides against the region *before* any bearer
-    /// request (upstream #2621/#2623: canonical cross-region overrides are
-    /// rejected pre-auth; custom relay hosts stay legal).
-    fn validate_endpoint_overrides(
-        env: &settings::EnvMap,
-        region: ZaiRegion,
-    ) -> Result<(), ProviderError> {
-        ZaiSettingsReader::validate_endpoint_overrides(env, region)
-            .map_err(|err| ProviderError::Other(err.to_string()))
-    }
-
     /// Quota URL: `Z_AI_QUOTA_URL` full override → `Z_AI_API_HOST` host
     /// override → the selected region's canonical endpoint.
     fn quota_url(env: &settings::EnvMap, region: ZaiRegion) -> Result<Url, ProviderError> {
         let provider_err = |err: ZaiSettingsError| ProviderError::Other(err.to_string());
-        let env_get = |key: &str| env.get(key).and_then(|raw| settings::cleaned(raw));
-        if env_get(settings::ZAI_QUOTA_URL_ENV).is_some() {
-            let url = ZaiSettingsReader::quota_url_override(env)
-                .map_err(provider_err)?
-                .expect("override present");
+        if let Some(url) = ZaiSettingsReader::quota_url_override(env).map_err(provider_err)? {
             return Ok(url);
         }
         if let Some(url) = ZaiSettingsReader::quota_url_from_api_host(env).map_err(provider_err)? {
@@ -321,8 +297,9 @@ impl ZaiProvider {
         let env = settings::process_env();
         let region = Self::effective_region(ctx, &env);
         // Canonical cross-region overrides are rejected before any bearer
-        // token is sent (upstream #2621/#2623).
-        Self::validate_endpoint_overrides(&env, region)?;
+        // token is sent; custom relay hosts stay legal (upstream #2621/#2623).
+        ZaiSettingsReader::validate_endpoint_overrides(&env, region)
+            .map_err(|err| ProviderError::Other(err.to_string()))?;
         let api_token = Self::get_api_token(ctx.api_key.as_deref(), region, &env)?;
 
         let client = crate::core::credentialed_http_client_builder()
@@ -551,14 +528,7 @@ impl ZaiProvider {
     /// Returns `None` when number ≤ 0 or unit is unknown (upstream windowMinutes).
     fn window_minutes(l: &ZaiLimit) -> Option<u32> {
         let number = l.number.filter(|&n| n > 0)? as u32;
-        let unit = l.unit?;
-        let minutes_per_unit = match unit {
-            1 => 1440,  // days
-            3 => 60,    // hours
-            5 => 1,     // minutes
-            6 => 10080, // weeks
-            _ => return None,
-        };
+        let (minutes_per_unit, _, _) = unit_spec(l.unit?)?;
         Some(number * minutes_per_unit)
     }
 }
@@ -577,39 +547,20 @@ fn rate_window_reset_description(l: &ZaiLimit, window_mins: Option<u32>) -> Opti
 
 fn window_label(l: &ZaiLimit) -> Option<String> {
     let number = l.number.filter(|&n| n > 0)?;
-    let unit = l.unit?;
-    let unit_label = match unit {
-        1 => {
-            if number == 1 {
-                "day"
-            } else {
-                "days"
-            }
-        }
-        3 => {
-            if number == 1 {
-                "hour"
-            } else {
-                "hours"
-            }
-        }
-        5 => {
-            if number == 1 {
-                "minute"
-            } else {
-                "minutes"
-            }
-        }
-        6 => {
-            if number == 1 {
-                "week"
-            } else {
-                "weeks"
-            }
-        }
-        _ => return None,
-    };
+    let (_, one, many) = unit_spec(l.unit?)?;
+    let unit_label = if number == 1 { one } else { many };
     Some(format!("{number} {unit_label} window"))
+}
+
+/// z.ai limit unit code → (minutes per unit, singular label, plural label).
+fn unit_spec(unit: i32) -> Option<(u32, &'static str, &'static str)> {
+    Some(match unit {
+        1 => (1440, "day", "days"),
+        3 => (60, "hour", "hours"),
+        5 => (1, "minute", "minutes"),
+        6 => (10080, "week", "weeks"),
+        _ => return None,
+    })
 }
 
 impl ZaiTeamContext {

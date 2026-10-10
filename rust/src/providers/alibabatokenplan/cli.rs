@@ -192,66 +192,33 @@ mod tests {
 
     #[test]
     fn regional_cli_arguments_match_bailian_contract() {
-        assert_eq!(
-            cli_arguments(AlibabaTokenPlanRegion::Cn),
-            vec![
-                "usage",
-                "token-plan",
+        use AlibabaTokenPlanRegion::*;
+        const TEAM: &[&str] = &["usage", "token-plan"];
+        const PERSONAL: &[&str] = &[
+            "console",
+            "call",
+            "--api",
+            "zeldaHttp.apikeyMgr./tokenplan/personal/api/v2/usage",
+            "--data",
+            "{}",
+        ];
+        for (region, head, console_region, console_site) in [
+            (Cn, TEAM, "cn-beijing", "domestic"),
+            (CnPersonal, PERSONAL, "cn-beijing", "domestic"),
+            (IntlPersonal, PERSONAL, "ap-southeast-1", "international"),
+            (Intl, TEAM, "ap-southeast-1", "international"),
+        ] {
+            let mut expected = head.to_vec();
+            expected.extend([
                 "--console-region",
-                "cn-beijing",
+                console_region,
                 "--console-site",
-                "domestic",
+                console_site,
                 "--output",
-                "json"
-            ]
-        );
-        assert_eq!(
-            cli_arguments(AlibabaTokenPlanRegion::CnPersonal),
-            vec![
-                "console",
-                "call",
-                "--api",
-                "zeldaHttp.apikeyMgr./tokenplan/personal/api/v2/usage",
-                "--data",
-                "{}",
-                "--console-region",
-                "cn-beijing",
-                "--console-site",
-                "domestic",
-                "--output",
-                "json"
-            ]
-        );
-        assert_eq!(
-            cli_arguments(AlibabaTokenPlanRegion::IntlPersonal),
-            vec![
-                "console",
-                "call",
-                "--api",
-                "zeldaHttp.apikeyMgr./tokenplan/personal/api/v2/usage",
-                "--data",
-                "{}",
-                "--console-region",
-                "ap-southeast-1",
-                "--console-site",
-                "international",
-                "--output",
-                "json"
-            ]
-        );
-        assert_eq!(
-            cli_arguments(AlibabaTokenPlanRegion::Intl),
-            vec![
-                "usage",
-                "token-plan",
-                "--console-region",
-                "ap-southeast-1",
-                "--console-site",
-                "international",
-                "--output",
-                "json"
-            ]
-        );
+                "json",
+            ]);
+            assert_eq!(cli_arguments(region), expected, "{region:?}");
+        }
     }
 
     #[test]

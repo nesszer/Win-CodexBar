@@ -8,6 +8,7 @@
 //! Personal/Solo path: OneConsole personal token-plan APIs (+ best-effort sec_token).
 
 mod cli;
+mod fields;
 #[cfg(test)]
 mod monthly_tests;
 mod personal;
@@ -16,7 +17,7 @@ mod region;
 pub use region::AlibabaTokenPlanRegion;
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use regex_lite::Regex;
 use serde_json::Value;
 
@@ -27,6 +28,13 @@ use crate::core::{
 use crate::providers::{browser_cookie_header, strip_cookie_prefix};
 
 use region::AlibabaTokenPlanRegion as Region;
+
+use fields::{
+    REMAINING_QUOTA_KEYS, TOTAL_QUOTA_KEYS, USED_QUOTA_KEYS, date_field, deep_find,
+    expand_json_strings, find_first_i64, find_first_string, find_object_containing_any_of,
+    find_plan_name, find_quota_info, find_reset_date, find_token_plan_instance, first_f64,
+    number_field, parse_bool, percentage_points,
+};
 
 pub(super) const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 pub(super) const LANGUAGE: &str = "en-US";
@@ -77,6 +85,19 @@ impl AlibabaTokenPlanProvider {
         Self::snapshot_to_usage(snapshot)
     }
 
+    async fn fetch_via(
+        &self,
+        source: &'static str,
+        ctx: &FetchContext,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        let usage = if source == "web" {
+            self.fetch_via_web(ctx).await?
+        } else {
+            self.fetch_via_cli(ctx).await?
+        };
+        Ok(ProviderFetchResult::new(usage, source))
+    }
+
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
         let region = Self::resolve_region(ctx);
         let cookie_header = Self::resolve_cookie_header(ctx, region)?;
@@ -117,45 +138,16 @@ impl AlibabaTokenPlanProvider {
             ("params", Self::team_request_params(region)),
             ("region", region.current_region_id().to_string()),
         ];
-        if let Some(token) = sec_token
-            .as_deref()
-            .filter(|token| !token.trim().is_empty())
-        {
-            form.push(("sec_token", token.to_string()));
-        }
-        let mut request = client
-            .post(Self::team_quota_url(region))
-            .header("Cookie", cookie_header)
-            .header("Accept", "*/*")
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .header("Origin", region.gateway_base_url())
-            .header("Referer", region.dashboard_url())
-            .header("User-Agent", USER_AGENT)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .form(&form);
-
-        if let Some(csrf) = cookie_value("login_aliyunid_csrf", cookie_header)
-            .or_else(|| cookie_value("csrf", cookie_header))
-        {
-            request = request
-                .header("x-xsrf-token", csrf.clone())
-                .header("x-csrf-token", csrf);
-        }
-
-        let response = request.send().await?;
-        let status = response.status();
-        let body = response.bytes().await?;
-        if !status.is_success() {
-            if status == reqwest::StatusCode::UNAUTHORIZED
-                || status == reqwest::StatusCode::FORBIDDEN
-            {
-                return Err(ProviderError::AuthRequired);
-            }
-            return Err(ProviderError::Other(format!(
-                "Alibaba Token Plan API error: HTTP {status}"
-            )));
-        }
-
+        push_sec_token(&mut form, sec_token.as_deref());
+        let body = send_console_form(
+            client.post(Self::team_quota_url(region)),
+            cookie_header,
+            region,
+            "*/*",
+            &form,
+            "Alibaba Token Plan",
+        )
+        .await?;
         Self::parse_usage_snapshot(&body)
     }
 
@@ -227,20 +219,7 @@ impl AlibabaTokenPlanProvider {
     }
 
     fn parse_usage_snapshot(data: &[u8]) -> Result<TokenPlanSnapshot, ProviderError> {
-        if data.is_empty() {
-            return Err(ProviderError::Parse(
-                "Empty Alibaba Token Plan response".into(),
-            ));
-        }
-        let value: Value = serde_json::from_slice(data).map_err(|_| {
-            if is_likely_login_html(data) {
-                ProviderError::AuthRequired
-            } else {
-                ProviderError::Parse("Invalid Alibaba Token Plan JSON response".into())
-            }
-        })?;
-        let expanded = expand_json_strings(value);
-        throw_if_error_payload(&expanded)?;
+        let expanded = decode_console_payload(data, "Alibaba Token Plan")?;
 
         let instance = find_token_plan_instance(&expanded);
         let plan_name = instance
@@ -376,30 +355,16 @@ impl Provider for AlibabaTokenPlanProvider {
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
-        match ctx.source_mode {
-            SourceMode::Auto if ctx.auto_prefer_web => match self.fetch_via_web(ctx).await {
-                Ok(usage) => Ok(ProviderFetchResult::new(usage, "web")),
-                Err(_) => {
-                    let usage = self.fetch_via_cli(ctx).await?;
-                    Ok(ProviderFetchResult::new(usage, "cli"))
-                }
-            },
-            SourceMode::Auto => match self.fetch_via_cli(ctx).await {
-                Ok(usage) => Ok(ProviderFetchResult::new(usage, "cli")),
-                Err(_) => {
-                    let usage = self.fetch_via_web(ctx).await?;
-                    Ok(ProviderFetchResult::new(usage, "web"))
-                }
-            },
-            SourceMode::Cli => {
-                let usage = self.fetch_via_cli(ctx).await?;
-                Ok(ProviderFetchResult::new(usage, "cli"))
-            }
-            SourceMode::Web => {
-                let usage = self.fetch_via_web(ctx).await?;
-                Ok(ProviderFetchResult::new(usage, "web"))
-            }
-            SourceMode::OAuth => Err(ProviderError::UnsupportedSource(ctx.source_mode)),
+        let (first, fallback) = match ctx.source_mode {
+            SourceMode::Auto if ctx.auto_prefer_web => ("web", Some("cli")),
+            SourceMode::Auto => ("cli", Some("web")),
+            SourceMode::Cli => ("cli", None),
+            SourceMode::Web => ("web", None),
+            SourceMode::OAuth => return Err(ProviderError::UnsupportedSource(ctx.source_mode)),
+        };
+        match (self.fetch_via(first, ctx).await, fallback) {
+            (Err(_), Some(fallback)) => self.fetch_via(fallback, ctx).await,
+            (result, _) => result,
         }
     }
 
@@ -415,6 +380,72 @@ impl Provider for AlibabaTokenPlanProvider {
             _ => error.state_kind(),
         }
     }
+}
+
+pub(super) fn push_sec_token(form: &mut Vec<(&'static str, String)>, sec_token: Option<&str>) {
+    if let Some(token) = sec_token.filter(|token| !token.trim().is_empty()) {
+        form.push(("sec_token", token.to_string()));
+    }
+}
+
+/// POST a console gateway form. The CSRF headers go after the form so the
+/// header order matches the browser capture.
+pub(super) async fn send_console_form(
+    request: reqwest::RequestBuilder,
+    cookie_header: &str,
+    region: Region,
+    accept: &str,
+    form: &[(&'static str, String)],
+    scope: &str,
+) -> Result<Vec<u8>, ProviderError> {
+    let mut request = request
+        .header("Cookie", cookie_header)
+        .header("Accept", accept)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Origin", region.gateway_base_url())
+        .header("Referer", region.dashboard_url())
+        .header("User-Agent", USER_AGENT)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .form(form);
+
+    if let Some(csrf) = cookie_value("login_aliyunid_csrf", cookie_header)
+        .or_else(|| cookie_value("csrf", cookie_header))
+    {
+        request = request
+            .header("x-xsrf-token", csrf.clone())
+            .header("x-csrf-token", csrf);
+    }
+
+    let response = request.send().await?;
+    let status = response.status();
+    let body = response.bytes().await?;
+    if !status.is_success() {
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ProviderError::AuthRequired);
+        }
+        return Err(ProviderError::Other(format!(
+            "{scope} API error: HTTP {status}"
+        )));
+    }
+    Ok(body.to_vec())
+}
+
+/// Decode a console response body: reject empty bodies and login HTML,
+/// expand JSON-in-string fields, then surface gateway error payloads.
+pub(super) fn decode_console_payload(data: &[u8], scope: &str) -> Result<Value, ProviderError> {
+    if data.is_empty() {
+        return Err(ProviderError::Parse(format!("Empty {scope} response")));
+    }
+    let value: Value = serde_json::from_slice(data).map_err(|_| {
+        if is_likely_login_html(data) {
+            ProviderError::AuthRequired
+        } else {
+            ProviderError::Parse(format!("Invalid {scope} JSON response"))
+        }
+    })?;
+    let expanded = expand_json_strings(value);
+    throw_if_error_payload(&expanded)?;
+    Ok(expanded)
 }
 
 pub(super) fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError> {
@@ -470,21 +501,15 @@ pub(super) fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError>
 }
 
 fn find_failing_success_frame(value: &Value) -> Option<&Value> {
-    match value {
-        Value::Object(map) => {
-            let failed_here = ["success", "Success"]
-                .iter()
-                .filter_map(|key| map.get(*key))
-                .filter_map(|value| parse_bool(Some(value)))
-                .any(|success| !success);
-            if failed_here {
-                return Some(value);
-            }
-            map.values().find_map(find_failing_success_frame)
-        }
-        Value::Array(values) => values.iter().find_map(find_failing_success_frame),
-        _ => None,
-    }
+    deep_find(value, &|node| {
+        let map = node.as_object()?;
+        ["success", "Success"]
+            .iter()
+            .filter_map(|key| map.get(*key))
+            .filter_map(|value| parse_bool(Some(value)))
+            .any(|success| !success)
+            .then_some(node)
+    })
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
@@ -532,394 +557,6 @@ pub(super) fn is_likely_login_html(data: &[u8]) -> bool {
     let text = String::from_utf8_lossy(data).to_lowercase();
     text.contains("<html")
         && (text.contains("login") || text.contains("sign in") || text.contains("signin"))
-}
-
-pub(super) fn expand_json_strings(value: Value) -> Value {
-    match value {
-        Value::Array(values) => Value::Array(values.into_iter().map(expand_json_strings).collect()),
-        Value::Object(map) => Value::Object(
-            map.into_iter()
-                .map(|(key, value)| (key, expand_json_strings(value)))
-                .collect(),
-        ),
-        Value::String(text) => serde_json::from_str::<Value>(&text)
-            .ok()
-            .filter(|nested| nested.is_object() || nested.is_array())
-            .map(expand_json_strings)
-            .unwrap_or(Value::String(text)),
-        other => other,
-    }
-}
-
-pub(super) fn percentage_points(ratio: Option<f64>) -> Option<f64> {
-    let ratio = ratio.filter(|v| v.is_finite())?;
-    Some((ratio.clamp(0.0, 1.0) * 100.0).clamp(0.0, 100.0))
-}
-
-pub(super) fn number_field(value: &Value, key: &str) -> Option<f64> {
-    value.as_object().and_then(|map| parse_f64(map.get(key)))
-}
-
-pub(super) fn date_field(value: &Value, key: &str) -> Option<DateTime<Utc>> {
-    value.as_object().and_then(|map| parse_date(map.get(key)))
-}
-
-pub(super) fn find_object_containing_any_of(value: &Value, keys: &[&str]) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if keys.iter().any(|key| map.contains_key(*key)) {
-                return Some(Value::Object(map.clone()));
-            }
-            map.values()
-                .find_map(|nested| find_object_containing_any_of(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_object_containing_any_of(nested, keys)),
-        _ => None,
-    }
-}
-
-const PLAN_NAME_KEYS: &[&str] = &[
-    "planName",
-    "plan_name",
-    "packageName",
-    "package_name",
-    "commodityName",
-    "commodity_name",
-    "instanceName",
-    "instance_name",
-    "displayName",
-    "display_name",
-    "name",
-    "title",
-    "planType",
-    "plan_type",
-    "ProductName",
-    "productName",
-];
-const USED_QUOTA_KEYS: &[&str] = &[
-    "usedQuota",
-    "used_quota",
-    "usedCredits",
-    "usedCredit",
-    "consumedCredits",
-    "usage",
-    "used",
-    "usedAmount",
-    "consumeAmount",
-    "usedValue",
-    "UsedValue",
-    "consumedValue",
-    "ConsumedValue",
-];
-const TOTAL_QUOTA_KEYS: &[&str] = &[
-    "totalQuota",
-    "total_quota",
-    "totalCredits",
-    "totalCredit",
-    "quota",
-    "creditLimit",
-    "creditsTotal",
-    "monthlyTotalQuota",
-    "amount",
-    "totalValue",
-    "TotalValue",
-    "totalCount",
-    "TotalCount",
-    "subscriptionTotalNumber",
-    "SubscriptionTotalNumber",
-];
-const REMAINING_QUOTA_KEYS: &[&str] = &[
-    "remainingQuota",
-    "remainQuota",
-    "remainingCredits",
-    "remainingCredit",
-    "availableCredits",
-    "balance",
-    "remaining",
-    "availableAmount",
-    "remainAmount",
-    "totalSurplusValue",
-    "TotalSurplusValue",
-    "surplusValue",
-    "SurplusValue",
-];
-const RESET_DATE_KEYS: &[&str] = &[
-    "nextRefreshTime",
-    "resetTime",
-    "periodEndTime",
-    "billingCycleEnd",
-    "billCycleEndTime",
-    "expireTime",
-    "expirationTime",
-    "endTime",
-    "validEndTime",
-    "instanceEndTime",
-    "nearestExpireDate",
-    "NearestExpireDate",
-];
-
-fn find_token_plan_instance(value: &Value) -> Option<Value> {
-    find_first_object(
-        value,
-        &[
-            "tokenPlanInstanceInfo",
-            "token_plan_instance_info",
-            "instanceInfo",
-            "instance_info",
-        ],
-    )
-    .or_else(|| {
-        find_first_array(
-            value,
-            &[
-                "tokenPlanInstanceInfos",
-                "token_plan_instance_infos",
-                "instanceInfos",
-                "instances",
-                "Data",
-                "data",
-                "successResponse",
-            ],
-        )
-        .and_then(|values| {
-            values
-                .into_iter()
-                .filter(Value::is_object)
-                .max_by_key(active_signal_score)
-        })
-    })
-}
-
-fn find_plan_name(value: &Value) -> Option<String> {
-    first_string(value, PLAN_NAME_KEYS).or_else(|| find_first_string(value, PLAN_NAME_KEYS))
-}
-
-fn find_quota_info(value: &Value) -> Option<Value> {
-    find_first_object(
-        value,
-        &[
-            "quotaInfo",
-            "quota_info",
-            "tokenPlanQuotaInfo",
-            "token_plan_quota_info",
-        ],
-    )
-    .or_else(|| {
-        find_first_object_with_any_key(
-            value,
-            &[USED_QUOTA_KEYS, TOTAL_QUOTA_KEYS, REMAINING_QUOTA_KEYS].concat(),
-        )
-    })
-}
-
-fn find_reset_date(value: &Value) -> Option<DateTime<Utc>> {
-    first_date(value, RESET_DATE_KEYS).or_else(|| find_first_date(value, RESET_DATE_KEYS))
-}
-
-fn find_first_object(value: &Value, keys: &[&str]) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(nested) = map.get(*key).filter(|v| v.is_object()) {
-                    return Some(nested.clone());
-                }
-            }
-            map.values()
-                .find_map(|nested| find_first_object(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_object(nested, keys)),
-        _ => None,
-    }
-}
-
-fn find_first_object_with_any_key(value: &Value, keys: &[&str]) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if keys.iter().any(|key| map.contains_key(*key)) {
-                return Some(value.clone());
-            }
-            map.values()
-                .find_map(|nested| find_first_object_with_any_key(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_object_with_any_key(nested, keys)),
-        _ => None,
-    }
-}
-
-fn find_first_array(value: &Value, keys: &[&str]) -> Option<Vec<Value>> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(values) = map.get(*key).and_then(Value::as_array) {
-                    return Some(values.clone());
-                }
-            }
-            map.values()
-                .find_map(|nested| find_first_array(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_array(nested, keys)),
-        _ => None,
-    }
-}
-
-fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
-    let map = value.as_object()?;
-    keys.iter().find_map(|key| parse_string(map.get(*key)))
-}
-
-pub(super) fn find_first_string(value: &Value, keys: &[&str]) -> Option<String> {
-    match value {
-        Value::Object(map) => first_string(value, keys).or_else(|| {
-            map.values()
-                .find_map(|nested| find_first_string(nested, keys))
-        }),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_string(nested, keys)),
-        _ => None,
-    }
-}
-
-fn first_f64(value: &Value, keys: &[&str]) -> Option<f64> {
-    let map = value.as_object()?;
-    keys.iter().find_map(|key| parse_f64(map.get(*key)))
-}
-
-fn find_first_i64(value: &Value, keys: &[&str]) -> Option<i64> {
-    match value {
-        Value::Object(map) => keys
-            .iter()
-            .find_map(|key| parse_i64(map.get(*key)))
-            .or_else(|| map.values().find_map(|nested| find_first_i64(nested, keys))),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_i64(nested, keys)),
-        _ => None,
-    }
-}
-
-fn first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
-    let map = value.as_object()?;
-    keys.iter().find_map(|key| parse_date(map.get(*key)))
-}
-
-fn find_first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
-    match value {
-        Value::Object(map) => first_date(value, keys).or_else(|| {
-            map.values()
-                .find_map(|nested| find_first_date(nested, keys))
-        }),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_date(nested, keys)),
-        _ => None,
-    }
-}
-
-fn parse_string(value: Option<&Value>) -> Option<String> {
-    value?
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn parse_f64(value: Option<&Value>) -> Option<f64> {
-    match value? {
-        Value::Number(number) => number.as_f64(),
-        Value::String(text) => text.trim().replace(',', "").parse().ok(),
-        _ => None,
-    }
-}
-
-fn parse_i64(value: Option<&Value>) -> Option<i64> {
-    match value? {
-        Value::Number(number) => number.as_i64().or_else(|| {
-            // Quota/timestamp JSON floats are whole numbers; the fractional
-            // part is rounding noise from the upstream API.
-            let v = number.as_f64()?;
-            #[expect(clippy::cast_possible_truncation, reason = "quota/timestamp JSON floats are whole numbers; fractional part is rounding noise")]
-            let whole = v as i64;
-            Some(whole)
-        }),
-        Value::String(text) => text.trim().replace(',', "").parse().ok(),
-        _ => None,
-    }
-}
-
-fn parse_bool(value: Option<&Value>) -> Option<bool> {
-    match value? {
-        Value::Bool(flag) => Some(*flag),
-        Value::Number(number) => number.as_i64().map(|v| v != 0),
-        Value::String(text) => match text.trim().to_lowercase().as_str() {
-            "true" | "1" | "yes" | "active" | "valid" | "normal" => Some(true),
-            "false" | "0" | "no" | "inactive" | "invalid" | "expired" => Some(false),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn parse_date(value: Option<&Value>) -> Option<DateTime<Utc>> {
-    if let Some(raw) = parse_i64(value) {
-        if raw > 1_000_000_000_000 {
-            return Utc.timestamp_opt(raw / 1000, 0).single();
-        }
-        if raw > 1_000_000_000 {
-            return Utc.timestamp_opt(raw, 0).single();
-        }
-    }
-    let text = parse_string(value)?;
-    if let Ok(date) = DateTime::parse_from_rfc3339(&text) {
-        return Some(date.with_timezone(&Utc));
-    }
-    if let Ok(date) = NaiveDate::parse_from_str(&text, "%Y-%m-%d")
-        && let Some(date_time) = date.and_hms_opt(0, 0, 0)
-    {
-        return Some(date_time.and_utc());
-    }
-    for format in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"] {
-        if let Ok(date) = NaiveDateTime::parse_from_str(&text, format) {
-            return Some(date.and_utc());
-        }
-    }
-    None
-}
-
-fn active_signal_score(value: &Value) -> i32 {
-    let status = first_string(value, &["status", "instanceStatus", "state"])
-        .unwrap_or_default()
-        .to_uppercase();
-    if ["VALID", "ACTIVE", "NORMAL"].contains(&status.as_str()) {
-        return 3;
-    }
-    if [
-        "EXPIRED",
-        "INVALID",
-        "INACTIVE",
-        "DISABLED",
-        "TERMINATED",
-        "STOPPED",
-    ]
-    .contains(&status.as_str())
-    {
-        return -1;
-    }
-    parse_bool(
-        value
-            .as_object()
-            .and_then(|map| map.get("isActive").or_else(|| map.get("active"))),
-    )
-    .map(|active| if active { 3 } else { -1 })
-    .unwrap_or(0)
 }
 
 fn used_percent(used: Option<f64>, total: Option<f64>, remaining: Option<f64>) -> Option<f64> {
@@ -1007,150 +644,4 @@ fn payload_diagnostics(value: &Value) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn missing_bailian_cli_is_local_runtime_offline() {
-        let provider = AlibabaTokenPlanProvider::new();
-        let error = ProviderError::NotInstalled(
-            "Bailian CLI 'bl' is not installed or not on PATH.".to_string(),
-        );
-        assert_eq!(
-            provider.error_state_kind(&error),
-            crate::core::ProviderStateKind::LocalRuntimeOffline
-        );
-    }
-    #[test]
-    fn parses_token_plan_instance_payload() {
-        let payload = serde_json::json!({
-            "data": {
-                "tokenPlanInstanceInfo": {
-                    "commodityName": "Token Plan Pro",
-                    "quotaInfo": {
-                        "usedQuota": "1250",
-                        "totalQuota": "5000"
-                    },
-                    "nextRefreshTime": 1780763009000_i64
-                }
-            }
-        });
-        let snapshot =
-            AlibabaTokenPlanProvider::parse_usage_snapshot(payload.to_string().as_bytes()).unwrap();
-        assert_eq!(snapshot.plan_name.as_deref(), Some("Token Plan Pro"));
-        assert_eq!(snapshot.used_quota, Some(1250.0));
-        assert_eq!(snapshot.total_quota, Some(5000.0));
-
-        let usage = AlibabaTokenPlanProvider::snapshot_to_usage(snapshot).unwrap();
-        assert_eq!(usage.primary.used_percent, 25.0);
-        assert_eq!(
-            usage.primary.reset_description.as_deref(),
-            Some("1,250 / 5,000 credits used")
-        );
-        assert_eq!(usage.login_method.as_deref(), Some("Token Plan Pro"));
-    }
-
-    #[test]
-    fn expands_nested_string_payloads_and_uses_remaining_quota() {
-        let nested = serde_json::json!({
-            "successResponse": serde_json::json!({
-                "instances": [
-                    {"status": "EXPIRED", "quota": 1000, "remaining": 1000},
-                    {"status": "ACTIVE", "packageName": "Team", "quota": 1000, "remaining": 250}
-                ]
-            }).to_string()
-        });
-        let snapshot =
-            AlibabaTokenPlanProvider::parse_usage_snapshot(nested.to_string().as_bytes()).unwrap();
-        assert_eq!(snapshot.plan_name.as_deref(), Some("Team"));
-        assert_eq!(
-            used_percent(
-                snapshot.used_quota,
-                snapshot.total_quota,
-                snapshot.remaining_quota
-            ),
-            Some(75.0)
-        );
-    }
-
-    #[test]
-    fn parses_new_subscription_summary_payload() {
-        let payload = serde_json::json!({
-            "success": true,
-            "Data": {
-                "ProductName": "Token Plan Team",
-                "TotalValue": "1000000",
-                "TotalSurplusValue": "250000",
-                "NearestExpireDate": "2026-06-30"
-            }
-        });
-        let snapshot =
-            AlibabaTokenPlanProvider::parse_usage_snapshot(payload.to_string().as_bytes()).unwrap();
-        assert_eq!(snapshot.plan_name.as_deref(), Some("Token Plan Team"));
-        assert_eq!(snapshot.total_quota, Some(1_000_000.0));
-        assert_eq!(snapshot.remaining_quota, Some(250_000.0));
-        assert_eq!(
-            used_percent(
-                snapshot.used_quota,
-                snapshot.total_quota,
-                snapshot.remaining_quota
-            ),
-            Some(75.0)
-        );
-        assert!(snapshot.resets_at.is_some());
-    }
-
-    #[test]
-    fn detects_login_payloads() {
-        let err = AlibabaTokenPlanProvider::parse_usage_snapshot(
-            br#"{"code":"NeedLogin","message":"please login"}"#,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ProviderError::AuthRequired));
-    }
-
-    #[test]
-    fn extracts_sec_token_from_html_or_cookie() {
-        assert_eq!(
-            extract_sec_token(r#"<script>{"secToken":"abc123"}</script>"#).as_deref(),
-            Some("abc123")
-        );
-        assert_eq!(
-            extract_sec_token(
-                r#"<script>window.ALIYUN_CONSOLE_CONFIG = { SEC_TOKEN: "upper123" };</script>"#
-            )
-            .as_deref(),
-            Some("upper123")
-        );
-        assert_eq!(
-            cookie_value("sec_token", "foo=bar; sec_token=xyz"),
-            Some("xyz".to_string())
-        );
-    }
-
-    #[test]
-    fn sec_token_shell_referer_uses_same_origin_root() {
-        assert_eq!(
-            dashboard_referer(Region::CnPersonal),
-            "https://bailian.console.aliyun.com/"
-        );
-        assert_eq!(
-            dashboard_referer(Region::IntlPersonal),
-            "https://modelstudio.console.alibabacloud.com/"
-        );
-    }
-
-    #[test]
-    fn default_region_cn_team_urls_match_legacy() {
-        let region = Region::Cn;
-        assert_eq!(
-            AlibabaTokenPlanProvider::team_quota_url(region),
-            "https://bailian.console.aliyun.com/data/api.json?action=GetSubscriptionSummary&product=BssOpenAPI-V3&_tag="
-        );
-        assert_eq!(
-            AlibabaTokenPlanProvider::team_request_params(region),
-            serde_json::json!({"ProductCode": "sfm_tokenplanteams_dp_cn"}).to_string()
-        );
-        assert_eq!(region.current_region_id(), "cn-beijing");
-    }
-}
+mod tests;

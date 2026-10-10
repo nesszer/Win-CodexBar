@@ -135,28 +135,23 @@ impl BedrockProvider {
             if json_profile_name(&json).is_some() {
                 return None;
             }
-            let access_key_id = json
-                .get("access_key_id")
-                .or_else(|| json.get("accessKeyId"))
-                .or_else(|| json.get("AWS_ACCESS_KEY_ID"))
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())?;
-            let secret_access_key = json
-                .get("secret_access_key")
-                .or_else(|| json.get("secretAccessKey"))
-                .or_else(|| json.get("AWS_SECRET_ACCESS_KEY"))
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())?;
-            let session_token = json
-                .get("session_token")
-                .or_else(|| json.get("sessionToken"))
-                .or_else(|| json.get("AWS_SESSION_TOKEN"))
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(str::to_string);
+            let access_key_id = json_str(
+                &json,
+                &["access_key_id", "accessKeyId", "AWS_ACCESS_KEY_ID"],
+            )?;
+            let secret_access_key = json_str(
+                &json,
+                &[
+                    "secret_access_key",
+                    "secretAccessKey",
+                    "AWS_SECRET_ACCESS_KEY",
+                ],
+            )?;
+            let session_token = json_str(
+                &json,
+                &["session_token", "sessionToken", "AWS_SESSION_TOKEN"],
+            )
+            .map(str::to_string);
 
             return Some(AwsCredentials {
                 access_key_id: access_key_id.to_string(),
@@ -202,18 +197,14 @@ impl BedrockProvider {
     }
 
     fn credentials_from_env() -> Result<AwsCredentials, ProviderError> {
-        let access_key_id = cleaned_env("AWS_ACCESS_KEY_ID").ok_or_else(|| {
+        let missing = || {
             ProviderError::NotInstalled(
                 "AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
                     .to_string(),
             )
-        })?;
-        let secret_access_key = cleaned_env("AWS_SECRET_ACCESS_KEY").ok_or_else(|| {
-            ProviderError::NotInstalled(
-                "AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
-                    .to_string(),
-            )
-        })?;
+        };
+        let access_key_id = cleaned_env("AWS_ACCESS_KEY_ID").ok_or_else(missing)?;
+        let secret_access_key = cleaned_env("AWS_SECRET_ACCESS_KEY").ok_or_else(missing)?;
 
         Ok(AwsCredentials {
             access_key_id,
@@ -240,7 +231,7 @@ impl BedrockProvider {
     }
 
     fn credentials_from_profile(profile: &str) -> Result<AwsCredentials, ProviderError> {
-        let aws = aws_cli_path()?;
+        let aws = aws_cli_path();
         let mut command = std::process::Command::new(&aws);
         command
             .args([
@@ -360,41 +351,16 @@ impl BedrockProvider {
         region: &str,
     ) -> Result<BedrockClaudeActivity, ProviderError> {
         let endpoint = format!("https://monitoring.{region}.amazonaws.com");
-        let body_bytes = cloudwatch_request_body()?;
-        let body_hash = sha256_hex(&body_bytes);
-        let now = Utc::now();
-        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
-        let date_stamp = now.format("%Y%m%d").to_string();
-        let authorization = sign_authorization_for(
-            credentials,
-            AwsSigningRequest {
-                date_stamp: &date_stamp,
-                amz_date: &amz_date,
-                body_hash: &body_hash,
-                url: &endpoint,
-                body: &body_bytes,
-                target: CLOUDWATCH_TARGET,
+        let response = self
+            .signed_post(
+                credentials,
+                &endpoint,
+                cloudwatch_request_body()?,
+                CLOUDWATCH_TARGET,
                 region,
-                service: CLOUDWATCH_SERVICE,
-            },
-        )?;
-        let host = reqwest::Url::parse(&endpoint)
-            .ok()
-            .and_then(|u| u.host_str().map(str::to_string))
-            .unwrap_or_else(|| format!("monitoring.{region}.amazonaws.com"));
-        let mut request = self
-            .client
-            .post(endpoint)
-            .header("Content-Type", "application/x-amz-json-1.1")
-            .header("Host", host)
-            .header("X-Amz-Target", CLOUDWATCH_TARGET)
-            .header("X-Amz-Date", amz_date)
-            .header("x-amz-content-sha256", body_hash)
-            .header("Authorization", authorization);
-        if let Some(token) = &credentials.session_token {
-            request = request.header("X-Amz-Security-Token", token);
-        }
-        let response = request.body(body_bytes).send().await?;
+                CLOUDWATCH_SERVICE,
+            )
+            .await?;
         let status = response.status();
         let text = response.text().await?;
         if !status.is_success() {
@@ -418,49 +384,65 @@ impl BedrockProvider {
         granularity: &str,
         next_page_token: Option<&str>,
     ) -> Result<Value, ProviderError> {
-        let body_bytes = cost_request_body(start_date, end_date, granularity, next_page_token)?;
-        let body_hash = sha256_hex(&body_bytes);
-        let now = Utc::now();
-        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
-        let date_stamp = now.format("%Y%m%d").to_string();
-        let authorization = sign_authorization(
-            credentials,
-            &date_stamp,
-            &amz_date,
-            &body_hash,
-            COST_EXPLORER_URL,
-            &body_bytes,
-        )?;
-
+        let body = cost_request_body(start_date, end_date, granularity, next_page_token)?;
         let response = self
-            .signed_cost_request(credentials, amz_date, body_hash, authorization)
-            .body(body_bytes)
-            .send()
+            .signed_post(
+                credentials,
+                COST_EXPLORER_URL,
+                body,
+                COST_EXPLORER_TARGET,
+                SIGNING_REGION,
+                SERVICE,
+            )
             .await?;
         parse_cost_response(response).await
     }
 
-    fn signed_cost_request(
+    /// SigV4-signs `body` for `target` and POSTs it to `endpoint`.
+    async fn signed_post(
         &self,
         credentials: &AwsCredentials,
-        amz_date: String,
-        body_hash: String,
-        authorization: String,
-    ) -> reqwest::RequestBuilder {
-        let request = self
+        endpoint: &str,
+        body: Vec<u8>,
+        target: &str,
+        region: &str,
+        service: &str,
+    ) -> Result<reqwest::Response, ProviderError> {
+        let body_hash = sha256_hex(&body);
+        let now = Utc::now();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let date_stamp = now.format("%Y%m%d").to_string();
+        let authorization = sign_authorization_for(
+            credentials,
+            AwsSigningRequest {
+                date_stamp: &date_stamp,
+                amz_date: &amz_date,
+                body_hash: &body_hash,
+                url: endpoint,
+                body: &body,
+                target,
+                region,
+                service,
+            },
+        )?;
+        // The signer already rejected an unparseable endpoint.
+        let host = reqwest::Url::parse(endpoint)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .unwrap_or_default();
+        let mut request = self
             .client
-            .post(COST_EXPLORER_URL)
+            .post(endpoint)
             .header("Content-Type", "application/x-amz-json-1.1")
-            .header("Host", "ce.us-east-1.amazonaws.com")
-            .header("X-Amz-Target", COST_EXPLORER_TARGET)
+            .header("Host", host)
+            .header("X-Amz-Target", target)
             .header("X-Amz-Date", amz_date)
             .header("x-amz-content-sha256", body_hash)
             .header("Authorization", authorization);
-
-        match &credentials.session_token {
-            Some(token) => request.header("X-Amz-Security-Token", token),
-            None => request,
+        if let Some(token) = &credentials.session_token {
+            request = request.header("X-Amz-Security-Token", token);
         }
+        Ok(request.body(body).send().await?)
     }
 
     async fn fetch_via_api(
@@ -623,20 +605,23 @@ fn cleaned_env(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn json_profile_name(json: &Value) -> Option<String> {
-    json.get("profile")
-        .or_else(|| json.get("aws_profile"))
-        .or_else(|| json.get("AWS_PROFILE"))
-        .and_then(|v| v.as_str())
+/// Trimmed non-empty string under the first of `keys` present in `json`.
+fn json_str<'a>(json: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| json.get(*key))
+        .and_then(Value::as_str)
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .map(str::to_string)
 }
 
-fn aws_cli_path() -> Result<String, ProviderError> {
-    Ok(cleaned_env("CODEXBAR_AWS_CLI_PATH")
+fn json_profile_name(json: &Value) -> Option<String> {
+    json_str(json, &["profile", "aws_profile", "AWS_PROFILE"]).map(str::to_string)
+}
+
+fn aws_cli_path() -> String {
+    cleaned_env("CODEXBAR_AWS_CLI_PATH")
         .or_else(|| cleaned_env("AWS_CLI_PATH"))
-        .unwrap_or_else(|| "aws".to_string()))
+        .unwrap_or_else(|| "aws".to_string())
 }
 
 fn map_aws_profile_error(profile: &str, stderr: &str) -> ProviderError {
@@ -660,28 +645,14 @@ fn parse_aws_profile_credentials(stdout: &[u8]) -> Result<AwsCredentials, Provid
         ProviderError::Parse(format!("Failed to parse AWS CLI credentials output: {e}"))
     })?;
 
-    let access_key_id = json
-        .get("AccessKeyId")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            ProviderError::Parse("AWS CLI credentials output missing AccessKeyId".to_string())
-        })?;
-    let secret_access_key = json
-        .get("SecretAccessKey")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            ProviderError::Parse("AWS CLI credentials output missing SecretAccessKey".to_string())
-        })?;
-    let session_token = json
-        .get("SessionToken")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string);
+    let required = |key: &str| {
+        json_str(&json, &[key]).ok_or_else(|| {
+            ProviderError::Parse(format!("AWS CLI credentials output missing {key}"))
+        })
+    };
+    let access_key_id = required("AccessKeyId")?;
+    let secret_access_key = required("SecretAccessKey")?;
+    let session_token = json_str(&json, &["SessionToken"]).map(str::to_string);
 
     Ok(AwsCredentials {
         access_key_id: access_key_id.to_string(),
@@ -734,29 +705,6 @@ fn parse_bedrock_cost(page: &Value) -> f64 {
         .sum()
 }
 
-fn sign_authorization(
-    credentials: &AwsCredentials,
-    date_stamp: &str,
-    amz_date: &str,
-    body_hash: &str,
-    url: &str,
-    body: &[u8],
-) -> Result<String, ProviderError> {
-    sign_authorization_for(
-        credentials,
-        AwsSigningRequest {
-            date_stamp,
-            amz_date,
-            body_hash,
-            url,
-            body,
-            target: COST_EXPLORER_TARGET,
-            region: SIGNING_REGION,
-            service: SERVICE,
-        },
-    )
-}
-
 fn sign_authorization_for(
     credentials: &AwsCredentials,
     request: AwsSigningRequest<'_>,
@@ -764,25 +712,21 @@ fn sign_authorization_for(
     let parsed = reqwest::Url::parse(request.url)
         .map_err(|e| ProviderError::Other(format!("Invalid AWS endpoint URL: {e}")))?;
     let host = parsed.host_str().unwrap_or("ce.us-east-1.amazonaws.com");
-    let (canonical_headers, signed_headers) = if let Some(session_token) =
-        &credentials.session_token
-    {
-        (
-            format!(
-                "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{}\nx-amz-date:{}\nx-amz-security-token:{session_token}\nx-amz-target:{}\n",
-                request.body_hash, request.amz_date, request.target
-            ),
+    // The security token header sorts between x-amz-date and x-amz-target.
+    let (token_header, signed_headers) = match &credentials.session_token {
+        Some(token) => (
+            format!("x-amz-security-token:{token}\n"),
             "content-type;host;x-amz-content-sha256;x-amz-date;x-amz-security-token;x-amz-target",
-        )
-    } else {
-        (
-            format!(
-                "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{}\nx-amz-date:{}\nx-amz-target:{}\n",
-                request.body_hash, request.amz_date, request.target
-            ),
+        ),
+        None => (
+            String::new(),
             "content-type;host;x-amz-content-sha256;x-amz-date;x-amz-target",
-        )
+        ),
     };
+    let canonical_headers = format!(
+        "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-content-sha256:{}\nx-amz-date:{}\n{token_header}x-amz-target:{}\n",
+        request.body_hash, request.amz_date, request.target
+    );
     let canonical_request = [
         "POST",
         "/",
@@ -826,113 +770,4 @@ fn sanitized_body(body: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_bedrock_cost_only() {
-        let page = json!({
-            "ResultsByTime": [{
-                "Groups": [
-                    {
-                        "Keys": ["Amazon Bedrock"],
-                        "Metrics": { "UnblendedCost": { "Amount": "12.34" } }
-                    },
-                    {
-                        "Keys": ["Amazon S3"],
-                        "Metrics": { "UnblendedCost": { "Amount": "99.00" } }
-                    }
-                ]
-            }]
-        });
-        assert_eq!(parse_bedrock_cost(&page), 12.34);
-    }
-
-    #[test]
-    fn parses_cloudwatch_claude_activity() {
-        let activity = parse_claude_activity(&json!({
-            "MetricDataResults": [
-                {"Id": "input", "Values": [10, 15]},
-                {"Id": "output", "Values": [7]},
-                {"Id": "requests", "Values": [2, 3]}
-            ]
-        }));
-        assert_eq!(activity.input_tokens, 25.0);
-        assert_eq!(activity.output_tokens, 7.0);
-        assert_eq!(activity.request_count, 5.0);
-    }
-
-    #[test]
-    fn parses_context_credentials_from_json() {
-        let credentials = BedrockProvider::credentials_from_context(Some(
-            r#"{
-                "access_key_id": "AKIAEXAMPLE",
-                "secret_access_key": "secret",
-                "session_token": "session"
-            }"#,
-        ))
-        .expect("credentials");
-
-        assert_eq!(credentials.access_key_id, "AKIAEXAMPLE");
-        assert_eq!(credentials.secret_access_key, "secret");
-        assert_eq!(credentials.session_token.as_deref(), Some("session"));
-    }
-
-    #[test]
-    fn parses_context_credentials_from_colon_delimited_value() {
-        let credentials =
-            BedrockProvider::credentials_from_context(Some("AKIAEXAMPLE:secret:session"))
-                .expect("credentials");
-
-        assert_eq!(credentials.access_key_id, "AKIAEXAMPLE");
-        assert_eq!(credentials.secret_access_key, "secret");
-        assert_eq!(credentials.session_token.as_deref(), Some("session"));
-    }
-
-    #[test]
-    fn parses_profile_from_context_prefix() {
-        assert_eq!(
-            BedrockProvider::profile_from_context(Some("profile:production")).as_deref(),
-            Some("production")
-        );
-        assert!(BedrockProvider::credentials_from_context(Some("profile:production")).is_none());
-    }
-
-    #[test]
-    fn parses_profile_from_context_json() {
-        assert_eq!(
-            BedrockProvider::profile_from_context(Some(r#"{"aws_profile":"sso-dev"}"#)).as_deref(),
-            Some("sso-dev")
-        );
-        assert!(
-            BedrockProvider::credentials_from_context(Some(r#"{"aws_profile":"sso-dev"}"#))
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn parses_aws_cli_export_credentials_output() {
-        let credentials = parse_aws_profile_credentials(
-            br#"{
-                "Version": 1,
-                "AccessKeyId": "ASIAEXAMPLE",
-                "SecretAccessKey": "secret",
-                "SessionToken": "session"
-            }"#,
-        )
-        .expect("aws profile credentials");
-
-        assert_eq!(credentials.access_key_id, "ASIAEXAMPLE");
-        assert_eq!(credentials.secret_access_key, "secret");
-        assert_eq!(credentials.session_token.as_deref(), Some("session"));
-    }
-
-    #[test]
-    fn hmac_sha256_matches_rfc_4231_case_1() {
-        let digest = hmac_sha256(&[0x0b; 20], b"Hi There");
-        assert_eq!(
-            hex(&digest),
-            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
-        );
-    }
-}
+mod tests;

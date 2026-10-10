@@ -85,11 +85,10 @@ struct UsageResponse {
     unit: Option<String>,
     balance: Option<f64>,
     quota: Option<QuotaResponse>,
-    #[serde(default, rename = "rate_limits")]
+    #[serde(default)]
     rate_limits: Option<Vec<RateLimitResponse>>,
     subscription: Option<SubscriptionResponse>,
     usage: Option<UsageBlockResponse>,
-    #[serde(rename = "expires_at")]
     expires_at: Option<String>,
 }
 
@@ -107,25 +106,17 @@ struct RateLimitResponse {
     limit: f64,
     used: f64,
     remaining: f64,
-    #[serde(rename = "reset_at")]
     reset_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct SubscriptionResponse {
-    #[serde(rename = "daily_usage_usd")]
     daily_usage_usd: Option<f64>,
-    #[serde(rename = "weekly_usage_usd")]
     weekly_usage_usd: Option<f64>,
-    #[serde(rename = "monthly_usage_usd")]
     monthly_usage_usd: Option<f64>,
-    #[serde(rename = "daily_limit_usd")]
     daily_limit_usd: Option<f64>,
-    #[serde(rename = "weekly_limit_usd")]
     weekly_limit_usd: Option<f64>,
-    #[serde(rename = "monthly_limit_usd")]
     monthly_limit_usd: Option<f64>,
-    #[serde(rename = "expires_at")]
     expires_at: Option<String>,
 }
 
@@ -138,9 +129,7 @@ struct UsageBlockResponse {
 #[derive(Debug, Deserialize)]
 struct TotalsResponse {
     requests: Option<i64>,
-    #[serde(rename = "total_tokens")]
     total_tokens: Option<i64>,
-    #[serde(rename = "actual_cost")]
     actual_cost: Option<f64>,
 }
 
@@ -515,34 +504,17 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
                 ))
             } else if let Some(first) = parsed.rate_limits.first() {
                 // Rate-limit-only payload: promote the first window to primary.
-                UsageSnapshot::new(RateWindow::with_details(
-                    used_percent(first.used, first.limit),
-                    window_minutes(&first.window),
-                    first.reset_at,
-                    Some(amount_description(first.used, first.limit, &parsed.unit)),
-                ))
+                UsageSnapshot::new(rate_limit_window(first, &parsed.unit))
             } else {
                 UsageSnapshot::new(RateWindow::informational("Key quota"))
             };
             let skip_first_rate_limit = parsed.quota.is_none() && !parsed.rate_limits.is_empty();
-            for (idx, rate_limit) in parsed.rate_limits.iter().enumerate() {
-                if skip_first_rate_limit && idx == 0 {
-                    continue;
-                }
-                snap = snap.with_extra_rate_window(
-                    rate_limit.window.clone(),
-                    rate_limit_title(&rate_limit.window),
-                    RateWindow::with_details(
-                        used_percent(rate_limit.used, rate_limit.limit),
-                        window_minutes(&rate_limit.window),
-                        rate_limit.reset_at,
-                        Some(amount_description(
-                            rate_limit.used,
-                            rate_limit.limit,
-                            &parsed.unit,
-                        )),
-                    ),
-                );
+            for rate_limit in parsed
+                .rate_limits
+                .iter()
+                .skip(usize::from(skip_first_rate_limit))
+            {
+                snap = with_rate_limit_extra(snap, rate_limit, &parsed.unit);
             }
             snap
         }
@@ -560,39 +532,18 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
         }
         Kind::Unknown => {
             // Prefer any totals over a blank "No quota data" row.
-            if let Some(today) = &parsed.today {
-                UsageSnapshot::new(RateWindow::informational(totals_description(
-                    today,
-                    &parsed.unit,
-                )))
-            } else if let Some(total) = &parsed.total {
-                UsageSnapshot::new(RateWindow::informational(totals_description(
-                    total,
-                    &parsed.unit,
-                )))
-            } else {
-                UsageSnapshot::new(RateWindow::informational("No quota data"))
-            }
+            let description = parsed.today.as_ref().or(parsed.total.as_ref()).map_or_else(
+                || "No quota data".to_string(),
+                |t| totals_description(t, &parsed.unit),
+            );
+            UsageSnapshot::new(RateWindow::informational(description))
         }
     };
 
     // Rate-limit extras for subscription/wallet kinds that also ship them.
     if kind != Kind::KeyQuota {
         for rate_limit in &parsed.rate_limits {
-            snapshot = snapshot.with_extra_rate_window(
-                rate_limit.window.clone(),
-                rate_limit_title(&rate_limit.window),
-                RateWindow::with_details(
-                    used_percent(rate_limit.used, rate_limit.limit),
-                    window_minutes(&rate_limit.window),
-                    rate_limit.reset_at,
-                    Some(amount_description(
-                        rate_limit.used,
-                        rate_limit.limit,
-                        &parsed.unit,
-                    )),
-                ),
-            );
+            snapshot = with_rate_limit_extra(snapshot, rate_limit, &parsed.unit);
         }
     }
 
@@ -657,6 +608,27 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
         result = result.with_cost(cost);
     }
     result
+}
+
+fn rate_limit_window(rate_limit: &ParsedRateLimit, unit: &str) -> RateWindow {
+    RateWindow::with_details(
+        used_percent(rate_limit.used, rate_limit.limit),
+        window_minutes(&rate_limit.window),
+        rate_limit.reset_at,
+        Some(amount_description(rate_limit.used, rate_limit.limit, unit)),
+    )
+}
+
+fn with_rate_limit_extra(
+    snapshot: UsageSnapshot,
+    rate_limit: &ParsedRateLimit,
+    unit: &str,
+) -> UsageSnapshot {
+    snapshot.with_extra_rate_window(
+        rate_limit.window.clone(),
+        rate_limit_title(&rate_limit.window),
+        rate_limit_window(rate_limit, unit),
+    )
 }
 
 fn classify_usage_kind(parsed: &ParsedUsage) -> Kind {
@@ -773,284 +745,4 @@ fn totals_description(totals: &ParsedTotals, unit: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_quota_limited_key_usage() {
-        let json = r#"
-        {
-          "mode": "quota_limited",
-          "isValid": true,
-          "status": "active",
-          "remaining": 75,
-          "unit": "USD",
-          "quota": {
-            "limit": 100,
-            "used": 25,
-            "remaining": 75,
-            "unit": "USD"
-          },
-          "rate_limits": [
-            {
-              "window": "5h",
-              "limit": 20,
-              "used": 5,
-              "remaining": 15,
-              "reset_at": "2026-07-11T12:30:00Z"
-            },
-            {
-              "window": "7d",
-              "limit": 200,
-              "used": 40,
-              "remaining": 160
-            }
-          ],
-          "expires_at": "2026-08-01T00:00:00Z",
-          "usage": {
-            "today": {
-              "requests": 4,
-              "total_tokens": 1200,
-              "actual_cost": 1.25
-            },
-            "total": {
-              "requests": 40,
-              "total_tokens": 12000,
-              "actual_cost": 25
-            }
-          }
-        }
-        "#;
-
-        let parsed = parse_usage_body(json).unwrap();
-        assert_eq!(parsed.mode, "quota_limited");
-        assert_eq!(parsed.quota.as_ref().unwrap().remaining, 75.0);
-        assert_eq!(parsed.rate_limits.len(), 2);
-        assert_eq!(parsed.today.as_ref().unwrap().total_tokens, 1200);
-
-        let result = snapshot_from_parsed(parsed);
-        assert!((result.usage.primary.used_percent - 25.0).abs() < f64::EPSILON);
-        assert!(result.cost.is_none());
-        assert!(
-            result
-                .usage
-                .extra_rate_windows
-                .iter()
-                .any(|w| w.id == "5h" && w.window.window_minutes == Some(300))
-        );
-        assert!(result.usage.extra_rate_windows.iter().any(|w| {
-            w.id == "today"
-                && w.window
-                    .reset_description
-                    .as_deref()
-                    .is_some_and(|d| d.contains("1200 tokens"))
-        }));
-        assert!(
-            result
-                .usage
-                .extra_rate_windows
-                .iter()
-                .any(|w| w.id == "expires")
-        );
-    }
-
-    #[test]
-    fn parses_subscription_usage_windows() {
-        let json = r#"
-        {
-          "mode": "unrestricted",
-          "isValid": true,
-          "planName": "Claude Team",
-          "remaining": 8,
-          "unit": "USD",
-          "subscription": {
-            "daily_usage_usd": 2,
-            "weekly_usage_usd": 10,
-            "monthly_usage_usd": 30,
-            "daily_limit_usd": 10,
-            "weekly_limit_usd": 40,
-            "monthly_limit_usd": 100,
-            "expires_at": "2026-08-15T00:00:00.123Z"
-          }
-        }
-        "#;
-
-        let result = snapshot_from_parsed(parse_usage_body(json).unwrap());
-        assert!((result.usage.primary.used_percent - 20.0).abs() < f64::EPSILON);
-        assert!(
-            (result.usage.secondary.as_ref().unwrap().used_percent - 25.0).abs() < f64::EPSILON
-        );
-        assert!((result.usage.tertiary.as_ref().unwrap().used_percent - 30.0).abs() < f64::EPSILON);
-        assert!(result.usage.account_organization.is_none());
-        assert_eq!(
-            result.usage.login_method.as_deref(),
-            Some("Claude Team (unrestricted)")
-        );
-        assert!(
-            result
-                .usage
-                .extra_rate_windows
-                .iter()
-                .any(|w| w.id == "expires")
-        );
-    }
-
-    #[test]
-    fn subscription_without_limits_shows_usage_not_empty() {
-        let json = r#"
-        {
-          "mode": "unrestricted",
-          "planName": "Soft plan",
-          "unit": "USD",
-          "subscription": {
-            "daily_usage_usd": 2.5,
-            "weekly_usage_usd": 10,
-            "monthly_usage_usd": 30
-          },
-          "balance": 12.0
-        }
-        "#;
-        let result = snapshot_from_parsed(parse_usage_body(json).unwrap());
-        assert!(result.usage.primary.is_informational);
-        assert!(
-            result
-                .usage
-                .primary
-                .reset_description
-                .as_deref()
-                .is_some_and(|d| d.contains("$2.50") && d.contains("day"))
-        );
-        assert!(result.cost.is_some());
-        assert_eq!(result.cost.as_ref().unwrap().limit, Some(12.0));
-        assert!(result.usage.account_organization.is_none());
-        assert!(
-            result
-                .usage
-                .login_method
-                .as_deref()
-                .is_some_and(|m| m.starts_with("Soft plan"))
-        );
-    }
-
-    #[test]
-    fn preserves_authoritative_subscription_windows() {
-        let json = r#"
-        {
-          "mode": "unrestricted",
-          "subscription": {
-            "daily_usage_usd": 120.23,
-            "weekly_usage_usd": 229.20,
-            "monthly_usage_usd": 1296.23,
-            "daily_limit_usd": 120,
-            "weekly_limit_usd": 700,
-            "monthly_limit_usd": 2800
-          }
-        }
-        "#;
-
-        let result = snapshot_from_parsed(parse_usage_body(json).unwrap());
-        assert!((result.usage.primary.used_percent - 100.0).abs() < f64::EPSILON);
-        assert!(
-            (result.usage.secondary.as_ref().unwrap().used_percent - (229.20 / 700.0 * 100.0))
-                .abs()
-                < 0.001
-        );
-        assert_eq!(
-            result.usage.primary.reset_description.as_deref(),
-            Some("$120.23 / $120.00")
-        );
-        assert_eq!(
-            result
-                .usage
-                .secondary
-                .as_ref()
-                .and_then(|w| w.reset_description.as_deref()),
-            Some("$229.20 / $700.00")
-        );
-    }
-
-    #[test]
-    fn parses_wallet_balance_only() {
-        let json = r#"
-        {
-          "mode": "unrestricted",
-          "isValid": true,
-          "planName": "Wallet plan",
-          "remaining": 42.5,
-          "unit": "USD",
-          "balance": 42.5
-        }
-        "#;
-
-        let result = snapshot_from_parsed(parse_usage_body(json).unwrap());
-        assert!(result.usage.primary.is_informational);
-        assert_eq!(
-            result.usage.primary.reset_description.as_deref(),
-            Some("$42.50 balance")
-        );
-        assert_eq!(
-            result.usage.login_method.as_deref(),
-            Some("Wallet plan (unrestricted)")
-        );
-        let cost = result.cost.unwrap();
-        assert_eq!(cost.limit, Some(42.5));
-        assert_eq!(cost.period, "balance");
-    }
-
-    #[test]
-    fn invalid_credentials_flag_is_detected() {
-        let json = r#"{"mode":"unrestricted","isValid":false}"#;
-        let parsed = parse_usage_body(json).unwrap();
-        assert!(!parsed.is_valid);
-    }
-
-    #[test]
-    fn usage_url_accepts_root_versioned_and_complete_urls() {
-        let root = Url::parse("https://api.example.com").unwrap();
-        assert_eq!(
-            usage_url(&root).unwrap().as_str(),
-            "https://api.example.com/v1/usage"
-        );
-
-        let versioned = Url::parse("https://api.example.com/v1").unwrap();
-        assert_eq!(
-            usage_url(&versioned).unwrap().as_str(),
-            "https://api.example.com/v1/usage"
-        );
-
-        let complete = Url::parse("https://api.example.com/v1/usage").unwrap();
-        assert_eq!(
-            usage_url(&complete).unwrap().as_str(),
-            "https://api.example.com/v1/usage"
-        );
-    }
-
-    #[test]
-    fn settings_allow_https_and_loopback_http_only() {
-        assert!(validated_sub2api_base_url("https://api.example.com").is_ok());
-        assert!(validated_sub2api_base_url("http://127.0.0.1:8080").is_ok());
-        assert!(validated_sub2api_base_url("http://api.example.com").is_err());
-        assert!(validated_sub2api_base_url("https://user:pass@api.example.com").is_err());
-        assert!(validated_sub2api_base_url("https://api.example.com?token=secret").is_err());
-        assert!(validated_sub2api_base_url("https://api.example.com#fragment").is_err());
-    }
-
-    #[test]
-    fn cleans_quoted_env_values() {
-        assert_eq!(
-            clean_env_value("  \"sk-test\"  ").as_deref(),
-            Some("sk-test")
-        );
-        assert_eq!(clean_env_value("''"), None);
-    }
-
-    #[test]
-    fn usage_request_includes_days_and_timezone() {
-        let base = Url::parse("https://api.example.com").unwrap();
-        let url = usage_request_url(&base).unwrap();
-        let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
-        assert_eq!(query.get("days").map(String::as_str), Some("30"));
-        assert!(query.contains_key("timezone"));
-        assert!(!query.get("timezone").unwrap().is_empty());
-    }
-}
+mod tests;

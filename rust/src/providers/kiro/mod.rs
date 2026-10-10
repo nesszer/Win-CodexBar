@@ -3,25 +3,18 @@
 //! Fetches usage data from Kiro (Amazon's AI coding assistant)
 //! Uses kiro-cli for authentication and usage fetching
 
+mod cli_path;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
-pub mod version;
 
-// Re-exports for version compatibility checking
-#[allow(
-    unused_imports,
-    reason = "imports needed for future Kiro provider wiring"
-)]
-pub use version::{
-    KiroVersion, detect_version, find_kiro_cli, get_version, is_compatible, is_installed,
-};
+pub use cli_path::find_kiro_cli;
 
 use async_trait::async_trait;
 use chrono::Datelike;
 use regex_lite::Regex;
-use std::path::PathBuf;
-use std::process::Stdio;
+use std::path::Path;
+use std::process::{Output, Stdio};
 use tokio::process::Command;
 
 use crate::core::{
@@ -52,45 +45,31 @@ impl KiroProvider {
         Self
     }
 
-    /// Get Kiro config directory
-    fn get_kiro_config_path() -> Option<PathBuf> {
-        #[cfg(target_os = "windows")]
-        {
-            dirs::config_dir().map(|p| p.join("Kiro"))
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            dirs::home_dir().map(|p| p.join(".kiro"))
-        }
-    }
-
-    /// Find Kiro CLI binary
-    fn which_kiro() -> Option<PathBuf> {
-        version::find_kiro_cli()
-    }
-
-    /// Check if user is logged in by running `kiro-cli whoami`
-    async fn ensure_logged_in(&self) -> Result<(), ProviderError> {
-        let cli_path = Self::which_kiro().ok_or_else(|| {
-            ProviderError::NotInstalled(
-                "kiro-cli not found. Install from https://kiro.dev".to_string(),
-            )
-        })?;
-
+    /// Runs `kiro-cli` with piped output and no console window.
+    async fn run_kiro(
+        cli_path: &Path,
+        args: &[&str],
+        env: &[(&str, &str)],
+    ) -> Result<Output, ProviderError> {
         #[cfg(windows)]
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        let mut cmd = Command::new(&cli_path);
-        cmd.arg("whoami")
+        let mut cmd = Command::new(cli_path);
+        cmd.args(args)
+            .envs(env.iter().copied())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
-        let output = cmd
-            .output()
+        cmd.output()
             .await
-            .map_err(|e| ProviderError::Other(format!("Failed to run kiro-cli: {}", e)))?;
+            .map_err(|e| ProviderError::Other(format!("Failed to run kiro-cli: {}", e)))
+    }
+
+    /// Check if user is logged in by running `kiro-cli whoami`
+    async fn ensure_logged_in(cli_path: &Path) -> Result<(), ProviderError> {
+        let output = Self::run_kiro(cli_path, &["whoami"], &[]).await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
         let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
@@ -112,31 +91,22 @@ impl KiroProvider {
 
     /// Fetch usage via kiro-cli
     async fn fetch_via_cli(&self) -> Result<UsageSnapshot, ProviderError> {
-        // First ensure we're logged in
-        self.ensure_logged_in().await?;
+        let cli_path = cli_path::find_kiro_cli().ok_or_else(|| {
+            ProviderError::NotInstalled(
+                "kiro-cli not found. Install from https://kiro.dev".to_string(),
+            )
+        })?;
+        Self::ensure_logged_in(&cli_path).await?;
 
-        let cli_path = Self::which_kiro()
-            .ok_or_else(|| ProviderError::NotInstalled("kiro-cli not found".to_string()))?;
-
-        // Run the usage command.
         // Windows intentionally uses pipe-first (stdout/stderr Stdio::piped) rather than a dual
         // ConPTY path: kiro-cli `/usage` under --no-interactive emits parseable text on pipes, and
         // a second ConPTY probe would add flaky process-lifetime cost without better quota data.
-        #[cfg(windows)]
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-        let mut cmd = Command::new(&cli_path);
-        cmd.args(["chat", "--no-interactive", "/usage"])
-            .env("TERM", "xterm-256color")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| ProviderError::Other(format!("Failed to run kiro-cli: {}", e)))?;
+        let output = Self::run_kiro(
+            &cli_path,
+            &["chat", "--no-interactive", "/usage"],
+            &[("TERM", "xterm-256color")],
+        )
+        .await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);

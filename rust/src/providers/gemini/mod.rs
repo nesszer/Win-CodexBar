@@ -9,7 +9,6 @@ use async_trait::async_trait;
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, SourceMode,
-    UsageSnapshot,
 };
 
 pub use api::GeminiApi;
@@ -43,18 +42,7 @@ impl Provider for GeminiProvider {
         tracing::debug!("Fetching Gemini usage via API");
 
         match self.api.fetch_quota(ctx).await {
-            Ok((primary, model_specific, email, plan)) => {
-                let mut usage = UsageSnapshot::new(primary);
-                if let Some(ms) = model_specific {
-                    usage = usage.with_model_specific(ms);
-                }
-                if let Some(e) = email {
-                    usage = usage.with_email(e);
-                }
-                usage = usage.with_login_method(plan.unwrap_or_else(|| "Gemini CLI".to_string()));
-
-                Ok(ProviderFetchResult::new(usage, "cli"))
-            }
+            Ok(usage) => Ok(ProviderFetchResult::new(usage, "cli")),
             Err(e) => {
                 tracing::warn!("Gemini API fetch failed: {}", e);
                 Err(e)

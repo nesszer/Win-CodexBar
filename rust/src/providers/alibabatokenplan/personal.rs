@@ -7,9 +7,9 @@ use uuid::Uuid;
 use super::region::AlibabaTokenPlanRegion;
 use super::{
     LANGUAGE, PERSONAL_CONSOLE_PRODUCT, PERSONAL_QUOTA_CONFIG_API, PERSONAL_SUBSCRIPTION_API,
-    PERSONAL_USAGE_API, TokenPlanSnapshot, USER_AGENT, cookie_value, date_field,
-    expand_json_strings, find_object_containing_any_of, is_likely_login_html, number_field,
-    percentage_points, throw_if_error_payload,
+    PERSONAL_USAGE_API, TokenPlanSnapshot, cookie_value, date_field, decode_console_payload,
+    deep_find, expand_json_strings, find_object_containing_any_of, number_field, percentage_points,
+    push_sec_token, send_console_form,
 };
 use crate::core::{FetchContext, ProviderError};
 
@@ -66,10 +66,12 @@ pub(super) async fn fetch_personal_usage(
         Value::String(region.product_code().to_string()),
     );
     let subscription_body =
-        post_personal_api_optional(&context, PERSONAL_SUBSCRIPTION_API, subscription_params).await;
-
-    let quota_config_body =
-        post_personal_api_optional(&context, PERSONAL_QUOTA_CONFIG_API, Map::new()).await;
+        post_personal_api(&context, PERSONAL_SUBSCRIPTION_API, subscription_params)
+            .await
+            .ok();
+    let quota_config_body = post_personal_api(&context, PERSONAL_QUOTA_CONFIG_API, Map::new())
+        .await
+        .ok();
 
     const MAX_USAGE_ATTEMPTS: usize = 3;
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
@@ -84,7 +86,7 @@ pub(super) async fn fetch_personal_usage(
             quota_config_body.as_deref(),
         ) {
             Ok(snapshot) => return Ok(snapshot),
-            Err(error) if personal_usage_success_without_windows(&usage_body) => {
+            Err(_) if personal_usage_success_without_windows(&usage_body) => {
                 tracing::info!(
                     attempt = attempt + 1,
                     max_attempts = MAX_USAGE_ATTEMPTS,
@@ -96,7 +98,6 @@ pub(super) async fn fetch_personal_usage(
                             .into(),
                     ));
                 }
-                let _ = error;
             }
             Err(error) => return Err(error),
         }
@@ -144,49 +145,21 @@ async fn post_personal_api(
         context.sec_token,
     );
 
-    let mut request = context
+    let request = context
         .client
         .post(&url)
         .timeout(std::time::Duration::from_secs(
             context.fetch_context.web_timeout.max(1),
-        ))
-        .header("Cookie", context.cookie_header)
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Origin", context.region.gateway_base_url())
-        .header("Referer", context.region.dashboard_url())
-        .header("User-Agent", USER_AGENT)
-        .header("X-Requested-With", "XMLHttpRequest")
-        .form(&form);
-
-    if let Some(csrf) = cookie_value("login_aliyunid_csrf", context.cookie_header)
-        .or_else(|| cookie_value("csrf", context.cookie_header))
-    {
-        request = request
-            .header("x-xsrf-token", csrf.clone())
-            .header("x-csrf-token", csrf);
-    }
-
-    let response = request.send().await?;
-    let status = response.status();
-    let body = response.bytes().await?;
-    if !status.is_success() {
-        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-            return Err(ProviderError::AuthRequired);
-        }
-        return Err(ProviderError::Other(format!(
-            "Alibaba Token Plan Personal API error: HTTP {status}"
-        )));
-    }
-    Ok(body.to_vec())
-}
-
-async fn post_personal_api_optional(
-    context: &PersonalApiContext<'_>,
-    api: &str,
-    data_parameters: Map<String, Value>,
-) -> Option<Vec<u8>> {
-    post_personal_api(context, api, data_parameters).await.ok()
+        ));
+    send_console_form(
+        request,
+        context.cookie_header,
+        context.region,
+        "application/json, text/plain, */*",
+        &form,
+        "Alibaba Token Plan Personal",
+    )
+    .await
 }
 
 fn build_personal_form(
@@ -204,9 +177,7 @@ fn build_personal_form(
         ("language", LANGUAGE.to_string()),
         ("params", params_json),
     ];
-    if let Some(token) = sec_token.filter(|token| !token.trim().is_empty()) {
-        form.push(("sec_token", token.to_string()));
-    }
+    push_sec_token(&mut form, sec_token);
     form
 }
 
@@ -233,31 +204,26 @@ fn build_personal_params_json(
         .next()
         .unwrap_or_default();
 
-    let mut cornerstone = Map::new();
-    cornerstone.insert(
-        "feTraceId".into(),
-        Value::String(Uuid::new_v4().to_string().to_lowercase()),
-    );
-    cornerstone.insert("feURL".into(), Value::String(dashboard.to_string()));
-    cornerstone.insert("protocol".into(), Value::String("V2".into()));
-    cornerstone.insert("console".into(), Value::String("ONE_CONSOLE".into()));
-    cornerstone.insert("productCode".into(), Value::String("p_efm".into()));
-    // Let the gateway resolve the Personal/Solo session workspace. A captured
-    // Teams switchAgent is workspace-bound and rejects other accounts.
-    cornerstone.insert("switchUserType".into(), json!(3));
-    cornerstone.insert("domain".into(), Value::String(domain.to_string()));
-    cornerstone.insert(
-        "consoleSite".into(),
-        Value::String(region.personal_console_site().to_string()),
-    );
-    cornerstone.insert("userNickName".into(), Value::String(String::new()));
-    cornerstone.insert("userPrincipalName".into(), Value::String(String::new()));
-    cornerstone.insert("xsp_lang".into(), Value::String(LANGUAGE.into()));
+    let mut cornerstone = json!({
+        "feTraceId": Uuid::new_v4().to_string().to_lowercase(),
+        "feURL": dashboard,
+        "protocol": "V2",
+        "console": "ONE_CONSOLE",
+        "productCode": "p_efm",
+        // Let the gateway resolve the Personal/Solo session workspace. A captured
+        // Teams switchAgent is workspace-bound and rejects other accounts.
+        "switchUserType": 3,
+        "domain": domain,
+        "consoleSite": region.personal_console_site(),
+        "userNickName": "",
+        "userPrincipalName": "",
+        "xsp_lang": LANGUAGE,
+    });
     if let Some(cna) = cookie_value("cna", cookie_header) {
-        cornerstone.insert("X-Anonymous-Id".into(), Value::String(cna));
+        cornerstone["X-Anonymous-Id"] = Value::String(cna);
     }
 
-    data_parameters.insert("cornerstoneParam".into(), Value::Object(cornerstone));
+    data_parameters.insert("cornerstoneParam".into(), cornerstone);
 
     json!({
         "Api": api,
@@ -272,22 +238,7 @@ pub(super) fn parse_personal_usage(
     subscription_data: Option<&[u8]>,
     quota_config_data: Option<&[u8]>,
 ) -> Result<TokenPlanSnapshot, ProviderError> {
-    if usage_data.is_empty() {
-        return Err(ProviderError::Parse(
-            "Empty Alibaba Token Plan Personal response".into(),
-        ));
-    }
-
-    let value: Value = serde_json::from_slice(usage_data).map_err(|_| {
-        if is_likely_login_html(usage_data) {
-            ProviderError::AuthRequired
-        } else {
-            ProviderError::Parse("Invalid Alibaba Token Plan Personal JSON response".into())
-        }
-    })?;
-    let expanded = expand_json_strings(value);
-    throw_if_error_payload(&expanded)?;
-
+    let expanded = decode_console_payload(usage_data, "Alibaba Token Plan Personal")?;
     personal_usage_snapshot(
         &expanded,
         subscription_data,
@@ -439,19 +390,7 @@ fn quota_totals_from_bytes(data: &[u8], plan_code: &str) -> Option<QuotaTotals> 
 }
 
 fn find_first_value_for_key(value: &Value, key: &str) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if let Some(nested) = map.get(key) {
-                return Some(nested.clone());
-            }
-            map.values()
-                .find_map(|nested| find_first_value_for_key(nested, key))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_value_for_key(nested, key)),
-        _ => None,
-    }
+    deep_find(value, &|node| node.as_object()?.get(key).cloned())
 }
 
 #[cfg(test)]
@@ -504,72 +443,110 @@ mod tests {
         assert_eq!(cornerstone.get("switchUserType"), Some(&json!(3)));
     }
 
+    /// Pins the whole personal `params` payload, including the console domain
+    /// taken from the region's dashboard URL and the optional `cna` id.
     #[test]
-    fn nested_workspace_error_surfaces_real_code_without_auth_eviction() {
-        let payload = json!({
-            "code": "200",
-            "successResponse": true,
-            "data": {
-                "success": false,
-                "httpStatus": 200,
-                "errorCode": "BailianGateway.Workspace.NotAuthorised"
+    fn personal_params_json_wraps_data_with_cornerstone_fields() {
+        for (region, cookie, domain, site, anonymous_id) in [
+            (
+                AlibabaTokenPlanRegion::CnPersonal,
+                "cna=anon-1; other=x",
+                "bailian.console.aliyun.com",
+                "BAILIAN_ALIYUN",
+                Some("anon-1"),
+            ),
+            (
+                AlibabaTokenPlanRegion::IntlPersonal,
+                "other=x",
+                "modelstudio.console.alibabacloud.com",
+                "MODELSTUDIO_ALBABACLOUD",
+                None,
+            ),
+        ] {
+            let mut data = Map::new();
+            data.insert("commodityCode".into(), json!("test-code"));
+            let params = build_personal_params_json(PERSONAL_USAGE_API, data, cookie, region);
+            let value: Value = serde_json::from_str(&params).unwrap();
+            let trace = value["Data"]["cornerstoneParam"]["feTraceId"]
+                .as_str()
+                .unwrap();
+            assert_eq!(trace.len(), 36);
+            assert_eq!(trace, trace.to_lowercase());
+            let mut cornerstone = json!({
+                "feTraceId": trace,
+                "feURL": region.dashboard_url(),
+                "protocol": "V2",
+                "console": "ONE_CONSOLE",
+                "productCode": "p_efm",
+                "switchUserType": 3,
+                "domain": domain,
+                "consoleSite": site,
+                "userNickName": "",
+                "userPrincipalName": "",
+                "xsp_lang": "en-US",
+            });
+            if let Some(id) = anonymous_id {
+                cornerstone["X-Anonymous-Id"] = json!(id);
             }
-        });
-
-        let error =
-            crate::providers::alibabatokenplan::throw_if_error_payload(&payload).unwrap_err();
-        assert!(matches!(
-            error,
-            ProviderError::Other(message)
-                if message.contains("BailianGateway.Workspace.NotAuthorised")
-        ));
+            let expected = json!({
+                "Api": PERSONAL_USAGE_API,
+                "V": "1.0",
+                "Data": {"commodityCode": "test-code", "cornerstoneParam": cornerstone},
+            });
+            assert_eq!(params, expected.to_string());
+        }
     }
 
     #[test]
-    fn nested_gateway_error_prefers_error_message() {
-        let payload = json!({
-            "code": "200",
-            "successResponse": true,
-            "data": {
-                "success": false,
-                "httpStatus": 200,
-                "errorCode": "BailianGateway.Quota.ServiceUnavailable",
-                "errorMsg": "quota service unavailable"
-            }
-        });
-
-        let error =
-            crate::providers::alibabatokenplan::throw_if_error_payload(&payload).unwrap_err();
-        assert!(matches!(
-            error,
-            ProviderError::Other(message) if message.contains("quota service unavailable")
-        ));
+    fn nested_gateway_errors_surface_without_auth_eviction() {
+        // (data frame, expected message fragment): the message wins over the code.
+        for (data, expected) in [
+            (
+                json!({
+                    "success": false,
+                    "httpStatus": 200,
+                    "errorCode": "BailianGateway.Workspace.NotAuthorised"
+                }),
+                "BailianGateway.Workspace.NotAuthorised",
+            ),
+            (
+                json!({
+                    "success": false,
+                    "httpStatus": 200,
+                    "errorCode": "BailianGateway.Quota.ServiceUnavailable",
+                    "errorMsg": "quota service unavailable"
+                }),
+                "quota service unavailable",
+            ),
+        ] {
+            let payload = json!({"code": "200", "successResponse": true, "data": data});
+            let error =
+                crate::providers::alibabatokenplan::throw_if_error_payload(&payload).unwrap_err();
+            assert!(
+                matches!(&error, ProviderError::Other(message) if message.contains(expected)),
+                "{error:?}"
+            );
+        }
     }
 
     #[test]
-    fn success_envelope_without_windows_is_transient() {
-        let payload = json!({
-            "code": "SUCCESS",
-            "successResponse": true,
-            "errorCode": "",
-            "data": {"success": true, "httpStatus": 200}
-        });
-        assert!(personal_usage_success_without_windows(
-            payload.to_string().as_bytes()
-        ));
-    }
-
-    #[test]
-    fn success_envelope_with_windows_is_not_transient() {
-        let payload = json!({
-            "code": "SUCCESS",
-            "successResponse": true,
-            "errorCode": "",
-            "data": {"per5HourPercentage": 0.5}
-        });
-        assert!(!personal_usage_success_without_windows(
-            payload.to_string().as_bytes()
-        ));
+    fn success_envelope_is_transient_only_without_windows() {
+        for (data, transient) in [
+            (json!({"success": true, "httpStatus": 200}), true),
+            (json!({"per5HourPercentage": 0.5}), false),
+        ] {
+            let payload = json!({
+                "code": "SUCCESS",
+                "successResponse": true,
+                "errorCode": "",
+                "data": data
+            });
+            assert_eq!(
+                personal_usage_success_without_windows(payload.to_string().as_bytes()),
+                transient,
+                "{payload}"
+            );
+        }
     }
 
     #[test]

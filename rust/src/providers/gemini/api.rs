@@ -2,7 +2,7 @@
 //!
 //! Uses Google Cloud Code Private API with OAuth tokens from ~/.gemini/oauth_creds.json
 
-use crate::core::{FetchContext, ProviderError, RateWindow};
+use crate::core::{FetchContext, ProviderError, RateWindow, UsageSnapshot};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -26,20 +26,8 @@ impl GeminiApi {
     }
 
     /// Fetch quota information from the Gemini API
-    /// Returns (primary RateWindow, optional model-specific RateWindow, optional email, optional plan)
     /// Note: Gemini quota API requires OAuth tokens, not API keys
-    pub async fn fetch_quota(
-        &self,
-        _ctx: &FetchContext,
-    ) -> Result<
-        (
-            RateWindow,
-            Option<RateWindow>,
-            Option<String>,
-            Option<String>,
-        ),
-        ProviderError,
-    > {
+    pub async fn fetch_quota(&self, _ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
         // Gemini quota endpoint requires OAuth credentials (not API keys)
         // Always load OAuth credentials from ~/.gemini/oauth_creds.json
         let mut creds = self.load_credentials()?;
@@ -99,7 +87,14 @@ impl GeminiApi {
             self.parse_quota_response(quota_response, Some(&creds))?;
         let plan = resolve_account_plan(&code_assist, hosted_domain.as_deref());
 
-        Ok((primary, model_specific, email, plan))
+        let mut usage = UsageSnapshot::new(primary);
+        if let Some(ms) = model_specific {
+            usage = usage.with_model_specific(ms);
+        }
+        if let Some(e) = email {
+            usage = usage.with_email(e);
+        }
+        Ok(usage.with_login_method(plan.unwrap_or_else(|| "Gemini CLI".to_string())))
     }
 
     async fn load_code_assist_status(&self, access_token: &str) -> CodeAssistStatus {
@@ -380,26 +375,12 @@ impl GeminiApi {
         None
     }
 
-    #[cfg(windows)]
     fn fnm_oauth_credentials() -> Option<OAuthClientCredentials> {
         #[cfg(windows)]
-        if let Some(local_appdata) = dirs::data_local_dir() {
-            let fnm_versions = local_appdata.join("fnm").join("node-versions");
-            return Self::fnm_oauth_credentials_from(&fnm_versions);
-        }
-
-        None
-    }
-
-    #[cfg(not(windows))]
-    fn fnm_oauth_credentials() -> Option<OAuthClientCredentials> {
+        let fnm_root = dirs::data_local_dir()?;
         #[cfg(not(windows))]
-        if let Some(data_dir) = dirs::data_dir() {
-            let fnm_versions = data_dir.join("fnm").join("node-versions");
-            return Self::fnm_oauth_credentials_from(&fnm_versions);
-        }
-
-        None
+        let fnm_root = dirs::data_dir()?;
+        Self::fnm_oauth_credentials_from(&fnm_root.join("fnm").join("node-versions"))
     }
 
     fn fnm_oauth_credentials_from(fnm_versions: &Path) -> Option<OAuthClientCredentials> {
@@ -489,56 +470,38 @@ impl GeminiApi {
             }
         }
 
-        // Find Flash and Pro quotas
-        let flash_quota = model_quotas
-            .iter()
-            .filter(|(k, _)| k.to_lowercase().contains("flash"))
-            .min_by(|a, b| {
-                a.1.0
-                    .partial_cmp(&b.1.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-        let pro_quota = model_quotas
-            .iter()
-            .filter(|(k, _)| k.to_lowercase().contains("pro"))
-            .min_by(|a, b| {
-                a.1.0
-                    .partial_cmp(&b.1.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-        // Build primary RateWindow from the most constrained quota
-        let (primary_fraction, primary_reset) = if let Some((_, (frac, reset))) = pro_quota {
-            (*frac, reset.clone())
-        } else if let Some((_, (frac, reset))) = flash_quota {
-            (*frac, reset.clone())
-        } else if let Some((_, (frac, reset))) = model_quotas.iter().next() {
-            (*frac, reset.clone())
-        } else {
-            (1.0, None)
+        // Most constrained Flash / Pro quota.
+        let lowest = |family: &str| {
+            model_quotas
+                .iter()
+                .filter(|(k, _)| k.to_lowercase().contains(family))
+                .min_by(|a, b| {
+                    a.1.0
+                        .partial_cmp(&b.1.0)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
         };
+        let flash_quota = lowest("flash");
+        let pro_quota = lowest("pro");
 
-        let primary_percent_used = (1.0 - primary_fraction) * 100.0;
-        let primary_reset_at = primary_reset.as_ref().and_then(|s| parse_iso_date(s));
-
-        let primary = RateWindow::with_details(
-            primary_percent_used,
-            Some(1440), // 24 hours
-            primary_reset_at,
-            None,
-        );
-
-        // Model-specific window for Flash if Pro is primary
-        let model_specific = if pro_quota.is_some() {
-            flash_quota.map(|(_, (frac, reset))| {
-                let percent_used = (1.0 - frac) * 100.0;
-                let reset_at = reset.as_ref().and_then(|s| parse_iso_date(s));
-                RateWindow::with_details(percent_used, Some(1440), reset_at, None)
-            })
-        } else {
-            None
+        let window = |(_, (fraction, reset)): (&String, &(f64, Option<String>))| {
+            RateWindow::with_details(
+                (1.0 - fraction) * 100.0,
+                Some(1440), // 24 hours
+                reset.as_ref().and_then(|s| parse_iso_date(s)),
+                None,
+            )
         };
+        // Primary is Pro, else Flash, else any model; Flash gets its own
+        // window only when Pro is primary.
+        let primary = pro_quota
+            .or(flash_quota)
+            .or_else(|| model_quotas.iter().next())
+            .map_or_else(
+                || RateWindow::with_details(0.0, Some(1440), None, None),
+                window,
+            );
+        let model_specific = pro_quota.and(flash_quota).map(window);
 
         // Extract email from ID token
         let email = creds
@@ -693,17 +656,9 @@ fn resolve_account_plan(status: &CodeAssistStatus, hosted_domain: Option<&str>) 
 // --- Helper functions ---
 
 fn parse_iso_date(s: &str) -> Option<DateTime<Utc>> {
-    // Try with fractional seconds first
-    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
-        return Some(dt.with_timezone(&Utc));
-    }
-
-    // Try without fractional seconds
-    if let Ok(dt) = chrono::DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ") {
-        return Some(dt.with_timezone(&Utc));
-    }
-
-    None
+    DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 fn extract_email_from_jwt(token: &str) -> Option<String> {
@@ -742,209 +697,4 @@ fn jwt_payload(token: &str) -> Option<serde_json::Value> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bundled_cli_layout_yields_oauth_client_credentials() {
-        // npm global layout on Windows: %APPDATA%\npm\gemini.cmd next to
-        // node_modules\@google\gemini-cli\bundle\chunk-*.js (no gemini-cli-core/dist).
-        let dir = tempfile::tempdir().unwrap();
-        let bin_dir = dir.path();
-        let bundle = bin_dir
-            .join("node_modules")
-            .join("@google")
-            .join("gemini-cli")
-            .join("bundle");
-        std::fs::create_dir_all(&bundle).unwrap();
-        std::fs::write(bundle.join("chunk-AAA.js"), "var x = 1;").unwrap();
-        std::fs::write(
-            bundle.join("chunk-BBB.js"),
-            r#"var OAUTH_CLIENT_ID = "id-123.apps.googleusercontent.com"; var OAUTH_CLIENT_SECRET = 'secret-xyz';"#,
-        )
-        .unwrap();
-
-        assert!(
-            GeminiApi::oauth_credentials_from_candidates(GeminiApi::binary_oauth_candidates(
-                bin_dir
-            ))
-            .is_none(),
-            "legacy dist layout must not match"
-        );
-        let creds = GeminiApi::bundled_cli_oauth_credentials(bin_dir)
-            .expect("bundle chunks should be scanned");
-        assert_eq!(creds.client_id, "id-123.apps.googleusercontent.com");
-        assert_eq!(creds.client_secret, "secret-xyz");
-    }
-
-    const BUNDLE_CHUNK_WITH_CONSTANTS: &str = r#"var OAUTH_CLIENT_ID = "id-456.apps.googleusercontent.com"; var OAUTH_CLIENT_SECRET = "secret-abc";"#;
-
-    fn write_gemini_bundle(node_modules: &Path) -> PathBuf {
-        let bundle = node_modules
-            .join("@google")
-            .join("gemini-cli")
-            .join("bundle");
-        std::fs::create_dir_all(&bundle).unwrap();
-        std::fs::write(bundle.join("gemini.js"), "import './chunk-A.js';").unwrap();
-        std::fs::write(bundle.join("chunk-A.js"), BUNDLE_CHUNK_WITH_CONSTANTS).unwrap();
-        bundle
-    }
-
-    #[test]
-    fn symlinked_binary_inside_bundle_yields_oauth_client_credentials() {
-        // Unix npm/Homebrew: bin/gemini canonicalizes to .../gemini-cli/bundle/gemini.js.
-        let dir = tempfile::tempdir().unwrap();
-        let bundle = write_gemini_bundle(&dir.path().join("lib").join("node_modules"));
-
-        let creds = GeminiApi::bundled_cli_oauth_credentials(&bundle)
-            .expect("the bundle that holds the binary should be scanned");
-        assert_eq!(creds.client_id, "id-456.apps.googleusercontent.com");
-        assert_eq!(creds.client_secret, "secret-abc");
-    }
-
-    #[test]
-    fn unrelated_bundle_directory_is_not_scanned() {
-        let dir = tempfile::tempdir().unwrap();
-        let other = dir.path().join("other-tool").join("bundle");
-        std::fs::create_dir_all(&other).unwrap();
-        std::fs::write(other.join("chunk.js"), BUNDLE_CHUNK_WITH_CONSTANTS).unwrap();
-
-        assert!(GeminiApi::bundled_cli_oauth_credentials(&other).is_none());
-    }
-
-    #[test]
-    fn npm_global_node_modules_bundle_yields_oauth_client_credentials() {
-        // %APPDATA%\npm\node_modules fallback when `gemini` is not on PATH.
-        let dir = tempfile::tempdir().unwrap();
-        let node_modules = dir.path().join("npm").join("node_modules");
-        write_gemini_bundle(&node_modules);
-
-        let creds = GeminiApi::node_modules_oauth_credentials(&node_modules)
-            .expect("bundle under the npm global node_modules should be scanned");
-        assert_eq!(creds.client_secret, "secret-abc");
-    }
-
-    #[test]
-    fn fnm_windows_and_unix_layouts_yield_bundle_credentials() {
-        let dir = tempfile::tempdir().unwrap();
-        let versions = dir.path().join("node-versions");
-        // Windows fnm keeps global packages directly under installation\node_modules.
-        write_gemini_bundle(
-            &versions
-                .join("v22.0.0")
-                .join("installation")
-                .join("node_modules"),
-        );
-        let creds = GeminiApi::fnm_oauth_credentials_from(&versions)
-            .expect("Windows fnm layout should be scanned");
-        assert_eq!(creds.client_id, "id-456.apps.googleusercontent.com");
-
-        let unix_dir = tempfile::tempdir().unwrap();
-        let unix_versions = unix_dir.path().join("node-versions");
-        write_gemini_bundle(
-            &unix_versions
-                .join("v22.0.0")
-                .join("installation")
-                .join("lib")
-                .join("node_modules"),
-        );
-        assert!(GeminiApi::fnm_oauth_credentials_from(&unix_versions).is_some());
-    }
-
-    #[test]
-    fn paid_tier_name_overrides_generic_tier_fallbacks() {
-        let status = parse_code_assist_status(
-            r#"{
-                "currentTier": { "id": "free-tier" },
-                "paidTier": { "name": "Gemini Code Assist in Google One AI Pro" }
-            }"#,
-        );
-
-        assert_eq!(
-            resolve_account_plan(&status, Some("example.com")),
-            Some("Gemini Code Assist in Google One AI Pro".to_string())
-        );
-
-        let standard = parse_code_assist_status(
-            r#"{
-                "currentTier": { "id": "standard-tier" },
-                "paidTier": { "name": "Plus" }
-            }"#,
-        );
-
-        assert_eq!(
-            resolve_account_plan(&standard, None),
-            Some("Plus".to_string())
-        );
-    }
-
-    #[test]
-    fn consumer_shutdown_signal_excludes_paid_and_workspace_accounts() {
-        let shutdown = parse_code_assist_status(
-            r#"{
-                "ineligibleTiers": [
-                    {"tier":{"id":"free-tier"},"reason":"UNSUPPORTED_CLIENT"}
-                ]
-            }"#,
-        );
-        assert!(is_consumer_client_unsupported(&shutdown, None));
-        assert!(!is_consumer_client_unsupported(
-            &shutdown,
-            Some("example.com")
-        ));
-
-        let paid = parse_code_assist_status(
-            r#"{
-                "paidTier":{"name":"Gemini Code Assist Standard"},
-                "ineligibleTiers":[
-                    {"tier":{"id":"free-tier"},"reason":"UNSUPPORTED_CLIENT"}
-                ]
-            }"#,
-        );
-        assert!(!is_consumer_client_unsupported(&paid, None));
-
-        let standard = parse_code_assist_status(
-            r#"{
-                "currentTier":{"id":"standard-tier"},
-                "ineligibleTiers":[
-                    {"tier":{"id":"free-tier"},"reason":"UNSUPPORTED_CLIENT"}
-                ]
-            }"#,
-        );
-        assert!(!is_consumer_client_unsupported(&standard, None));
-    }
-
-    #[test]
-    fn generic_tier_fallbacks_remain_when_paid_tier_is_absent() {
-        let free_tier = parse_code_assist_status(r#"{"currentTier":{"id":"free-tier"}}"#);
-        let paid = parse_code_assist_status(r#"{"currentTier":{"id":"standard-tier"}}"#);
-
-        assert_eq!(
-            resolve_account_plan(&free_tier, Some("example.com")),
-            Some("Workspace".to_string())
-        );
-        assert_eq!(
-            resolve_account_plan(&free_tier, None),
-            Some("Free".to_string())
-        );
-        assert_eq!(resolve_account_plan(&paid, None), Some("Paid".to_string()));
-    }
-
-    #[test]
-    fn invalid_code_assist_response_does_not_create_a_generic_plan() {
-        let status = parse_code_assist_status("not json");
-
-        assert_eq!(resolve_account_plan(&status, Some("example.com")), None);
-    }
-
-    #[test]
-    fn malformed_paid_tier_preserves_current_tier_fallback() {
-        let status =
-            parse_code_assist_status(r#"{"currentTier":{"id":"free-tier"},"paidTier":[]}"#);
-
-        assert_eq!(
-            resolve_account_plan(&status, Some("example.com")),
-            Some("Workspace".to_string())
-        );
-    }
-}
+mod tests;

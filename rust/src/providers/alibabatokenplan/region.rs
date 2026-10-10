@@ -179,60 +179,54 @@ mod tests {
 
     #[test]
     fn region_gateway_and_commodity_mapping() {
-        let cn = AlibabaTokenPlanRegion::Cn;
-        assert_eq!(cn.gateway_base_url(), "https://bailian.console.aliyun.com");
-        assert_eq!(cn.quota_base_url(), cn.gateway_base_url());
-        assert_eq!(cn.product_code(), "sfm_tokenplanteams_dp_cn");
-        assert_eq!(cn.current_region_id(), "cn-beijing");
-        assert!(!cn.uses_personal_api());
-
-        let intl = AlibabaTokenPlanRegion::Intl;
-        assert_eq!(
-            intl.gateway_base_url(),
-            "https://modelstudio.console.alibabacloud.com"
-        );
-        assert_eq!(intl.quota_base_url(), intl.gateway_base_url());
-        assert_eq!(intl.product_code(), "sfm_tokenplanteams_dp_intl");
-        assert_eq!(intl.current_region_id(), "ap-southeast-1");
-        assert!(!intl.uses_personal_api());
-
-        let cn_personal = AlibabaTokenPlanRegion::CnPersonal;
-        assert_eq!(
-            cn_personal.gateway_base_url(),
-            "https://bailian.console.aliyun.com"
-        );
-        assert_eq!(
-            cn_personal.quota_base_url(),
-            "https://bailian-cs.console.aliyun.com"
-        );
-        assert_eq!(cn_personal.product_code(), "sfm_tokenplansolo_public_cn");
-        assert_eq!(cn_personal.current_region_id(), "cn-beijing");
-        assert!(cn_personal.uses_personal_api());
-        assert_eq!(cn_personal.personal_api_action(), "BroadScopeAspnGateway");
-        assert_eq!(cn_personal.personal_console_site(), "BAILIAN_ALIYUN");
-
-        let intl_personal = AlibabaTokenPlanRegion::IntlPersonal;
-        assert_eq!(
-            intl_personal.gateway_base_url(),
-            "https://modelstudio.console.alibabacloud.com"
-        );
-        assert_eq!(
-            intl_personal.quota_base_url(),
-            "https://bailian-singapore-cs.alibabacloud.com"
-        );
-        assert_eq!(
-            intl_personal.product_code(),
-            "sfm_tokenplansolo_public_intl"
-        );
-        assert_eq!(intl_personal.current_region_id(), "ap-southeast-1");
-        assert!(intl_personal.uses_personal_api());
-        assert_eq!(
-            intl_personal.personal_api_action(),
-            "IntlBroadScopeAspnGateway"
-        );
-        assert_eq!(
-            intl_personal.personal_console_site(),
-            "MODELSTUDIO_ALBABACLOUD"
-        );
+        use AlibabaTokenPlanRegion::*;
+        const CN_GATEWAY: &str = "https://bailian.console.aliyun.com";
+        const INTL_GATEWAY: &str = "https://modelstudio.console.alibabacloud.com";
+        // (region, gateway, quota base, product code, region id, personal (action, site))
+        let rows = [
+            (
+                Cn,
+                CN_GATEWAY,
+                CN_GATEWAY,
+                "sfm_tokenplanteams_dp_cn",
+                "cn-beijing",
+                None,
+            ),
+            (
+                Intl,
+                INTL_GATEWAY,
+                INTL_GATEWAY,
+                "sfm_tokenplanteams_dp_intl",
+                "ap-southeast-1",
+                None,
+            ),
+            (
+                CnPersonal,
+                CN_GATEWAY,
+                "https://bailian-cs.console.aliyun.com",
+                "sfm_tokenplansolo_public_cn",
+                "cn-beijing",
+                Some(("BroadScopeAspnGateway", "BAILIAN_ALIYUN")),
+            ),
+            (
+                IntlPersonal,
+                INTL_GATEWAY,
+                "https://bailian-singapore-cs.alibabacloud.com",
+                "sfm_tokenplansolo_public_intl",
+                "ap-southeast-1",
+                Some(("IntlBroadScopeAspnGateway", "MODELSTUDIO_ALBABACLOUD")),
+            ),
+        ];
+        for (region, gateway, quota, product, region_id, personal) in rows {
+            assert_eq!(region.gateway_base_url(), gateway, "{region:?}");
+            assert_eq!(region.quota_base_url(), quota, "{region:?}");
+            assert_eq!(region.product_code(), product, "{region:?}");
+            assert_eq!(region.current_region_id(), region_id, "{region:?}");
+            assert_eq!(region.uses_personal_api(), personal.is_some(), "{region:?}");
+            if let Some((action, site)) = personal {
+                assert_eq!(region.personal_api_action(), action, "{region:?}");
+                assert_eq!(region.personal_console_site(), site, "{region:?}");
+            }
+        }
     }
 }

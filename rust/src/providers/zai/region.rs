@@ -8,8 +8,6 @@ use reqwest::Url;
 
 /// Canonical quota API path shared by both regions.
 const QUOTA_PATH: &str = "/api/monitor/usage/quota/limit";
-/// Per-model usage API path shared by both regions.
-const MODEL_USAGE_PATH: &str = "/api/monitor/usage/model-usage";
 
 /// Which z.ai API plane a credential belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,36 +42,11 @@ impl ZaiRegion {
             .expect("region quota URL is a valid constant")
     }
 
-    /// Model-usage endpoint for this region.
-    pub fn model_usage_url(self) -> Url {
-        self.base_url()
-            .join(MODEL_USAGE_PATH)
-            .expect("region model-usage URL is a valid constant")
-    }
-
     /// Canonical host for this region's quota endpoint.
     pub fn canonical_host(self) -> &'static str {
         match self {
             ZaiRegion::Global => "api.z.ai",
             ZaiRegion::BigModelCn => "open.bigmodel.cn",
-        }
-    }
-
-    /// Personal-plan dashboard for this region.
-    pub fn dashboard_url(self) -> Url {
-        Url::parse(match self {
-            ZaiRegion::Global => "https://z.ai/manage-apikey/coding-plan/personal/my-plan",
-            ZaiRegion::BigModelCn => "https://bigmodel.cn/coding-plan/personal/usage",
-        })
-        .expect("region dashboard URL is a valid constant")
-    }
-
-    /// Team dashboard for this region (global reuses the personal dashboard).
-    pub fn team_dashboard_url(self) -> Url {
-        match self {
-            ZaiRegion::Global => self.dashboard_url(),
-            ZaiRegion::BigModelCn => Url::parse("https://bigmodel.cn/coding-plan/team/usage-stats")
-                .expect("region team dashboard URL is a valid constant"),
         }
     }
 
@@ -132,48 +105,22 @@ mod tests {
             ZaiRegion::BigModelCn.quota_limit_url().as_str(),
             "https://open.bigmodel.cn/api/monitor/usage/quota/limit"
         );
-        assert_eq!(
-            ZaiRegion::Global.model_usage_url().as_str(),
-            "https://api.z.ai/api/monitor/usage/model-usage"
-        );
-        assert_eq!(
-            ZaiRegion::BigModelCn.model_usage_url().as_str(),
-            "https://open.bigmodel.cn/api/monitor/usage/model-usage"
-        );
-        assert_eq!(
-            ZaiRegion::BigModelCn.team_dashboard_url().as_str(),
-            "https://bigmodel.cn/coding-plan/team/usage-stats"
-        );
     }
 
     #[test]
     fn settings_aliases_map_to_regions() {
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("cn")),
-            ZaiRegion::BigModelCn
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some(" bigmodel ")),
-            ZaiRegion::BigModelCn
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("bigmodel-cn")),
-            ZaiRegion::BigModelCn
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("bigmodel_cn")),
-            ZaiRegion::BigModelCn
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("global")),
-            ZaiRegion::Global
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("intl")),
-            ZaiRegion::Global
-        );
-        assert_eq!(ZaiRegion::from_settings_value(Some("")), ZaiRegion::Global);
-        assert_eq!(ZaiRegion::from_settings_value(None), ZaiRegion::Global);
+        for (raw, region) in [
+            (Some("cn"), ZaiRegion::BigModelCn),
+            (Some(" bigmodel "), ZaiRegion::BigModelCn),
+            (Some("bigmodel-cn"), ZaiRegion::BigModelCn),
+            (Some("bigmodel_cn"), ZaiRegion::BigModelCn),
+            (Some("global"), ZaiRegion::Global),
+            (Some("intl"), ZaiRegion::Global),
+            (Some(""), ZaiRegion::Global),
+            (None, ZaiRegion::Global),
+        ] {
+            assert_eq!(ZaiRegion::from_settings_value(raw), region, "{raw:?}");
+        }
     }
 
     #[test]

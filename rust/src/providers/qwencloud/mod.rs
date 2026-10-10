@@ -4,11 +4,12 @@
 //! `POST https://cs-data.qwencloud.com/data/api.json?...`
 //! with `IntlBroadScopeAspnGateway` / `sfm_bailian`.
 
+mod fields;
 #[cfg(test)]
 mod monthly_tests;
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use regex_lite::Regex;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
@@ -18,6 +19,13 @@ use crate::core::{
     UsageSnapshot,
 };
 use crate::providers::{browser_cookie_header, strip_cookie_prefix};
+use fields::{
+    PLAN_NAME_KEYS, REMAINING_QUOTA_KEYS, RESET_DATE_KEYS, TOTAL_QUOTA_KEYS, USED_QUOTA_KEYS,
+    date_field, expand_json_strings, find_first_bool, find_first_date, find_first_f64,
+    find_first_i64, find_first_string, find_first_value_for_key, find_object_containing_any_of,
+    find_quota_info, find_token_plan_instance, first_date, first_f64, number_field,
+    percentage_points,
+};
 
 const GATEWAY_BASE_URL: &str = "https://home.qwencloud.com";
 const DATA_GATEWAY_BASE_URL: &str = "https://cs-data.qwencloud.com";
@@ -105,42 +113,19 @@ impl QwenCloudProvider {
             .await
             .ok_or(ProviderError::AuthRequired)?;
 
-        let usage_body = Self::post_api(
-            &client,
-            USAGE_API,
-            Map::new(),
-            &sec_token,
-            &cookie_header,
-            ctx,
-        )
-        .await?;
-
-        let subscription_body = Self::post_api_optional(
-            &client,
-            SUBSCRIPTION_API,
-            {
-                let mut data = Map::new();
-                data.insert(
-                    "commodityCode".into(),
-                    Value::String(PRODUCT_CODE.to_string()),
-                );
-                data
-            },
-            &sec_token,
-            &cookie_header,
-            ctx,
-        )
-        .await;
-
-        let quota_config_body = Self::post_api_optional(
-            &client,
-            QUOTA_CONFIG_API,
-            Map::new(),
-            &sec_token,
-            &cookie_header,
-            ctx,
-        )
-        .await;
+        let (client, sec_token, cookie_header) =
+            (&client, sec_token.as_str(), cookie_header.as_str());
+        let post = move |api: &'static str, data| {
+            Self::post_api(client, api, data, sec_token, cookie_header, ctx)
+        };
+        let usage_body = post(USAGE_API, Map::new()).await?;
+        let mut subscription_params = Map::new();
+        subscription_params.insert(
+            "commodityCode".into(),
+            Value::String(PRODUCT_CODE.to_string()),
+        );
+        let subscription_body = post(SUBSCRIPTION_API, subscription_params).await.ok();
+        let quota_config_body = post(QUOTA_CONFIG_API, Map::new()).await.ok();
 
         let snapshot = Self::parse(
             &usage_body,
@@ -282,19 +267,6 @@ impl QwenCloudProvider {
             )));
         }
         Ok(body.to_vec())
-    }
-
-    async fn post_api_optional(
-        client: &reqwest::Client,
-        api: &str,
-        data_parameters: Map<String, Value>,
-        sec_token: &str,
-        cookie_header: &str,
-        ctx: &FetchContext,
-    ) -> Option<Vec<u8>> {
-        Self::post_api(client, api, data_parameters, sec_token, cookie_header, ctx)
-            .await
-            .ok()
     }
 
     fn parse(
@@ -445,25 +417,23 @@ fn build_params_json(
     mut data_parameters: Map<String, Value>,
     cookie_header: &str,
 ) -> String {
-    let mut cornerstone = Map::new();
-    cornerstone.insert(
-        "feTraceId".into(),
-        Value::String(Uuid::new_v4().to_string().to_lowercase()),
-    );
-    cornerstone.insert("feURL".into(), Value::String(DASHBOARD_URL.to_string()));
-    cornerstone.insert("protocol".into(), Value::String("V2".into()));
-    cornerstone.insert("console".into(), Value::String("ONE_CONSOLE".into()));
-    cornerstone.insert("productCode".into(), Value::String("p_efm".into()));
-    cornerstone.insert("domain".into(), Value::String("home.qwencloud.com".into()));
-    cornerstone.insert("consoleSite".into(), Value::String("QWENCLOUD".into()));
-    cornerstone.insert("userNickName".into(), Value::String(String::new()));
-    cornerstone.insert("userPrincipalName".into(), Value::String(String::new()));
-    cornerstone.insert("xsp_lang".into(), Value::String(LANGUAGE.into()));
+    let mut cornerstone = json!({
+        "feTraceId": Uuid::new_v4().to_string().to_lowercase(),
+        "feURL": DASHBOARD_URL,
+        "protocol": "V2",
+        "console": "ONE_CONSOLE",
+        "productCode": "p_efm",
+        "domain": "home.qwencloud.com",
+        "consoleSite": "QWENCLOUD",
+        "userNickName": "",
+        "userPrincipalName": "",
+        "xsp_lang": LANGUAGE,
+    });
     if let Some(cna) = cookie_value("cna", cookie_header) {
-        cornerstone.insert("X-Anonymous-Id".into(), Value::String(cna));
+        cornerstone["X-Anonymous-Id"] = Value::String(cna);
     }
 
-    data_parameters.insert("cornerstoneParam".into(), Value::Object(cornerstone));
+    data_parameters.insert("cornerstoneParam".into(), cornerstone);
 
     json!({
         "Api": api,
@@ -716,459 +686,6 @@ fn is_likely_login_html(data: &[u8]) -> bool {
         && (text.contains("login") || text.contains("sign in") || text.contains("signin"))
 }
 
-fn expand_json_strings(value: Value) -> Value {
-    match value {
-        Value::Array(values) => Value::Array(values.into_iter().map(expand_json_strings).collect()),
-        Value::Object(map) => Value::Object(
-            map.into_iter()
-                .map(|(key, value)| (key, expand_json_strings(value)))
-                .collect(),
-        ),
-        Value::String(text) => serde_json::from_str::<Value>(&text)
-            .ok()
-            .filter(|nested| nested.is_object() || nested.is_array())
-            .map(expand_json_strings)
-            .unwrap_or(Value::String(text)),
-        other => other,
-    }
-}
-
-fn percentage_points(ratio: Option<f64>) -> Option<f64> {
-    let ratio = ratio.filter(|v| v.is_finite())?;
-    Some((ratio.clamp(0.0, 1.0) * 100.0).clamp(0.0, 100.0))
-}
-
-fn number_field(value: &Value, key: &str) -> Option<f64> {
-    value.as_object().and_then(|map| parse_f64(map.get(key)))
-}
-
-fn date_field(value: &Value, key: &str) -> Option<DateTime<Utc>> {
-    value.as_object().and_then(|map| parse_date(map.get(key)))
-}
-
-fn find_object_containing_any_of(value: &Value, keys: &[&str]) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if keys.iter().any(|key| map.contains_key(*key)) {
-                return Some(Value::Object(map.clone()));
-            }
-            map.values()
-                .find_map(|nested| find_object_containing_any_of(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_object_containing_any_of(nested, keys)),
-        _ => None,
-    }
-}
-
-fn find_first_value_for_key(value: &Value, key: &str) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if let Some(nested) = map.get(key) {
-                return Some(nested.clone());
-            }
-            map.values()
-                .find_map(|nested| find_first_value_for_key(nested, key))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_value_for_key(nested, key)),
-        _ => None,
-    }
-}
-
-const PLAN_NAME_KEYS: &[&str] = &[
-    "planName",
-    "plan_name",
-    "packageName",
-    "package_name",
-    "commodityName",
-    "commodity_name",
-    "instanceName",
-    "instance_name",
-    "displayName",
-    "display_name",
-    "name",
-    "title",
-    "planType",
-    "plan_type",
-    "ProductName",
-    "productName",
-    "InstanceCode",
-];
-
-const USED_QUOTA_KEYS: &[&str] = &[
-    "usedQuota",
-    "used_quota",
-    "usedCredits",
-    "usedCredit",
-    "consumedCredits",
-    "usage",
-    "used",
-    "usedAmount",
-    "consumeAmount",
-    "usedValue",
-    "UsedValue",
-    "consumedValue",
-    "ConsumedValue",
-];
-
-const TOTAL_QUOTA_KEYS: &[&str] = &[
-    "totalQuota",
-    "total_quota",
-    "totalCredits",
-    "totalCredit",
-    "quota",
-    "creditLimit",
-    "creditsTotal",
-    "monthlyTotalQuota",
-    "amount",
-    "totalValue",
-    "TotalValue",
-    "CycleTotalValue",
-    "cycleTotalValue",
-    "subscriptionTotalNumber",
-    "SubscriptionTotalNumber",
-];
-
-const REMAINING_QUOTA_KEYS: &[&str] = &[
-    "remainingQuota",
-    "remainQuota",
-    "remainingCredits",
-    "remainingCredit",
-    "availableCredits",
-    "balance",
-    "remaining",
-    "availableAmount",
-    "remainAmount",
-    "totalSurplusValue",
-    "TotalSurplusValue",
-    "surplusValue",
-    "SurplusValue",
-    "CycleSurplusValue",
-    "cycleSurplusValue",
-];
-
-const RESET_DATE_KEYS: &[&str] = &[
-    "nextRefreshTime",
-    "resetTime",
-    "periodEndTime",
-    "billingCycleEnd",
-    "billCycleEndTime",
-    "expireTime",
-    "expirationTime",
-    "endTime",
-    "EndTime",
-    "validEndTime",
-    "instanceEndTime",
-    "nearestExpireDate",
-    "NearestExpireDate",
-];
-
-fn find_token_plan_instance(value: &Value) -> Option<Value> {
-    find_first_object(
-        value,
-        &[
-            "tokenPlanInstanceInfo",
-            "token_plan_instance_info",
-            "instanceInfo",
-            "instance_info",
-        ],
-    )
-    .or_else(|| {
-        find_first_array(
-            value,
-            &[
-                "tokenPlanInstanceInfos",
-                "token_plan_instance_infos",
-                "instanceInfos",
-                "instances",
-                "EquityList",
-                "Data",
-                "data",
-                "successResponse",
-            ],
-        )
-        .and_then(|values| {
-            values
-                .into_iter()
-                .filter(Value::is_object)
-                .max_by_key(active_signal_score)
-        })
-    })
-}
-
-fn find_quota_info(value: &Value) -> Option<Value> {
-    find_first_object(
-        value,
-        &[
-            "quotaInfo",
-            "quota_info",
-            "tokenPlanQuotaInfo",
-            "token_plan_quota_info",
-        ],
-    )
-    .or_else(|| {
-        find_first_array(value, &["EquityList", "equityList"]).and_then(|values| {
-            values.into_iter().find(|item| {
-                item.as_object().is_some_and(|map| {
-                    map.contains_key("CycleTotalValue")
-                        || map.contains_key("cycleTotalValue")
-                        || map.contains_key("CycleSurplusValue")
-                })
-            })
-        })
-    })
-    .or_else(|| {
-        let keys: Vec<&str> = USED_QUOTA_KEYS
-            .iter()
-            .chain(TOTAL_QUOTA_KEYS.iter())
-            .chain(REMAINING_QUOTA_KEYS.iter())
-            .copied()
-            .collect();
-        find_first_object_with_any_key(value, &keys)
-    })
-}
-
-fn find_first_object(value: &Value, keys: &[&str]) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(nested) = map.get(*key).filter(|v| v.is_object()) {
-                    return Some(nested.clone());
-                }
-            }
-            map.values()
-                .find_map(|nested| find_first_object(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_object(nested, keys)),
-        _ => None,
-    }
-}
-
-fn find_first_object_with_any_key(value: &Value, keys: &[&str]) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if keys.iter().any(|key| map.contains_key(*key)) {
-                return Some(Value::Object(map.clone()));
-            }
-            map.values()
-                .find_map(|nested| find_first_object_with_any_key(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_object_with_any_key(nested, keys)),
-        _ => None,
-    }
-}
-
-fn find_first_array(value: &Value, keys: &[&str]) -> Option<Vec<Value>> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(Value::Array(values)) = map.get(*key) {
-                    return Some(values.clone());
-                }
-            }
-            map.values()
-                .find_map(|nested| find_first_array(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_array(nested, keys)),
-        _ => None,
-    }
-}
-
-fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
-    value
-        .as_object()
-        .and_then(|map| keys.iter().find_map(|key| parse_string(map.get(*key))))
-}
-
-fn find_first_string(value: &Value, keys: &[&str]) -> Option<String> {
-    first_string(value, keys).or_else(|| match value {
-        Value::Object(map) => map
-            .values()
-            .find_map(|nested| find_first_string(nested, keys)),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_string(nested, keys)),
-        _ => None,
-    })
-}
-
-fn first_f64(value: &Value, keys: &[&str]) -> Option<f64> {
-    value
-        .as_object()
-        .and_then(|map| keys.iter().find_map(|key| parse_f64(map.get(*key))))
-}
-
-fn find_first_f64(value: &Value, keys: &[&str]) -> Option<f64> {
-    first_f64(value, keys).or_else(|| match value {
-        Value::Object(map) => map.values().find_map(|nested| find_first_f64(nested, keys)),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_f64(nested, keys)),
-        _ => None,
-    })
-}
-
-fn find_first_i64(value: &Value, keys: &[&str]) -> Option<i64> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(parsed) = parse_i64(map.get(*key)) {
-                    return Some(parsed);
-                }
-            }
-            map.values().find_map(|nested| find_first_i64(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_i64(nested, keys)),
-        _ => None,
-    }
-}
-
-fn find_first_bool(value: &Value, keys: &[&str]) -> Option<bool> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(parsed) = parse_bool(map.get(*key)) {
-                    return Some(parsed);
-                }
-            }
-            map.values()
-                .find_map(|nested| find_first_bool(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_bool(nested, keys)),
-        _ => None,
-    }
-}
-
-fn first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
-    value
-        .as_object()
-        .and_then(|map| keys.iter().find_map(|key| parse_date(map.get(*key))))
-}
-
-fn find_first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
-    first_date(value, keys).or_else(|| match value {
-        Value::Object(map) => map
-            .values()
-            .find_map(|nested| find_first_date(nested, keys)),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_date(nested, keys)),
-        _ => None,
-    })
-}
-
-fn parse_string(value: Option<&Value>) -> Option<String> {
-    value?
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn parse_f64(value: Option<&Value>) -> Option<f64> {
-    match value? {
-        Value::Number(number) => number.as_f64(),
-        Value::String(text) => text.trim().replace(',', "").parse().ok(),
-        _ => None,
-    }
-    .filter(|v| v.is_finite())
-}
-
-fn parse_i64(value: Option<&Value>) -> Option<i64> {
-    match value? {
-        Value::Number(number) => number.as_i64().or_else(|| {
-            number.as_f64().map(|v| {
-                // Quota numbers are small integers; any fractional part is discarded deliberately.
-                #[expect(clippy::cast_possible_truncation, reason = "quota counts fit i64")]
-                let v = v as i64;
-                v
-            })
-        }),
-        Value::String(text) => text.trim().replace(',', "").parse().ok(),
-        _ => None,
-    }
-}
-
-fn parse_bool(value: Option<&Value>) -> Option<bool> {
-    match value? {
-        Value::Bool(flag) => Some(*flag),
-        Value::Number(number) => number.as_i64().map(|v| v != 0),
-        Value::String(text) => match text.trim().to_lowercase().as_str() {
-            "true" | "1" | "yes" | "active" | "valid" | "normal" => Some(true),
-            "false" | "0" | "no" | "inactive" | "invalid" | "expired" => Some(false),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn parse_date(value: Option<&Value>) -> Option<DateTime<Utc>> {
-    if let Some(raw) = parse_i64(value) {
-        if raw > 1_000_000_000_000 {
-            return Utc.timestamp_opt(raw / 1000, 0).single();
-        }
-        if raw > 1_000_000_000 {
-            return Utc.timestamp_opt(raw, 0).single();
-        }
-    }
-    let text = parse_string(value)?;
-    if let Ok(date) = DateTime::parse_from_rfc3339(&text) {
-        return Some(date.with_timezone(&Utc));
-    }
-    if let Ok(date) = NaiveDate::parse_from_str(&text, "%Y-%m-%d")
-        && let Some(date_time) = date.and_hms_opt(0, 0, 0)
-    {
-        return Some(date_time.and_utc());
-    }
-    for format in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"] {
-        if let Ok(date) = NaiveDateTime::parse_from_str(&text, format) {
-            return Some(date.and_utc());
-        }
-    }
-    None
-}
-
-fn active_signal_score(value: &Value) -> i32 {
-    let status = first_string(value, &["status", "instanceStatus", "state", "Status"])
-        .unwrap_or_default()
-        .to_uppercase();
-    if ["VALID", "ACTIVE", "NORMAL"].contains(&status.as_str()) {
-        return 3;
-    }
-    if [
-        "EXPIRED",
-        "INVALID",
-        "INACTIVE",
-        "DISABLED",
-        "TERMINATED",
-        "STOPPED",
-    ]
-    .contains(&status.as_str())
-    {
-        return -1;
-    }
-    parse_bool(
-        value
-            .as_object()
-            .and_then(|map| map.get("isActive").or_else(|| map.get("active"))),
-    )
-    .map(|active| if active { 3 } else { -1 })
-    .unwrap_or(0)
-}
-
 fn used_percent(used: Option<f64>, total: Option<f64>, remaining: Option<f64>) -> Option<f64> {
     let total = total.filter(|total| *total > 0.0)?;
     let used = used.or_else(|| remaining.map(|remaining| total - remaining))?;
@@ -1241,238 +758,4 @@ fn format_count_decimal(raw: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_current_token_plan_5h_and_weekly() {
-        let inner = r#"{
-          "code": 0,
-          "data": {
-            "per5HourPercentage": 0.03,
-            "per5HourResetTime": 1700003600000,
-            "per1WeekPercentage": 0.01,
-            "per1WeekResetTime": 1700086400000
-          },
-          "success": true
-        }"#;
-        let payload = serde_json::json!({
-            "data": {
-                "DataV2": {
-                    "data": inner,
-                },
-            },
-            "httpStatusCode": 200,
-        });
-
-        let snapshot =
-            QwenCloudProvider::parse(payload.to_string().as_bytes(), None, None).unwrap();
-        assert_eq!(snapshot.five_hour_used_percent, Some(3.0));
-        assert_eq!(
-            snapshot.five_hour_resets_at,
-            Some(Utc.timestamp_opt(1_700_003_600, 0).single().unwrap())
-        );
-        assert_eq!(snapshot.weekly_used_percent, Some(1.0));
-        assert_eq!(
-            snapshot.weekly_resets_at,
-            Some(Utc.timestamp_opt(1_700_086_400, 0).single().unwrap())
-        );
-
-        let usage = QwenCloudProvider::new()
-            .snapshot_to_usage(snapshot)
-            .unwrap();
-        assert_eq!(usage.primary.used_percent, 3.0);
-        assert_eq!(usage.primary.window_minutes, Some(FIVE_HOUR_MINUTES));
-        assert_eq!(usage.primary_label, None);
-        assert_eq!(usage.secondary.as_ref().map(|w| w.used_percent), Some(1.0));
-        assert_eq!(
-            usage.secondary.as_ref().and_then(|w| w.window_minutes),
-            Some(WEEKLY_MINUTES)
-        );
-    }
-
-    #[test]
-    fn parses_personal_usage_fixture_shape() {
-        let payload = serde_json::json!({
-            "code": "200",
-            "data": {
-                "DataV2": {
-                    "data": {
-                        "success": true,
-                        "data": {
-                            "per5HourPercentage": 0.0009973083333333333,
-                            "per5HourResetTime": 1784813220000_i64,
-                            "per1WeekPercentage": 0.0003014725,
-                            "per1WeekResetTime": 1785234900000_i64
-                        }
-                    },
-                    "success": true,
-                    "httpStatus": 200
-                }
-            },
-            "successResponse": true
-        });
-        let usage = QwenCloudProvider::new()
-            .snapshot_to_usage(
-                QwenCloudProvider::parse(payload.to_string().as_bytes(), None, None).unwrap(),
-            )
-            .unwrap();
-        assert!((usage.primary.used_percent - 0.09973083333333333).abs() < 1e-9);
-        assert_eq!(usage.primary.window_minutes, Some(300));
-        assert!(usage.secondary.is_some());
-        assert_eq!(
-            usage.secondary.as_ref().and_then(|w| w.window_minutes),
-            Some(10080)
-        );
-    }
-
-    #[test]
-    fn parses_nested_equity_list_legacy() {
-        let payload = serde_json::json!({
-            "code": "200",
-            "successResponse": true,
-            "data": {
-                "TotalCount": 1,
-                "Data": [
-                    {
-                        "InstanceCode": "qwen-token-plan",
-                        "Status": "NORMAL",
-                        "EndTime": 1_701_000_000_000_i64,
-                        "EquityList": [
-                            {
-                                "Type": "CREDITS",
-                                "CycleTotalValue": "1000",
-                                "CycleSurplusValue": "875"
-                            }
-                        ]
-                    }
-                ]
-            }
-        });
-        let snapshot =
-            QwenCloudProvider::parse(payload.to_string().as_bytes(), None, None).unwrap();
-        assert_eq!(snapshot.total_quota, Some(1000.0));
-        assert_eq!(snapshot.remaining_quota, Some(875.0));
-        let usage = QwenCloudProvider::new()
-            .snapshot_to_usage(snapshot)
-            .unwrap();
-        assert_eq!(usage.primary.used_percent, 12.5);
-        assert_eq!(usage.primary.window_minutes, Some(LEGACY_MINUTES));
-    }
-
-    #[test]
-    fn parses_flat_subscription_summary_legacy() {
-        let payload = serde_json::json!({
-            "Success": true,
-            "Data": {
-                "TotalCount": 1,
-                "TotalValue": 2000,
-                "TotalSurplusValue": 1500
-            }
-        });
-        let snapshot =
-            QwenCloudProvider::parse(payload.to_string().as_bytes(), None, None).unwrap();
-        assert_eq!(snapshot.total_quota, Some(2000.0));
-        assert_eq!(snapshot.remaining_quota, Some(1500.0));
-        assert_eq!(
-            used_percent(
-                snapshot.used_quota,
-                snapshot.total_quota,
-                snapshot.remaining_quota
-            ),
-            Some(25.0)
-        );
-    }
-
-    #[test]
-    fn login_payload_maps_to_auth_required() {
-        let err = QwenCloudProvider::parse(
-            br#"{"code":"ConsoleNeedLogin","message":"You need to log in.","successResponse":false}"#,
-            None,
-            None,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ProviderError::AuthRequired));
-    }
-
-    #[test]
-    fn attaches_plan_name_from_subscription() {
-        let usage_payload = serde_json::json!({
-            "data": {
-                "per5HourPercentage": 0.1,
-                "per5HourResetTime": 1700003600000_i64,
-                "per1WeekPercentage": 0.2,
-                "per1WeekResetTime": 1700086400000_i64
-            }
-        });
-        let subscription = serde_json::json!({
-            "data": { "specCode": "pro" }
-        });
-        let snapshot = QwenCloudProvider::parse(
-            usage_payload.to_string().as_bytes(),
-            Some(subscription.to_string().as_bytes()),
-            None,
-        )
-        .unwrap();
-        assert_eq!(snapshot.plan_name.as_deref(), Some("Pro"));
-        let usage = QwenCloudProvider::new()
-            .snapshot_to_usage(snapshot)
-            .unwrap();
-        assert_eq!(usage.login_method.as_deref(), Some("Pro"));
-    }
-
-    #[test]
-    fn extracts_sec_token_from_html() {
-        assert_eq!(
-            extract_sec_token(r#"<script>sec_token = "qwen-html-token";</script>"#).as_deref(),
-            Some("qwen-html-token")
-        );
-        assert_eq!(
-            cookie_value("login_aliyunid_csrf", "foo=bar; login_aliyunid_csrf=tok"),
-            Some("tok".to_string())
-        );
-    }
-
-    #[test]
-    fn metadata_labels_match_upstream() {
-        let provider = QwenCloudProvider::new();
-        assert_eq!(provider.metadata().session_label, "5-hour");
-        assert_eq!(provider.metadata().weekly_label, "Weekly");
-        assert!(!provider.metadata().default_enabled);
-        assert_eq!(provider.metadata().dashboard_url, Some(DASHBOARD_URL));
-    }
-
-    #[test]
-    fn weekly_only_shape_promotes_weekly_to_primary() {
-        // Real-world fixture: the account exposes only the weekly window, so
-        // there is no per5HourPercentage at all. Previously this failed with
-        // "Qwen Cloud usage windows missing"; now the weekly window becomes
-        // the primary window instead.
-        let payload = serde_json::json!({
-            "code": "200",
-            "data": {
-                "DataV2": {
-                    "data": {
-                        "success": true,
-                        "data": {
-                            "per1WeekPercentage": 0.8439116574633999,
-                            "per1WeekResetTime": 1785234900000_i64
-                        }
-                    },
-                    "success": true,
-                    "httpStatus": 200
-                }
-            },
-            "successResponse": true
-        });
-        let usage = QwenCloudProvider::new()
-            .snapshot_to_usage(
-                QwenCloudProvider::parse(payload.to_string().as_bytes(), None, None).unwrap(),
-            )
-            .unwrap();
-        assert!((usage.primary.used_percent - 84.39116574634).abs() < 1e-9);
-        assert_eq!(usage.primary.window_minutes, Some(WEEKLY_MINUTES));
-        assert_eq!(usage.primary_label.as_deref(), Some("Weekly"));
-        assert!(usage.secondary.is_none());
-    }
-}
+mod tests;
