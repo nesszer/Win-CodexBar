@@ -55,6 +55,37 @@ impl ClaudePricing {
     }
 }
 
+/// Stream the de-duplicated, in-window usage records from one transcript
+/// file into `on_record`, returning how many it consumed.
+fn for_each_claude_usage_record<F>(
+    path: &Path,
+    cutoff: &DateTime<Utc>,
+    seen: &mut HashSet<ClaudeUsageDedupKey>,
+    cancel: Option<&AtomicBool>,
+    on_record: F,
+) -> usize
+where
+    F: FnMut(&ClaudeUsageRecord),
+{
+    let mut pricing = ClaudeScanPricingResolver::default();
+    let mut incomplete = ClaudeIncompleteTracker::default();
+    scan_claude_file_with_pricing(
+        path,
+        cutoff,
+        seen,
+        cancel,
+        &mut pricing,
+        &mut incomplete,
+        on_record,
+    )
+    .counted
+}
+
+fn claude_usage_record_from_event(event: &ClaudeEvent) -> Option<ClaudeUsageRecord> {
+    let mut pricing = ClaudeScanPricingResolver::default();
+    claude_usage_record_from_event_with_pricing(event, &mut pricing)
+}
+
 #[test]
 fn test_unknown_model_falls_back_to_sonnet() {
     // Unknown/retired Claude IDs fall back to Sonnet 4.6 base pricing

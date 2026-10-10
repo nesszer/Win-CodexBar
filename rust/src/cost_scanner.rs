@@ -963,36 +963,6 @@ impl CostScanner {
     }
 }
 
-/// Stream the de-duplicated, in-window usage records from one transcript
-/// file into `on_record`. Both the summary scan and the daily-history scan
-/// consume this single reader, so Claude log semantics live in one place.
-/// Returns the number of records consumed, so callers can tell whether the
-/// file contributed anything.
-#[cfg(test)]
-fn for_each_claude_usage_record<F>(
-    path: &Path,
-    cutoff: &DateTime<Utc>,
-    seen: &mut HashSet<ClaudeUsageDedupKey>,
-    cancel: Option<&AtomicBool>,
-    on_record: F,
-) -> usize
-where
-    F: FnMut(&ClaudeUsageRecord),
-{
-    let mut pricing = ClaudeScanPricingResolver::default();
-    let mut incomplete = ClaudeIncompleteTracker::default();
-    scan_claude_file_with_pricing(
-        path,
-        cutoff,
-        seen,
-        cancel,
-        &mut pricing,
-        &mut incomplete,
-        on_record,
-    )
-    .counted
-}
-
 fn scan_claude_file_with_pricing<F>(
     path: &Path,
     cutoff: &DateTime<Utc>,
@@ -1114,12 +1084,6 @@ fn finalize_claude_summary(
         && summary.output_tokens == 0
         && summary.cached_tokens == 0
         && summary.total_cost_usd == 0.0;
-}
-
-#[cfg(test)]
-fn claude_usage_record_from_event(event: &ClaudeEvent) -> Option<ClaudeUsageRecord> {
-    let mut pricing = ClaudeScanPricingResolver::default();
-    claude_usage_record_from_event_with_pricing(event, &mut pricing)
 }
 
 fn claude_usage_record_from_event_with_pricing(
