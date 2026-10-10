@@ -14,7 +14,7 @@ vi.mock("../lib/tauri", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/tauri")>()),
   ...tauriMocks,
 }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock("@tauri-apps/api/event", () => import("../test/mocks/event"));
 
 import { LocaleProvider } from "../i18n/LocaleProvider";
 import { makeRateWindow, makeUsageSnapshot } from "../test/fixtures";

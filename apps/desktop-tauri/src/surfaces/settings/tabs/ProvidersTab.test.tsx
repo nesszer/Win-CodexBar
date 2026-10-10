@@ -11,9 +11,7 @@ const hookMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../hooks/useProviders", () => hookMocks);
-vi.mock("../../../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key }),
-}));
+vi.mock("../../../hooks/useLocale", () => import("../../../test/mocks/locale"));
 vi.mock("../../../lib/tauri", () => ({
   reorderProviders: vi.fn().mockResolvedValue(undefined),
 }));

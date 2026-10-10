@@ -1,9 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key }),
-}));
+vi.mock("../../../hooks/useLocale", () => import("../../../test/mocks/locale"));
 
 // Mock Tauri invoke for get_available_languages
 vi.mock("@tauri-apps/api/core", () => ({

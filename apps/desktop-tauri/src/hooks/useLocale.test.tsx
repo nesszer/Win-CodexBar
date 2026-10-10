@@ -7,9 +7,7 @@ vi.mock("../lib/tauri", () => ({
   setUiLanguage: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn().mockResolvedValue(() => {}),
-}));
+vi.mock("@tauri-apps/api/event", () => import("../test/mocks/event"));
 
 import { LocaleProvider } from "../i18n/LocaleProvider";
 import { useLocale } from "./useLocale";

@@ -10,9 +10,7 @@ const tauriMocks = vi.hoisted(() => ({
 
 vi.mock("../../../lib/tauri", () => tauriMocks);
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn().mockResolvedValue(() => {}),
-}));
+vi.mock("@tauri-apps/api/event", () => import("../../../test/mocks/event"));
 
 const EN: Record<string, string> = {
   CostPeriodMonthToDate: "Month to date",

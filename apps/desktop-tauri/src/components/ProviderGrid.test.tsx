@@ -3,9 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ProviderGrid from "./ProviderGrid";
 import { providerPlaceholder } from "../lib/trayProviders";
 
-vi.mock("../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key, language: "english" }),
-}));
+vi.mock("../hooks/useLocale", () => import("../test/mocks/locale"));
 
 const providers = [
   providerPlaceholder("codex", "Codex"),

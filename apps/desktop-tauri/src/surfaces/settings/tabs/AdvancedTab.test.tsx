@@ -8,9 +8,7 @@ const tauriMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../lib/tauri", () => tauriMocks);
-vi.mock("../../../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key }),
-}));
+vi.mock("../../../hooks/useLocale", () => import("../../../test/mocks/locale"));
 
 import AdvancedTab from "./AdvancedTab";
 import type { SettingsSnapshot } from "../../../types/bridge";

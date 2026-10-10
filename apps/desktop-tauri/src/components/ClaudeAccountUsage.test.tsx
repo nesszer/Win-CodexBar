@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ClaudeAccount } from "../types/bridge";
 import ClaudeAccountUsage from "./ClaudeAccountUsage";
 
-vi.mock("../hooks/useLocale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
+vi.mock("../hooks/useLocale", () => import("../test/mocks/locale"));
 const t = (key: string) => key;
 const account: ClaudeAccount = {
   id: "one:org", email: "one@example.test", organization: null, plan: "max", isActive: false, isSaved: true,

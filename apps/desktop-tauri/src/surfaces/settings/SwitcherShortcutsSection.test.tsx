@@ -1,9 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key, language: "english" }),
-}));
+vi.mock("../../hooks/useLocale", () => import("../../test/mocks/locale"));
 
 import SwitcherShortcutsSection from "./SwitcherShortcutsSection";
 import type { SettingsSnapshot } from "../../types/bridge";

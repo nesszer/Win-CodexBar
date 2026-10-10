@@ -17,7 +17,7 @@ const events = vi.hoisted(() => ({
 }));
 vi.mock("../../../../../lib/tauri", () => mocks);
 vi.mock("@tauri-apps/api/event", () => events);
-vi.mock("../../../../../hooks/useLocale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
+vi.mock("../../../../../hooks/useLocale", () => import("../../../../../test/mocks/locale"));
 import { GrokAccountsSection } from "./GrokAccountsSection";
 
 const t = (key: string) => key;
