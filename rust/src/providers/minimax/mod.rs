@@ -5,16 +5,8 @@
 
 mod coding_plan;
 mod coding_plan_html;
-mod local_storage;
 mod remains_api;
 mod token_plan;
-
-// Re-exports for local storage import
-#[allow(
-    unused_imports,
-    reason = "imports needed for future MiniMax provider wiring"
-)]
-pub use local_storage::{ImportError, MiniMaxLocalStorageImporter, MiniMaxSession};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
