@@ -469,7 +469,9 @@ impl ProviderId {
             ProviderId::OpenAIApi => None,
             ProviderId::ElevenLabs => None,
             ProviderId::Deepgram => None,
-            ProviderId::Groq => None,
+            // The console session cookies live on `.groq.com` and
+            // `console.groq.com`; the parent domain matches both.
+            ProviderId::Groq => Some("groq.com"),
             ProviderId::HuggingFace => None,
             ProviderId::Helmcode => Some("helmcode.com"),
             ProviderId::TypeSafe => Some("typesafe.ai"),
@@ -1537,6 +1539,7 @@ mod tests {
         assert_eq!(ProviderId::Kimi.cookie_domain(), Some("kimi.moonshot.cn"));
         assert_eq!(ProviderId::OpenCode.cookie_domain(), Some("opencode.ai"));
         assert_eq!(ProviderId::Venice.cookie_domain(), Some("venice.ai"));
+        assert_eq!(ProviderId::Groq.cookie_domain(), Some("groq.com"));
 
         // Token-based providers (no cookies)
         assert_eq!(ProviderId::Copilot.cookie_domain(), None);
