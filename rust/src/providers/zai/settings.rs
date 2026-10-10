@@ -246,17 +246,22 @@ mod tests {
             .collect()
     }
 
+    fn token(map: &EnvMap, region: ZaiRegion) -> Option<String> {
+        ZaiSettingsReader::api_token(map, Path::new("/nonexistent"), region)
+    }
+
+    fn write_relay(home: &Path, dir: &str, name: &str, contents: &str) {
+        let dir = home.join(dir);
+        std::fs::create_dir_all(&dir).expect("mkdir relay");
+        std::fs::write(dir.join(name), contents).expect("write relay key");
+    }
+
     #[test]
     fn api_token_reads_from_environment() {
         let map = env(&[("Z_AI_API_KEY", "abc123")]);
+        assert_eq!(token(&map, ZaiRegion::Global).as_deref(), Some("abc123"));
         assert_eq!(
-            ZaiSettingsReader::api_token(&map, Path::new("/nonexistent"), ZaiRegion::Global)
-                .as_deref(),
-            Some("abc123")
-        );
-        assert_eq!(
-            ZaiSettingsReader::api_token(&map, Path::new("/nonexistent"), ZaiRegion::BigModelCn)
-                .as_deref(),
+            token(&map, ZaiRegion::BigModelCn).as_deref(),
             Some("abc123")
         );
     }
@@ -265,10 +270,7 @@ mod tests {
     fn legacy_alias_feeds_both_regions() {
         let map = env(&[("ZAI_API_TOKEN", "legacy-token")]);
         for region in [ZaiRegion::Global, ZaiRegion::BigModelCn] {
-            assert_eq!(
-                ZaiSettingsReader::api_token(&map, Path::new("/nonexistent"), region).as_deref(),
-                Some("legacy-token")
-            );
+            assert_eq!(token(&map, region).as_deref(), Some("legacy-token"));
         }
     }
 
@@ -276,14 +278,10 @@ mod tests {
     fn bigmodel_aliases_are_available_only_to_china_region() {
         let map = env(&[("BIGMODEL_API_KEY", "china-token")]);
         assert_eq!(
-            ZaiSettingsReader::api_token(&map, Path::new("/nonexistent"), ZaiRegion::BigModelCn)
-                .as_deref(),
+            token(&map, ZaiRegion::BigModelCn).as_deref(),
             Some("china-token")
         );
-        assert_eq!(
-            ZaiSettingsReader::api_token(&map, Path::new("/nonexistent"), ZaiRegion::Global),
-            None
-        );
+        assert_eq!(token(&map, ZaiRegion::Global), None);
     }
 
     #[test]
@@ -295,14 +293,12 @@ mod tests {
             ("BIGMODEL_API_KEY", "bigmodel"),
         ]);
         assert_eq!(
-            ZaiSettingsReader::api_token(&map, Path::new("/nonexistent"), ZaiRegion::BigModelCn)
-                .as_deref(),
+            token(&map, ZaiRegion::BigModelCn).as_deref(),
             Some("bigmodel")
         );
         let map = env(&[("GLM_API_KEY", "glm"), ("ZHIPUAI_API_KEY", "zhipuai")]);
         assert_eq!(
-            ZaiSettingsReader::api_token(&map, Path::new("/nonexistent"), ZaiRegion::BigModelCn)
-                .as_deref(),
+            token(&map, ZaiRegion::BigModelCn).as_deref(),
             Some("zhipuai")
         );
     }
@@ -310,13 +306,12 @@ mod tests {
     #[test]
     fn glm_relay_file_is_available_only_to_china_region() {
         let home = tempfile::tempdir().expect("tempdir");
-        let relay_dir = home.path().join(".coding-relay");
-        std::fs::create_dir_all(&relay_dir).expect("mkdir relay");
-        std::fs::write(
-            relay_dir.join("glm-api-key"),
+        write_relay(
+            home.path(),
+            ".coding-relay",
+            "glm-api-key",
             " relay-china-token\nignored-second-line",
-        )
-        .expect("write relay key");
+        );
 
         let map = env(&[]);
         assert_eq!(
@@ -339,9 +334,7 @@ mod tests {
             (".config/zhipu", "api_key", "relay-zhipu"),
         ] {
             let home = tempfile::tempdir().expect("tempdir");
-            let dir = home.path().join(dir);
-            std::fs::create_dir_all(&dir).expect("mkdir");
-            std::fs::write(dir.join(name), format!("{token}\n")).expect("write");
+            write_relay(home.path(), dir, name, &format!("{token}\n"));
             let map = env(&[]);
             assert_eq!(
                 ZaiSettingsReader::api_token(&map, home.path(), ZaiRegion::BigModelCn).as_deref(),
@@ -356,9 +349,7 @@ mod tests {
             (".coding-relay", "glm-api-key", "relay-glm"),
             (".config/zhipu", "api_key", "relay-zhipu"),
         ] {
-            let dir = home.path().join(dir);
-            std::fs::create_dir_all(&dir).expect("mkdir");
-            std::fs::write(dir.join(name), format!("{token}\n")).expect("write");
+            write_relay(home.path(), dir, name, &format!("{token}\n"));
         }
         let map = env(&[]);
         assert_eq!(
@@ -370,9 +361,7 @@ mod tests {
     #[test]
     fn unreadable_or_empty_relay_files_are_skipped() {
         let home = tempfile::tempdir().expect("tempdir");
-        let relay_dir = home.path().join(".coding-relay");
-        std::fs::create_dir_all(&relay_dir).expect("mkdir relay");
-        std::fs::write(relay_dir.join("glm-api-key"), "\n  \n").expect("write empty");
+        write_relay(home.path(), ".coding-relay", "glm-api-key", "\n  \n");
         let map = env(&[]);
         assert_eq!(
             ZaiSettingsReader::api_token(&map, home.path(), ZaiRegion::BigModelCn),
