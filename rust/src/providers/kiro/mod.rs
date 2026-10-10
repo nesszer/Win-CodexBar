@@ -45,18 +45,6 @@ impl KiroProvider {
         Self
     }
 
-    /// Get Kiro config directory
-    fn get_kiro_config_path() -> Option<PathBuf> {
-        #[cfg(target_os = "windows")]
-        {
-            dirs::config_dir().map(|p| p.join("Kiro"))
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            dirs::home_dir().map(|p| p.join(".kiro"))
-        }
-    }
-
     /// Find Kiro CLI binary
     fn which_kiro() -> Option<PathBuf> {
         cli_path::find_kiro_cli()
