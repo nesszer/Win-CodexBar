@@ -57,6 +57,13 @@ const POLICIES: Readonly<Record<string, UsageSourcePolicy>> = {
       { value: "oauth", label: "API", description: "Uses the configured Charm Hyper API key only." },
     ],
   },
+  groq: {
+    options: [
+      { value: "auto", label: "Auto", description: "Tries the console.groq.com browser session, then Enterprise Prometheus metrics with the API key." },
+      { value: "web", label: "Browser session", description: "Uses the console.groq.com browser session or manual cookie header only." },
+      { value: "oauth", label: "API", description: "Uses the configured API key for Enterprise Prometheus metrics only." },
+    ],
+  },
   zed: {
     options: [
       {

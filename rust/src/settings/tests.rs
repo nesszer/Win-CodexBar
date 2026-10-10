@@ -65,6 +65,15 @@ fn hyper_cookie_source_defaults_to_automatic_session_import() {
 }
 
 #[test]
+fn groq_cookie_source_defaults_to_automatic_session_import() {
+    // Upstream resolves `groqCookieSource` with an `.auto` fallback.
+    let mut settings = Settings::default();
+    assert_eq!(settings.cookie_source(ProviderId::Groq), "auto");
+    settings.set_cookie_source(ProviderId::Groq, "manual");
+    assert_eq!(settings.cookie_source(ProviderId::Groq), "manual");
+}
+
+#[test]
 fn preferred_currency_defaults_validates_and_round_trips() {
     let legacy = defaulted();
     assert_eq!(legacy.preferred_currency_code, "AUTO");
@@ -643,6 +652,20 @@ fn test_api_key_provider_catalog_includes_token_providers() {
             "{id} should be configurable from the API Keys UI"
         );
     }
+}
+
+#[test]
+fn groq_api_key_help_matches_upstream_copy() {
+    let info = get_api_key_providers()
+        .into_iter()
+        .find(|info| info.id == ProviderId::Groq)
+        .expect("Groq api key metadata");
+    assert_eq!(
+        info.api_key_help,
+        Some(
+            "Usage & spend come from your console.groq.com browser session automatically. An API key is optional and only adds Enterprise Prometheus metrics."
+        )
+    );
 }
 
 #[test]

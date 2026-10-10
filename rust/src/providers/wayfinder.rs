@@ -161,6 +161,44 @@ pub fn parse_savings(raw: &str) -> Result<SavingsResponse, ProviderError> {
         .map_err(|_| ProviderError::Parse("Invalid Wayfinder savings response".to_string()))
 }
 
+/// Combine the three gateway responses into the snapshot the UI renders.
+fn usage_snapshot(
+    health: HealthResponse,
+    models: ModelsResponse,
+    savings: SavingsResponse,
+) -> WayfinderUsageSnapshot {
+    WayfinderUsageSnapshot {
+        gateway_status: health.status,
+        offline: health.offline,
+        dry_run: models.dry_run,
+        missing_keys: health.missing_keys,
+        model_count: models.model_count(),
+        models: models.models.into_iter().map(|model| model.name).collect(),
+        requests: savings.requests,
+        estimated_requests: savings.estimated_requests,
+        tokens: savings.tokens,
+        realized: savings.realized,
+        baseline: savings.baseline,
+        saved: savings.saved,
+        saved_percent: savings.saved_pct,
+        period_days: savings.period_days,
+        unit: savings.unit,
+        priced: savings.priced,
+        routes: savings
+            .by_route
+            .into_iter()
+            .map(|(name, route)| WayfinderRouteSummary {
+                name,
+                requests: route.requests,
+                tokens: route.tokens,
+                realized: route.realized,
+                baseline: route.baseline,
+                saved: route.saved,
+            })
+            .collect(),
+    }
+}
+
 pub struct WayfinderProvider {
     metadata: ProviderMetadata,
 }
@@ -246,36 +284,7 @@ impl Provider for WayfinderProvider {
         // Metrics are best-effort enrichment; a failure must not fail the usage fetch.
         let _metrics = Self::fetch_metrics(&client, &endpoint_url(&base, METRICS_PATH)?).await;
 
-        let wayfinder_usage = WayfinderUsageSnapshot {
-            gateway_status: health.status,
-            offline: health.offline,
-            dry_run: models.dry_run,
-            missing_keys: health.missing_keys,
-            model_count: models.model_count(),
-            models: models.models.into_iter().map(|model| model.name).collect(),
-            requests: savings.requests,
-            estimated_requests: savings.estimated_requests,
-            tokens: savings.tokens,
-            realized: savings.realized,
-            baseline: savings.baseline,
-            saved: savings.saved,
-            saved_percent: savings.saved_pct,
-            period_days: savings.period_days,
-            unit: savings.unit,
-            priced: savings.priced,
-            routes: savings
-                .by_route
-                .into_iter()
-                .map(|(name, route)| WayfinderRouteSummary {
-                    name,
-                    requests: route.requests,
-                    tokens: route.tokens,
-                    realized: route.realized,
-                    baseline: route.baseline,
-                    saved: route.saved,
-                })
-                .collect(),
-        };
+        let wayfinder_usage = usage_snapshot(health, models, savings);
 
         Ok(
             ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(0.0)), "gateway")
@@ -345,6 +354,68 @@ mod tests {
         assert_eq!(savings.tokens, 1028);
         assert_eq!(savings.by_route["local"].requests, 10);
         assert_eq!(savings.saved, 0.005694);
+    }
+
+    /// The frontend bridge reads this snapshot as camelCase (`savedPercent`,
+    /// `missingKeys`, `dryRun`, ...). Snake_case keys leave those fields
+    /// undefined and the tray panel throws while rendering the card.
+    #[test]
+    fn pack_snapshot_serializes_camel_case_keys_for_the_bridge() {
+        let snapshot = usage_snapshot(
+            parse_health(include_str!("fixtures/wayfinder/pack-health.json")).unwrap(),
+            parse_models(include_str!("fixtures/wayfinder/pack-models.json")).unwrap(),
+            parse_savings(include_str!("fixtures/wayfinder/pack-savings.json")).unwrap(),
+        );
+
+        let json = serde_json::to_value(&snapshot).unwrap();
+        let mut actual: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut expected = vec![
+            "gatewayStatus",
+            "offline",
+            "dryRun",
+            "missingKeys",
+            "modelCount",
+            "models",
+            "requests",
+            "estimatedRequests",
+            "tokens",
+            "realized",
+            "baseline",
+            "saved",
+            "savedPercent",
+            "periodDays",
+            "unit",
+            "priced",
+            "routes",
+        ];
+        actual.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(actual, expected);
+
+        assert_eq!(json["gatewayStatus"], "ok");
+        assert_eq!(json["dryRun"], false);
+        assert_eq!(json["missingKeys"], serde_json::json!([]));
+        assert_eq!(json["modelCount"], 3);
+        assert_eq!(json["savedPercent"], 57.1);
+        assert_eq!(json["periodDays"], 30);
+        assert_eq!(json["estimatedRequests"], 0);
+
+        let route = json["routes"][0].as_object().unwrap();
+        let mut route_keys: Vec<&str> = route.keys().map(String::as_str).collect();
+        route_keys.sort_unstable();
+        assert_eq!(
+            route_keys,
+            [
+                "baseline", "name", "realized", "requests", "saved", "tokens"
+            ]
+        );
+        assert_eq!(json["routes"][0]["name"], "cheap");
+        assert_eq!(json["routes"][1]["name"], "premium");
     }
 
     #[test]

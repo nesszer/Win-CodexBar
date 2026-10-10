@@ -1,0 +1,1 @@
+{"priced":true,"requests":1200,"tokens":350000,"realized":4.2,"baseline":9.8,"saved":5.6,"saved_pct":57.1,"by_route":{"cheap":{"requests":900,"saved":3.1,"tokens":260000,"realized":1.6,"baseline":4.7},"premium":{"requests":300,"saved":2.5,"tokens":90000,"realized":2.6,"baseline":5.1}},"period_days":30,"unit":"USD","estimated_requests":0}

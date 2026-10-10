@@ -43,7 +43,11 @@ impl SubscriptionMetadata {
 }
 
 /// Provider-specific operational data reported by a Wayfinder gateway.
+///
+/// Serialized as camelCase because the frontend bridge (`WayfinderUsageSnapshot`
+/// in `bridge.ts`) reads it that way.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WayfinderUsageSnapshot {
     pub gateway_status: String,
     pub offline: bool,
@@ -66,6 +70,7 @@ pub struct WayfinderUsageSnapshot {
 
 /// Per-route savings data reported by Wayfinder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WayfinderRouteSummary {
     pub name: String,
     pub requests: u64,
@@ -1059,5 +1064,49 @@ mod tests {
         assert_eq!(decoded.balance, Some(0.0));
         assert_eq!(decoded.balance_updated_at, Some(observed_at));
         assert_eq!(decoded.account_id.as_deref(), Some("account-1"));
+    }
+
+    /// Proof seeds (`CODEXBAR_SEED_USAGE_JSON`) hand this snapshot back in the
+    /// bridge's camelCase shape; it must decode and re-encode unchanged.
+    #[test]
+    fn wayfinder_snapshot_round_trips_bridge_camel_case_json() {
+        let bridge = serde_json::json!({
+            "gatewayStatus": "degraded",
+            "offline": false,
+            "dryRun": true,
+            "missingKeys": ["RIG_CLOUD_KEY"],
+            "modelCount": 1,
+            "models": ["cheap-local"],
+            "requests": 12,
+            "estimatedRequests": 2,
+            "tokens": 3400,
+            "realized": 0.5,
+            "baseline": 1.5,
+            "saved": 1.0,
+            "savedPercent": 66.7,
+            "periodDays": 30,
+            "unit": "USD",
+            "priced": true,
+            "routes": [{
+                "name": "cheap",
+                "requests": 12,
+                "tokens": 3400,
+                "realized": 0.5,
+                "baseline": 1.5,
+                "saved": 1.0
+            }]
+        });
+
+        let decoded: WayfinderUsageSnapshot = serde_json::from_value(bridge.clone()).unwrap();
+        assert_eq!(decoded.gateway_status, "degraded");
+        assert!(decoded.dry_run);
+        assert_eq!(decoded.missing_keys, ["RIG_CLOUD_KEY"]);
+        assert_eq!(decoded.model_count, 1);
+        assert_eq!(decoded.estimated_requests, 2);
+        assert_eq!(decoded.saved_percent, 66.7);
+        assert_eq!(decoded.period_days, 30);
+        assert_eq!(decoded.routes[0].name, "cheap");
+
+        assert_eq!(serde_json::to_value(&decoded).unwrap(), bridge);
     }
 }

@@ -250,6 +250,7 @@ fn cookie_source_provider(provider_id: &str) -> Option<codexbar::core::ProviderI
         "helmcode" => ProviderId::Helmcode,
         "typesafe" => ProviderId::TypeSafe,
         "hyper" => ProviderId::Hyper,
+        "groq" => ProviderId::Groq,
         _ => return None,
     })
 }
@@ -843,6 +844,14 @@ pub fn cookie_source_options_for(provider_id: &str, lang: Language) -> Vec<Cooki
                 Some(locale::LocaleKey::CookieHelpHyperManual),
             ),
             cookie_option(lang, "off", Some(locale::LocaleKey::CookieHelpHyperOff)),
+        ],
+        // Upstream reads the console session from the browser only; manual
+        // keeps a pasted `stytch_session` header for browsers whose cookies
+        // Windows cannot decrypt.
+        "groq" => vec![
+            cookie_option(lang, "auto", None),
+            cookie_option(lang, "manual", None),
+            cookie_option(lang, "off", None),
         ],
         _ => Vec::new(),
     }
