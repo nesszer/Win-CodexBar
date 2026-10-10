@@ -475,56 +475,38 @@ impl GeminiApi {
             }
         }
 
-        // Find Flash and Pro quotas
-        let flash_quota = model_quotas
-            .iter()
-            .filter(|(k, _)| k.to_lowercase().contains("flash"))
-            .min_by(|a, b| {
-                a.1.0
-                    .partial_cmp(&b.1.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-        let pro_quota = model_quotas
-            .iter()
-            .filter(|(k, _)| k.to_lowercase().contains("pro"))
-            .min_by(|a, b| {
-                a.1.0
-                    .partial_cmp(&b.1.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-        // Build primary RateWindow from the most constrained quota
-        let (primary_fraction, primary_reset) = if let Some((_, (frac, reset))) = pro_quota {
-            (*frac, reset.clone())
-        } else if let Some((_, (frac, reset))) = flash_quota {
-            (*frac, reset.clone())
-        } else if let Some((_, (frac, reset))) = model_quotas.iter().next() {
-            (*frac, reset.clone())
-        } else {
-            (1.0, None)
+        // Most constrained Flash / Pro quota.
+        let lowest = |family: &str| {
+            model_quotas
+                .iter()
+                .filter(|(k, _)| k.to_lowercase().contains(family))
+                .min_by(|a, b| {
+                    a.1.0
+                        .partial_cmp(&b.1.0)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
         };
+        let flash_quota = lowest("flash");
+        let pro_quota = lowest("pro");
 
-        let primary_percent_used = (1.0 - primary_fraction) * 100.0;
-        let primary_reset_at = primary_reset.as_ref().and_then(|s| parse_iso_date(s));
-
-        let primary = RateWindow::with_details(
-            primary_percent_used,
-            Some(1440), // 24 hours
-            primary_reset_at,
-            None,
-        );
-
-        // Model-specific window for Flash if Pro is primary
-        let model_specific = if pro_quota.is_some() {
-            flash_quota.map(|(_, (frac, reset))| {
-                let percent_used = (1.0 - frac) * 100.0;
-                let reset_at = reset.as_ref().and_then(|s| parse_iso_date(s));
-                RateWindow::with_details(percent_used, Some(1440), reset_at, None)
-            })
-        } else {
-            None
+        let window = |(_, (fraction, reset)): (&String, &(f64, Option<String>))| {
+            RateWindow::with_details(
+                (1.0 - fraction) * 100.0,
+                Some(1440), // 24 hours
+                reset.as_ref().and_then(|s| parse_iso_date(s)),
+                None,
+            )
         };
+        // Primary is Pro, else Flash, else any model; Flash gets its own
+        // window only when Pro is primary.
+        let primary = pro_quota
+            .or(flash_quota)
+            .or_else(|| model_quotas.iter().next())
+            .map_or_else(
+                || RateWindow::with_details(0.0, Some(1440), None, None),
+                window,
+            );
+        let model_specific = pro_quota.and(flash_quota).map(window);
 
         // Extract email from ID token
         let email = creds
