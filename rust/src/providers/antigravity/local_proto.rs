@@ -311,9 +311,9 @@ fn parse_timestamp_field(bytes: &[u8], seconds: &mut Option<u64>, nanos: &mut u6
     })
 }
 
+/// Protobuf encoders for building test blobs.
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(super) mod test_fixtures {
     fn varint(mut value: u64) -> Vec<u8> {
         let mut bytes = Vec::new();
         loop {
@@ -328,17 +328,25 @@ mod tests {
             }
         }
     }
-    fn field_varint(number: u64, value: u64) -> Vec<u8> {
-        let mut b = varint(number << 3);
-        b.extend(varint(value));
-        b
+
+    pub(crate) fn field_varint(number: u64, value: u64) -> Vec<u8> {
+        let mut bytes = varint(number << 3);
+        bytes.extend(varint(value));
+        bytes
     }
-    fn field_bytes(number: u64, value: &[u8]) -> Vec<u8> {
-        let mut b = varint((number << 3) | 2);
-        b.extend(varint(value.len() as u64));
-        b.extend(value);
-        b
+
+    pub(crate) fn field_bytes(number: u64, value: &[u8]) -> Vec<u8> {
+        let mut bytes = varint((number << 3) | 2);
+        bytes.extend(varint(value.len() as u64));
+        bytes.extend(value);
+        bytes
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_fixtures::{field_bytes, field_varint};
+    use super::*;
     #[test]
     fn decodes_generation_usage_and_timestamp() {
         let mut usage = Vec::new();

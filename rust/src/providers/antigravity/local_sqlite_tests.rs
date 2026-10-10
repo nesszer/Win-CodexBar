@@ -1,33 +1,6 @@
 use super::*;
+use crate::providers::antigravity::local_proto::test_fixtures::{field_bytes, field_varint};
 use rusqlite::params;
-
-fn varint(mut value: u64) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    loop {
-        let mut byte = (value & 0x7f) as u8;
-        value >>= 7;
-        if value != 0 {
-            byte |= 0x80;
-        }
-        bytes.push(byte);
-        if value == 0 {
-            return bytes;
-        }
-    }
-}
-
-fn field_varint(number: u64, value: u64) -> Vec<u8> {
-    let mut bytes = varint(number << 3);
-    bytes.extend(varint(value));
-    bytes
-}
-
-fn field_bytes(number: u64, value: &[u8]) -> Vec<u8> {
-    let mut bytes = varint((number << 3) | 2);
-    bytes.extend(varint(value.len() as u64));
-    bytes.extend(value);
-    bytes
-}
 
 fn valid_turn_blob(input: u64, timestamp_seconds: u64) -> Vec<u8> {
     valid_turn_blob_with_model(input, timestamp_seconds, None)

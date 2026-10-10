@@ -6,6 +6,7 @@ use rusqlite::{Connection, params};
 use tempfile::TempDir;
 
 use super::*;
+use crate::providers::antigravity::local_proto::test_fixtures::{field_bytes, field_varint};
 
 const NOW_SECONDS: u64 = 1_800_000_000;
 
@@ -13,34 +14,6 @@ fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(i64::try_from(NOW_SECONDS).unwrap(), 0)
         .single()
         .unwrap()
-}
-
-fn varint(mut value: u64) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    loop {
-        let mut byte = (value & 0x7f) as u8;
-        value >>= 7;
-        if value != 0 {
-            byte |= 0x80;
-        }
-        bytes.push(byte);
-        if value == 0 {
-            return bytes;
-        }
-    }
-}
-
-fn field_varint(number: u64, value: u64) -> Vec<u8> {
-    let mut bytes = varint(number << 3);
-    bytes.extend(varint(value));
-    bytes
-}
-
-fn field_bytes(number: u64, value: &[u8]) -> Vec<u8> {
-    let mut bytes = varint((number << 3) | 2);
-    bytes.extend(varint(value.len() as u64));
-    bytes.extend(value);
-    bytes
 }
 
 fn turn_blob(step_uuid: Option<&str>, input: u64, timestamp: Option<u64>) -> Vec<u8> {
