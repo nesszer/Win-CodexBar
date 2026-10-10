@@ -744,6 +744,51 @@ mod tests {
     }
 
     #[test]
+    fn list_and_switch_share_the_envelope_checks() {
+        const NOT_OBJECT: &str = "claude-swap returned output that is not a JSON object.";
+        const NO_SCHEMA: &str = "claude-swap output has no schemaVersion field.";
+        const SCHEMA_2: &str =
+            "claude-swap output uses unsupported schema version 2; CodexBar supports version 1.";
+        const UNKNOWN: &str = "claude-swap reported Error: unknown error";
+        let rows: [(&str, &str, &str); 12] = [
+            ("not json", NOT_OBJECT, NOT_OBJECT),
+            ("[]", NOT_OBJECT, NOT_OBJECT),
+            (r#""text""#, NOT_OBJECT, NOT_OBJECT),
+            ("{}", NO_SCHEMA, NO_SCHEMA),
+            (r#"{"schemaVersion": "1"}"#, NO_SCHEMA, NO_SCHEMA),
+            (r#"{"schemaVersion": 1.5}"#, NO_SCHEMA, NO_SCHEMA),
+            (r#"{"schemaVersion": 2}"#, SCHEMA_2, SCHEMA_2),
+            (
+                r#"{"schemaVersion": 2, "error": {"type": "LockHeld"}}"#,
+                SCHEMA_2,
+                SCHEMA_2,
+            ),
+            (r#"{"schemaVersion": 1, "error": {}}"#, UNKNOWN, UNKNOWN),
+            (
+                r#"{"schemaVersion": 1, "error": {"type": "", "message": ""}}"#,
+                UNKNOWN,
+                UNKNOWN,
+            ),
+            (
+                r#"{"schemaVersion": 1, "error": {"type": "LockHeld", "message": "busy"}}"#,
+                "claude-swap reported LockHeld: busy",
+                "claude-swap reported LockHeld: busy",
+            ),
+            (
+                r#"{"schemaVersion": 1, "error": "text"}"#,
+                "claude-swap output is malformed: missing accounts array",
+                "claude-swap output is malformed: missing switched flag",
+            ),
+        ];
+        for (raw, list_expected, switch_expected) in rows {
+            let list = parse_account_list(raw).unwrap_err().to_string();
+            let switch = parse_switch_result(raw).unwrap_err().to_string();
+            assert_eq!(list, list_expected, "{raw}");
+            assert_eq!(switch, switch_expected, "{raw}");
+        }
+    }
+
+    #[test]
     fn switch_result_requires_matching_target_slot() {
         let raw = json!({
             "schemaVersion": 1,
