@@ -544,11 +544,22 @@ pub struct SessionEquivalentHistoryStore {
     by_scope: HashMap<ForecastScope, ProviderHistory>,
 }
 
-#[derive(Debug, Default)]
-struct ProviderHistory {
-    session: Vec<PlanUtilizationHistoryEntry>,
-    weekly: Vec<PlanUtilizationHistoryEntry>,
-}
+/// The tracked series, in output order: (name, persisted key, window minutes).
+const SERIES: [(PlanUtilizationSeriesName, &str, u32); 2] = [
+    (
+        PlanUtilizationSeriesName::Session,
+        "session",
+        SESSION_WINDOW_MINUTES,
+    ),
+    (
+        PlanUtilizationSeriesName::Weekly,
+        "weekly",
+        WEEKLY_WINDOW_MINUTES,
+    ),
+];
+
+/// One ring per `SERIES` entry, same index.
+type ProviderHistory = [Vec<PlanUtilizationHistoryEntry>; SERIES.len()];
 
 static HISTORY_STORE: LazyLock<Mutex<SessionEquivalentHistoryStore>> =
     LazyLock::new(|| Mutex::new(SessionEquivalentHistoryStore::default()));
@@ -566,11 +577,10 @@ impl SessionEquivalentHistoryStore {
         // Keep more raw points than completed groups so grouping still has density.
         let ring = limit.saturating_mul(8).max(24);
         let hist = self.by_scope.entry(scope.clone()).or_default();
-        if let Some(entry) = session {
-            push_ring(&mut hist.session, entry, ring);
-        }
-        if let Some(entry) = weekly {
-            push_ring(&mut hist.weekly, entry, ring);
+        for (buf, entry) in hist.iter_mut().zip([session, weekly]) {
+            if let Some(entry) = entry {
+                push_ring(buf, entry, ring);
+            }
         }
     }
 
@@ -578,22 +588,18 @@ impl SessionEquivalentHistoryStore {
         let Some(hist) = self.by_scope.get(scope) else {
             return Vec::new();
         };
-        let mut out = Vec::new();
-        if !hist.session.is_empty() {
-            out.push(PlanUtilizationSeriesHistory {
-                name: PlanUtilizationSeriesName::Session,
-                window_minutes: SESSION_WINDOW_MINUTES,
-                entries: hist.session.clone(),
-            });
-        }
-        if !hist.weekly.is_empty() {
-            out.push(PlanUtilizationSeriesHistory {
-                name: PlanUtilizationSeriesName::Weekly,
-                window_minutes: WEEKLY_WINDOW_MINUTES,
-                entries: hist.weekly.clone(),
-            });
-        }
-        out
+        SERIES
+            .iter()
+            .zip(hist)
+            .filter(|(_, entries)| !entries.is_empty())
+            .map(
+                |(&(name, _, window_minutes), entries)| PlanUtilizationSeriesHistory {
+                    name,
+                    window_minutes,
+                    entries: entries.clone(),
+                },
+            )
+            .collect()
     }
 
     /// Merge persisted series into the in-process store for `scope`. Older
@@ -613,17 +619,15 @@ impl SessionEquivalentHistoryStore {
             if entries.is_empty() {
                 continue;
             }
+            let Some(index) = SERIES.iter().position(|(_, key, _)| *key == series.name) else {
+                continue;
+            };
             let hist = self.by_scope.entry(scope.clone()).or_default();
-            let ring = quota_burndown::MAX_SERIES_SAMPLES;
-            match series.name.as_str() {
-                "session" => {
-                    merge_ring(&mut hist.session, entries, ring);
-                }
-                "weekly" => {
-                    merge_ring(&mut hist.weekly, entries, ring);
-                }
-                _ => {}
-            }
+            merge_ring(
+                &mut hist[index],
+                entries,
+                quota_burndown::MAX_SERIES_SAMPLES,
+            );
         }
     }
 }
@@ -708,30 +712,10 @@ pub fn record_provider_windows(
     weekly: Option<&crate::core::RateWindow>,
     now: DateTime<Utc>,
 ) {
-    if session.is_informational
-        || session.window_minutes != Some(SESSION_WINDOW_MINUTES)
-        || !session.used_percent.is_finite()
-    {
+    let Some(session_entry) = history_entry(session, SESSION_WINDOW_MINUTES, now) else {
         return;
-    }
-    let session_entry = PlanUtilizationHistoryEntry {
-        captured_at: now,
-        used_percent: session.used_percent.clamp(0.0, 100.0),
-        resets_at: session.resets_at,
     };
-    let weekly_entry = weekly.and_then(|w| {
-        if w.is_informational
-            || w.window_minutes != Some(WEEKLY_WINDOW_MINUTES)
-            || !w.used_percent.is_finite()
-        {
-            return None;
-        }
-        Some(PlanUtilizationHistoryEntry {
-            captured_at: now,
-            used_percent: w.used_percent.clamp(0.0, 100.0),
-            resets_at: w.resets_at,
-        })
-    });
+    let weekly_entry = weekly.and_then(|w| history_entry(w, WEEKLY_WINDOW_MINUTES, now));
 
     if let Ok(mut guard) = global_history_store().lock() {
         guard.record(
@@ -753,6 +737,26 @@ pub fn record_provider_windows(
     ) {
         tracing::debug!(%error, "quota burndown persistence failed");
     }
+}
+
+/// A clamped observation of `window`, or `None` when it is informational, has
+/// another length than `minutes`, or carries a non-finite percent.
+fn history_entry(
+    window: &crate::core::RateWindow,
+    minutes: u32,
+    now: DateTime<Utc>,
+) -> Option<PlanUtilizationHistoryEntry> {
+    if window.is_informational
+        || window.window_minutes != Some(minutes)
+        || !window.used_percent.is_finite()
+    {
+        return None;
+    }
+    Some(PlanUtilizationHistoryEntry {
+        captured_at: now,
+        used_percent: window.used_percent.clamp(0.0, 100.0),
+        resets_at: window.resets_at,
+    })
 }
 
 /// Last learned full-session burn estimate retained across idle refreshes.
