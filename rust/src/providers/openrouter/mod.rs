@@ -506,10 +506,6 @@ impl OpenRouterProvider {
     /// reads 0%. Without it, fall back to the period usage matching the
     /// declared reset window, then cumulative usage; with no usable source the
     /// meter stays hidden.
-    fn add_key_quota(usage: &mut UsageSnapshot, key_data: &KeyData) {
-        Self::add_key_quota_with_suffix(usage, key_data, "Spending cap, not balance");
-    }
-
     fn add_key_quota_with_suffix(usage: &mut UsageSnapshot, key_data: &KeyData, suffix: &str) {
         let Some(key_window) = Self::key_quota_window(key_data, suffix) else {
             return;

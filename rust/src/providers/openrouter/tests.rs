@@ -73,9 +73,11 @@ fn key_data(
     }
 }
 
+const KEY_CAP_SUFFIX: &str = "Spending cap, not balance";
+
 fn key_quota_percent(key_data: KeyData) -> Option<f64> {
     let mut usage = UsageSnapshot::new(RateWindow::new(0.0));
-    OpenRouterProvider::add_key_quota(&mut usage, &key_data);
+    OpenRouterProvider::add_key_quota_with_suffix(&mut usage, &key_data, KEY_CAP_SUFFIX);
     usage.secondary.map(|window| window.used_percent)
 }
 
@@ -89,7 +91,7 @@ fn key_limit_copy_stays_distinct_from_account_balance() {
         total_usage: 3.1,
     };
     let mut usage = OpenRouterProvider::build_credits_usage(&credits);
-    OpenRouterProvider::add_key_quota(
+    OpenRouterProvider::add_key_quota_with_suffix(
         &mut usage,
         &key_data(
             Some(30.0),
@@ -100,6 +102,7 @@ fn key_limit_copy_stays_distinct_from_account_balance() {
             None,
             Some(0.0),
         ),
+        KEY_CAP_SUFFIX,
     );
     assert_eq!(usage.login_method.as_deref(), Some("$1.90 balance"));
     let key = usage.secondary.expect("key spending cap");
@@ -267,114 +270,82 @@ fn activity_cost_wins_while_uncapped_key_spend_windows_remain() {
 }
 
 #[test]
-fn server_remaining_replaces_lifetime_usage_for_meter() {
-    // limit 50, server says 12.50 left this period → 75% used, even though
-    // cumulative lifetime usage would imply a different ratio.
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        Some(12.5),
-        None,
-        Some(40.0),
-        None,
-        None,
-        None,
-    ));
-    assert_eq!(pct, Some(75.0));
-}
-
-#[test]
-fn negative_server_remaining_reads_exhausted() {
-    // Upstream: "treat negative remaining as exhausted quota".
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        Some(-3.0),
-        None,
-        Some(10.0),
-        None,
-        None,
-        None,
-    ));
-    assert_eq!(pct, Some(100.0));
-}
-
-#[test]
-fn above_limit_server_remaining_reads_zero() {
-    // Inclusive [0, keyLimit] clamp: a server remaining above the
-    // configured limit renders 0% used, not a suppressed meter.
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        Some(75.0),
-        None,
-        Some(10.0),
-        None,
-        None,
-        None,
-    ));
-    assert_eq!(pct, Some(0.0));
-}
-
-#[test]
-fn reset_window_usage_is_the_preferred_fallback() {
-    // No remaining: `limit_reset: "monthly"` picks usage_monthly (25/50).
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        None,
-        Some("monthly"),
-        Some(40.0),
-        Some(1.0),
-        Some(2.0),
-        Some(25.0),
-    ));
-    assert_eq!(pct, Some(50.0));
-    // Case-insensitive reset label.
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        None,
-        Some("WEEKLY"),
-        Some(40.0),
-        Some(1.0),
-        Some(2.0),
-        Some(25.0),
-    ));
-    assert_eq!(pct, Some(4.0));
-}
-
-#[test]
-fn cumulative_usage_is_the_last_fallback() {
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        None,
-        None,
-        Some(20.0),
-        Some(1.0),
-        None,
-        None,
-    ));
-    assert_eq!(pct, Some(40.0));
-}
-
-#[test]
-fn no_usable_quota_source_hides_the_meter() {
-    assert_eq!(
-        key_quota_percent(key_data(Some(50.0), None, None, None, None, None, None)),
-        None
+fn key_meter_prefers_server_remaining_then_reset_window_then_cumulative_usage() {
+    type Case = (
+        &'static str,
+        (Option<f64>, Option<f64>, Option<&'static str>, Option<f64>),
+        (Option<f64>, Option<f64>, Option<f64>),
+        Option<f64>,
     );
-    assert_eq!(
-        key_quota_percent(key_data(
+    let cases: [Case; 9] = [
+        // limit 50, server says 12.50 left this period: 75% used, even though
+        // cumulative lifetime usage would imply a different ratio.
+        (
+            "server remaining replaces lifetime usage",
+            (Some(50.0), Some(12.5), None, Some(40.0)),
+            (None, None, None),
+            Some(75.0),
+        ),
+        // Upstream: "treat negative remaining as exhausted quota".
+        (
+            "negative server remaining reads exhausted",
+            (Some(50.0), Some(-3.0), None, Some(10.0)),
+            (None, None, None),
+            Some(100.0),
+        ),
+        // Inclusive [0, keyLimit] clamp: a server remaining above the
+        // configured limit renders 0% used, not a suppressed meter.
+        (
+            "above-limit server remaining reads zero",
+            (Some(50.0), Some(75.0), None, Some(10.0)),
+            (None, None, None),
             Some(0.0),
-            Some(5.0),
+        ),
+        // No remaining: `limit_reset: "monthly"` picks usage_monthly (25/50).
+        (
+            "reset window usage is the preferred fallback",
+            (Some(50.0), None, Some("monthly"), Some(40.0)),
+            (Some(1.0), Some(2.0), Some(25.0)),
+            Some(50.0),
+        ),
+        // Case-insensitive reset label.
+        (
+            "reset window label is case-insensitive",
+            (Some(50.0), None, Some("WEEKLY"), Some(40.0)),
+            (Some(1.0), Some(2.0), Some(25.0)),
+            Some(4.0),
+        ),
+        (
+            "cumulative usage is the last fallback",
+            (Some(50.0), None, None, Some(20.0)),
+            (Some(1.0), None, None),
+            Some(40.0),
+        ),
+        (
+            "no usable quota source hides the meter",
+            (Some(50.0), None, None, None),
+            (None, None, None),
             None,
-            Some(1.0),
+        ),
+        (
+            "zero limit hides the meter",
+            (Some(0.0), Some(5.0), None, Some(1.0)),
+            (None, None, None),
             None,
+        ),
+        (
+            "missing limit hides the meter",
+            (None, Some(5.0), None, Some(1.0)),
+            (None, None, None),
             None,
-            None
-        )),
-        None
-    );
-    assert_eq!(
-        key_quota_percent(key_data(None, Some(5.0), None, Some(1.0), None, None, None)),
-        None
-    );
+        ),
+    ];
+    for (name, (limit, remaining, reset, usage), (daily, weekly, monthly), expected) in cases {
+        let pct = key_quota_percent(key_data(
+            limit, remaining, reset, usage, daily, weekly, monthly,
+        ));
+        assert_eq!(pct, expected, "{name}");
+    }
 }
 
 #[test]

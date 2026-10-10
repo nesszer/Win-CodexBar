@@ -709,29 +709,91 @@ mod tests {
     }
 
     #[test]
-    fn parses_weekly_only_json_without_rolling() {
+    fn parse_usage_json_window_shapes() {
         let provider = OpenCodeProvider::new();
         let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "weeklyUsage": { "usagePercent": 76.0, "resetInSec": 86400 }
-        });
-
-        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
-        assert!((snap.primary.used_percent - 76.0).abs() < f64::EPSILON);
-        assert!(snap.secondary.is_none());
-    }
-
-    #[test]
-    fn parses_rolling_only_json_without_weekly() {
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "rollingUsage": { "usagePercent": 12.5, "resetInSec": 600 }
-        });
-
-        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
-        assert!((snap.primary.used_percent - 12.5).abs() < f64::EPSILON);
-        assert!(snap.secondary.is_none());
+        let cases = [
+            (
+                "weekly only, without rolling",
+                serde_json::json!({
+                    "weeklyUsage": { "usagePercent": 76.0, "resetInSec": 86400 }
+                }),
+                76.0,
+                None,
+                f64::EPSILON,
+            ),
+            (
+                "rolling only, without weekly",
+                serde_json::json!({
+                    "rollingUsage": { "usagePercent": 12.5, "resetInSec": 600 }
+                }),
+                12.5,
+                None,
+                f64::EPSILON,
+            ),
+            (
+                "nested data.subscription shape",
+                serde_json::json!({
+                    "data": {
+                        "subscription": {
+                            "rollingUsage": { "usedPercent": 18.5, "resetInSeconds": 1200 },
+                            "weeklyUsage": { "percentUsed": 42, "resetsInSec": 86400 }
+                        }
+                    }
+                }),
+                18.5,
+                Some(42.0),
+                f64::EPSILON,
+            ),
+            // The 0.25 week fraction scales to 25%.
+            (
+                "fiveHour and week aliases",
+                serde_json::json!({
+                    "fiveHourUsage": { "pct": 11, "resetInSec": 300 },
+                    "weekUsage": { "value": 0.25, "resetInSec": 7200 }
+                }),
+                11.0,
+                Some(25.0),
+                f64::EPSILON,
+            ),
+            // Upstream #2331: used=1, limit=100 is 1%, not 100% (false exhausted).
+            (
+                "sub-one-percent computed used/limit is not rescaled to 100",
+                serde_json::json!({
+                    "rollingUsage": { "used": 1, "limit": 100, "resetInSec": 600 },
+                    "weeklyUsage": { "used": 1, "limit": 200, "resetInSec": 86400 }
+                }),
+                1.0,
+                Some(0.5),
+                0.001,
+            ),
+            (
+                "direct fractional usagePercent still scales",
+                serde_json::json!({
+                    "rollingUsage": { "usagePercent": 0.25, "resetInSec": 600 }
+                }),
+                25.0,
+                None,
+                0.001,
+            ),
+        ];
+        for (name, payload, primary, secondary, tolerance) in cases {
+            let snap = provider.parse_usage_json(&payload, now).expect(name);
+            assert!(
+                (snap.primary.used_percent - primary).abs() < tolerance,
+                "{name}: primary {}",
+                snap.primary.used_percent
+            );
+            match (snap.secondary.as_ref(), secondary) {
+                (None, None) => {}
+                (Some(window), Some(expected)) => assert!(
+                    (window.used_percent - expected).abs() < tolerance,
+                    "{name}: secondary {}",
+                    window.used_percent
+                ),
+                (actual, expected) => panic!("{name}: secondary {actual:?} vs {expected:?}"),
+            }
+        }
     }
 
     #[test]
@@ -750,74 +812,6 @@ mod tests {
         let text = r#"weeklyUsage: { usagePercent: 55, resetInSec: 99 } not-json"#;
         let snap = provider.parse_subscription(text).expect("snapshot");
         assert!((snap.primary.used_percent - 55.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn parses_nested_data_subscription_shape() {
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "data": {
-                "subscription": {
-                    "rollingUsage": { "usedPercent": 18.5, "resetInSeconds": 1200 },
-                    "weeklyUsage": { "percentUsed": 42, "resetsInSec": 86400 }
-                }
-            }
-        });
-        let snap = provider
-            .parse_usage_json(&payload, now)
-            .expect("nested snapshot");
-        assert!((snap.primary.used_percent - 18.5).abs() < f64::EPSILON);
-        assert!((snap.secondary.as_ref().unwrap().used_percent - 42.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn parses_five_hour_and_week_aliases() {
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "fiveHourUsage": { "pct": 11, "resetInSec": 300 },
-            "weekUsage": { "value": 0.25, "resetInSec": 7200 }
-        });
-        let snap = provider
-            .parse_usage_json(&payload, now)
-            .expect("alias snapshot");
-        assert!((snap.primary.used_percent - 11.0).abs() < f64::EPSILON);
-        // 0.25 fraction scales to 25%
-        assert!((snap.secondary.as_ref().unwrap().used_percent - 25.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn sub_one_percent_computed_used_limit_is_not_rescaled_to_100() {
-        // Upstream #2331: used=1, limit=100 → 1%, not 100% (false exhausted).
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "rollingUsage": { "used": 1, "limit": 100, "resetInSec": 600 },
-            "weeklyUsage": { "used": 1, "limit": 200, "resetInSec": 86400 }
-        });
-        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
-        assert!(
-            (snap.primary.used_percent - 1.0).abs() < 0.001,
-            "primary {}",
-            snap.primary.used_percent
-        );
-        assert!(
-            (snap.secondary.as_ref().unwrap().used_percent - 0.5).abs() < 0.001,
-            "secondary {}",
-            snap.secondary.as_ref().unwrap().used_percent
-        );
-    }
-
-    #[test]
-    fn direct_fractional_usage_percent_still_scales() {
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "rollingUsage": { "usagePercent": 0.25, "resetInSec": 600 }
-        });
-        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
-        assert!((snap.primary.used_percent - 25.0).abs() < 0.001);
     }
 
     #[test]
