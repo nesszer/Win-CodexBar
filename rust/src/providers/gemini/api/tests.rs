@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn bucket(model: Option<&str>, fraction: Option<f64>, reset: Option<&str>) -> QuotaBucket {
