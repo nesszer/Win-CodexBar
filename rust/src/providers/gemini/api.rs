@@ -745,6 +745,150 @@ fn jwt_payload(token: &str) -> Option<serde_json::Value> {
 mod tests {
     use super::*;
 
+    fn bucket(model: Option<&str>, fraction: Option<f64>, reset: Option<&str>) -> QuotaBucket {
+        QuotaBucket {
+            remaining_fraction: fraction,
+            reset_time: reset.map(str::to_string),
+            model_id: model.map(str::to_string),
+            token_type: None,
+        }
+    }
+
+    fn parse_buckets(
+        buckets: Vec<QuotaBucket>,
+        creds: Option<&OAuthCredentials>,
+    ) -> Result<(RateWindow, Option<RateWindow>, Option<String>), ProviderError> {
+        GeminiApi::new().parse_quota_response(
+            QuotaResponse {
+                buckets: Some(buckets),
+            },
+            creds,
+        )
+    }
+
+    fn at(rfc3339: &str) -> Option<DateTime<Utc>> {
+        Some(
+            DateTime::parse_from_rfc3339(rfc3339)
+                .unwrap()
+                .with_timezone(&Utc),
+        )
+    }
+
+    #[test]
+    fn quota_pro_is_primary_and_flash_is_model_specific() {
+        use base64::Engine;
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"email":"user@example.com"}"#);
+        let creds = OAuthCredentials {
+            access_token: None,
+            id_token: Some(format!("header.{payload}.sig")),
+            refresh_token: None,
+            expiry_date: None,
+        };
+        let (primary, model_specific, email) = parse_buckets(
+            vec![
+                bucket(
+                    Some("gemini-2.5-pro"),
+                    Some(0.6),
+                    Some("2026-01-14T00:00:00Z"),
+                ),
+                bucket(
+                    Some("gemini-2.5-pro"),
+                    Some(0.4),
+                    Some("2026-01-15T00:00:00Z"),
+                ),
+                bucket(
+                    Some("gemini-2.5-flash"),
+                    Some(0.9),
+                    Some("2026-01-16T00:00:00.5Z"),
+                ),
+                bucket(Some("gemini-2.0-flash"), Some(0.95), None),
+                bucket(None, Some(0.0), None),
+                bucket(Some("gemini-2.5-pro"), None, None),
+            ],
+            Some(&creds),
+        )
+        .unwrap();
+        assert_eq!(primary.used_percent, (1.0 - 0.4) * 100.0);
+        assert_eq!(primary.window_minutes, Some(1440));
+        assert_eq!(primary.resets_at, at("2026-01-15T00:00:00Z"));
+        assert_eq!(primary.reset_description, None);
+        let flash = model_specific.expect("flash window when pro is primary");
+        assert_eq!(flash.used_percent, (1.0 - 0.9) * 100.0);
+        assert_eq!(flash.window_minutes, Some(1440));
+        assert_eq!(flash.resets_at, at("2026-01-16T00:00:00.5Z"));
+        assert_eq!(email.as_deref(), Some("user@example.com"));
+    }
+
+    #[test]
+    fn quota_falls_back_to_flash_then_any_model() {
+        let (primary, model_specific, email) = parse_buckets(
+            vec![
+                bucket(Some("gemini-2.5-flash"), Some(0.3), Some("not a date")),
+                bucket(Some("other-model"), Some(0.1), None),
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(primary.used_percent, (1.0 - 0.3) * 100.0);
+        assert_eq!(primary.resets_at, None);
+        assert!(model_specific.is_none());
+        assert_eq!(email, None);
+
+        let (primary, model_specific, _) = parse_buckets(
+            vec![bucket(
+                Some("other-model"),
+                Some(0.25),
+                Some("2026-01-15T00:00:00+02:00"),
+            )],
+            None,
+        )
+        .unwrap();
+        assert_eq!(primary.used_percent, (1.0 - 0.25) * 100.0);
+        assert_eq!(primary.resets_at, at("2026-01-14T22:00:00Z"));
+        assert!(model_specific.is_none());
+    }
+
+    #[test]
+    fn quota_without_usable_model_buckets_reports_an_unused_window() {
+        // A fraction of 1.0 never beats the per-model starting value, so its
+        // reset time is dropped.
+        let (primary, model_specific, _) = parse_buckets(
+            vec![
+                bucket(
+                    Some("gemini-2.5-pro"),
+                    Some(1.0),
+                    Some("2026-01-15T00:00:00Z"),
+                ),
+                bucket(None, Some(0.2), Some("2026-01-15T00:00:00Z")),
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(primary.used_percent, 0.0);
+        assert_eq!(primary.resets_at, None);
+        assert!(model_specific.is_none());
+
+        let (primary, model_specific, _) =
+            parse_buckets(vec![bucket(None, Some(0.2), None)], None).unwrap();
+        assert_eq!(primary.used_percent, 0.0);
+        assert_eq!(primary.window_minutes, Some(1440));
+        assert_eq!(primary.resets_at, None);
+        assert!(model_specific.is_none());
+    }
+
+    #[test]
+    fn quota_without_buckets_is_a_parse_error() {
+        let empty = parse_buckets(Vec::new(), None).unwrap_err();
+        assert!(matches!(empty, ProviderError::Parse(msg) if msg == "Empty quota buckets"));
+        let missing = GeminiApi::new()
+            .parse_quota_response(QuotaResponse { buckets: None }, None)
+            .unwrap_err();
+        assert!(
+            matches!(missing, ProviderError::Parse(msg) if msg == "No quota buckets in response")
+        );
+    }
+
     #[test]
     fn bundled_cli_layout_yields_oauth_client_credentials() {
         // npm global layout on Windows: %APPDATA%\npm\gemini.cmd next to
