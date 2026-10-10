@@ -368,6 +368,27 @@ fn local_today_from_utc(now: DateTime<Utc>) -> NaiveDate {
     Local.from_utc_datetime(&now.naive_utc()).date_naive()
 }
 
+/// Local midnight that opens a `days`-long window ending today.
+fn window_since_ms(now: DateTime<Utc>, days: u32) -> i64 {
+    let clamped = crate::cost_reporting_period::clamp_window_days(days);
+    let since = local_today_from_utc(now) - Duration::days(clamped as i64 - 1);
+    Local
+        .from_local_datetime(&since.and_hms_opt(0, 0, 0).unwrap_or_default())
+        .single()
+        .map(|dt| dt.timestamp_millis())
+        .unwrap_or(0)
+}
+
+/// Trimmed model id, with blanks bucketed as `UNKNOWN_MODEL_NAME`.
+fn model_name(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        UNKNOWN_MODEL_NAME
+    } else {
+        trimmed
+    }
+}
+
 /// Group rows into `(day, model)` cost buckets (upstream #2649).
 ///
 /// Rows outside the `[since, now]` window are dropped; model ids are trimmed and
@@ -378,14 +399,7 @@ pub fn daily_model_costs(
     now: DateTime<Utc>,
     history_days: u32,
 ) -> Vec<DailyModelCost> {
-    let clamped = crate::cost_reporting_period::clamp_window_days(history_days);
-    let today = local_today_from_utc(now);
-    let since = today - Duration::days(clamped as i64 - 1);
-    let since_ms = Local
-        .from_local_datetime(&since.and_hms_opt(0, 0, 0).unwrap_or_default())
-        .single()
-        .map(|dt| dt.timestamp_millis())
-        .unwrap_or(0);
+    let since_ms = window_since_ms(now, history_days);
     let now_ms = now.timestamp_millis();
 
     let mut by_day_model: std::collections::BTreeMap<
@@ -399,12 +413,7 @@ pub fn daily_model_costs(
         let Some(key) = day_key_local(row.created_ms) else {
             continue;
         };
-        let trimmed = row.model.trim();
-        let model = if trimmed.is_empty() {
-            UNKNOWN_MODEL_NAME
-        } else {
-            trimmed
-        };
+        let model = model_name(&row.model);
         let entry = by_day_model.entry(key).or_default();
         let bucket = entry.entry(model.to_string()).or_default();
         bucket.0 += row.cost;
@@ -433,14 +442,7 @@ pub fn model_cost_summary_from_rows(
     now: DateTime<Utc>,
     days: u32,
 ) -> ModelCostSummary {
-    let clamped = crate::cost_reporting_period::clamp_window_days(days);
-    let today = local_today_from_utc(now);
-    let since = today - Duration::days(clamped as i64 - 1);
-    let since_ms = Local
-        .from_local_datetime(&since.and_hms_opt(0, 0, 0).unwrap_or_default())
-        .single()
-        .map(|dt| dt.timestamp_millis())
-        .unwrap_or(0);
+    let since_ms = window_since_ms(now, days);
     let now_ms = now.timestamp_millis();
 
     let mut total = 0.0;
@@ -457,12 +459,7 @@ pub fn model_cost_summary_from_rows(
         }
         total += row.cost;
         request_count = request_count.saturating_add(row.request_count);
-        let trimmed = row.model.trim();
-        let model = if trimmed.is_empty() {
-            UNKNOWN_MODEL_NAME
-        } else {
-            trimmed
-        };
+        let model = model_name(&row.model);
         *by_model.entry(model.to_string()).or_insert(0.0) += row.cost;
         tokens.add(row.tokens.as_ref());
         by_model_tokens
@@ -542,15 +539,11 @@ fn month_bounds_ms(now: DateTime<Utc>, anchor_ms: Option<i64>) -> (i64, i64) {
             .and_hms_opt(0, 0, 0)
             .unwrap_or_default();
         let start_dt = Utc.from_utc_datetime(&start);
-        let end_dt = if now.month() == 12 {
-            Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 0, 0, 0)
-                .single()
-                .unwrap_or(start_dt)
-        } else {
-            Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 0, 0, 0)
-                .single()
-                .unwrap_or(start_dt)
-        };
+        let (end_year, end_month) = next_month(now.year(), now.month());
+        let end_dt = Utc
+            .with_ymd_and_hms(end_year, end_month, 1, 0, 0, 0)
+            .single()
+            .unwrap_or(start_dt);
         return (start_dt.timestamp_millis(), end_dt.timestamp_millis());
     };
 
@@ -567,13 +560,17 @@ fn month_bounds_ms(now: DateTime<Utc>, anchor_ms: Option<i64>) -> (i64, i64) {
         }
         start = anchored_month(year, month, &anchor);
     }
-    let (end_year, end_month) = if month == 12 {
+    let (end_year, end_month) = next_month(year, month);
+    let end = anchored_month(end_year, end_month, &anchor);
+    (start.timestamp_millis(), end.timestamp_millis())
+}
+
+fn next_month(year: i32, month: u32) -> (i32, u32) {
+    if month == 12 {
         (year + 1, 1)
     } else {
         (year, month + 1)
-    };
-    let end = anchored_month(end_year, end_month, &anchor);
-    (start.timestamp_millis(), end.timestamp_millis())
+    }
 }
 
 fn anchored_month(year: i32, month: u32, anchor: &DateTime<Utc>) -> DateTime<Utc> {
@@ -592,12 +589,8 @@ fn anchored_month(year: i32, month: u32, anchor: &DateTime<Utc>) -> DateTime<Utc
     // Clamp to last day of month when anchor day overflows (e.g. 31 → Feb).
     let last_day = NaiveDate::from_ymd_opt(year, month, 1)
         .map(|d| {
-            if month == 12 {
-                NaiveDate::from_ymd_opt(year + 1, 1, 1)
-            } else {
-                NaiveDate::from_ymd_opt(year, month + 1, 1)
-            }
-            .unwrap_or(d)
+            let (following_year, following_month) = next_month(year, month);
+            NaiveDate::from_ymd_opt(following_year, following_month, 1).unwrap_or(d)
                 - Duration::days(1)
         })
         .map(|d| d.day())
@@ -910,6 +903,98 @@ mod tests {
         assert!((percent(1.0, 12.0) - 8.3).abs() < 0.05);
         assert_eq!(percent(0.0, 12.0), 0.0);
         assert_eq!(percent(f64::NAN, 12.0), 0.0);
+    }
+
+    #[test]
+    fn month_bounds_follow_calendar_or_anchor_day() {
+        let at = |iso: &str| {
+            DateTime::parse_from_rfc3339(iso)
+                .unwrap()
+                .with_timezone(&Utc)
+        };
+        let cases = [
+            // (now, anchor, expected start, expected end)
+            (
+                "2026-12-15T12:00:00Z",
+                None,
+                "2026-12-01T00:00:00Z",
+                "2027-01-01T00:00:00Z",
+            ),
+            (
+                "2026-03-18T12:00:00Z",
+                None,
+                "2026-03-01T00:00:00Z",
+                "2026-04-01T00:00:00Z",
+            ),
+            // Day 31 clamps to Feb 28, which is after now, so the window steps back.
+            (
+                "2026-02-20T10:00:00Z",
+                Some("2026-01-31T08:30:00Z"),
+                "2026-01-31T08:30:00Z",
+                "2026-02-28T08:30:00Z",
+            ),
+            (
+                "2026-12-20T00:00:00Z",
+                Some("2026-03-15T00:00:00Z"),
+                "2026-12-15T00:00:00Z",
+                "2027-01-15T00:00:00Z",
+            ),
+            (
+                "2026-01-10T00:00:00Z",
+                Some("2025-11-15T06:00:00Z"),
+                "2025-12-15T06:00:00Z",
+                "2026-01-15T06:00:00Z",
+            ),
+            (
+                "2026-11-10T12:00:00Z",
+                Some("2026-08-31T00:00:00Z"),
+                "2026-10-31T00:00:00Z",
+                "2026-11-30T00:00:00Z",
+            ),
+        ];
+        for (now, anchor, start, end) in cases {
+            let bounds = month_bounds_ms(at(now), anchor.map(|a| at(a).timestamp_millis()));
+            assert_eq!(
+                bounds,
+                (at(start).timestamp_millis(), at(end).timestamp_millis()),
+                "{now} {anchor:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn daily_and_summary_windows_share_the_local_midnight_cutoff() {
+        let now = a14_now();
+        let since = local_today_from_utc(now) - Duration::days(1);
+        let since_ms = Local
+            .from_local_datetime(&since.and_hms_opt(0, 0, 0).unwrap())
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let row = |created_ms: i64, model: &str| UsageRow {
+            created_ms,
+            cost: 1.0,
+            request_count: 1,
+            model: model.to_string(),
+            tokens: None,
+        };
+        let rows = [
+            row(since_ms - 1, "dropped"),
+            row(since_ms, " kept "),
+            row(now.timestamp_millis(), ""),
+            row(now.timestamp_millis() + 1, "future"),
+        ];
+        let daily = daily_model_costs(&rows, now, 2);
+        let models: Vec<_> = daily.iter().map(|b| b.model.as_str()).collect();
+        let mut sorted = models.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, ["kept", UNKNOWN_MODEL_NAME]);
+        let summary = model_cost_summary_from_rows(&rows, now, 2);
+        assert_eq!(summary.request_count, 2);
+        assert!((summary.total_cost_usd - 2.0).abs() < 1e-9);
+        let mut keys: Vec<_> = summary.by_model.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["kept", UNKNOWN_MODEL_NAME]);
     }
 
     #[test]
