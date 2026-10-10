@@ -3,11 +3,6 @@
 //! Incremental log file parsing for Codex and Claude session logs.
 //! Supports file-level caching to avoid re-parsing unchanged files.
 
-#![allow(
-    dead_code,
-    reason = "scanner types are deserialized from JSONL for parsing but not all are read"
-)]
-
 use crate::core::{CostUsagePricing, ProviderId};
 use chrono::{DateTime, NaiveDate, Utc};
 
