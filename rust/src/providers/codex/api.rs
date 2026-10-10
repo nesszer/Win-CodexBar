@@ -978,82 +978,6 @@ impl CodexApi {
 
         Some(CostSnapshot::new(balance, "USD", "Credits"))
     }
-
-    fn build_result(
-        &self,
-        response: UsageResponse,
-    ) -> Result<(UsageSnapshot, Option<CostSnapshot>), ProviderError> {
-        let (primary, secondary) = normalize_named_windows(
-            response
-                .rate_limit
-                .as_ref()
-                .and_then(|rate_limit| rate_limit.primary_window.as_ref())
-                .map(rate_window_from_snapshot),
-            response
-                .rate_limit
-                .as_ref()
-                .and_then(|rate_limit| rate_limit.secondary_window.as_ref())
-                .map(rate_window_from_snapshot),
-        );
-
-        // Extract code review rate window
-        let code_review = response
-            .rate_limit
-            .as_ref()
-            .and_then(|rate_limit| rate_limit.code_review_window.as_ref())
-            .map(rate_window_from_snapshot);
-
-        // Build usage snapshot
-        let login_method = response.plan_type.as_ref().map(|pt| match pt.as_str() {
-            "guest" => "Guest".to_string(),
-            "free" => "ChatGPT Free".to_string(),
-            "go" => "ChatGPT Go".to_string(),
-            "plus" => "ChatGPT Plus".to_string(),
-            "pro" => "ChatGPT Pro".to_string(),
-            "team" => "ChatGPT Team".to_string(),
-            "business" => "ChatGPT Business".to_string(),
-            "enterprise" => "ChatGPT Enterprise".to_string(),
-            "education" | "edu" => "ChatGPT Education".to_string(),
-            other => format!("ChatGPT {}", capitalize(other)),
-        });
-
-        let mut usage = UsageSnapshot::new(primary);
-        if let Some(sec) = secondary {
-            usage = usage.with_secondary(sec);
-        }
-        if let Some(cr) = code_review {
-            usage = usage.with_code_review(cr);
-        }
-        if let Some(method) = login_method {
-            usage = usage.with_login_method(method);
-        }
-
-        // Build cost snapshot if credits are present
-        let credit_limit = response.individual_limit.as_ref().or_else(|| {
-            response
-                .rate_limit
-                .as_ref()
-                .and_then(|rate_limit| rate_limit.individual_limit.as_ref())
-        });
-        let cost = response.credits.as_ref().and_then(|credits| {
-            if credits.has_credits() {
-                let balance = credits.balance.unwrap_or(0.0);
-                if credits.unlimited() {
-                    None // Unlimited credits, no need to show
-                } else if let Some(limit) =
-                    credit_limit.and_then(|limit| limit.to_cost_snapshot(balance))
-                {
-                    Some(limit)
-                } else {
-                    Some(CostSnapshot::new(balance, "USD", "Credits"))
-                }
-            } else {
-                None
-            }
-        });
-
-        Ok((usage, cost))
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1168,20 +1092,6 @@ fn normalize_array_windows(
     )
 }
 
-fn rate_window_from_snapshot(window: &WindowSnapshot) -> RateWindow {
-    let reset_at = timestamp_to_datetime(window.reset_at);
-    let used_percent = f64::from(window.used_percent);
-    RateWindow::with_details(
-        used_percent,
-        window
-            .limit_window_seconds
-            .and_then(|seconds| u32::try_from(seconds / 60).ok()),
-        reset_at,
-        format_reset_countdown(reset_at),
-    )
-    .with_usage_known(valid_used_percent(Some(used_percent)))
-}
-
 fn format_plan_type(plan_type: &str) -> String {
     match plan_type {
         "guest" => "Guest".to_string(),
@@ -1233,48 +1143,6 @@ struct CachedCodexCredentials {
     modified: Option<SystemTime>,
     loaded_at: Instant,
     credentials: CodexCredentials,
-}
-
-#[derive(Debug, Deserialize)]
-struct UsageResponse {
-    plan_type: Option<String>,
-    rate_limit: Option<RateLimitDetails>,
-    credits: Option<CreditDetails>,
-    #[serde(default, alias = "individualLimit")]
-    individual_limit: Option<SpendControlLimitSnapshot>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RateLimitDetails {
-    primary_window: Option<WindowSnapshot>,
-    secondary_window: Option<WindowSnapshot>,
-    code_review_window: Option<WindowSnapshot>,
-    #[serde(default, alias = "individualLimit")]
-    individual_limit: Option<SpendControlLimitSnapshot>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WindowSnapshot {
-    used_percent: i32,
-    reset_at: Option<i64>,
-    limit_window_seconds: Option<i64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CreditDetails {
-    has_credits: Option<bool>,
-    unlimited: Option<bool>,
-    balance: Option<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SpendControlLimitSnapshot {
-    limit: Option<f64>,
-    used: Option<f64>,
-    #[serde(default, alias = "remainingPercent")]
-    remaining_percent: Option<f64>,
-    #[serde(default, alias = "resetsAt")]
-    resets_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1351,45 +1219,7 @@ fn apply_reset_credits_window(
     usage
 }
 
-impl CreditDetails {
-    // Helper to safely check has_credits
-    fn has_credits(&self) -> bool {
-        self.has_credits.unwrap_or(false)
-    }
-
-    fn unlimited(&self) -> bool {
-        self.unlimited.unwrap_or(false)
-    }
-}
-
-impl SpendControlLimitSnapshot {
-    fn to_cost_snapshot(&self, balance: f64) -> Option<CostSnapshot> {
-        let limit = self
-            .limit
-            .filter(|limit| limit.is_finite() && *limit >= 0.0)?;
-        let used = self
-            .used
-            .filter(|used| used.is_finite() && *used >= 0.0)
-            .or_else(|| {
-                self.remaining_percent
-                    .filter(|pct| pct.is_finite() && *pct >= 0.0)
-                    .map(|remaining| limit * (1.0 - (remaining / 100.0)))
-            })
-            .unwrap_or_else(|| (limit - balance).max(0.0));
-        let mut cost =
-            CostSnapshot::new(used.clamp(0.0, limit), "USD", "Monthly credits").with_limit(limit);
-        if let Some(resets_at) = timestamp_to_datetime(self.resets_at) {
-            cost = cost.with_resets_at(resets_at);
-        }
-        Some(cost)
-    }
-}
-
 // --- Helper functions ---
-
-fn timestamp_to_datetime(timestamp: Option<i64>) -> Option<DateTime<Utc>> {
-    timestamp.and_then(|ts| Utc.timestamp_opt(ts, 0).single())
-}
 
 /// Parse the native `exp` claim from an access-token JWT. Opaque or malformed
 /// tokens return `None` and are handled by the read-only usage request.
@@ -2345,62 +2175,6 @@ mod tests {
             .expect("codex usage");
 
         assert!(usage.extra_rate_windows.is_empty());
-    }
-
-    #[test]
-    fn maps_top_level_individual_credit_limit_to_cost_snapshot() {
-        let api = CodexApi::new();
-        let (_, cost) = api
-            .build_result(UsageResponse {
-                plan_type: None,
-                rate_limit: None,
-                credits: Some(CreditDetails {
-                    has_credits: Some(true),
-                    unlimited: Some(false),
-                    balance: Some(7.5),
-                }),
-                individual_limit: Some(SpendControlLimitSnapshot {
-                    limit: Some(20.0),
-                    used: Some(12.5),
-                    remaining_percent: None,
-                    resets_at: Some(1783036800),
-                }),
-            })
-            .expect("codex result");
-        let cost = cost.expect("cost");
-        assert_eq!(cost.used, 12.5);
-        assert_eq!(cost.limit, Some(20.0));
-        assert!(cost.resets_at.is_some());
-    }
-
-    #[test]
-    fn maps_nested_individual_credit_limit_to_cost_snapshot() {
-        let api = CodexApi::new();
-        let (_, cost) = api
-            .build_result(UsageResponse {
-                plan_type: None,
-                rate_limit: Some(RateLimitDetails {
-                    primary_window: None,
-                    secondary_window: None,
-                    code_review_window: None,
-                    individual_limit: Some(SpendControlLimitSnapshot {
-                        limit: Some(100.0),
-                        used: None,
-                        remaining_percent: Some(60.0),
-                        resets_at: None,
-                    }),
-                }),
-                credits: Some(CreditDetails {
-                    has_credits: Some(true),
-                    unlimited: Some(false),
-                    balance: Some(60.0),
-                }),
-                individual_limit: None,
-            })
-            .expect("codex result");
-        let cost = cost.expect("cost");
-        assert_eq!(cost.used, 40.0);
-        assert_eq!(cost.limit, Some(100.0));
     }
 
     fn win(minutes: u32, used: f64) -> RateWindow {
