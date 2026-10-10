@@ -9,10 +9,7 @@ fn write_copied_prefix_subagent_fixture(
     owned: bool,
 ) -> PathBuf {
     let day = base.with_timezone(&Local).date_naive();
-    let day_dir = sessions_root
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(sessions_root, day);
     std::fs::create_dir_all(&day_dir).unwrap();
     let path = day_dir.join(name);
     let mut lines = vec![
@@ -97,9 +94,7 @@ fn token_row(
 
 #[test]
 fn copied_prefix_subagent_infers_advancing_baseline_without_parent() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let child = write_copied_prefix_subagent_fixture(
         &sessions,
         "child.jsonl",
@@ -108,10 +103,7 @@ fn copied_prefix_subagent_infers_advancing_baseline_without_parent() {
         Utc::now() - Duration::hours(1),
         true,
     );
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
 
     let (summary, _, cache) = scanner.scan_codex_detailed_with_cache(None);
     assert_eq!(summary.input_tokens, 70);
@@ -138,9 +130,7 @@ fn copied_prefix_subagent_infers_advancing_baseline_without_parent() {
 
 #[test]
 fn copied_prefix_subagent_inherited_only_suffix_is_not_billed() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let child = write_copied_prefix_subagent_fixture(
         &sessions,
         "child.jsonl",
@@ -149,10 +139,7 @@ fn copied_prefix_subagent_inherited_only_suffix_is_not_billed() {
         Utc::now() - Duration::hours(1),
         false,
     );
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
 
     let (summary, _, cache) = scanner.scan_codex_detailed_with_cache(None);
     assert_eq!(summary.input_tokens, 0);
@@ -174,9 +161,7 @@ fn copied_prefix_subagent_inherited_only_suffix_is_not_billed() {
 
 #[test]
 fn copied_prefix_subagent_prefers_validated_parent_baseline() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let parent = write_codex_fork_session_fixture(
         &sessions,
@@ -240,9 +225,7 @@ fn copied_prefix_subagent_prefers_validated_parent_baseline() {
 
 #[test]
 fn candidate_limit_counts_each_child_parent_candidate_once() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let parent = write_codex_fork_session_fixture(
         &sessions,
@@ -299,9 +282,7 @@ fn candidate_limit_counts_each_child_parent_candidate_once() {
 
 #[test]
 fn cold_scan_orders_multi_level_parent_chain_before_children() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let ancestor = write_codex_fork_session_fixture(
         &sessions,
@@ -395,9 +376,7 @@ fn assert_unsafe_lineage_is_unresolved(
 
 #[test]
 fn duplicate_parent_session_ids_fail_closed_with_their_child() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let first_parent = write_codex_fork_session_fixture(
         &sessions,
@@ -444,9 +423,7 @@ fn duplicate_parent_session_ids_fail_closed_with_their_child() {
 
 #[test]
 fn two_node_subagent_cycle_fails_closed() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let first = write_copied_prefix_subagent_fixture(
         &sessions,
@@ -478,9 +455,7 @@ fn two_node_subagent_cycle_fails_closed() {
 
 #[test]
 fn self_referential_subagent_fails_closed() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let session = write_copied_prefix_subagent_fixture(
         &sessions,
         "self-cycle.jsonl",
@@ -489,10 +464,7 @@ fn self_referential_subagent_fails_closed() {
         Utc::now() - Duration::hours(1),
         true,
     );
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
 
     let (summary, stats, cache) = scanner.scan_codex_detailed_with_cache(None);
 
@@ -502,9 +474,7 @@ fn self_referential_subagent_fails_closed() {
 fn assert_cached_inference_is_replaced_when_parent_appears(
     prefer_newest_codex_sessions_first: bool,
 ) {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let child = write_copied_prefix_subagent_fixture(
         &sessions,

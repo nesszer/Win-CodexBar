@@ -37,10 +37,7 @@ impl Sessions {
         let sessions = root.path().join("sessions");
         let base = Utc::now() - Duration::hours(1);
         let day = base.with_timezone(&Local).date_naive();
-        let day_dir = sessions
-            .join(day.format("%Y").to_string())
-            .join(day.format("%m").to_string())
-            .join(day.format("%d").to_string());
+        let day_dir = partition_dir(&sessions, day);
         Self {
             root,
             sessions,
