@@ -253,13 +253,21 @@ impl Provider for AmpProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::display::{parse_amp_free_tier, usage_snapshot_from_amp_display_text};
+    use super::display::{
+        AmpFreeTierUsage, parse_amp_free_tier, usage_snapshot_from_amp_display_text,
+    };
     use super::subscription::{AMP_MONTHLY_WINDOW_MINUTES, parse_amp_subscription_usage};
     use super::*;
     use chrono::{TimeZone, Utc};
 
-    fn parse_amp_free_percent_remaining(text: &str) -> Option<f64> {
-        parse_amp_free_tier(&text.replace("**", "")).map(|free| free.used)
+    fn daily_free_tier(used: f64, resets_daily: bool) -> AmpFreeTierUsage {
+        AmpFreeTierUsage {
+            quota: 100.0,
+            used,
+            hourly_replenishment: 0.0,
+            window_hours: Some(24.0),
+            resets_daily,
+        }
     }
 
     #[test]
@@ -273,21 +281,30 @@ mod tests {
     #[test]
     fn parses_amp_free_percent_remaining_today() {
         let text = "Signed in as user@example.com\nAmp Free: 72% remaining today\n";
-        assert_eq!(parse_amp_free_percent_remaining(text), Some(28.0));
+        assert_eq!(
+            parse_amp_free_tier(text),
+            Some(daily_free_tier(28.0, false))
+        );
     }
 
     #[test]
     fn parses_amp_free_percent_resets_daily() {
         let text = "Amp Free: 100% remaining (resets daily)";
-        assert_eq!(parse_amp_free_percent_remaining(text), Some(0.0));
+        assert_eq!(parse_amp_free_tier(text), Some(daily_free_tier(0.0, true)));
     }
 
     #[test]
     fn parses_bold_amp_free_and_current_subscription_labels() {
         let now = Utc.with_ymd_and_hms(2026, 8, 24, 12, 0, 0).unwrap();
+        let free = usage_snapshot_from_amp_display_text(
+            "**Amp Free:** 0% remaining today (resets daily)",
+            now,
+        )
+        .expect("bold free tier");
+        assert_eq!(free.primary.used_percent, 100.0);
         assert_eq!(
-            parse_amp_free_percent_remaining("**Amp Free:** 0% remaining today (resets daily)"),
-            Some(100.0)
+            free.primary.reset_description.as_deref(),
+            Some("resets daily")
         );
 
         let sub = parse_amp_subscription_usage(
@@ -314,7 +331,7 @@ mod tests {
     #[test]
     fn returns_none_when_amp_free_missing() {
         assert_eq!(
-            parse_amp_free_percent_remaining("Individual credits: $3 remaining"),
+            parse_amp_free_tier("Individual credits: $3 remaining"),
             None
         );
     }
