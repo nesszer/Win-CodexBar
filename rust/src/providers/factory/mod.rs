@@ -506,7 +506,7 @@ impl FactoryProvider {
 
         for base in [FACTORY_API_BASE, FACTORY_APP_BASE] {
             match self
-                .fetch_auth_and_usage_bearer(&client, base, api_key)
+                .fetch_auth_and_usage(&client, base, None, Some(api_key))
                 .await
             {
                 Ok(snapshot) => return Ok(snapshot),
@@ -525,19 +525,19 @@ impl FactoryProvider {
             .unwrap_or(ProviderError::AuthRequired))
     }
 
-    async fn fetch_auth_and_usage_bearer(
+    /// Best-effort auth info plus required legacy usage from one host.
+    async fn fetch_auth_and_usage(
         &self,
         client: &reqwest::Client,
         base: &str,
-        api_key: &str,
+        cookies: Option<&str>,
+        bearer: Option<&str>,
     ) -> Result<UsageSnapshot, ProviderError> {
         let auth_info = self
-            .fetch_auth_info(client, base, None, Some(api_key))
+            .fetch_auth_info(client, base, cookies, bearer)
             .await
             .ok();
-        let usage_data = self
-            .fetch_usage_api(client, base, None, Some(api_key))
-            .await?;
+        let usage_data = self.fetch_usage_api(client, base, cookies, bearer).await?;
         Ok(Self::apply_auth_info(
             Self::usage_snapshot_from_response(&usage_data),
             auth_info,
@@ -548,18 +548,8 @@ impl FactoryProvider {
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
         let cookies = self.get_cookies(ctx)?;
         let client = Self::build_client()?;
-        let auth_info = self
-            .fetch_auth_info(&client, FACTORY_APP_BASE, Some(&cookies), None)
+        self.fetch_auth_and_usage(&client, FACTORY_APP_BASE, Some(&cookies), None)
             .await
-            .ok();
-        let usage_data = self
-            .fetch_usage_api(&client, FACTORY_APP_BASE, Some(&cookies), None)
-            .await?;
-
-        Ok(Self::apply_auth_info(
-            Self::usage_snapshot_from_response(&usage_data),
-            auth_info,
-        ))
     }
 
     fn usage_snapshot_from_response(usage_data: &FactoryUsageResponse) -> UsageSnapshot {
