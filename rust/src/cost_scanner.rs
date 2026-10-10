@@ -714,8 +714,6 @@ impl CostScanner {
             period_end: Some(window.end),
             ..CostSummary::default()
         };
-        let mut daily_cost = HashMap::new();
-        let mut daily_tokens = HashMap::new();
         // The chart never shows more than a year of daily slots, so an
         // all-available window does not allocate one per day since 1970.
         let slot_days = match self.period {
@@ -724,13 +722,9 @@ impl CostScanner {
                 window.days.min(MAX_ROLLING_DAYS)
             }
         };
+        let mut daily_cost = day_slots(window.end, slot_days, None);
+        let mut daily_tokens = day_slots(window.end, slot_days, 0);
         let mut unknown_cost_dates = HashSet::new();
-        for days_ago in 0..slot_days {
-            let date = window.end - Duration::days(days_ago as i64);
-            let key = today::day_key(date);
-            daily_cost.insert(key.clone(), None);
-            daily_tokens.insert(key, 0);
-        }
 
         let mut quota_records = Vec::new();
         let walk = self.walk_claude_records(&cutoff, cancel, |record| {
@@ -767,15 +761,11 @@ impl CostScanner {
         }
 
         let today = TodayUsage::from_buckets(window.end, &daily_cost, &daily_tokens);
-        let mut daily_cost = daily_cost.into_iter().collect::<Vec<_>>();
-        daily_cost.sort_by(|left, right| left.0.cmp(&right.0));
-        let mut daily_tokens = daily_tokens.into_iter().collect::<Vec<_>>();
-        daily_tokens.sort_by(|left, right| left.0.cmp(&right.0));
         ClaudeChartSnapshot {
             today,
             summary,
-            daily_cost,
-            daily_tokens,
+            daily_cost: sorted_days(daily_cost),
+            daily_tokens: sorted_days(daily_tokens),
             daily_incomplete: incomplete_report.daily_sorted(),
             quota_history: ClaudeQuotaHistoryScan {
                 records: quota_records,
@@ -1326,6 +1316,35 @@ pub fn has_cost_usage_sources() -> bool {
             .any(|dir| dir.exists())
 }
 
+/// One `init` slot per day key, from `end` back over `days` days.
+fn day_slots<T: Clone>(end: NaiveDate, days: u32, init: T) -> HashMap<String, T> {
+    (0..days)
+        .map(|days_ago| {
+            let date = end - Duration::days(i64::from(days_ago));
+            (today::day_key(date), init.clone())
+        })
+        .collect()
+}
+
+fn sorted_days<T>(days: HashMap<String, T>) -> Vec<(String, T)> {
+    let mut days: Vec<_> = days.into_iter().collect();
+    days.sort_by(|left, right| left.0.cmp(&right.0));
+    days
+}
+
+/// One packed Codex cache day summarized on its own, with its cost.
+fn codex_day_summary(
+    day_key: &str,
+    models: &HashMap<String, Vec<i64>>,
+) -> Option<(CostSummary, f64)> {
+    let day = CostUsageDayRange::parse_day_key(day_key)?;
+    let one_day = HashMap::from([(day_key.to_string(), models.clone())]);
+    let mut summary = CostSummary::default();
+    let (cost, _) =
+        add_codex_days_map_to_summary(&mut summary, &one_day, &CostUsageDayRange::new(day, day));
+    Some((summary, cost))
+}
+
 /// Get daily cost history for the last N days
 /// Returns calendar-preserving daily costs sorted by date. `None` means the day
 /// is unscanned or contains unpriced Codex usage; `Some(0)` is a known zero.
@@ -1343,17 +1362,11 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
     let mut daily_incomplete = Vec::new();
     let scanner = CostScanner::new(days);
     let today = cost_bucket_zone().date(Utc::now());
-    let mut daily_costs: HashMap<String, Option<f64>> = HashMap::new();
-
-    // Initialize all days with 0
-    for days_ago in 0..days {
-        let date = today - Duration::days(days_ago as i64);
-        let date_str = today::day_key(date);
-        daily_costs.insert(
-            date_str,
-            (provider != "codex" && provider != "claude" && provider != "pi").then_some(0.0),
-        );
-    }
+    let mut daily_costs = day_slots(
+        today,
+        days,
+        (provider != "codex" && provider != "claude" && provider != "pi").then_some(0.0),
+    );
 
     match provider {
         "codex" => {
@@ -1380,15 +1393,10 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
                 let Some(slot) = daily_costs.get_mut(day_key) else {
                     continue;
                 };
-                let Some(day) = CostUsageDayRange::parse_day_key(day_key) else {
+                let Some((day, cost)) = codex_day_summary(day_key, models) else {
                     continue;
                 };
-                let day_range = CostUsageDayRange::new(day, day);
-                let mut one_day = HashMap::new();
-                one_day.insert(day_key.clone(), models.clone());
-                let mut scratch = CostSummary::default();
-                let (cost, _) = add_codex_days_map_to_summary(&mut scratch, &one_day, &day_range);
-                *slot = (!scratch.model_pricing_completeness.is_partial()).then_some(cost);
+                *slot = (!day.model_pricing_completeness.is_partial()).then_some(cost);
             }
         }
         "claude" => {
@@ -1431,10 +1439,7 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
         _ => {}
     }
 
-    // Convert to sorted vector
-    let mut result: Vec<(String, Option<f64>)> = daily_costs.into_iter().collect();
-    result.sort_by(|a, b| a.0.cmp(&b.0));
-    (result, daily_incomplete)
+    (sorted_days(daily_costs), daily_incomplete)
 }
 
 /// Daily token totals (provider-aware, see [`cache_is_separate_from_input`])
@@ -1445,15 +1450,8 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
 pub fn get_daily_token_history(provider: &str, days: u32) -> (Vec<(String, u64)>, bool) {
     let scanner = CostScanner::new(days);
     let today = cost_bucket_zone().date(Utc::now());
-    let mut daily_tokens: HashMap<String, u64> = HashMap::new();
+    let mut daily_tokens = day_slots(today, days, 0u64);
     let mut covered_days: HashSet<String> = HashSet::new();
-
-    // Initialize all days with 0
-    for days_ago in 0..days {
-        let date = today - Duration::days(days_ago as i64);
-        let date_str = today::day_key(date);
-        daily_tokens.insert(date_str, 0);
-    }
 
     match provider {
         "codex" => {
@@ -1462,20 +1460,13 @@ pub fn get_daily_token_history(provider: &str, days: u32) -> (Vec<(String, u64)>
             // uses.
             let (_summary, _stats, cache) = scanner.scan_codex_detailed_with_cache(None);
             for (day_key, models) in &cache.days {
-                if !daily_tokens.contains_key(day_key) {
-                    continue;
-                }
-                let Some(day) = CostUsageDayRange::parse_day_key(day_key) else {
+                let Some(slot) = daily_tokens.get_mut(day_key) else {
                     continue;
                 };
-                let day_range = CostUsageDayRange::new(day, day);
-                let mut one_day = HashMap::new();
-                one_day.insert(day_key.clone(), models.clone());
-                let mut scratch = CostSummary::default();
-                add_codex_days_map_to_summary(&mut scratch, &one_day, &day_range);
-                if let Some(slot) = daily_tokens.get_mut(day_key) {
-                    *slot = scratch.total_tokens_for_provider("codex");
-                }
+                let Some((day, _)) = codex_day_summary(day_key, models) else {
+                    continue;
+                };
+                *slot = day.total_tokens_for_provider("codex");
                 covered_days.insert(day_key.clone());
             }
         }
@@ -1505,9 +1496,7 @@ pub fn get_daily_token_history(provider: &str, days: u32) -> (Vec<(String, u64)>
         _ => {}
     }
 
-    // Convert to sorted vector
-    let mut result: Vec<(String, u64)> = daily_tokens.into_iter().collect();
-    result.sort_by(|a, b| a.0.cmp(&b.0));
+    let result = sorted_days(daily_tokens);
 
     let incomplete = if matches!(provider, "claude" | "pi") {
         // A complete filesystem scan covers the requested window even when
