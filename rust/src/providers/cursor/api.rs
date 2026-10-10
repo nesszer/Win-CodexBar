@@ -71,8 +71,7 @@ impl CursorApi {
         let team_budget = self
             .resolve_team_budget(&usage_summary, user_info.as_ref(), cookie_header)
             .await;
-        let mut result =
-            self.build_result_with_team_budget(usage_summary, user_info, team_budget)?;
+        let mut result = self.build_result_with_team_budget(usage_summary, user_info, team_budget);
         result.grok_bot = sand_result.ok().flatten();
         Ok(result)
     }
@@ -172,7 +171,7 @@ impl CursorApi {
         summary: UsageSummary,
         user_info: Option<UserInfo>,
         team_budget: Option<CursorMemberBudget>,
-    ) -> Result<CursorUsageResult, ProviderError> {
+    ) -> CursorUsageResult {
         let billing_end = summary
             .billing_cycle_end
             .as_ref()
@@ -280,7 +279,7 @@ impl CursorApi {
 
         let email = user_info.as_ref().and_then(|u| u.email.clone());
 
-        Ok(CursorUsageResult {
+        CursorUsageResult {
             primary,
             secondary,
             model_specific,
@@ -288,7 +287,7 @@ impl CursorApi {
             email,
             plan_type,
             grok_bot: None,
-        })
+        }
     }
 
     fn plan_cost(
@@ -669,9 +668,7 @@ mod tests {
         }"#;
 
         let summary = parse_summary(json);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
 
         assert!((result.primary.used_percent - 30.0).abs() < 0.01);
 
@@ -705,9 +702,7 @@ mod tests {
             }
         }"#;
         let summary = parse_summary(json);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
         assert!((result.primary.used_percent - 100.0).abs() < 0.01);
         assert!((result.secondary.unwrap().used_percent - 100.0).abs() < 0.01);
         assert!((result.model_specific.unwrap().used_percent - 100.0).abs() < 0.01);
@@ -735,9 +730,7 @@ mod tests {
         }"#;
 
         let summary = parse_summary(json);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
 
         assert!((result.primary.used_percent - 13.230769230769232).abs() < 0.01);
         assert!((result.secondary.unwrap().used_percent - 17.2).abs() < 0.01);
@@ -765,9 +758,7 @@ mod tests {
         }"#;
 
         let summary = parse_summary(json);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
 
         assert!((result.primary.used_percent - 50.0).abs() < 0.01);
         assert!(result.secondary.is_none(), "no autoPercentUsed in payload");
@@ -786,9 +777,7 @@ mod tests {
         }"#;
 
         let summary = parse_summary(json);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
 
         assert!((result.primary.used_percent).abs() < 0.01);
         assert!(result.secondary.is_none());
@@ -816,9 +805,7 @@ mod tests {
         }"#;
 
         let summary = parse_summary(json);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
 
         assert!((result.primary.used_percent - 16.0).abs() < 0.01);
         let cost = result.cost.expect("cost should exist from on-demand usage");
@@ -841,9 +828,7 @@ mod tests {
             }
         }"#;
         let summary = parse_summary(json);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
         let cost = result.cost.expect("plan cost");
         assert!((cost.used - 25.0).abs() < 0.01);
         assert_eq!(cost.limit, Some(50.0));
@@ -857,9 +842,7 @@ mod tests {
     fn test_cursor_individual_overall_fallback() {
         let summary =
             parse_summary(r#"{"individualUsage":{"overall":{"used":2500,"limit":10000}}}"#);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
         assert!((result.primary.used_percent - 25.0).abs() < 0.01);
         assert_eq!(result.cost.unwrap().limit, Some(100.0));
     }
@@ -867,9 +850,7 @@ mod tests {
     #[test]
     fn test_cursor_team_pooled_fallback() {
         let summary = parse_summary(r#"{"teamUsage":{"pooled":{"used":5000,"limit":10000}}}"#);
-        let result = api()
-            .build_result_with_team_budget(summary, None, None)
-            .unwrap();
+        let result = api().build_result_with_team_budget(summary, None, None);
         assert!((result.primary.used_percent - 50.0).abs() < 0.01);
         assert_eq!(result.cost.unwrap().used, 50.0);
     }
@@ -900,16 +881,14 @@ mod tests {
                 "individualUsage":{"plan":{"used":0,"limit":2000,"totalPercentUsed":0}}
             }"#,
         );
-        let result = api()
-            .build_result_with_team_budget(
-                summary,
-                None,
-                Some(CursorMemberBudget {
-                    used_usd: 13.12,
-                    limit_usd: 150.0,
-                }),
-            )
-            .unwrap();
+        let result = api().build_result_with_team_budget(
+            summary,
+            None,
+            Some(CursorMemberBudget {
+                used_usd: 13.12,
+                limit_usd: 150.0,
+            }),
+        );
         assert!((result.primary.used_percent - 8.7466666667).abs() < 0.00001);
         let cost = result.cost.expect("verified member budget cost");
         assert!((cost.used - 13.12).abs() < 0.00001);
@@ -923,9 +902,7 @@ mod tests {
                 "individualUsage":{"plan":{"used":0,"limit":2000,"totalPercentUsed":0}}
             }"#,
         );
-        let fallback = api()
-            .build_result_with_team_budget(fallback_summary, None, None)
-            .unwrap();
+        let fallback = api().build_result_with_team_budget(fallback_summary, None, None);
         assert_eq!(fallback.primary.used_percent, 0.0);
         assert_eq!(
             fallback.cost.expect("summary fallback cost").limit,
