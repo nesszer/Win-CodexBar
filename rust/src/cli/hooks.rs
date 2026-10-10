@@ -25,29 +25,20 @@ pub struct HooksArgs {
 #[derive(Subcommand, Debug, Clone)]
 pub enum HooksCommand {
     /// Print configured hook rules
-    List(HooksListArgs),
+    List(HooksOutputArgs),
     /// Enable hooks in hooks.json (master switch)
-    Enable(HooksToggleArgs),
+    Enable(HooksOutputArgs),
     /// Disable hooks in hooks.json (master switch)
-    Disable(HooksToggleArgs),
+    Disable(HooksOutputArgs),
     /// Run matching rules for a sample event
     Test(HooksTestArgs),
     /// Continuously poll providers and fire hooks on real transitions
     Watch(HooksWatchArgs),
 }
 
+/// `--json` / `--pretty`, shared by `hooks list|enable|disable|test`.
 #[derive(Args, Debug, Clone)]
-pub struct HooksListArgs {
-    /// Emit JSON
-    #[arg(long)]
-    pub json: bool,
-    /// Pretty-print JSON
-    #[arg(long)]
-    pub pretty: bool,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct HooksToggleArgs {
+pub struct HooksOutputArgs {
     /// Emit JSON
     #[arg(long)]
     pub json: bool,
@@ -63,12 +54,8 @@ pub struct HooksTestArgs {
     /// Provider CLI name
     #[arg(long)]
     pub provider: String,
-    /// Emit JSON
-    #[arg(long)]
-    pub json: bool,
-    /// Pretty-print JSON
-    #[arg(long)]
-    pub pretty: bool,
+    #[command(flatten)]
+    pub output: HooksOutputArgs,
 }
 
 /// Default poll period (seconds). Longer than serve cache TTL — watch originates
@@ -442,7 +429,7 @@ fn report_hook_event(event: &HookEvent, json: bool, pretty: bool) -> anyhow::Res
     Ok(())
 }
 
-fn run_list(args: HooksListArgs) -> anyhow::Result<()> {
+fn run_list(args: HooksOutputArgs) -> anyhow::Result<()> {
     let config = HooksConfig::load();
     let settings = Settings::load();
     let path = HooksConfig::path().map(|p| p.display().to_string());
@@ -511,7 +498,7 @@ fn run_list(args: HooksListArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_set_enabled(enabled: bool, args: HooksToggleArgs) -> anyhow::Result<()> {
+fn run_set_enabled(enabled: bool, args: HooksOutputArgs) -> anyhow::Result<()> {
     let mut config = HooksConfig::load();
     config.enabled = enabled;
     let path = config.save().map_err(anyhow::Error::msg)?;
@@ -566,26 +553,18 @@ fn run_test(args: HooksTestArgs) -> anyhow::Result<()> {
     let base_env = std::env::vars().collect();
     let mut results = Vec::new();
     for rule in rules {
-        match HookRunner::run(rule, &event, &base_env) {
-            Ok(()) => results.push(HookTestResult {
-                executable: rule.executable.display().to_string(),
-                event: event_type.as_str().into(),
-                provider: provider.cli_name().into(),
-                ok: true,
-                error: None,
-            }),
-            Err(err) => results.push(HookTestResult {
-                executable: rule.executable.display().to_string(),
-                event: event_type.as_str().into(),
-                provider: provider.cli_name().into(),
-                ok: false,
-                error: Some(err),
-            }),
-        }
+        let error = HookRunner::run(rule, &event, &base_env).err();
+        results.push(HookTestResult {
+            executable: rule.executable.display().to_string(),
+            event: event_type.as_str().into(),
+            provider: provider.cli_name().into(),
+            ok: error.is_none(),
+            error,
+        });
     }
 
-    if args.json {
-        print_json(&results, args.pretty)?;
+    if args.output.json {
+        print_json(&results, args.output.pretty)?;
     } else {
         for r in &results {
             if r.ok {
