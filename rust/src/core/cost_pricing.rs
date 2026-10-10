@@ -60,589 +60,190 @@ pub struct ClaudePricing {
     pub cache_read_input_cost_per_token_above_threshold: Option<f64>,
 }
 
+impl CodexPricing {
+    /// Standard per-token rates; cache writes bill at the input rate and there
+    /// is no long-context tier.
+    const fn new(input: f64, output: f64, cache_read: f64) -> Self {
+        Self {
+            input_cost_per_token: input,
+            output_cost_per_token: output,
+            cache_read_input_cost_per_token: cache_read,
+            cache_write_input_cost_per_token: None,
+            display_label: None,
+            long_context: None,
+        }
+    }
+
+    const fn with_cache_write(mut self, cache_write: f64) -> Self {
+        self.cache_write_input_cost_per_token = Some(cache_write);
+        self
+    }
+
+    const fn with_label(mut self, label: &'static str) -> Self {
+        self.display_label = Some(label);
+        self
+    }
+
+    const fn with_long_context(
+        mut self,
+        input: f64,
+        output: f64,
+        cache_read: f64,
+        cache_write: Option<f64>,
+    ) -> Self {
+        self.long_context = Some(CodexLongContextRates {
+            input_cost_per_token: input,
+            output_cost_per_token: output,
+            cache_read_input_cost_per_token: cache_read,
+            cache_write_input_cost_per_token: cache_write,
+        });
+        self
+    }
+}
+
+impl ClaudePricing {
+    /// Untiered per-token rates.
+    const fn new(input: f64, output: f64, cache_creation: f64, cache_read: f64) -> Self {
+        Self {
+            input_cost_per_token: input,
+            output_cost_per_token: output,
+            cache_creation_input_cost_per_token: cache_creation,
+            cache_read_input_cost_per_token: cache_read,
+            threshold_tokens: None,
+            input_cost_per_token_above_threshold: None,
+            output_cost_per_token_above_threshold: None,
+            cache_creation_input_cost_per_token_above_threshold: None,
+            cache_read_input_cost_per_token_above_threshold: None,
+        }
+    }
+
+    /// Rates for requests above 200k tokens, in the same order as `new`.
+    const fn with_200k_tier(
+        mut self,
+        input: f64,
+        output: f64,
+        cache_creation: f64,
+        cache_read: f64,
+    ) -> Self {
+        self.threshold_tokens = Some(200_000);
+        self.input_cost_per_token_above_threshold = Some(input);
+        self.output_cost_per_token_above_threshold = Some(output);
+        self.cache_creation_input_cost_per_token_above_threshold = Some(cache_creation);
+        self.cache_read_input_cost_per_token_above_threshold = Some(cache_read);
+        self
+    }
+}
+
+const GPT_5: CodexPricing = CodexPricing::new(1.25e-6, 1e-5, 1.25e-7);
+const GPT_5_MINI: CodexPricing = CodexPricing::new(2.5e-7, 2e-6, 2.5e-8);
+const GPT_5_2: CodexPricing = CodexPricing::new(1.75e-6, 1.4e-5, 1.75e-7);
+// GPT-5.4 pricing (updated to match upstream 0.22). Like upstream, the
+// whole request bills 2x input / 1.5x output above 272K input tokens.
+const GPT_5_4: CodexPricing =
+    CodexPricing::new(2.5e-6, 1.5e-5, 2.5e-7).with_long_context(5e-6, 2.25e-5, 5e-7, None);
+// GPT-5.4 Mini and Nano pricing (updated to match upstream 0.22)
+const GPT_5_4_MINI: CodexPricing = CodexPricing::new(7.5e-7, 4.5e-6, 7.5e-8);
+const GPT_5_4_NANO: CodexPricing = CodexPricing::new(2e-7, 1.25e-6, 2e-8);
+const GPT_5_PRO_TIER: CodexPricing = CodexPricing::new(3e-5, 1.8e-4, 3e-5);
+const GPT_CYBER: CodexPricing = CodexPricing::new(1.25e-5, 7.5e-5, 1.25e-6);
+
 /// Codex model pricing table
 static CODEX_PRICING: LazyLock<HashMap<&'static str, CodexPricing>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-
-    // GPT-5 pricing
-    m.insert(
-        "gpt-5",
-        CodexPricing {
-            input_cost_per_token: 1.25e-6,
-            output_cost_per_token: 1e-5,
-            cache_read_input_cost_per_token: 1.25e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5-codex",
-        CodexPricing {
-            input_cost_per_token: 1.25e-6,
-            output_cost_per_token: 1e-5,
-            cache_read_input_cost_per_token: 1.25e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5-mini",
-        CodexPricing {
-            input_cost_per_token: 2.5e-7,
-            output_cost_per_token: 2e-6,
-            cache_read_input_cost_per_token: 2.5e-8,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5-nano",
-        CodexPricing {
-            input_cost_per_token: 5e-8,
-            output_cost_per_token: 4e-7,
-            cache_read_input_cost_per_token: 5e-9,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5-pro",
-        CodexPricing {
-            input_cost_per_token: 1.5e-5,
-            output_cost_per_token: 1.2e-4,
-            cache_read_input_cost_per_token: 1.5e-5,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.1",
-        CodexPricing {
-            input_cost_per_token: 1.25e-6,
-            output_cost_per_token: 1e-5,
-            cache_read_input_cost_per_token: 1.25e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.1-codex",
-        CodexPricing {
-            input_cost_per_token: 1.25e-6,
-            output_cost_per_token: 1e-5,
-            cache_read_input_cost_per_token: 1.25e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.1-codex-max",
-        CodexPricing {
-            input_cost_per_token: 1.25e-6,
-            output_cost_per_token: 1e-5,
-            cache_read_input_cost_per_token: 1.25e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.1-codex-mini",
-        CodexPricing {
-            input_cost_per_token: 2.5e-7,
-            output_cost_per_token: 2e-6,
-            cache_read_input_cost_per_token: 2.5e-8,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.2",
-        CodexPricing {
-            input_cost_per_token: 1.75e-6,
-            output_cost_per_token: 1.4e-5,
-            cache_read_input_cost_per_token: 1.75e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.2-codex",
-        CodexPricing {
-            input_cost_per_token: 1.75e-6,
-            output_cost_per_token: 1.4e-5,
-            cache_read_input_cost_per_token: 1.75e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.2-pro",
-        CodexPricing {
-            input_cost_per_token: 2.1e-5,
-            output_cost_per_token: 1.68e-4,
-            cache_read_input_cost_per_token: 2.1e-5,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.3-codex",
-        CodexPricing {
-            input_cost_per_token: 1.75e-6,
-            output_cost_per_token: 1.4e-5,
-            cache_read_input_cost_per_token: 1.75e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.3-codex-spark",
-        CodexPricing {
-            input_cost_per_token: 0.0,
-            output_cost_per_token: 0.0,
-            cache_read_input_cost_per_token: 0.0,
-            cache_write_input_cost_per_token: None,
-            display_label: Some("Research Preview"),
-            long_context: None,
-        },
-    );
-
-    // GPT-5.4 pricing (updated to match upstream 0.22). Like upstream, the
-    // whole request bills 2x input / 1.5x output above 272K input tokens.
-    m.insert(
-        "gpt-5.4",
-        CodexPricing {
-            input_cost_per_token: 2.5e-6,
-            output_cost_per_token: 1.5e-5,
-            cache_read_input_cost_per_token: 2.5e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: Some(CodexLongContextRates {
-                input_cost_per_token: 5e-6,
-                output_cost_per_token: 2.25e-5,
-                cache_read_input_cost_per_token: 5e-7,
-                cache_write_input_cost_per_token: None,
-            }),
-        },
-    );
-    m.insert(
-        "gpt-5.4-codex",
-        CodexPricing {
-            input_cost_per_token: 2.5e-6,
-            output_cost_per_token: 1.5e-5,
-            cache_read_input_cost_per_token: 2.5e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: Some(CodexLongContextRates {
-                input_cost_per_token: 5e-6,
-                output_cost_per_token: 2.25e-5,
-                cache_read_input_cost_per_token: 5e-7,
-                cache_write_input_cost_per_token: None,
-            }),
-        },
-    );
-
-    // GPT-5.4 Mini pricing (updated to match upstream 0.22)
-    m.insert(
-        "gpt-5.4-mini",
-        CodexPricing {
-            input_cost_per_token: 7.5e-7,
-            output_cost_per_token: 4.5e-6,
-            cache_read_input_cost_per_token: 7.5e-8,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.4-mini-codex",
-        CodexPricing {
-            input_cost_per_token: 7.5e-7,
-            output_cost_per_token: 4.5e-6,
-            cache_read_input_cost_per_token: 7.5e-8,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-
-    // GPT-5.4 Nano pricing (updated to match upstream 0.22)
-    m.insert(
-        "gpt-5.4-nano",
-        CodexPricing {
-            input_cost_per_token: 2e-7,
-            output_cost_per_token: 1.25e-6,
-            cache_read_input_cost_per_token: 2e-8,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.4-nano-codex",
-        CodexPricing {
-            input_cost_per_token: 2e-7,
-            output_cost_per_token: 1.25e-6,
-            cache_read_input_cost_per_token: 2e-8,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-
-    // GPT-5.4 Pro
-    m.insert(
-        "gpt-5.4-pro",
-        CodexPricing {
-            input_cost_per_token: 3e-5,
-            output_cost_per_token: 1.8e-4,
-            cache_read_input_cost_per_token: 3e-5,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.5",
-        CodexPricing {
-            input_cost_per_token: 5e-6,
-            output_cost_per_token: 3e-5,
-            cache_read_input_cost_per_token: 5e-7,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: Some(CodexLongContextRates {
-                input_cost_per_token: 1e-5,
-                output_cost_per_token: 4.5e-5,
-                cache_read_input_cost_per_token: 1e-6,
-                cache_write_input_cost_per_token: None,
-            }),
-        },
-    );
-    m.insert(
-        "gpt-5.5-pro",
-        CodexPricing {
-            input_cost_per_token: 3e-5,
-            output_cost_per_token: 1.8e-4,
-            cache_read_input_cost_per_token: 3e-5,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    // GPT-5.6 Sol/Terra/Luna (OpenAI pricing page and model cards), in
-    // upstream `gpt56Pricing` order (input, cache read, cache write, output).
-    // Above 272K input tokens the whole request bills 2x input / 1.5x output;
-    // cache writes bill at 1.25x uncached input. Sol was repriced from $5/$30
-    // to $4/$20 on 2026-08-21. Dated usage before a model's repricing keeps
-    // the rates in `codex_pricing::codex_historical_pricing`.
-    m.insert(
-        "gpt-5.6-sol",
-        codex_pricing::gpt56_pricing((4e-6, 4e-7, 5e-6, 2e-5), (8e-6, 8e-7, 1e-5, 3e-5)),
-    );
-    m.insert(
-        "gpt-5.6-terra",
-        codex_pricing::gpt56_pricing((2e-6, 2e-7, 2.5e-6, 1.2e-5), (4e-6, 4e-7, 5e-6, 1.8e-5)),
-    );
-    m.insert(
-        "gpt-5.6-luna",
-        codex_pricing::gpt56_pricing((2e-7, 2e-8, 2.5e-7, 1.2e-6), (4e-7, 4e-8, 5e-7, 1.8e-6)),
-    );
-    // Daybreak Cyber models (OpenAI pricing page). No long-context tier is
-    // published, and gpt-5.5-cyber lists no cache-write rate, so its writes
-    // bill at the input rate.
-    m.insert(
-        "gpt-5.6-cyber",
-        CodexPricing {
-            input_cost_per_token: 1.25e-5,
-            output_cost_per_token: 7.5e-5,
-            cache_read_input_cost_per_token: 1.25e-6,
-            cache_write_input_cost_per_token: Some(1.5625e-5),
-            display_label: None,
-            long_context: None,
-        },
-    );
-    m.insert(
-        "gpt-5.5-cyber",
-        CodexPricing {
-            input_cost_per_token: 1.25e-5,
-            output_cost_per_token: 7.5e-5,
-            cache_read_input_cost_per_token: 1.25e-6,
-            cache_write_input_cost_per_token: None,
-            display_label: None,
-            long_context: None,
-        },
-    );
-    // GPT-6 Astra pricing (OpenAI model card and pricing table).
-    // Long-context rates apply to the whole request above 272K input tokens;
-    // cache writes bill at 1.25x uncached input in both tiers.
-    m.insert(
-        "gpt-6-astra",
-        CodexPricing {
-            input_cost_per_token: 1e-5,
-            output_cost_per_token: 5e-5,
-            cache_read_input_cost_per_token: 1e-6,
-            cache_write_input_cost_per_token: Some(1.25e-5),
-            display_label: None,
-            long_context: Some(CodexLongContextRates {
-                input_cost_per_token: 2e-5,
-                output_cost_per_token: 7.5e-5,
-                cache_read_input_cost_per_token: 2e-6,
-                cache_write_input_cost_per_token: Some(2.5e-5),
-            }),
-        },
-    );
-
-    m
+    HashMap::from([
+        ("gpt-5", GPT_5),
+        ("gpt-5-codex", GPT_5),
+        ("gpt-5-mini", GPT_5_MINI),
+        ("gpt-5-nano", CodexPricing::new(5e-8, 4e-7, 5e-9)),
+        ("gpt-5-pro", CodexPricing::new(1.5e-5, 1.2e-4, 1.5e-5)),
+        ("gpt-5.1", GPT_5),
+        ("gpt-5.1-codex", GPT_5),
+        ("gpt-5.1-codex-max", GPT_5),
+        ("gpt-5.1-codex-mini", GPT_5_MINI),
+        ("gpt-5.2", GPT_5_2),
+        ("gpt-5.2-codex", GPT_5_2),
+        ("gpt-5.2-pro", CodexPricing::new(2.1e-5, 1.68e-4, 2.1e-5)),
+        ("gpt-5.3-codex", GPT_5_2),
+        (
+            "gpt-5.3-codex-spark",
+            CodexPricing::new(0.0, 0.0, 0.0).with_label("Research Preview"),
+        ),
+        ("gpt-5.4", GPT_5_4),
+        ("gpt-5.4-codex", GPT_5_4),
+        ("gpt-5.4-mini", GPT_5_4_MINI),
+        ("gpt-5.4-mini-codex", GPT_5_4_MINI),
+        ("gpt-5.4-nano", GPT_5_4_NANO),
+        ("gpt-5.4-nano-codex", GPT_5_4_NANO),
+        ("gpt-5.4-pro", GPT_5_PRO_TIER),
+        (
+            "gpt-5.5",
+            CodexPricing::new(5e-6, 3e-5, 5e-7).with_long_context(1e-5, 4.5e-5, 1e-6, None),
+        ),
+        ("gpt-5.5-pro", GPT_5_PRO_TIER),
+        // GPT-5.6 Sol/Terra/Luna (OpenAI pricing page and model cards), in
+        // upstream `gpt56Pricing` order (input, cache read, cache write, output).
+        // Above 272K input tokens the whole request bills 2x input / 1.5x output;
+        // cache writes bill at 1.25x uncached input. Sol was repriced from $5/$30
+        // to $4/$20 on 2026-08-21. Dated usage before a model's repricing keeps
+        // the rates in `codex_pricing::codex_historical_pricing`.
+        (
+            "gpt-5.6-sol",
+            codex_pricing::gpt56_pricing((4e-6, 4e-7, 5e-6, 2e-5), (8e-6, 8e-7, 1e-5, 3e-5)),
+        ),
+        (
+            "gpt-5.6-terra",
+            codex_pricing::gpt56_pricing((2e-6, 2e-7, 2.5e-6, 1.2e-5), (4e-6, 4e-7, 5e-6, 1.8e-5)),
+        ),
+        (
+            "gpt-5.6-luna",
+            codex_pricing::gpt56_pricing((2e-7, 2e-8, 2.5e-7, 1.2e-6), (4e-7, 4e-8, 5e-7, 1.8e-6)),
+        ),
+        // Daybreak Cyber models (OpenAI pricing page). No long-context tier is
+        // published, and gpt-5.5-cyber lists no cache-write rate, so its writes
+        // bill at the input rate.
+        ("gpt-5.6-cyber", GPT_CYBER.with_cache_write(1.5625e-5)),
+        ("gpt-5.5-cyber", GPT_CYBER),
+        // GPT-6 Astra pricing (OpenAI model card and pricing table).
+        // Long-context rates apply to the whole request above 272K input tokens;
+        // cache writes bill at 1.25x uncached input in both tiers.
+        (
+            "gpt-6-astra",
+            CodexPricing::new(1e-5, 5e-5, 1e-6)
+                .with_cache_write(1.25e-5)
+                .with_long_context(2e-5, 7.5e-5, 2e-6, Some(2.5e-5)),
+        ),
+    ])
 });
+
+const CLAUDE_HAIKU_4_5: ClaudePricing = ClaudePricing::new(1e-6, 5e-6, 1.25e-6, 1e-7);
+// Opus 4.5 through 4.8 share one price.
+const CLAUDE_OPUS_4_5: ClaudePricing = ClaudePricing::new(5e-6, 2.5e-5, 6.25e-6, 5e-7);
+// Sonnet 4 through 4.6 share one price, with tiered pricing at 200k tokens.
+const CLAUDE_SONNET_4: ClaudePricing =
+    ClaudePricing::new(3e-6, 1.5e-5, 3.75e-6, 3e-7).with_200k_tier(6e-6, 2.25e-5, 7.5e-6, 6e-7);
+const CLAUDE_OPUS_4: ClaudePricing = ClaudePricing::new(1.5e-5, 7.5e-5, 1.875e-5, 1.5e-6);
 
 /// Claude model pricing table
 static CLAUDE_PRICING: LazyLock<HashMap<&'static str, ClaudePricing>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-
-    // Fable 5
-    m.insert(
-        "claude-fable-5",
-        ClaudePricing {
-            input_cost_per_token: 1e-5,
-            output_cost_per_token: 5e-5,
-            cache_creation_input_cost_per_token: 1.25e-5,
-            cache_read_input_cost_per_token: 1e-6,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-
-    // Haiku 4.5
-    m.insert(
-        "claude-haiku-4-5",
-        ClaudePricing {
-            input_cost_per_token: 1e-6,
-            output_cost_per_token: 5e-6,
-            cache_creation_input_cost_per_token: 1.25e-6,
-            cache_read_input_cost_per_token: 1e-7,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-    m.insert(
-        "claude-haiku-4-5-20251001",
-        ClaudePricing {
-            input_cost_per_token: 1e-6,
-            output_cost_per_token: 5e-6,
-            cache_creation_input_cost_per_token: 1.25e-6,
-            cache_read_input_cost_per_token: 1e-7,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-
-    // Opus 4.6
-    m.insert(
-        "claude-opus-4-6",
-        ClaudePricing {
-            input_cost_per_token: 5e-6,
-            output_cost_per_token: 2.5e-5,
-            cache_creation_input_cost_per_token: 6.25e-6,
-            cache_read_input_cost_per_token: 5e-7,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-    m.insert(
-        "claude-opus-4-6-20260205",
-        ClaudePricing {
-            input_cost_per_token: 5e-6,
-            output_cost_per_token: 2.5e-5,
-            cache_creation_input_cost_per_token: 6.25e-6,
-            cache_read_input_cost_per_token: 5e-7,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-
-    // Opus 4.7 (same pricing as Opus 4.6)
-    m.insert(
-        "claude-opus-4-7",
-        ClaudePricing {
-            input_cost_per_token: 5e-6,
-            output_cost_per_token: 2.5e-5,
-            cache_creation_input_cost_per_token: 6.25e-6,
-            cache_read_input_cost_per_token: 5e-7,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-
-    // Opus 4.8 (same pricing as Opus 4.5/4.6/4.7)
-    m.insert(
-        "claude-opus-4-8",
-        ClaudePricing {
-            input_cost_per_token: 5e-6,
-            output_cost_per_token: 2.5e-5,
-            cache_creation_input_cost_per_token: 6.25e-6,
-            cache_read_input_cost_per_token: 5e-7,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-
-    // Opus 4.5
-    m.insert(
-        "claude-opus-4-5",
-        ClaudePricing {
-            input_cost_per_token: 5e-6,
-            output_cost_per_token: 2.5e-5,
-            cache_creation_input_cost_per_token: 6.25e-6,
-            cache_read_input_cost_per_token: 5e-7,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-    m.insert(
-        "claude-opus-4-5-20251101",
-        ClaudePricing {
-            input_cost_per_token: 5e-6,
-            output_cost_per_token: 2.5e-5,
-            cache_creation_input_cost_per_token: 6.25e-6,
-            cache_read_input_cost_per_token: 5e-7,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-
-    // Sonnet 4.5 (with tiered pricing at 200k tokens)
-    m.insert(
-        "claude-sonnet-4-5",
-        ClaudePricing {
-            input_cost_per_token: 3e-6,
-            output_cost_per_token: 1.5e-5,
-            cache_creation_input_cost_per_token: 3.75e-6,
-            cache_read_input_cost_per_token: 3e-7,
-            threshold_tokens: Some(200_000),
-            input_cost_per_token_above_threshold: Some(6e-6),
-            output_cost_per_token_above_threshold: Some(2.25e-5),
-            cache_creation_input_cost_per_token_above_threshold: Some(7.5e-6),
-            cache_read_input_cost_per_token_above_threshold: Some(6e-7),
-        },
-    );
-    m.insert(
-        "claude-sonnet-4-5-20250929",
-        ClaudePricing {
-            input_cost_per_token: 3e-6,
-            output_cost_per_token: 1.5e-5,
-            cache_creation_input_cost_per_token: 3.75e-6,
-            cache_read_input_cost_per_token: 3e-7,
-            threshold_tokens: Some(200_000),
-            input_cost_per_token_above_threshold: Some(6e-6),
-            output_cost_per_token_above_threshold: Some(2.25e-5),
-            cache_creation_input_cost_per_token_above_threshold: Some(7.5e-6),
-            cache_read_input_cost_per_token_above_threshold: Some(6e-7),
-        },
-    );
-
-    // Sonnet 4.6 (same pricing as Sonnet 4.5, with 200k tier)
-    m.insert(
-        "claude-sonnet-4-6",
-        ClaudePricing {
-            input_cost_per_token: 3e-6,
-            output_cost_per_token: 1.5e-5,
-            cache_creation_input_cost_per_token: 3.75e-6,
-            cache_read_input_cost_per_token: 3e-7,
-            threshold_tokens: Some(200_000),
-            input_cost_per_token_above_threshold: Some(6e-6),
-            output_cost_per_token_above_threshold: Some(2.25e-5),
-            cache_creation_input_cost_per_token_above_threshold: Some(7.5e-6),
-            cache_read_input_cost_per_token_above_threshold: Some(6e-7),
-        },
-    );
-
-    // Opus 4
-    m.insert(
-        "claude-opus-4-20250514",
-        ClaudePricing {
-            input_cost_per_token: 1.5e-5,
-            output_cost_per_token: 7.5e-5,
-            cache_creation_input_cost_per_token: 1.875e-5,
-            cache_read_input_cost_per_token: 1.5e-6,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-    m.insert(
-        "claude-opus-4-1",
-        ClaudePricing {
-            input_cost_per_token: 1.5e-5,
-            output_cost_per_token: 7.5e-5,
-            cache_creation_input_cost_per_token: 1.875e-5,
-            cache_read_input_cost_per_token: 1.5e-6,
-            threshold_tokens: None,
-            input_cost_per_token_above_threshold: None,
-            output_cost_per_token_above_threshold: None,
-            cache_creation_input_cost_per_token_above_threshold: None,
-            cache_read_input_cost_per_token_above_threshold: None,
-        },
-    );
-
-    // Sonnet 4
-    m.insert(
-        "claude-sonnet-4-20250514",
-        ClaudePricing {
-            input_cost_per_token: 3e-6,
-            output_cost_per_token: 1.5e-5,
-            cache_creation_input_cost_per_token: 3.75e-6,
-            cache_read_input_cost_per_token: 3e-7,
-            threshold_tokens: Some(200_000),
-            input_cost_per_token_above_threshold: Some(6e-6),
-            output_cost_per_token_above_threshold: Some(2.25e-5),
-            cache_creation_input_cost_per_token_above_threshold: Some(7.5e-6),
-            cache_read_input_cost_per_token_above_threshold: Some(6e-7),
-        },
-    );
-
-    m
+    HashMap::from([
+        (
+            "claude-fable-5",
+            ClaudePricing::new(1e-5, 5e-5, 1.25e-5, 1e-6),
+        ),
+        ("claude-haiku-4-5", CLAUDE_HAIKU_4_5),
+        ("claude-haiku-4-5-20251001", CLAUDE_HAIKU_4_5),
+        ("claude-opus-4-6", CLAUDE_OPUS_4_5),
+        ("claude-opus-4-6-20260205", CLAUDE_OPUS_4_5),
+        ("claude-opus-4-7", CLAUDE_OPUS_4_5),
+        ("claude-opus-4-8", CLAUDE_OPUS_4_5),
+        ("claude-opus-4-5", CLAUDE_OPUS_4_5),
+        ("claude-opus-4-5-20251101", CLAUDE_OPUS_4_5),
+        ("claude-sonnet-4-5", CLAUDE_SONNET_4),
+        ("claude-sonnet-4-5-20250929", CLAUDE_SONNET_4),
+        ("claude-sonnet-4-6", CLAUDE_SONNET_4),
+        ("claude-opus-4-20250514", CLAUDE_OPUS_4),
+        ("claude-opus-4-1", CLAUDE_OPUS_4),
+        ("claude-sonnet-4-20250514", CLAUDE_SONNET_4),
+    ])
 });
 
 /// Cost usage pricing utilities
@@ -794,24 +395,6 @@ impl CostUsagePricing {
         output_tokens: u64,
         pricing_date: NaiveDate,
     ) -> Option<f64> {
-        Self::codex_cost_usd_at_date_with_pricing_snapshot(
-            model,
-            input_tokens,
-            cached_input_tokens,
-            output_tokens,
-            pricing_date,
-            None,
-        )
-    }
-
-    pub fn codex_cost_usd_at_date_with_pricing_snapshot(
-        model: &str,
-        input_tokens: u64,
-        cached_input_tokens: u64,
-        output_tokens: u64,
-        pricing_date: NaiveDate,
-        pricing_snapshot: Option<&models_dev_pricing::ModelsDevPricingSnapshot>,
-    ) -> Option<f64> {
         Self::codex_cost_usd_at_date_with_cache_write_and_pricing_snapshot(
             model,
             input_tokens,
@@ -819,7 +402,7 @@ impl CostUsagePricing {
             0,
             output_tokens,
             pricing_date,
-            pricing_snapshot,
+            None,
         )
     }
 

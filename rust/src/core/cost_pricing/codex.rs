@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 
 use super::super::{codex_routed_pricing, models_dev_pricing};
-use super::{CODEX_PRICING, CodexLongContextRates, CodexPricing, CostUsagePricing};
+use super::{CODEX_PRICING, CodexPricing, CostUsagePricing};
 
 pub(super) const CODEX_LONG_CONTEXT_THRESHOLD: u64 = 272_000;
 
@@ -14,19 +14,14 @@ pub(super) type Gpt56Rates = (f64, f64, f64, f64);
 pub(super) const fn gpt56_pricing(standard: Gpt56Rates, long_context: Gpt56Rates) -> CodexPricing {
     let (input, cache_read, cache_write, output) = standard;
     let (long_input, long_cache_read, long_cache_write, long_output) = long_context;
-    CodexPricing {
-        input_cost_per_token: input,
-        output_cost_per_token: output,
-        cache_read_input_cost_per_token: cache_read,
-        cache_write_input_cost_per_token: Some(cache_write),
-        display_label: None,
-        long_context: Some(CodexLongContextRates {
-            input_cost_per_token: long_input,
-            output_cost_per_token: long_output,
-            cache_read_input_cost_per_token: long_cache_read,
-            cache_write_input_cost_per_token: Some(long_cache_write),
-        }),
-    }
+    CodexPricing::new(input, output, cache_read)
+        .with_cache_write(cache_write)
+        .with_long_context(
+            long_input,
+            long_output,
+            long_cache_read,
+            Some(long_cache_write),
+        )
 }
 
 /// Upstream `codexHistoricalPricing`: the rates a model billed at before its
