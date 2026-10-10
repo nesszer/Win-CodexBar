@@ -346,6 +346,17 @@ mod tests {
         parse_account_list(&raw.to_string()).unwrap()
     }
 
+    /// Parse and project a list holding only `account`.
+    fn project_one(account: serde_json::Value, active: Option<u32>) -> ClaudeSwapAccount {
+        let raw = json!({
+            "schemaVersion": 1,
+            "activeAccountNumber": active,
+            "accounts": [account]
+        });
+        let parsed = parse_account_list(&raw.to_string()).unwrap();
+        project_accounts(&parsed, false).remove(0)
+    }
+
     #[test]
     fn same_email_accounts_get_distinct_stable_ids_and_labels() {
         let projected = project_accounts(&list_fixture(), false);
@@ -415,20 +426,16 @@ mod tests {
 
     #[test]
     fn unknown_status_is_neither_echoed_nor_actionable() {
-        let raw = json!({
-            "schemaVersion": 1,
-            "activeAccountNumber": null,
-            "accounts": [{
+        let account = project_one(
+            json!({
                 "number": 1,
                 "email": "x@example.com",
                 "active": false,
                 "usageStatus": "super_secret_token\u{1b}]0;leak\u{07}",
                 "usage": { "fiveHour": { "pct": 1.0 } }
-            }]
-        });
-        let parsed = parse_account_list(&raw.to_string()).unwrap();
-        let projected = project_accounts(&parsed, false);
-        let account = &projected[0];
+            }),
+            None,
+        );
         assert_eq!(account.status, "unknown");
         assert!(account.action.is_none());
         let error = account.error.as_deref().unwrap();
@@ -438,18 +445,15 @@ mod tests {
 
     #[test]
     fn foreign_credentials_expose_explicit_reauthentication_action() {
-        let raw = json!({
-            "schemaVersion": 1,
-            "activeAccountNumber": 1,
-            "accounts": [{
+        let account = project_one(
+            json!({
                 "number": 1,
                 "email": "x@example.com",
                 "active": true,
                 "usageStatus": "foreign_credential"
-            }]
-        });
-        let parsed = parse_account_list(&raw.to_string()).unwrap();
-        let account = &project_accounts(&parsed, false)[0];
+            }),
+            Some(1),
+        );
         assert_eq!(
             account.action,
             Some(ClaudeSwapAccountAction::Reauthenticate)
@@ -465,10 +469,8 @@ mod tests {
 
     #[test]
     fn historical_usage_is_typed_and_marked_as_source_reported() {
-        let raw = json!({
-            "schemaVersion": 1,
-            "activeAccountNumber": null,
-            "accounts": [{
+        let account = project_one(
+            json!({
                 "number": 1,
                 "email": "x@example.com",
                 "active": false,
@@ -479,10 +481,9 @@ mod tests {
                     "spend": { "used": 2.0, "limit": 20.0, "pct": 10.0, "currency": "USD" }
                 },
                 "lastGoodFetchedAt": "2026-09-12T00:45:00Z"
-            }]
-        });
-        let parsed = parse_account_list(&raw.to_string()).unwrap();
-        let account = &project_accounts(&parsed, false)[0];
+            }),
+            None,
+        );
         assert!(account.is_disabled);
         assert_eq!(
             account.historical_usage.as_ref().unwrap().provenance,
@@ -503,10 +504,8 @@ mod tests {
 
     #[test]
     fn spend_only_ok_usage_is_not_reported_as_empty() {
-        let raw = json!({
-            "schemaVersion": 1,
-            "activeAccountNumber": null,
-            "accounts": [{
+        let account = project_one(
+            json!({
                 "number": 1,
                 "email": "spend@example.com",
                 "active": false,
@@ -514,10 +513,9 @@ mod tests {
                 "usage": {
                     "spend": { "used": 2.0, "limit": 20.0, "pct": 10.0 }
                 }
-            }]
-        });
-        let parsed = parse_account_list(&raw.to_string()).unwrap();
-        let account = &project_accounts(&parsed, false)[0];
+            }),
+            None,
+        );
         assert!(account.spend.is_some());
         assert!(account.error.is_none());
     }

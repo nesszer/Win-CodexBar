@@ -428,22 +428,33 @@ mod tests {
         value.parse().expect("RFC3339 timestamp")
     }
 
+    /// A row whose tokens and cost are complete exactly when present.
     fn record(
         at: &str,
         key: Option<ClaudeQuotaDedupKey>,
         tokens: Option<u64>,
         cost: Option<f64>,
-        tokens_are_complete: bool,
-        cost_is_complete: bool,
     ) -> ClaudeQuotaHistoryRecord {
         ClaudeQuotaHistoryRecord {
             timestamp: ts(at),
             tokens,
             cost_usd: cost,
-            tokens_are_complete,
-            cost_is_complete,
+            tokens_are_complete: tokens.is_some(),
+            cost_is_complete: cost.is_some(),
             dedup_key: key,
             attribution: ClaudeHistoryAttribution::Account("account-a".into()),
+        }
+    }
+
+    /// One closed weekly window ending at the 2026-09-22 reset.
+    fn options() -> ClaudeQuotaHistoryOptions<'static> {
+        ClaudeQuotaHistoryOptions {
+            live_reset_at: Some(ts("2026-09-22T12:00:00Z")),
+            window_minutes: None,
+            observations: &[],
+            now: ts("2026-09-21T12:00:00Z"),
+            max_windows: 1,
+            history_coverage_established: true,
         }
     }
 
@@ -470,21 +481,14 @@ mod tests {
         ];
         let report = aggregate_claude_quota_windows(
             "account-a",
-            &[record(
-                "2026-09-20T10:00:00Z",
-                None,
-                Some(1),
-                Some(0.1),
-                true,
-                true,
-            )],
+            &[record("2026-09-20T10:00:00Z", None, Some(1), Some(0.1))],
             ClaudeQuotaHistoryOptions {
                 live_reset_at: Some(live_reset),
                 window_minutes: Some(10_080),
                 observations: &observations,
                 now,
                 max_windows: 3,
-                history_coverage_established: true,
+                ..options()
             },
         );
         assert_eq!(report.windows.len(), 3);
@@ -499,22 +503,8 @@ mod tests {
             request_id: "req-1".into(),
         };
         let records = deduplicate_claude_records(vec![
-            record(
-                "2026-09-20T10:00:00Z",
-                Some(key.clone()),
-                Some(10),
-                None,
-                true,
-                false,
-            ),
-            record(
-                "2026-09-20T10:00:00Z",
-                Some(key),
-                Some(20),
-                Some(0.4),
-                true,
-                true,
-            ),
+            record("2026-09-20T10:00:00Z", Some(key.clone()), Some(10), None),
+            record("2026-09-20T10:00:00Z", Some(key), Some(20), Some(0.4)),
             record(
                 "2026-09-20T10:01:00Z",
                 Some(ClaudeQuotaDedupKey::Session {
@@ -523,8 +513,6 @@ mod tests {
                 }),
                 Some(3),
                 Some(0.1),
-                true,
-                true,
             ),
         ]);
         assert_eq!(records.len(), 2);
@@ -537,17 +525,10 @@ mod tests {
         let report = aggregate_claude_quota_windows(
             "account-a",
             &[
-                record("2026-09-20T10:00:00Z", None, Some(10), None, true, false),
-                record("2026-09-20T11:00:00Z", None, None, Some(0.5), false, true),
+                record("2026-09-20T10:00:00Z", None, Some(10), None),
+                record("2026-09-20T11:00:00Z", None, None, Some(0.5)),
             ],
-            ClaudeQuotaHistoryOptions {
-                live_reset_at: Some(ts("2026-09-22T12:00:00Z")),
-                window_minutes: None,
-                observations: &[],
-                now: ts("2026-09-21T12:00:00Z"),
-                max_windows: 1,
-                history_coverage_established: true,
-            },
+            options(),
         );
         let window = &report.windows[0];
         assert_eq!(window.total_tokens, Some(10));
@@ -561,24 +542,10 @@ mod tests {
         let report = aggregate_claude_quota_windows(
             "account-a",
             &[
-                record(
-                    "2026-09-20T10:00:00Z",
-                    None,
-                    Some(u64::MAX),
-                    None,
-                    true,
-                    false,
-                ),
-                record("2026-09-20T11:00:00Z", None, Some(1), None, true, false),
+                record("2026-09-20T10:00:00Z", None, Some(u64::MAX), None),
+                record("2026-09-20T11:00:00Z", None, Some(1), None),
             ],
-            ClaudeQuotaHistoryOptions {
-                live_reset_at: Some(ts("2026-09-22T12:00:00Z")),
-                window_minutes: None,
-                observations: &[],
-                now: ts("2026-09-21T12:00:00Z"),
-                max_windows: 1,
-                history_coverage_established: true,
-            },
+            options(),
         );
 
         let window = &report.windows[0];
@@ -595,10 +562,7 @@ mod tests {
             ClaudeQuotaHistoryOptions {
                 live_reset_at: Some(before),
                 window_minutes: Some(10_080),
-                observations: &[],
-                now: ts("2026-09-21T12:00:00Z"),
-                max_windows: 1,
-                history_coverage_established: true,
+                ..options()
             },
         );
         assert_eq!(before, ts("2026-09-22T12:00:00Z"));
@@ -607,14 +571,7 @@ mod tests {
 
     #[test]
     fn account_scoped_history_excludes_unavailable_and_mismatched_rows() {
-        let mut unavailable = record(
-            "2026-09-20T10:00:00Z",
-            None,
-            Some(100),
-            Some(1.0),
-            true,
-            true,
-        );
+        let mut unavailable = record("2026-09-20T10:00:00Z", None, Some(100), Some(1.0));
         unavailable.attribution = ClaudeHistoryAttribution::Unavailable;
         let mut other_account = unavailable.clone();
         other_account.attribution = ClaudeHistoryAttribution::Account("account-b".into());
@@ -623,14 +580,7 @@ mod tests {
         let report = aggregate_claude_quota_windows(
             "account-a",
             &[unavailable, other_account, matching],
-            ClaudeQuotaHistoryOptions {
-                live_reset_at: Some(ts("2026-09-22T12:00:00Z")),
-                window_minutes: None,
-                observations: &[],
-                now: ts("2026-09-21T12:00:00Z"),
-                max_windows: 1,
-                history_coverage_established: true,
-            },
+            options(),
         );
         let window = &report.windows[0];
         assert_eq!(window.entry_count, 1);
@@ -640,27 +590,9 @@ mod tests {
 
     #[test]
     fn account_scoped_history_is_absent_without_explicit_attribution() {
-        let mut record = record(
-            "2026-09-20T10:00:00Z",
-            None,
-            Some(100),
-            Some(1.0),
-            true,
-            true,
-        );
+        let mut record = record("2026-09-20T10:00:00Z", None, Some(100), Some(1.0));
         record.attribution = ClaudeHistoryAttribution::Unavailable;
-        let report = aggregate_claude_quota_windows(
-            "account-a",
-            &[record],
-            ClaudeQuotaHistoryOptions {
-                live_reset_at: Some(ts("2026-09-22T12:00:00Z")),
-                window_minutes: None,
-                observations: &[],
-                now: ts("2026-09-21T12:00:00Z"),
-                max_windows: 1,
-                history_coverage_established: true,
-            },
-        );
+        let report = aggregate_claude_quota_windows("account-a", &[record], options());
         assert!(report.windows.is_empty());
     }
 
