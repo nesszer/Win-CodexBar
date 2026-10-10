@@ -6,11 +6,10 @@
 //! parsing, the HTTP fallback, and the presentation mapping.
 
 use serde_json::Value;
-use uuid::Uuid;
 
 use crate::core::{ProviderError, RateWindow, UsageSnapshot};
 
-use super::{BASE_URL, OpenCodeProvider, SERVER_URL};
+use super::OpenCodeProvider;
 
 /// Customer/billing server function carrying the monthly spend fields
 /// pay-as-you-go workspaces bill against (upstream 0.49.5 #2504/#2697).
@@ -139,28 +138,12 @@ impl OpenCodeProvider {
         cookie_header: &str,
     ) -> Result<Option<UsageSnapshot>, ProviderError> {
         let referer = format!("https://opencode.ai/workspace/{workspace_id}");
-        let args = serde_json::json!([workspace_id]);
-        let encoded_args = Self::url_encode(&args.to_string());
-        let url = format!(
-            "{}?id={}&args={}",
-            SERVER_URL, BILLING_SERVER_ID, encoded_args
-        );
-
         let response = self
-            .client
-            .get(&url)
-            .header("Cookie", cookie_header)
-            .header("X-Server-Id", BILLING_SERVER_ID)
-            .header("X-Server-Instance", format!("server-fn:{}", Uuid::new_v4()))
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            )
-            .header("Origin", BASE_URL)
-            .header("Referer", referer)
-            .header(
-                "Accept",
-                "text/javascript, application/json;q=0.9, */*;q=0.8",
+            .server_fn_get(
+                BILLING_SERVER_ID,
+                Some(workspace_id),
+                cookie_header,
+                &referer,
             )
             .send()
             .await;
