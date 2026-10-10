@@ -610,20 +610,6 @@ fn enabled_provider_ids_follow_custom_provider_order() {
 }
 
 #[test]
-fn test_settings_get_all_providers_status() {
-    let settings = Settings::default();
-    let status = settings.get_all_providers_status();
-    assert_eq!(status.len(), ProviderId::all().len());
-
-    let claude_status = status.iter().find(|s| s.id == "claude").unwrap();
-    assert_eq!(claude_status.name, "Claude");
-    assert!(claude_status.enabled);
-
-    let gemini_status = status.iter().find(|s| s.id == "gemini").unwrap();
-    assert!(!gemini_status.enabled);
-}
-
-#[test]
 fn test_api_key_provider_catalog_includes_token_providers() {
     let providers = get_api_key_providers();
     for id in [
@@ -672,14 +658,6 @@ fn test_t3_chat_is_cookie_configured_not_api_key_configured() {
             .any(|provider| provider.id == ProviderId::T3Chat),
         "T3 Chat fetches usage from browser cookies or pasted cURL, not API keys"
     );
-}
-
-#[test]
-fn test_refresh_interval_options() {
-    let options = get_refresh_interval_options();
-    assert!(!options.is_empty());
-    assert!(options.iter().any(|o| o.value == 60));
-    assert!(options.iter().any(|o| o.value == 300));
 }
 
 #[test]

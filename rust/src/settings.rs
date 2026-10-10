@@ -36,7 +36,6 @@ mod optional_details;
 mod preferences_document;
 mod provider_workspace;
 mod raw;
-mod status;
 mod types;
 
 pub use api_keys::*;
@@ -50,7 +49,6 @@ pub use optional_details::provider_has_optional_details;
 pub use preferences_document::*;
 pub use provider_workspace::*;
 use raw::RawSettings;
-pub use status::*;
 pub use types::*;
 
 #[cfg(test)]
@@ -958,18 +956,6 @@ impl Settings {
         self.provider_display_order()
             .into_iter()
             .filter(|id| self.is_provider_enabled(*id))
-            .collect()
-    }
-
-    /// Get all available providers with their enabled status
-    pub fn get_all_providers_status(&self) -> Vec<ProviderStatus> {
-        self.provider_display_order()
-            .into_iter()
-            .map(|id| ProviderStatus {
-                id: id.cli_name().to_string(),
-                name: id.display_name().to_string(),
-                enabled: self.is_provider_enabled(id),
-            })
             .collect()
     }
 
