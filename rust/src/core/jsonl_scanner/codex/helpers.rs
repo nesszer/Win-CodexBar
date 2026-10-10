@@ -680,13 +680,3 @@ pub(super) fn last_usage_delta(last: &Value) -> (i64, i64, i64, Option<i64>) {
         totals.reasoning,
     )
 }
-
-pub(super) fn fast_last_usage_delta(last: CodexFastTotals) -> (i64, i64, i64, Option<i64>) {
-    let totals = codex_totals_from_fast(last);
-    (
-        totals.input.max(0),
-        totals.cached.max(0),
-        totals.output.max(0),
-        totals.reasoning,
-    )
-}
