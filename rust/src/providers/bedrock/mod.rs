@@ -135,28 +135,23 @@ impl BedrockProvider {
             if json_profile_name(&json).is_some() {
                 return None;
             }
-            let access_key_id = json
-                .get("access_key_id")
-                .or_else(|| json.get("accessKeyId"))
-                .or_else(|| json.get("AWS_ACCESS_KEY_ID"))
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())?;
-            let secret_access_key = json
-                .get("secret_access_key")
-                .or_else(|| json.get("secretAccessKey"))
-                .or_else(|| json.get("AWS_SECRET_ACCESS_KEY"))
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())?;
-            let session_token = json
-                .get("session_token")
-                .or_else(|| json.get("sessionToken"))
-                .or_else(|| json.get("AWS_SESSION_TOKEN"))
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(str::to_string);
+            let access_key_id = json_str(
+                &json,
+                &["access_key_id", "accessKeyId", "AWS_ACCESS_KEY_ID"],
+            )?;
+            let secret_access_key = json_str(
+                &json,
+                &[
+                    "secret_access_key",
+                    "secretAccessKey",
+                    "AWS_SECRET_ACCESS_KEY",
+                ],
+            )?;
+            let session_token = json_str(
+                &json,
+                &["session_token", "sessionToken", "AWS_SESSION_TOKEN"],
+            )
+            .map(str::to_string);
 
             return Some(AwsCredentials {
                 access_key_id: access_key_id.to_string(),
@@ -614,14 +609,17 @@ fn cleaned_env(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn json_profile_name(json: &Value) -> Option<String> {
-    json.get("profile")
-        .or_else(|| json.get("aws_profile"))
-        .or_else(|| json.get("AWS_PROFILE"))
-        .and_then(|v| v.as_str())
+/// Trimmed non-empty string under the first of `keys` present in `json`.
+fn json_str<'a>(json: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| json.get(*key))
+        .and_then(Value::as_str)
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .map(str::to_string)
+}
+
+fn json_profile_name(json: &Value) -> Option<String> {
+    json_str(json, &["profile", "aws_profile", "AWS_PROFILE"]).map(str::to_string)
 }
 
 fn aws_cli_path() -> Result<String, ProviderError> {
@@ -651,28 +649,14 @@ fn parse_aws_profile_credentials(stdout: &[u8]) -> Result<AwsCredentials, Provid
         ProviderError::Parse(format!("Failed to parse AWS CLI credentials output: {e}"))
     })?;
 
-    let access_key_id = json
-        .get("AccessKeyId")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            ProviderError::Parse("AWS CLI credentials output missing AccessKeyId".to_string())
-        })?;
-    let secret_access_key = json
-        .get("SecretAccessKey")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            ProviderError::Parse("AWS CLI credentials output missing SecretAccessKey".to_string())
-        })?;
-    let session_token = json
-        .get("SessionToken")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string);
+    let required = |key: &str| {
+        json_str(&json, &[key]).ok_or_else(|| {
+            ProviderError::Parse(format!("AWS CLI credentials output missing {key}"))
+        })
+    };
+    let access_key_id = required("AccessKeyId")?;
+    let secret_access_key = required("SecretAccessKey")?;
+    let session_token = json_str(&json, &["SessionToken"]).map(str::to_string);
 
     Ok(AwsCredentials {
         access_key_id: access_key_id.to_string(),
