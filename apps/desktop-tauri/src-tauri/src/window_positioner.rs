@@ -1,9 +1,3 @@
-// Public positioning API — consumed by the shell and tested here.
-#![allow(
-    dead_code,
-    reason = "window positioner types reserved for future window management integration"
-)]
-
 /// A rectangle in physical pixels (monitor work area or icon bounds).
 #[derive(Debug, Clone, Copy)]
 pub struct Rect {
@@ -11,6 +5,45 @@ pub struct Rect {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+}
+
+impl Rect {
+    pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    // Physical pixel extents are bounded well below i32::MAX.
+    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
+    pub const fn signed_width(&self) -> i32 {
+        self.width as i32
+    }
+
+    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
+    pub const fn signed_height(&self) -> i32 {
+        self.height as i32
+    }
+
+    pub const fn right(&self) -> i32 {
+        self.x + self.signed_width()
+    }
+
+    pub const fn bottom(&self) -> i32 {
+        self.y + self.signed_height()
+    }
+}
+
+/// Substitute 1.0 for a non-finite or non-positive monitor scale factor.
+pub fn safe_scale(scale_factor: f64) -> f64 {
+    if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    }
 }
 
 /// Panel dimensions in logical pixels.
@@ -25,11 +58,7 @@ const MARGIN: i32 = 8;
 const GAP: i32 = 8;
 
 fn physical_panel_size(panel_size: &PanelSize, scale_factor: f64) -> (i32, i32) {
-    let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
-        scale_factor
-    } else {
-        1.0
-    };
+    let scale_factor = safe_scale(scale_factor);
 
     // Physical size is rounded to whole pixels before truncation.
     #[expect(clippy::cast_possible_truncation, reason = "whole units by design")]
@@ -39,7 +68,7 @@ fn physical_panel_size(panel_size: &PanelSize, scale_factor: f64) -> (i32, i32) 
     (width, height)
 }
 
-fn clamp_to_work_area(
+pub fn clamp_position_to_work_area(
     target_x: i32,
     target_y: i32,
     monitor_rect: &Rect,
@@ -49,17 +78,8 @@ fn clamp_to_work_area(
     let (pw, ph) = physical_panel_size(panel_size, scale_factor);
     let min_x = monitor_rect.x + MARGIN;
     let min_y = monitor_rect.y + MARGIN;
-    // Monitor dimensions are physical pixels, bounded well below i32::MAX.
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "monitor pixel dimensions fit in i32"
-    )]
-    let max_x = (monitor_rect.x + monitor_rect.width as i32 - pw - MARGIN).max(min_x);
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "monitor pixel dimensions fit in i32"
-    )]
-    let max_y = (monitor_rect.y + monitor_rect.height as i32 - ph - MARGIN).max(min_y);
+    let max_x = (monitor_rect.right() - pw - MARGIN).max(min_x);
+    let max_y = (monitor_rect.bottom() - ph - MARGIN).max(min_y);
 
     (target_x.clamp(min_x, max_x), target_y.clamp(min_y, max_y))
 }
@@ -73,12 +93,7 @@ fn calculate_anchored_position(
     open_above: bool,
 ) -> (i32, i32) {
     let (pw, ph) = physical_panel_size(panel_size, scale_factor);
-    // Tray icon widths are tens of pixels, far below i32::MAX.
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "tray icon pixel dimensions fit in i32"
-    )]
-    let anchor_x = icon_rect.x + (icon_rect.width as i32) / 2;
+    let anchor_x = icon_rect.x + icon_rect.signed_width() / 2;
     let target_x = anchor_x - pw / 2;
     let target_y = if open_above {
         anchor_y - ph - GAP
@@ -86,17 +101,7 @@ fn calculate_anchored_position(
         anchor_y + GAP
     };
 
-    clamp_to_work_area(target_x, target_y, monitor_rect, panel_size, scale_factor)
-}
-
-pub fn clamp_position_to_work_area(
-    target_x: i32,
-    target_y: i32,
-    monitor_rect: &Rect,
-    panel_size: &PanelSize,
-    scale_factor: f64,
-) -> (i32, i32) {
-    clamp_to_work_area(target_x, target_y, monitor_rect, panel_size, scale_factor)
+    clamp_position_to_work_area(target_x, target_y, monitor_rect, panel_size, scale_factor)
 }
 
 /// Calculate panel position anchored to a tray icon rectangle.
@@ -114,21 +119,16 @@ pub fn calculate_panel_position(
     scale_factor: f64,
 ) -> (i32, i32) {
     let my = work_area.y;
-    // Work-area and icon dimensions are physical pixels, bounded well below i32::MAX.
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let mh = work_area.height as i32;
+    let mh = work_area.signed_height();
 
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let icon_cy = icon_rect.y + (icon_rect.height as i32) / 2;
+    let icon_cy = icon_rect.y + icon_rect.signed_height() / 2;
     let monitor_cy = my + mh / 2;
 
     let open_above = icon_cy > monitor_cy;
-    // Icon bounds are physical pixels, bounded well below i32::MAX.
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
     let anchor_y = if open_above {
         icon_rect.y
     } else {
-        icon_rect.y + icon_rect.height as i32
+        icon_rect.bottom()
     };
 
     let position = calculate_anchored_position(
@@ -139,18 +139,9 @@ pub fn calculate_panel_position(
         anchor_y,
         open_above,
     );
-    // Monitor and work-area widths are physical pixels, bounded well below i32::MAX.
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let bounds_right = monitor_bounds.x + monitor_bounds.width as i32;
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let work_right = work_area.x + work_area.width as i32;
-
-    if work_area.x > monitor_bounds.x || work_right < bounds_right {
+    if work_area.x > monitor_bounds.x || work_area.right() < monitor_bounds.right() {
         let (_, ph) = physical_panel_size(panel_size, scale_factor);
-        // Work-area height is a physical pixel count, bounded well below i32::MAX.
-        #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-        let work_height = work_area.height as i32;
-        (position.0, work_area.y + work_height - ph - MARGIN)
+        (position.0, work_area.bottom() - ph - MARGIN)
     } else {
         position
     }
@@ -173,7 +164,7 @@ pub fn calculate_cursor_position(
         reason = "physical cursor coordinates fit i32"
     )]
     let y = (cursor.1.round() as i32).saturating_add(GAP);
-    clamp_to_work_area(x, y, work_area, panel_size, scale_factor)
+    clamp_position_to_work_area(x, y, work_area, panel_size, scale_factor)
 }
 
 /// Legacy shortcut placement: 22 % from left, vertically centred.
@@ -185,17 +176,8 @@ pub fn calculate_shortcut_position(
     let (pw, ph) = physical_panel_size(panel_size, scale_factor);
     let mx = monitor_rect.x;
     let my = monitor_rect.y;
-    // Monitor dimensions are physical pixels, bounded well below i32::MAX.
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "monitor pixel dimensions fit in i32"
-    )]
-    let mw = monitor_rect.width as i32;
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "monitor pixel dimensions fit in i32"
-    )]
-    let mh = monitor_rect.height as i32;
+    let mw = monitor_rect.signed_width();
+    let mh = monitor_rect.signed_height();
 
     // Shortcut offset is truncated to a whole pixel by design.
     #[expect(clippy::cast_possible_truncation, reason = "whole units by design")]
@@ -212,22 +194,8 @@ pub fn calculate_shortcut_position(
 mod tests {
     use super::*;
 
-    fn standard_monitor() -> Rect {
-        Rect {
-            x: 0,
-            y: 0,
-            width: 2400,
-            height: 1080,
-        }
-    }
-
     fn hd_monitor() -> Rect {
-        Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        }
+        Rect::new(0, 0, 1920, 1080)
     }
 
     fn panel() -> PanelSize {
@@ -241,12 +209,7 @@ mod tests {
 
     #[test]
     fn bottom_taskbar_panel_opens_above() {
-        let icon = Rect {
-            x: 1800,
-            y: 1040,
-            width: 24,
-            height: 24,
-        };
+        let icon = Rect::new(1800, 1040, 24, 24);
         let monitor = hd_monitor();
         let (_, y) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(y < icon.y, "panel should sit above the icon");
@@ -254,12 +217,7 @@ mod tests {
 
     #[test]
     fn top_taskbar_panel_opens_below() {
-        let icon = Rect {
-            x: 900,
-            y: 4,
-            width: 24,
-            height: 24,
-        };
+        let icon = Rect::new(900, 4, 24, 24);
         let monitor = hd_monitor();
         let (_, y) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(
@@ -270,12 +228,7 @@ mod tests {
 
     #[test]
     fn horizontal_centre_on_icon() {
-        let icon = Rect {
-            x: 960,
-            y: 1040,
-            width: 24,
-            height: 24,
-        };
+        let icon = Rect::new(960, 1040, 24, 24);
         let monitor = hd_monitor();
         let (x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         let icon_cx = icon.x + 12;
@@ -289,12 +242,7 @@ mod tests {
 
     #[test]
     fn clamped_left_edge() {
-        let icon = Rect {
-            x: 0,
-            y: 1040,
-            width: 24,
-            height: 24,
-        };
+        let icon = Rect::new(0, 1040, 24, 24);
         let monitor = hd_monitor();
         let (x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(x >= MARGIN, "panel must not exceed left margin");
@@ -302,12 +250,7 @@ mod tests {
 
     #[test]
     fn clamped_right_edge() {
-        let icon = Rect {
-            x: 1900,
-            y: 1040,
-            width: 24,
-            height: 24,
-        };
+        let icon = Rect::new(1900, 1040, 24, 24);
         let monitor = hd_monitor();
         let (x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(
@@ -318,12 +261,7 @@ mod tests {
 
     #[test]
     fn clamped_top_edge() {
-        let icon = Rect {
-            x: 960,
-            y: 4,
-            width: 24,
-            height: 24,
-        };
+        let icon = Rect::new(960, 4, 24, 24);
         let monitor = hd_monitor();
         let (_, y) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(y >= MARGIN, "panel must not exceed top margin");
@@ -331,18 +269,8 @@ mod tests {
 
     #[test]
     fn top_taskbar_work_area_clamps_open_below_to_min_y() {
-        let work_area = Rect {
-            x: 0,
-            y: 40,
-            width: 1920,
-            height: 1040,
-        };
-        let icon = Rect {
-            x: 960,
-            y: 4,
-            width: 24,
-            height: 24,
-        };
+        let work_area = Rect::new(0, 40, 1920, 1040);
+        let icon = Rect::new(960, 4, 24, 24);
         let monitor = hd_monitor();
         let (_, y) = calculate_panel_position(&icon, &monitor, &work_area, &panel(), 1.0);
         assert_eq!(y, work_area.y + MARGIN);
@@ -351,18 +279,8 @@ mod tests {
     #[test]
     fn left_taskbar_bottom_aligns_panel() {
         let monitor = hd_monitor();
-        let work_area = Rect {
-            x: 40,
-            y: 0,
-            width: 1880,
-            height: 1080,
-        };
-        let icon = Rect {
-            x: 8,
-            y: 1048,
-            width: 24,
-            height: 24,
-        };
+        let work_area = Rect::new(40, 0, 1880, 1080);
+        let icon = Rect::new(8, 1048, 24, 24);
 
         let (_, y) = calculate_panel_position(&icon, &monitor, &work_area, &panel(), 1.0);
 
@@ -371,24 +289,9 @@ mod tests {
 
     #[test]
     fn high_dpi_right_taskbar_bottom_aligns_panel() {
-        let monitor = Rect {
-            x: 0,
-            y: 0,
-            width: 3840,
-            height: 2160,
-        };
-        let work_area = Rect {
-            x: 0,
-            y: 0,
-            width: 3760,
-            height: 2160,
-        };
-        let icon = Rect {
-            x: 3808,
-            y: 2128,
-            width: 24,
-            height: 24,
-        };
+        let monitor = Rect::new(0, 0, 3840, 2160);
+        let work_area = Rect::new(0, 0, 3760, 2160);
+        let icon = Rect::new(3808, 2128, 24, 24);
 
         let (_, y) = calculate_panel_position(&icon, &monitor, &work_area, &panel(), 2.0);
 
@@ -397,18 +300,8 @@ mod tests {
 
     #[test]
     fn multi_monitor_offset() {
-        let monitor = Rect {
-            x: 1920,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        };
-        let icon = Rect {
-            x: 3700,
-            y: 1040,
-            width: 24,
-            height: 24,
-        };
+        let monitor = Rect::new(1920, 0, 1920, 1080);
+        let icon = Rect::new(3700, 1040, 24, 24);
         let (x, _) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(x >= monitor.x + MARGIN);
         assert!(
@@ -419,12 +312,7 @@ mod tests {
 
     #[test]
     fn high_dpi_positioning() {
-        let icon = Rect {
-            x: 960,
-            y: 1040,
-            width: 24,
-            height: 24,
-        };
+        let icon = Rect::new(960, 1040, 24, 24);
         let monitor = hd_monitor();
         let (x1, y1) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         let (x2, y2) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 2.0);
@@ -460,12 +348,7 @@ mod tests {
 
     #[test]
     fn cursor_open_clamps_on_high_dpi_monitor_with_negative_origin() {
-        let work_area = Rect {
-            x: -2560,
-            y: 0,
-            width: 2560,
-            height: 1400,
-        };
+        let work_area = Rect::new(-2560, 0, 2560, 1400);
         let panel = PanelSize {
             width: 400,
             height: 600,
@@ -478,12 +361,7 @@ mod tests {
 
     #[test]
     fn oversized_cursor_panel_keeps_its_top_left_visible() {
-        let work_area = Rect {
-            x: 1920,
-            y: -100,
-            width: 500,
-            height: 400,
-        };
+        let work_area = Rect::new(1920, -100, 500, 400);
         assert_eq!(
             calculate_cursor_position((2200.0, 250.0), &work_area, &panel(), 2.0),
             (1928, -92)
@@ -509,12 +387,7 @@ mod tests {
 
     #[test]
     fn shortcut_clamped_small_monitor() {
-        let monitor = Rect {
-            x: 0,
-            y: 0,
-            width: 500,
-            height: 600,
-        };
+        let monitor = Rect::new(0, 0, 500, 600);
         let (x, y) = calculate_shortcut_position(&monitor, &panel(), 1.0);
         assert!(x >= MARGIN);
         assert!(

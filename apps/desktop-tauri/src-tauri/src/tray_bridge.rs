@@ -26,11 +26,7 @@ struct MonitorScaleInfo {
 impl MonitorScaleInfo {
     fn from_monitor(monitor: &tauri::Monitor) -> Self {
         let scale_factor = monitor.scale_factor();
-        let safe_scale = if scale_factor.is_finite() && scale_factor > 0.0 {
-            scale_factor
-        } else {
-            1.0
-        };
+        let safe_scale = crate::window_positioner::safe_scale(scale_factor);
         let position = monitor.position();
         let size = monitor.size();
 
@@ -63,11 +59,7 @@ fn logical_to_physical_anchor(
     height: f64,
     scale_factor: f64,
 ) -> TrayAnchor {
-    let safe_scale = if scale_factor.is_finite() && scale_factor > 0.0 {
-        scale_factor
-    } else {
-        1.0
-    };
+    let safe_scale = crate::window_positioner::safe_scale(scale_factor);
 
     TrayAnchor {
         x: (x * safe_scale).round() as i32,

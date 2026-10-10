@@ -247,12 +247,7 @@ fn visible_mode_change_skips_default_position_synthesis() {
 #[test]
 fn larger_visible_destination_reclamps_preserved_top_left() {
     let current_top_left = (1492, 512);
-    let monitor = Rect {
-        x: 0,
-        y: 0,
-        width: 1920,
-        height: 1080,
-    };
+    let monitor = Rect::new(0, 0, 1920, 1080);
 
     let reclamped =
         reclamp_preserved_visible_position(current_top_left, &monitor, SurfaceMode::Settings, 1.0);
@@ -263,24 +258,8 @@ fn larger_visible_destination_reclamps_preserved_top_left() {
 #[test]
 fn preserved_visible_monitor_prefers_top_left_for_straddling_window() {
     let monitors = vec![
-        (
-            Rect {
-                x: 0,
-                y: 0,
-                width: 1920,
-                height: 1080,
-            },
-            1.0,
-        ),
-        (
-            Rect {
-                x: 1920,
-                y: 0,
-                width: 1920,
-                height: 1080,
-            },
-            1.25,
-        ),
+        (Rect::new(0, 0, 1920, 1080), 1.0),
+        (Rect::new(1920, 0, 1920, 1080), 1.25),
     ];
 
     let selected = monitor_for_preserved_visible_position(&monitors, (1800, 120), Some((600, 700)))
@@ -293,18 +272,8 @@ fn preserved_visible_monitor_prefers_top_left_for_straddling_window() {
 #[test]
 fn inferred_tray_anchor_defaults_to_bottom_right_of_work_area() {
     let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1040,
-        },
+        bounds: Rect::new(0, 0, 1920, 1080),
+        work_area: Rect::new(0, 0, 1920, 1040),
         scale_factor: 1.0,
     };
 
@@ -319,18 +288,8 @@ fn inferred_tray_anchor_defaults_to_bottom_right_of_work_area() {
 #[test]
 fn inferred_tray_anchor_supports_top_taskbar_layouts() {
     let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 40,
-            width: 1920,
-            height: 1040,
-        },
+        bounds: Rect::new(0, 0, 1920, 1080),
+        work_area: Rect::new(0, 40, 1920, 1040),
         scale_factor: 1.0,
     };
 
@@ -343,18 +302,8 @@ fn inferred_tray_anchor_supports_top_taskbar_layouts() {
 #[test]
 fn inferred_tray_anchor_supports_left_taskbar_layouts() {
     let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 40,
-            y: 0,
-            width: 1880,
-            height: 1080,
-        },
+        bounds: Rect::new(0, 0, 1920, 1080),
+        work_area: Rect::new(40, 0, 1880, 1080),
         scale_factor: 1.0,
     };
 
@@ -367,18 +316,8 @@ fn inferred_tray_anchor_supports_left_taskbar_layouts() {
 #[test]
 fn inferred_tray_anchor_supports_right_taskbar_layouts() {
     let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1880,
-            height: 1080,
-        },
+        bounds: Rect::new(0, 0, 1920, 1080),
+        work_area: Rect::new(0, 0, 1880, 1080),
         scale_factor: 1.0,
     };
 
@@ -391,18 +330,8 @@ fn inferred_tray_anchor_supports_right_taskbar_layouts() {
 #[test]
 fn inferred_tray_panel_position_uses_tray_style_corner_fallback() {
     let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1040,
-        },
+        bounds: Rect::new(0, 0, 1920, 1080),
+        work_area: Rect::new(0, 0, 1920, 1040),
         scale_factor: 1.0,
     };
 
@@ -411,12 +340,7 @@ fn inferred_tray_panel_position_uses_tray_style_corner_fallback() {
     assert_eq!(
         position,
         window_positioner::calculate_panel_position(
-            &Rect {
-                x: 1888,
-                y: 1048,
-                width: 24,
-                height: 24,
-            },
+            &Rect::new(1888, 1048, 24, 24),
             &monitor.bounds,
             &monitor.work_area,
             &super::geometry::tray_panel_size(),
@@ -562,18 +486,8 @@ fn hidden_surface_snapshot_matches_non_visible_shell_state() {
 #[test]
 fn remembered_popout_position_clamps_using_stored_size() {
     let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1000,
-            height: 800,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1000,
-            height: 800,
-        },
+        bounds: Rect::new(0, 0, 1000, 800),
+        work_area: Rect::new(0, 0, 1000, 800),
         scale_factor: 1.0,
     };
     let stored = crate::geometry_store::StoredGeometry {

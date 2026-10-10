@@ -139,11 +139,7 @@ fn capped_logical_size(window: &WebviewWindow, width: f64, height: f64) -> (f64,
     };
 
     let scale = monitor.scale_factor();
-    let scale = if scale.is_finite() && scale > 0.0 {
-        scale
-    } else {
-        1.0
-    };
+    let scale = crate::window_positioner::safe_scale(scale);
     let work_area = monitor.work_area();
     let max_width = (work_area.size.width as f64 / scale - MARGIN).max(320.0);
     let max_height = (work_area.size.height as f64 / scale - MARGIN).max(240.0);

@@ -46,12 +46,7 @@ pub fn clear_position() {
 pub fn placed_position(window: &tauri::WebviewWindow) -> Option<(i32, i32)> {
     let (x, y) = stored_position()?;
     let outer = window.outer_size().ok()?;
-    let panel = Rect {
-        x,
-        y,
-        width: outer.width,
-        height: outer.height,
-    };
+    let panel = Rect::new(x, y, outer.width, outer.height);
     let work_areas: Vec<Rect> = window
         .available_monitors()
         .ok()?
@@ -435,12 +430,7 @@ mod tests {
     }
 
     fn area(x: i32, y: i32, width: u32, height: u32) -> Rect {
-        Rect {
-            x,
-            y,
-            width,
-            height,
-        }
+        Rect::new(x, y, width, height)
     }
 
     // A stacked layout: primary monitor below, a taller one above.

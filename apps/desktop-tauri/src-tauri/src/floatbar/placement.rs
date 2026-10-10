@@ -64,11 +64,7 @@ impl MonitorLayout {
 }
 
 fn scale_milli(scale_factor: f64) -> u32 {
-    if scale_factor.is_finite() && scale_factor > 0.0 {
-        (scale_factor * 1000.0).round() as u32
-    } else {
-        1000
-    }
+    (crate::window_positioner::safe_scale(scale_factor) * 1000.0).round() as u32
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -48,21 +48,16 @@ pub(super) fn monitor_work_area_rect(monitor: &tauri::Monitor) -> Rect {
         && area.x + area.width <= position.x + size_width
         && area.y + area.height <= position.y + size_height
     {
-        return Rect {
-            x: area.x,
-            y: area.y,
-            width: area.width as u32,
-            height: area.height as u32,
-        };
+        return Rect::new(area.x, area.y, area.width as u32, area.height as u32);
     }
 
     let work_area = monitor.work_area();
-    Rect {
-        x: work_area.position.x,
-        y: work_area.position.y,
-        width: work_area.size.width,
-        height: work_area.size.height,
-    }
+    Rect::new(
+        work_area.position.x,
+        work_area.position.y,
+        work_area.size.width,
+        work_area.size.height,
+    )
 }
 
 pub(super) fn monitor_placement(monitor: &tauri::Monitor) -> MonitorPlacement {
@@ -70,12 +65,7 @@ pub(super) fn monitor_placement(monitor: &tauri::Monitor) -> MonitorPlacement {
     let size = monitor.size();
 
     MonitorPlacement {
-        bounds: Rect {
-            x: position.x,
-            y: position.y,
-            width: size.width,
-            height: size.height,
-        },
+        bounds: Rect::new(position.x, position.y, size.width, size.height),
         work_area: monitor_work_area_rect(monitor),
         scale_factor: monitor.scale_factor(),
     }
@@ -90,11 +80,8 @@ pub(super) fn centered_position(monitor: &MonitorPlacement, panel_size: &PanelSi
     #[expect(clippy::cast_possible_truncation, reason = "whole units by design")]
     let ph = (panel_size.height as f64 * scale) as i32;
     let wa = &monitor.work_area;
-    // Work-area dimensions are physical pixels, bounded well below i32::MAX.
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let x = wa.x + (wa.width as i32 - pw) / 2;
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let y = wa.y + (wa.height as i32 - ph) / 2;
+    let x = wa.x + (wa.signed_width() - pw) / 2;
+    let y = wa.y + (wa.signed_height() - ph) / 2;
     (x, y)
 }
 
@@ -102,17 +89,12 @@ pub(super) fn inferred_tray_anchor_rect(monitor: &MonitorPlacement) -> Rect {
     const SYNTHETIC_TRAY_ICON_SIZE: u32 = 24;
     const SYNTHETIC_TRAY_EDGE_PADDING: i32 = 8;
 
-    // Monitor bounds and work area are physical pixels, bounded well below i32::MAX.
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let work_right = monitor.work_area.x + monitor.work_area.width as i32;
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let work_bottom = monitor.work_area.y + monitor.work_area.height as i32;
+    let work_right = monitor.work_area.right();
+    let work_bottom = monitor.work_area.bottom();
     let bounds_left = monitor.bounds.x;
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let bounds_right = monitor.bounds.x + monitor.bounds.width as i32;
+    let bounds_right = monitor.bounds.right();
     let bounds_top = monitor.bounds.y;
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let bounds_bottom = monitor.bounds.y + monitor.bounds.height as i32;
+    let bounds_bottom = monitor.bounds.bottom();
     let left_gap = monitor.work_area.x - bounds_left;
     let right_gap = bounds_right - work_right;
     let top_gap = monitor.work_area.y - bounds_top;
@@ -139,12 +121,7 @@ pub(super) fn inferred_tray_anchor_rect(monitor: &MonitorPlacement) -> Rect {
         bounds_bottom - icon_size - SYNTHETIC_TRAY_EDGE_PADDING
     };
 
-    Rect {
-        x,
-        y,
-        width: SYNTHETIC_TRAY_ICON_SIZE,
-        height: SYNTHETIC_TRAY_ICON_SIZE,
-    }
+    Rect::new(x, y, SYNTHETIC_TRAY_ICON_SIZE, SYNTHETIC_TRAY_ICON_SIZE)
 }
 
 pub(super) fn inferred_tray_panel_position_for_monitor(monitor: &MonitorPlacement) -> (i32, i32) {
@@ -165,12 +142,7 @@ pub(super) fn inferred_tray_panel_position_for_monitor_size(
 }
 
 pub(super) fn tray_anchor_rect(anchor: crate::state::TrayAnchor) -> Rect {
-    Rect {
-        x: anchor.x,
-        y: anchor.y,
-        width: anchor.width,
-        height: anchor.height,
-    }
+    Rect::new(anchor.x, anchor.y, anchor.width, anchor.height)
 }
 
 pub(super) fn monitor_for_anchor(
@@ -200,24 +172,10 @@ pub(super) fn monitor_containing_point(
     monitors.iter().find(|monitor| {
         let pos = monitor.position();
         let size = monitor.size();
-        point_in_rect(
-            &Rect {
-                x: pos.x,
-                y: pos.y,
-                width: size.width,
-                height: size.height,
-            },
-            x,
-            y,
-        )
+        point_in_rect(&Rect::new(pos.x, pos.y, size.width, size.height), x, y)
     })
 }
 
 pub(super) fn point_in_rect(rect: &Rect, x: i32, y: i32) -> bool {
-    // Rect dimensions are physical pixels, bounded well below i32::MAX.
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let right = rect.x + rect.width as i32;
-    #[expect(clippy::cast_possible_wrap, reason = "pixel dimensions fit in i32")]
-    let bottom = rect.y + rect.height as i32;
-    x >= rect.x && x < right && y >= rect.y && y < bottom
+    x >= rect.x && x < rect.right() && y >= rect.y && y < rect.bottom()
 }

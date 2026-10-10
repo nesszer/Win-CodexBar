@@ -92,11 +92,7 @@ fn fallback_physical_position(
     scale_factor: f64,
     style: &str,
 ) -> PhysicalPosition<i32> {
-    let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
-        scale_factor
-    } else {
-        1.0
-    };
+    let scale_factor = crate::window_positioner::safe_scale(scale_factor);
     let mon_x = work_area_position.x as f64 / scale_factor;
     let mon_y = work_area_position.y as f64 / scale_factor;
     let mon_w = work_area_size.width as f64 / scale_factor;
@@ -458,70 +454,46 @@ pub trait WindowGeometry<R: tauri::Runtime> {
     fn set_physical_position(&self, position: PhysicalPosition<i32>) -> tauri::Result<()>;
 }
 
-impl<R: tauri::Runtime> WindowGeometry<R> for tauri::WebviewWindow<R> {
-    fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>> {
-        tauri::WebviewWindow::outer_position(self)
-    }
-    fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
-        tauri::WebviewWindow::outer_size(self)
-    }
-    fn scale_factor(&self) -> tauri::Result<f64> {
-        tauri::WebviewWindow::scale_factor(self)
-    }
-    fn is_minimized(&self) -> tauri::Result<bool> {
-        tauri::WebviewWindow::is_minimized(self)
-    }
-    fn primary_monitor(&self) -> tauri::Result<Option<tauri::Monitor>> {
-        tauri::WebviewWindow::primary_monitor(self)
-    }
-    fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>> {
-        tauri::WebviewWindow::available_monitors(self)
-    }
-    fn restore_without_activation(&self) -> tauri::Result<()> {
-        // Queued on the main thread ahead of the calls below, so the restore
-        // lands before `unminimize` re-reads the state and before the caller
-        // moves the window.
-        let window = self.clone();
-        tauri::WebviewWindow::run_on_main_thread(self, move || {
-            crate::shell::activation::restore_minimized_without_activation(&window);
-        })?;
-        tauri::WebviewWindow::unminimize(self)
-    }
-    fn set_physical_position(&self, position: PhysicalPosition<i32>) -> tauri::Result<()> {
-        tauri::WebviewWindow::set_position(self, position)
-    }
+macro_rules! impl_window_geometry {
+    ($ty:ident) => {
+        impl<R: tauri::Runtime> WindowGeometry<R> for tauri::$ty<R> {
+            fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>> {
+                tauri::$ty::outer_position(self)
+            }
+            fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
+                tauri::$ty::outer_size(self)
+            }
+            fn scale_factor(&self) -> tauri::Result<f64> {
+                tauri::$ty::scale_factor(self)
+            }
+            fn is_minimized(&self) -> tauri::Result<bool> {
+                tauri::$ty::is_minimized(self)
+            }
+            fn primary_monitor(&self) -> tauri::Result<Option<tauri::Monitor>> {
+                tauri::$ty::primary_monitor(self)
+            }
+            fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>> {
+                tauri::$ty::available_monitors(self)
+            }
+            fn restore_without_activation(&self) -> tauri::Result<()> {
+                // Queued on the main thread ahead of the calls below, so the
+                // restore lands before `unminimize` re-reads the state and
+                // before the caller moves the window.
+                let window = self.clone();
+                tauri::$ty::run_on_main_thread(self, move || {
+                    crate::shell::activation::restore_minimized_without_activation(&window);
+                })?;
+                tauri::$ty::unminimize(self)
+            }
+            fn set_physical_position(&self, position: PhysicalPosition<i32>) -> tauri::Result<()> {
+                tauri::$ty::set_position(self, position)
+            }
+        }
+    };
 }
 
-impl<R: tauri::Runtime> WindowGeometry<R> for tauri::Window<R> {
-    fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>> {
-        tauri::Window::outer_position(self)
-    }
-    fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
-        tauri::Window::outer_size(self)
-    }
-    fn scale_factor(&self) -> tauri::Result<f64> {
-        tauri::Window::scale_factor(self)
-    }
-    fn is_minimized(&self) -> tauri::Result<bool> {
-        tauri::Window::is_minimized(self)
-    }
-    fn primary_monitor(&self) -> tauri::Result<Option<tauri::Monitor>> {
-        tauri::Window::primary_monitor(self)
-    }
-    fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>> {
-        tauri::Window::available_monitors(self)
-    }
-    fn restore_without_activation(&self) -> tauri::Result<()> {
-        let window = self.clone();
-        tauri::Window::run_on_main_thread(self, move || {
-            crate::shell::activation::restore_minimized_without_activation(&window);
-        })?;
-        tauri::Window::unminimize(self)
-    }
-    fn set_physical_position(&self, position: PhysicalPosition<i32>) -> tauri::Result<()> {
-        tauri::Window::set_position(self, position)
-    }
-}
+impl_window_geometry!(WebviewWindow);
+impl_window_geometry!(Window);
 
 /// Resize the floatbar to the given logical dimensions and re-assert the
 /// native interaction invariants in the same step.
