@@ -403,52 +403,16 @@ impl FactoryProvider {
             .header("x-factory-client", FACTORY_CLIENT_HEADER)
     }
 
-    /// Fetch auth info with optional cookie and/or bearer token.
-    async fn fetch_auth_info(
-        &self,
+    /// GET `url` with optional cookie and/or bearer token; `label` names the
+    /// API in the non-success error.
+    async fn get_json<T: serde::de::DeserializeOwned>(
         client: &reqwest::Client,
-        base: &str,
+        url: &str,
         cookies: Option<&str>,
         bearer: Option<&str>,
-    ) -> Result<FactoryAuthResponse, ProviderError> {
-        let url = format!("{base}/api/app/auth/me");
-        let mut req = Self::apply_factory_headers(client.get(&url));
-        if let Some(c) = cookies.filter(|s| !s.is_empty()) {
-            req = req.header("Cookie", c);
-        }
-        if let Some(token) = bearer.filter(|s| !s.is_empty()) {
-            req = req.header("Authorization", format!("Bearer {token}"));
-        }
-
-        let resp = req.send().await?;
-        let status = resp.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(ProviderError::AuthRequired);
-        }
-        if status == reqwest::StatusCode::FORBIDDEN {
-            return Err(ProviderError::AuthRequired);
-        }
-        if !status.is_success() {
-            return Err(ProviderError::Other(format!(
-                "Factory auth API returned status {status}"
-            )));
-        }
-
-        resp.json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))
-    }
-
-    /// Fetch legacy subscription usage.
-    async fn fetch_usage_api(
-        &self,
-        client: &reqwest::Client,
-        base: &str,
-        cookies: Option<&str>,
-        bearer: Option<&str>,
-    ) -> Result<FactoryUsageResponse, ProviderError> {
-        let url = format!("{base}/api/organization/subscription/usage?useCache=true");
-        let mut req = Self::apply_factory_headers(client.get(&url));
+        label: &str,
+    ) -> Result<T, ProviderError> {
+        let mut req = Self::apply_factory_headers(client.get(url));
         if let Some(c) = cookies.filter(|s| !s.is_empty()) {
             req = req.header("Cookie", c);
         }
@@ -463,13 +427,36 @@ impl FactoryProvider {
         }
         if !status.is_success() {
             return Err(ProviderError::Other(format!(
-                "Factory usage API returned status {status}"
+                "Factory {label} API returned status {status}"
             )));
         }
 
         resp.json()
             .await
             .map_err(|e| ProviderError::Parse(e.to_string()))
+    }
+
+    async fn fetch_auth_info(
+        &self,
+        client: &reqwest::Client,
+        base: &str,
+        cookies: Option<&str>,
+        bearer: Option<&str>,
+    ) -> Result<FactoryAuthResponse, ProviderError> {
+        let url = format!("{base}/api/app/auth/me");
+        Self::get_json(client, &url, cookies, bearer, "auth").await
+    }
+
+    /// Fetch legacy subscription usage.
+    async fn fetch_usage_api(
+        &self,
+        client: &reqwest::Client,
+        base: &str,
+        cookies: Option<&str>,
+        bearer: Option<&str>,
+    ) -> Result<FactoryUsageResponse, ProviderError> {
+        let url = format!("{base}/api/organization/subscription/usage?useCache=true");
+        Self::get_json(client, &url, cookies, bearer, "usage").await
     }
 
     /// Optional billing-limits probe (token-rate-limits accounts).
