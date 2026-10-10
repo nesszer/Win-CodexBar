@@ -1054,36 +1054,38 @@ mod tests {
         );
     }
 
+    /// A dated billing record with every other field absent.
+    fn record(ymd: &str, method: &str, model: &str) -> MiniMaxBillingRecord {
+        MiniMaxBillingRecord {
+            consume_token: None,
+            consume_input_token: None,
+            consume_output_token: None,
+            consume_cash: None,
+            consume_cash_after_voucher: None,
+            created_at: None,
+            ymd: Some(ymd.to_string()),
+            consume_time: None,
+            method: Some(method.to_string()),
+            model: Some(model.to_string()),
+            result: None,
+            status: None,
+        }
+    }
+
     #[test]
     fn aggregates_billing_history_records() {
         let records = vec![
             MiniMaxBillingRecord {
                 consume_token: Some(serde_json::json!(1200)),
-                consume_input_token: None,
-                consume_output_token: None,
                 consume_cash: Some(serde_json::json!("0.42")),
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-12-16".to_string()),
-                consume_time: None,
-                method: Some("chat".to_string()),
-                model: Some("abab6.5".to_string()),
                 result: Some(serde_json::json!("SUCCESS")),
-                status: None,
+                ..record("2026-12-16", "chat", "abab6.5")
             },
             MiniMaxBillingRecord {
-                consume_token: None,
                 consume_input_token: Some(serde_json::json!(300)),
                 consume_output_token: Some(serde_json::json!(500)),
-                consume_cash: None,
                 consume_cash_after_voucher: Some(serde_json::json!(0.21)),
-                created_at: None,
-                ymd: Some("2026-12-15".to_string()),
-                consume_time: None,
-                method: Some("completion".to_string()),
-                model: Some("abab6.5".to_string()),
-                result: None,
-                status: None,
+                ..record("2026-12-15", "completion", "abab6.5")
             },
         ];
         let now = Utc.with_ymd_and_hms(2026, 12, 16, 12, 0, 0).unwrap();
@@ -1233,59 +1235,22 @@ mod tests {
         let records = vec![
             MiniMaxBillingRecord {
                 consume_token: Some(serde_json::json!(1000)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: None,
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-05-17".to_string()),
-                consume_time: None,
-                method: Some("chat".to_string()),
-                model: Some("MiniMax-M1".to_string()),
                 result: Some(serde_json::json!("SUCCESS")),
-                status: None,
+                ..record("2026-05-17", "chat", "MiniMax-M1")
             },
             MiniMaxBillingRecord {
                 consume_token: Some(serde_json::json!(2000)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: None,
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-05-17".to_string()),
-                consume_time: None,
-                method: Some("chat".to_string()),
-                model: Some("MiniMax-M1".to_string()),
                 result: Some(serde_json::json!("FAILED")),
-                status: None,
+                ..record("2026-05-17", "chat", "MiniMax-M1")
             },
             MiniMaxBillingRecord {
                 consume_token: Some(serde_json::json!(3000)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: None,
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-05-17".to_string()),
-                consume_time: None,
-                method: Some("audio".to_string()),
-                model: Some("speech".to_string()),
-                result: None,
-                status: None,
+                ..record("2026-05-17", "audio", "speech")
             },
             MiniMaxBillingRecord {
                 consume_token: Some(serde_json::json!(4000)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: None,
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-05-17".to_string()),
-                consume_time: None,
-                method: Some("video".to_string()),
-                model: Some("video".to_string()),
-                result: None,
                 status: Some(serde_json::json!(0)),
+                ..record("2026-05-17", "video", "video")
             },
         ];
         let now = Utc.with_ymd_and_hms(2026, 5, 17, 12, 0, 0).unwrap();

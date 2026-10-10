@@ -1057,39 +1057,30 @@ mod tests {
     }
 
     #[test]
-    fn base_resp_1004_is_auth_required() {
-        let json = serde_json::json!({
-            "data": {
-                "base_resp": { "status_code": 1004 },
-                "model_remains": []
+    fn base_resp_status_maps_to_errors() {
+        // `None` expects AuthRequired; `Some` expects Other with that message.
+        let cases = [
+            (serde_json::json!({ "status_code": 1004 }), None),
+            (
+                serde_json::json!({ "status_code": 2000, "status_msg": "please log in" }),
+                None,
+            ),
+            (
+                serde_json::json!({ "status_code": 2000, "status_msg": "quota sync failed" }),
+                Some("quota sync failed"),
+            ),
+        ];
+        for (base_resp, expected) in cases {
+            let json = serde_json::json!({
+                "data": { "base_resp": base_resp, "model_remains": [] }
+            });
+            let err = parse_coding_plan_value(&json, now()).unwrap_err();
+            match (expected, err) {
+                (None, ProviderError::AuthRequired) => {}
+                (Some(message), ProviderError::Other(actual)) => assert_eq!(actual, message),
+                (expected, err) => panic!("{base_resp}: expected {expected:?}, got {err:?}"),
             }
-        });
-        let err = parse_coding_plan_value(&json, now()).unwrap_err();
-        assert!(matches!(err, ProviderError::AuthRequired));
-    }
-
-    #[test]
-    fn base_resp_status_msg_login_is_auth_required() {
-        let json = serde_json::json!({
-            "data": {
-                "base_resp": { "status_code": 2000, "status_msg": "please log in" },
-                "model_remains": []
-            }
-        });
-        let err = parse_coding_plan_value(&json, now()).unwrap_err();
-        assert!(matches!(err, ProviderError::AuthRequired));
-    }
-
-    #[test]
-    fn base_resp_other_status_is_other_error() {
-        let json = serde_json::json!({
-            "data": {
-                "base_resp": { "status_code": 2000, "status_msg": "quota sync failed" },
-                "model_remains": []
-            }
-        });
-        let err = parse_coding_plan_value(&json, now()).unwrap_err();
-        assert!(matches!(err, ProviderError::Other(_)));
+        }
     }
 
     #[test]
