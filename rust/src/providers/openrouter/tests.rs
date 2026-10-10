@@ -82,7 +82,7 @@ fn key_quota_percent(key_data: KeyData) -> Option<f64> {
 #[test]
 fn key_limit_copy_stays_distinct_from_account_balance() {
     let provider = OpenRouterProvider::new();
-    assert_eq!(provider.metadata.weekly_label, "API key limit");
+    assert_eq!(provider.metadata().weekly_label, "API key limit");
 
     let credits = CreditsData {
         total_credits: 5.0,

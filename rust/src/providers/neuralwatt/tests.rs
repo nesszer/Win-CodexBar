@@ -8,6 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use super::*;
+use crate::providers::test_support::{mock_response_expect, mock_status_expect};
 
 const FIXTURES: [&str; 10] = [
     r#"{
@@ -390,13 +391,7 @@ async fn transient_status_recovers_on_the_single_retry() {
         .expect(1)
         .create_async()
         .await;
-    let second = server
-        .mock("GET", "/v1/quota")
-        .with_status(200)
-        .with_body(FIXTURES[0])
-        .expect(1)
-        .create_async()
-        .await;
+    let second = mock_response_expect(&mut server, "GET", "/v1/quota", 200, FIXTURES[0], 1).await;
 
     let body = fetch_quota(&test_client(), &mock_url(&server), "k", Duration::ZERO)
         .await
@@ -411,12 +406,7 @@ async fn transient_status_recovers_on_the_single_retry() {
 async fn auth_and_client_errors_are_never_retried() {
     for (status, auth) in [(401, true), (403, true), (404, false), (400, false)] {
         let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("GET", "/v1/quota")
-            .with_status(status)
-            .expect(1)
-            .create_async()
-            .await;
+        let mock = mock_status_expect(&mut server, "GET", "/v1/quota", status, 1).await;
 
         let error = fetch_quota(&test_client(), &mock_url(&server), "k", Duration::ZERO)
             .await
@@ -440,12 +430,7 @@ async fn auth_and_client_errors_are_never_retried() {
 #[tokio::test]
 async fn retry_sleep_is_dropped_with_the_fetch_future() {
     let mut server = mockito::Server::new_async().await;
-    let mock = server
-        .mock("GET", "/v1/quota")
-        .with_status(503)
-        .expect(1)
-        .create_async()
-        .await;
+    let mock = mock_status_expect(&mut server, "GET", "/v1/quota", 503, 1).await;
 
     // Without `Retry-After` the retry waits the 30 s default; cancelling the
     // future (as the refresh timeout does) must end the wait immediately.

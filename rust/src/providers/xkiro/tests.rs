@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::test_support::mock_response;
 use chrono::TimeZone;
 
 /// https://docs.xkiro.com/api/usage/ pay-as-you-go example, synthetic identity
@@ -225,12 +226,14 @@ async fn http_failures_are_classified_without_echoing_the_body() {
 #[tokio::test]
 async fn oversized_responses_are_rejected_as_unrecognized() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/v1/usage")
-        .with_status(200)
-        .with_body("x".repeat(MAX_RESPONSE_BYTES + 1))
-        .create_async()
-        .await;
+    mock_response(
+        &mut server,
+        "GET",
+        "/v1/usage",
+        200,
+        "x".repeat(MAX_RESPONSE_BYTES + 1),
+    )
+    .await;
 
     let error = provider_for(&server)
         .fetch_api(API_KEY, now())

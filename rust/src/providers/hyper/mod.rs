@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, ProviderStateKind, RateWindow, SourceMode, UsageSnapshot,
+    ProviderStateKind, RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, format, read_bounded_response};
 
@@ -39,7 +39,6 @@ const INVALID_JSON: &str = "Charm Hyper credits response is not valid JSON.";
 const INVALID_BALANCE: &str = "Charm Hyper balance must be a non-negative number.";
 
 pub struct HyperProvider {
-    metadata: ProviderMetadata,
     client: Client,
     credits_url: String,
 }
@@ -83,19 +82,6 @@ impl HyperProvider {
 
     fn with_client(credits_url: impl Into<String>, client: Client) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Hyper,
-                display_name: "Charm Hyper",
-                session_label: "Balance",
-                weekly_label: "Balance",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://hyper.charm.land"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client,
             credits_url: credits_url.into(),
         }
@@ -212,10 +198,6 @@ impl Provider for HyperProvider {
         ProviderId::Hyper
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         // This repository's SourceMode::OAuth is the documented API-key lane
         // for non-OAuth providers; upstream calls this source "api". Web never
@@ -234,10 +216,6 @@ impl Provider for HyperProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::OAuth]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 
     fn cookie_source_scopes_session_only(&self) -> bool {

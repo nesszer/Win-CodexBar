@@ -18,7 +18,7 @@ mod session_resolver;
 
 use crate::core::{
     CostSnapshot, FetchContext, LastGoodFailurePolicy, Provider, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
 const DEEPSEEK_API_BASE: &str = "https://api.deepseek.com";
@@ -161,26 +161,12 @@ struct DeepSeekUsageSummary {
 }
 
 pub struct DeepSeekProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl DeepSeekProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::DeepSeek,
-                display_name: "DeepSeek",
-                session_label: "Balance",
-                weekly_label: "Balance",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://platform.deepseek.com/usage"),
-                status_page_url: Some("https://status.deepseek.com"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
@@ -561,10 +547,6 @@ impl Default for DeepSeekProvider {
 impl Provider for DeepSeekProvider {
     fn id(&self) -> ProviderId {
         ProviderId::DeepSeek
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

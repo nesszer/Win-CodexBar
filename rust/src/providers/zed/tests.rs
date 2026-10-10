@@ -3,6 +3,7 @@ use reqwest::redirect::Policy;
 
 use super::snapshot::{editor_result, web_result};
 use super::*;
+use crate::providers::test_support::{mock_response_expect, mock_status, mock_status_expect};
 
 // Fixtures mirror upstream v0.65.0 `ZedPluginTests.swift` / `ZedStatusProbeTests.swift`.
 const BILLING: &str = r#"{"plan":"zed_pro","current_usage":{
@@ -359,13 +360,15 @@ async fn web_source_maps_expired_and_failing_responses_without_editor_fallback()
         (404, "Zed cloud API returned HTTP 404."),
     ] {
         let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("GET", "/frontend/billing/usage")
-            .with_status(status)
-            .with_body("<html>login</html>")
-            .expect(1)
-            .create_async()
-            .await;
+        let mock = mock_response_expect(
+            &mut server,
+            "GET",
+            "/frontend/billing/usage",
+            status,
+            "<html>login</html>",
+            1,
+        )
+        .await;
         let ctx = FetchContext {
             source_mode: SourceMode::Web,
             manual_cookie_header: Some("zed.session=fixture-session".into()),
@@ -414,11 +417,7 @@ async fn web_source_without_a_usable_cookie_fails_before_any_request() {
         },
     ] {
         let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("GET", mockito::Matcher::Any)
-            .expect(0)
-            .create_async()
-            .await;
+        let mock = mock_status_expect(&mut server, "GET", mockito::Matcher::Any, 200, 0).await;
         let error = test_provider(&server.url())
             .fetch_usage(&ctx)
             .await
@@ -441,11 +440,8 @@ async fn auto_and_api_sources_use_the_editor_credential_and_never_the_browser() 
             .with_body(editor_body("zed_pro", 10, r#"{"limited":20}"#, false))
             .create_async()
             .await;
-        let billing = server
-            .mock("GET", "/frontend/billing/usage")
-            .expect(0)
-            .create_async()
-            .await;
+        let billing =
+            mock_status_expect(&mut server, "GET", "/frontend/billing/usage", 200, 0).await;
         let ctx = FetchContext {
             source_mode,
             api_key: Some("4242 fixture-token".into()),
@@ -468,11 +464,7 @@ async fn auto_and_api_sources_use_the_editor_credential_and_never_the_browser() 
 #[tokio::test]
 async fn editor_lane_keeps_auth_required_for_rejected_credentials() {
     let mut server = mockito::Server::new_async().await;
-    let _mock = server
-        .mock("GET", "/client/users/me")
-        .with_status(401)
-        .create_async()
-        .await;
+    let _mock = mock_status(&mut server, "GET", "/client/users/me", 401).await;
     let ctx = FetchContext {
         source_mode: SourceMode::Auto,
         api_key: Some("4242 stale".into()),

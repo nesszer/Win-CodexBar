@@ -8,8 +8,9 @@ use std::collections::HashMap;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::json;
 
 const KIMIK2_API_BASE_INTERNATIONAL: &str = "https://api.moonshot.ai";
 const KIMIK2_API_BASE_CHINA: &str = "https://api.moonshot.cn";
@@ -141,27 +142,12 @@ fn api_key_for_region(env: &HashMap<String, String>, region: MoonshotRegion) -> 
 }
 
 /// Kimi K2 provider (API-based credits)
-pub struct KimiK2Provider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct KimiK2Provider;
 
 impl KimiK2Provider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::KimiK2,
-                display_name: "Moonshot / Kimi Open Platform",
-                session_label: "Balance",
-                weekly_label: "Cash",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://platform.moonshot.ai/console/account"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     /// Region-bound API key resolution (upstream 0.48.0 #2621):
@@ -307,21 +293,21 @@ impl KimiK2Provider {
         let available_balance = data
             .get("available_balance")
             .or_else(|| data.get("balance"))
-            .and_then(finite_json_f64)
+            .and_then(json::lenient_finite_f64)
             .unwrap_or(0.0);
 
         // Total credits (used + available)
         let total_credits = data
             .get("total_balance")
             .or_else(|| data.get("total"))
-            .and_then(finite_json_f64)
+            .and_then(json::lenient_finite_f64)
             .unwrap_or(available_balance.max(0.0));
 
         // Used credits
         let used_credits = data
             .get("used_balance")
             .or_else(|| data.get("used"))
-            .and_then(finite_json_f64)
+            .and_then(json::lenient_finite_f64)
             .unwrap_or(total_credits - available_balance);
 
         // Calculate percentage used
@@ -332,8 +318,10 @@ impl KimiK2Provider {
         };
 
         // Cash balance (if any)
-        let voucher_balance = data.get("voucher_balance").and_then(finite_json_f64);
-        let cash_balance = data.get("cash_balance").and_then(finite_json_f64);
+        let voucher_balance = data
+            .get("voucher_balance")
+            .and_then(json::lenient_finite_f64);
+        let cash_balance = data.get("cash_balance").and_then(json::lenient_finite_f64);
 
         // Create primary rate window (credits used)
         let mut primary = RateWindow::new(used_percent);
@@ -350,15 +338,6 @@ impl KimiK2Provider {
                 " · {} in deficit",
                 region.format_balance(cash.abs())
             ));
-        }
-
-        fn finite_json_f64(value: &serde_json::Value) -> Option<f64> {
-            match value {
-                serde_json::Value::Number(number) => number.as_f64(),
-                serde_json::Value::String(text) => text.trim().replace(',', "").parse().ok(),
-                _ => None,
-            }
-            .filter(|value: &f64| value.is_finite())
         }
 
         let mut usage = UsageSnapshot::new(primary).with_login_method(login_method);
@@ -381,20 +360,10 @@ impl KimiK2Provider {
     }
 }
 
-impl Default for KimiK2Provider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for KimiK2Provider {
     fn id(&self) -> ProviderId {
         ProviderId::KimiK2
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -411,14 +380,6 @@ impl Provider for KimiK2Provider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
     }
 }
 

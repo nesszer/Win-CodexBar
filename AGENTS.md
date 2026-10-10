@@ -96,7 +96,7 @@ pnpm run tauri:build
 - `apps/desktop-tauri/src/lib/tauri.ts` — frontend invoke bridge
 - `apps/desktop-tauri/src/types/bridge.ts` — DTOs + `SettingsTabId`
 - `rust/src/core/provider_factory.rs` — sole provider factory
-- `rust/src/core/provider.rs` — `ProviderId` + `Provider` trait
+- `rust/src/core/provider/` — `ProviderId` (`id.rs`), spec table (`spec.rs`), `Provider` trait (`traits.rs`)
 - `apps/desktop-tauri/src-tauri/src/commands/providers.rs` — refresh engine
 - `apps/desktop-tauri/src-tauri/src/tray_bridge.rs` — tray icon and menu
 - `apps/desktop-tauri/src-tauri/src/floatbar/window.rs` — float bar window builder

@@ -8,9 +8,10 @@ use reqwest::Client;
 use serde_json::Value;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
+use crate::providers::strip_cookie_prefix;
 
 const HOST: &str = "https://longcat.chat";
 const USER_CURRENT: &str = "/api/v1/user-current";
@@ -20,26 +21,12 @@ const PENDING_FUEL: &str = "/api/lc-platform/v1/pending-fuel-packages";
 const TOKEN_PACKS_SUMMARY: &str = "/api/pay/quota/metering/token-packs/summary";
 
 pub struct LongCatProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl LongCatProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::LongCat,
-                display_name: "LongCat",
-                session_label: "Quota",
-                weekly_label: "Fuel Pack",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://longcat.chat/platform/"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             // Isolated cookie-free client — auth is only the explicit Cookie header.
             client: crate::core::credentialed_http_client_builder()
                 .cookie_store(false)
@@ -112,10 +99,6 @@ impl Provider for LongCatProvider {
         ProviderId::LongCat
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::Web => {
@@ -168,17 +151,16 @@ impl Provider for LongCatProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
     }
+
+    /// Stays `false` although `SourceMode::Web` is listed (existing behavior).
+    fn supports_web(&self) -> bool {
+        false
+    }
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim().to_string();
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|p| p.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim().to_string();
-    }
-    (!header.is_empty()).then_some(header)
+    let header = strip_cookie_prefix(raw.trim());
+    (!header.is_empty()).then(|| header.to_string())
 }
 
 fn envelope_code(value: &Value) -> Result<Option<i64>, ProviderError> {

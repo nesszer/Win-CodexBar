@@ -16,7 +16,7 @@ use async_trait::async_trait;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 pub use api::CursorApi;
@@ -25,7 +25,6 @@ use token_cost::TokenCostError;
 
 /// Cursor provider for fetching AI usage limits
 pub struct CursorProvider {
-    metadata: ProviderMetadata,
     api: CursorApi,
     /// Per-credential back-off for forbidden cost requests. The store is
     /// process-wide because the shell builds a fresh provider per refresh.
@@ -37,20 +36,6 @@ pub struct CursorProvider {
 impl CursorProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Cursor,
-                display_name: "Cursor",
-                session_label: "Plan",
-                weekly_label: "Cursor",
-                supports_opus: false,
-                // Upstream #2338: Cursor has no account credit balance to advertise.
-                supports_credits: false,
-                default_enabled: true,
-                is_primary: false,
-                dashboard_url: Some("https://cursor.com/dashboard/usage"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             api: CursorApi::new(),
             cost_cooldown: CostCooldown::shared(),
             clock: Arc::new(Instant::now),
@@ -235,7 +220,6 @@ impl CursorProvider {
             api: CursorApi::with_base_url(base_url),
             cost_cooldown,
             clock,
-            ..Self::new()
         }
     }
 }
@@ -254,10 +238,6 @@ impl Provider for CursorProvider {
 
     fn id(&self) -> ProviderId {
         ProviderId::Cursor
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     fn retains_last_good_on_transport_failure(&self) -> bool {
@@ -313,10 +293,6 @@ impl Provider for CursorProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 }
 

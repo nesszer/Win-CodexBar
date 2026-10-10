@@ -14,16 +14,15 @@ use reqwest::Client;
 use serde_json::Value;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 use crate::providers::browser_cookie_header;
 
 const BASE_URL: &str = "https://app.notion.com";
 const GET_SPACES_URL: &str = "https://app.notion.com/api/v3/getSpaces";
 const RATE_LIMIT_URL: &str = "https://app.notion.com/api/v3/getCreditRateLimitStatus";
-const DASHBOARD_URL: &str = "https://app.notion.com/";
-const STATUS_PAGE_URL: &str = "https://status.notion.so";
+pub(crate) const DASHBOARD_URL: &str = "https://app.notion.com/";
 const SESSION_COOKIE_NAME: &str = "token_v2";
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
@@ -41,9 +40,8 @@ const COOKIE_DOMAINS: &[&str] = &[
 /// with the real cycle length ending at `resets_at` (upstream `ProviderPaceCapability`).
 const MONTHLY_WINDOW_SENTINEL_MINUTES: u32 = 30 * 24 * 60;
 
-pub struct NotionProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct NotionProvider;
 
 #[derive(Debug, Clone)]
 struct NotionWorkspace {
@@ -131,21 +129,7 @@ impl CreditRateLimitStatus {
 
 impl NotionProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Notion,
-                display_name: "Notion AI",
-                session_label: "Rolling",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DASHBOARD_URL),
-                status_page_url: Some(STATUS_PAGE_URL),
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     fn resolve_cookie_header(ctx: &FetchContext) -> Result<String, ProviderError> {
@@ -250,20 +234,10 @@ impl NotionProvider {
     }
 }
 
-impl Default for NotionProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for NotionProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Notion
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -281,14 +255,6 @@ impl Provider for NotionProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
     }
 }
 

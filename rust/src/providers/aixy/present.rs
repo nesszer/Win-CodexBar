@@ -7,6 +7,7 @@ use crate::core::{
     CostSnapshot, NamedRateWindow, ProviderDisplayDetail, ProviderFetchResult, RateWindow,
     UsageSnapshot,
 };
+use crate::providers::format;
 
 const COST_PERIOD: &str = "Last 7 days · attributed";
 const LOGIN_METHOD: &str = "API key";
@@ -67,7 +68,7 @@ pub(super) fn build_result(usage: KeyUsage) -> ProviderFetchResult {
 
 fn rate_window(budget: &Budget) -> RateWindow {
     let balance = match (budget.known, budget.remaining) {
-        (true, Some(remaining)) => format!("{} remaining", usd(remaining)),
+        (true, Some(remaining)) => format!("{} remaining", format::usd_plain(remaining)),
         _ => "Unavailable".to_owned(),
     };
     RateWindow::with_details(
@@ -111,14 +112,22 @@ fn budget_row((index, budget): (usize, &Budget)) -> Option<ProviderDisplayDetail
             .and_then(|row| row.with_section_title("Applicable budgets"));
     };
     let spent = if budget.hard {
-        format!("{} spent · {} reserved", usd(spent), usd(budget.reserved))
+        format!(
+            "{} spent · {} reserved",
+            format::usd_plain(spent),
+            format::usd_plain(budget.reserved)
+        )
     } else {
-        format!("{} spent", usd(spent))
+        format!("{} spent", format::usd_plain(spent))
     };
     ProviderDisplayDetail::new(
         id,
         &budget.title,
-        format!("{} / {} remaining", usd(remaining), usd(budget.limit)),
+        format!(
+            "{} / {} remaining",
+            format::usd_plain(remaining),
+            format::usd_plain(budget.limit)
+        ),
     )
     .and_then(|row| row.with_secondary_value(spent))
     .and_then(|row| row.with_progress(budget.used_percent, 100.0))
@@ -144,7 +153,7 @@ fn totals_rows(totals: &Totals) -> Vec<Option<ProviderDisplayDetail>> {
             "Attributed spend (last 7 days)",
             totals
                 .spend_usd
-                .map_or_else(|| "Unavailable".to_owned(), usd),
+                .map_or_else(|| "Unavailable".to_owned(), format::usd_plain),
         )
         .and_then(|row| row.with_section_title("Last 7 days · this key")),
         ProviderDisplayDetail::new(
@@ -161,10 +170,6 @@ fn totals_rows(totals: &Totals) -> Vec<Option<ProviderDisplayDetail>> {
         })
         .and_then(|row| row.with_section_title("Last 7 days · this key")),
     ]
-}
-
-fn usd(value: f64) -> String {
-    format!("${value:.2}")
 }
 
 /// Integer with thousands separators.

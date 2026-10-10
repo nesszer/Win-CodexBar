@@ -27,7 +27,7 @@ use serde::Deserialize;
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 use reset_plausibility::is_plausible_five_hour_reset;
@@ -195,9 +195,8 @@ fn unavailable_quota_detail(has_token_limits: bool) -> Option<ProviderDisplayDet
 }
 
 /// z.ai provider
-pub struct ZaiProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct ZaiProvider;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ZaiTeamContext {
@@ -207,21 +206,7 @@ struct ZaiTeamContext {
 
 impl ZaiProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Zai,
-                display_name: "z.ai",
-                session_label: "Tokens",
-                weekly_label: "MCP",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://z.ai/manage-apikey/coding-plan/personal/my-plan"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     /// Effective API region (upstream 0.48.0): an explicit settings value
@@ -662,12 +647,6 @@ fn authorization_header(token: &str) -> String {
     }
 }
 
-impl Default for ZaiProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for ZaiProvider {
     fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
@@ -676,10 +655,6 @@ impl Provider for ZaiProvider {
 
     fn id(&self) -> ProviderId {
         ProviderId::Zai
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -697,14 +672,6 @@ impl Provider for ZaiProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::OAuth]
-    }
-
-    fn supports_web(&self) -> bool {
-        false
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
     }
 }
 

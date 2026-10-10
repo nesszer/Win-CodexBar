@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use crate::cli::tty_runner::{TtyCommandOptions, TtyCommandRunner};
 use crate::core::{
     FetchContext, LastGoodFailurePolicy, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 use admin_api::ClaudeAdminApiFetcher;
@@ -140,7 +140,6 @@ pub fn auto_resume_identity() -> Option<String> {
 
 /// Claude provider implementation
 pub struct ClaudeProvider {
-    metadata: ProviderMetadata,
     web_fetcher: ClaudeWebApiFetcher,
     oauth_fetcher: ClaudeOAuthFetcher,
     admin_fetcher: ClaudeAdminApiFetcher,
@@ -149,19 +148,6 @@ pub struct ClaudeProvider {
 impl ClaudeProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Claude,
-                display_name: "Claude",
-                session_label: "Session (5h)",
-                weekly_label: "Weekly",
-                supports_opus: true,
-                supports_credits: true,
-                default_enabled: true,
-                is_primary: true,
-                dashboard_url: Some("https://claude.ai/settings/usage"),
-                status_page_url: Some("https://status.claude.com/"),
-                tertiary_label_key: None,
-            },
             web_fetcher: ClaudeWebApiFetcher::new(),
             oauth_fetcher: ClaudeOAuthFetcher::new(),
             admin_fetcher: ClaudeAdminApiFetcher::new(),
@@ -829,10 +815,6 @@ impl Provider for ClaudeProvider {
         ProviderId::Claude
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     fn retains_last_good_on_transport_failure(&self) -> bool {
         true
     }
@@ -869,14 +851,6 @@ impl Provider for ClaudeProvider {
     }
 
     fn supports_oauth(&self) -> bool {
-        true
-    }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
         true
     }
 

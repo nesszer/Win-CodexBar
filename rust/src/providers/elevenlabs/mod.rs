@@ -8,9 +8,10 @@ use reqwest::{Client, Url};
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
+use crate::providers::format;
 
 const ELEVENLABS_API_BASE_URL: &str = "https://api.elevenlabs.io";
 const ELEVENLABS_API_URL_ENV: &str = "ELEVENLABS_API_URL";
@@ -44,26 +45,12 @@ struct ElevenLabsApiErrorDetail {
 }
 
 pub struct ElevenLabsProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ElevenLabsProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::ElevenLabs,
-                display_name: "ElevenLabs",
-                session_label: "Credits",
-                weekly_label: "Voices",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://elevenlabs.io/app/settings/api-keys"),
-                status_page_url: Some("https://status.elevenlabs.io"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -167,10 +154,6 @@ impl Provider for ElevenLabsProvider {
         ProviderId::ElevenLabs
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::OAuth => {
@@ -205,8 +188,8 @@ fn snapshot_from_subscription(subscription: &ElevenLabsSubscriptionResponse) -> 
     let mut primary = RateWindow::new(used_percent);
     primary.reset_description = Some(format!(
         "{} / {} credits",
-        format_count(subscription.character_count),
-        format_count(subscription.character_limit)
+        format::count(subscription.character_count),
+        format::count(subscription.character_limit)
     ));
     primary.resets_at = subscription
         .next_character_count_reset_unix
@@ -291,18 +274,6 @@ fn title_case_tier(tier: &str) -> String {
         previous_is_word = is_word;
     }
     title
-}
-
-fn format_count(value: u64) -> String {
-    let raw = value.to_string();
-    let mut out = String::with_capacity(raw.len() + raw.len() / 3);
-    for (idx, ch) in raw.chars().rev().enumerate() {
-        if idx > 0 && idx % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out.chars().rev().collect()
 }
 
 fn resolve_api_key(

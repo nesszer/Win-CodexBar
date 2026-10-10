@@ -8,20 +8,16 @@ import { PROVIDER_ICON_REGISTRY } from "./providerIcons";
 const REPO_ROOT = import.meta.dirname + "/../../../../../";
 
 /**
- * The `ProviderId::X => "#RRGGBB"` rows of the Rust `brand_color` table in
- * `rust/src/core/provider.rs`, keyed by the lowercased variant name (which
- * is the registry id for every provider).
+ * The `spec(P::X, "cli", "Display", "#RRGGBB")` rows of the Rust provider spec
+ * table in `rust/src/core/provider/spec.rs`, keyed by the lowercased variant
+ * name (which is the registry id for every provider).
  */
 function rustBrandColors(): Map<string, string> {
-  // CI checks out with CRLF line endings; normalize so the "\n}\n" search below matches.
-  const source = readFileSync(REPO_ROOT + "rust/src/core/provider.rs", "utf8").replace(/\r\n/g, "\n");
-  const start = source.indexOf("pub fn brand_color(id: ProviderId)");
-  const end = source.indexOf("\n}\n", start);
+  const source = readFileSync(REPO_ROOT + "rust/src/core/provider/spec.rs", "utf8");
   const rows = new Map<string, string>();
-  if (start < 0 || end < 0) return rows;
-  for (const match of source
-    .slice(start, end)
-    .matchAll(/ProviderId::(\w+) => "(#[0-9A-Fa-f]{6})"/g)) {
+  for (const match of source.matchAll(
+    /spec\(\s*P::(\w+),\s*"[^"]*",\s*"[^"]*",\s*"(#[0-9A-Fa-f]{6})"/g,
+  )) {
     rows.set(match[1].toLowerCase(), match[2].toLowerCase());
   }
   return rows;

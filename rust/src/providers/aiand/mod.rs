@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const LOGS_URL: &str = "https://api.aiand.com/logs";
@@ -126,26 +126,12 @@ impl AiAndSnapshot {
 }
 
 pub struct AiAndProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl AiAndProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::AiAnd,
-                display_name: "ai&",
-                session_label: "Spend",
-                weekly_label: "Spend",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://console.aiand.com"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -263,10 +249,6 @@ impl Default for AiAndProvider {
 impl Provider for AiAndProvider {
     fn id(&self) -> ProviderId {
         ProviderId::AiAnd
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

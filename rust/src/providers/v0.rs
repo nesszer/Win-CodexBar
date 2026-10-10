@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
@@ -33,26 +33,12 @@ struct Billing {
 }
 
 pub struct V0Provider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl V0Provider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::V0,
-                display_name: "v0",
-                session_label: "Billing",
-                weekly_label: "Rate limit",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://v0.app/settings/billing"),
-                status_page_url: Some("https://www.vercel-status.com/"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(Duration::from_secs(15))
                 .build()
@@ -118,9 +104,6 @@ impl Default for V0Provider {
 impl Provider for V0Provider {
     fn id(&self) -> ProviderId {
         ProviderId::V0
-    }
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -1,0 +1,356 @@
+Codex cli=codex display="Codex" cookie=Some("chatgpt.com") color=#49A3B0 deprecated=false blocking=None
+  map=["codex", "openai"]
+  metadata=ProviderMetadata { id: Codex, display_name: "Codex", session_label: "Session", weekly_label: "Weekly", supports_opus: false, supports_credits: true, default_enabled: true, is_primary: true, dashboard_url: Some("https://chatgpt.com/codex/cloud/settings/analytics#usage"), status_page_url: Some("https://status.openai.com"), tertiary_label_key: None }
+  sources=[Auto, OAuth, Cli] oauth=true web=false cli=true
+Claude cli=claude display="Claude" cookie=Some("claude.ai") color=#CC7C5E deprecated=false blocking=None
+  map=["anthropic", "claude"]
+  metadata=ProviderMetadata { id: Claude, display_name: "Claude", session_label: "Session (5h)", weekly_label: "Weekly", supports_opus: true, supports_credits: true, default_enabled: true, is_primary: true, dashboard_url: Some("https://claude.ai/settings/usage"), status_page_url: Some("https://status.claude.com/"), tertiary_label_key: None }
+  sources=[Auto, OAuth, Web, Cli] oauth=true web=true cli=true
+Pi cli=pi display="Pi" cookie=None color=#7C3AED deprecated=false blocking=None
+  map=["pi"]
+  metadata=ProviderMetadata { id: Pi, display_name: "Pi", session_label: "Session", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://github.com/badlogic/pi-mono"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto] oauth=false web=false cli=false
+Cursor cli=cursor display="Cursor" cookie=Some("cursor.com") color=#F54E00 deprecated=false blocking=None
+  map=["cursor"]
+  metadata=ProviderMetadata { id: Cursor, display_name: "Cursor", session_label: "Plan", weekly_label: "Cursor", supports_opus: false, supports_credits: false, default_enabled: true, is_primary: false, dashboard_url: Some("https://cursor.com/dashboard/usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Factory cli=factory display="Factory" cookie=Some("app.factory.ai") color=#FF6B35 deprecated=false blocking=None
+  map=["factory"]
+  metadata=ProviderMetadata { id: Factory, display_name: "Droid", session_label: "Standard", weekly_label: "Premium", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://app.factory.ai"), status_page_url: Some("https://status.factory.ai"), tertiary_label_key: None }
+  sources=[Auto, OAuth, Web] oauth=false web=true cli=true
+Gemini cli=gemini display="Gemini" cookie=Some("aistudio.google.com") color=#AB87EA deprecated=false blocking=None
+  map=["gemini", "google"]
+  metadata=ProviderMetadata { id: Gemini, display_name: "Gemini", session_label: "Daily", weekly_label: "Daily", supports_opus: false, supports_credits: false, default_enabled: true, is_primary: false, dashboard_url: Some("https://aistudio.google.com"), status_page_url: Some("https://status.cloud.google.com"), tertiary_label_key: None }
+  sources=[Auto, Cli] oauth=false web=false cli=true
+Antigravity cli=antigravity display="Antigravity" cookie=Some("antigravity.ai") color=#60BA7E deprecated=false blocking=None
+  map=["agy", "antigravity"]
+  metadata=ProviderMetadata { id: Antigravity, display_name: "Antigravity", session_label: "Claude", weekly_label: "Gemini Pro", supports_opus: true, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: None, status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Cli] oauth=false web=false cli=true
+Copilot cli=copilot display="Copilot" cookie=None color=#A855F7 deprecated=false blocking=None
+  map=["copilot", "github"]
+  metadata=ProviderMetadata { id: Copilot, display_name: "GitHub Copilot", session_label: "Premium", weekly_label: "Chat", supports_opus: false, supports_credits: false, default_enabled: true, is_primary: false, dashboard_url: Some("https://github.com/settings/copilot"), status_page_url: Some("https://www.githubstatus.com/"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=true web=false cli=false
+Zai cli=zai display="z.ai" cookie=None color=#E85A6A deprecated=false blocking=None
+  map=["zai"]
+  metadata=ProviderMetadata { id: Zai, display_name: "z.ai", session_label: "Tokens", weekly_label: "MCP", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://z.ai/manage-apikey/coding-plan/personal/my-plan"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+MiniMax cli=minimax display="MiniMax" cookie=Some("platform.minimax.io") color=#FE603C deprecated=false blocking=None
+  map=["minimax"]
+  metadata=ProviderMetadata { id: MiniMax, display_name: "MiniMax", session_label: "Usage", weekly_label: "Monthly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://platform.minimax.io/user-center/payment/coding-plan?cycle_type=3"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web, Cli] oauth=false web=true cli=true
+Kiro cli=kiro display="Kiro" cookie=Some("kiro.dev") color=#9046FF deprecated=false blocking=None
+  map=["aws", "kiro"]
+  metadata=ProviderMetadata { id: Kiro, display_name: "Kiro", session_label: "Session", weekly_label: "Monthly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://kiro.dev/account"), status_page_url: Some("https://health.aws.amazon.com"), tertiary_label_key: None }
+  sources=[Auto, Cli] oauth=false web=false cli=true
+VertexAI cli=vertexai display="Vertex AI" cookie=None color=#4285F4 deprecated=false blocking=None
+  map=["vertex", "vertexai"]
+  metadata=ProviderMetadata { id: VertexAI, display_name: "Vertex AI", session_label: "Usage", weekly_label: "Monthly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.cloud.google.com/vertex-ai"), status_page_url: Some("https://status.cloud.google.com"), tertiary_label_key: None }
+  sources=[Auto, Web, Cli] oauth=false web=true cli=true
+Augment cli=augment display="Augment" cookie=Some("app.augmentcode.com") color=#1AA049 deprecated=false blocking=None
+  map=["augment"]
+  metadata=ProviderMetadata { id: Augment, display_name: "Augment", session_label: "Session", weekly_label: "Monthly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://app.augmentcode.com/account"), status_page_url: Some("https://status.augmentcode.com"), tertiary_label_key: None }
+  sources=[Auto, Web, Cli] oauth=false web=true cli=true
+OpenCode cli=opencode display="OpenCode" cookie=Some("opencode.ai") color=#3B82F6 deprecated=false blocking=None
+  map=["opencode"]
+  metadata=ProviderMetadata { id: OpenCode, display_name: "OpenCode", session_label: "5-hour", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://opencode.ai"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Kimi cli=kimi display="Kimi" cookie=Some("kimi.moonshot.cn") color=#FE603C deprecated=false blocking=Some("kimi-monthly")
+  map=["kimi"]
+  metadata=ProviderMetadata { id: Kimi, display_name: "Kimi", session_label: "Weekly", weekly_label: "Rate Limit", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://kimi.moonshot.cn"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web, OAuth] oauth=true web=true cli=false
+KimiK2 cli=kimik2 display="Kimi K2 (removed)" cookie=Some("platform.moonshot.cn") color=#4C00FF deprecated=true blocking=None
+  map=["kimik2"]
+  metadata=ProviderMetadata { id: KimiK2, display_name: "Moonshot / Kimi Open Platform", session_label: "Balance", weekly_label: "Cash", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://platform.moonshot.ai/console/account"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Amp cli=amp display="Amp" cookie=Some("sourcegraph.com") color=#F34E3F deprecated=false blocking=None
+  map=["amp", "sourcegraph"]
+  metadata=ProviderMetadata { id: Amp, display_name: "Amp", session_label: "Usage", weekly_label: "Monthly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://ampcode.com/settings/usage"), status_page_url: Some("https://sourcegraphstatus.com"), tertiary_label_key: None }
+  sources=[Auto, Web, Cli] oauth=false web=true cli=true
+Warp cli=warp display="Warp" cookie=None color=#6366F1 deprecated=false blocking=None
+  map=["warp", "warp-ai", "warp-terminal"]
+  metadata=ProviderMetadata { id: Warp, display_name: "Warp", session_label: "Credits", weekly_label: "Add-on credits", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://docs.warp.dev/reference/cli/api-keys"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Ollama cli=ollama display="Ollama" cookie=Some("ollama.com") color=#8B95B0 deprecated=false blocking=None
+  map=["ollama"]
+  metadata=ProviderMetadata { id: Ollama, display_name: "Ollama", session_label: "Session", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://ollama.com/settings"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+AzureOpenAI cli=azureopenai display="Azure OpenAI" cookie=None color=#0078D4 deprecated=false blocking=None
+  map=["azureopenai"]
+  metadata=ProviderMetadata { id: AzureOpenAI, display_name: "Azure OpenAI", session_label: "Deployment", weekly_label: "Status", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://ai.azure.com"), status_page_url: Some("https://status.azure.com"), tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=false cli=false
+T3Chat cli=t3chat display="T3 Chat" cookie=Some("t3.chat") color=#8B5CF6 deprecated=false blocking=None
+  map=["t3chat"]
+  metadata=ProviderMetadata { id: T3Chat, display_name: "T3 Chat", session_label: "Base", weekly_label: "Overage", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://t3.chat/settings/customization"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+OpenRouter cli=openrouter display="OpenRouter" cookie=None color=#6B7280 deprecated=false blocking=None
+  map=["openrouter", "or"]
+  metadata=ProviderMetadata { id: OpenRouter, display_name: "OpenRouter", session_label: "Credits", weekly_label: "API key limit", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://openrouter.ai/activity"), status_page_url: Some("https://status.openrouter.ai"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+JetBrains cli=jetbrains display="JetBrains AI" cookie=None color=#FF3399 deprecated=false blocking=None
+  map=["jetbrains"]
+  metadata=ProviderMetadata { id: JetBrains, display_name: "JetBrains AI", session_label: "Credits", weekly_label: "Monthly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://www.jetbrains.com/ai/"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Cli] oauth=false web=false cli=true
+Alibaba cli=alibaba display="Alibaba" cookie=Some("modelstudio.console.alibabacloud.com") color=#FF6A00 deprecated=false blocking=None
+  map=["alibaba", "qianwen", "tongyi"]
+  metadata=ProviderMetadata { id: Alibaba, display_name: "Alibaba", session_label: "5-Hour", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://modelstudio.console.alibabacloud.com"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+AlibabaTokenPlan cli=alibabatokenplan display="Alibaba Token Plan" cookie=Some("bailian.console.aliyun.com") color=#FF6A00 deprecated=false blocking=None
+  map=["alibabatokenplan"]
+  metadata=ProviderMetadata { id: AlibabaTokenPlan, display_name: "Alibaba Token Plan", session_label: "Credits", weekly_label: "Usage", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://bailian.console.aliyun.com/cn-beijing?tab=plan#/efm/subscription/token-plan"), status_page_url: Some("https://status.aliyun.com"), tertiary_label_key: None }
+  sources=[Auto, Cli, Web] oauth=false web=true cli=true
+NanoGPT cli=nanogpt display="NanoGPT" cookie=None color=#687FA1 deprecated=false blocking=None
+  map=["nanogpt"]
+  metadata=ProviderMetadata { id: NanoGPT, display_name: "NanoGPT", session_label: "Daily", weekly_label: "Monthly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://nano-gpt.com/usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Infini cli=infini display="Infini" cookie=None color=#687FA1 deprecated=false blocking=None
+  map=["infini", "infini-ai"]
+  metadata=ProviderMetadata { id: Infini, display_name: "Infini", session_label: "5-Hour", weekly_label: "7-Day", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://cloud.infini-ai.com"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Perplexity cli=perplexity display="Perplexity" cookie=Some("perplexity.ai") color=#1FB8CD deprecated=false blocking=None
+  map=["perplexity", "pplx"]
+  metadata=ProviderMetadata { id: Perplexity, display_name: "Perplexity", session_label: "Credits", weekly_label: "Bonus credits", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://www.perplexity.ai/account/usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Abacus cli=abacus display="Abacus AI" cookie=Some("apps.abacus.ai") color=#814EE8 deprecated=false blocking=None
+  map=["abacus", "abacus-ai"]
+  metadata=ProviderMetadata { id: Abacus, display_name: "Abacus AI", session_label: "Credits", weekly_label: "", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://apps.abacus.ai/app/billing"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Mistral cli=mistral display="Mistral" cookie=Some("admin.mistral.ai") color=#FF5229 deprecated=false blocking=None
+  map=["mistral", "mistral-ai"]
+  metadata=ProviderMetadata { id: Mistral, display_name: "Mistral", session_label: "Monthly", weekly_label: "", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://admin.mistral.ai/organization/usage"), status_page_url: Some("https://status.mistral.ai"), tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+OpenCodeGo cli=opencodego display="OpenCode Go" cookie=Some("opencode.ai") color=#3B82F6 deprecated=false blocking=None
+  map=["opencode-go", "opencodego"]
+  metadata=ProviderMetadata { id: OpenCodeGo, display_name: "OpenCode Go", session_label: "5-hour", weekly_label: "Weekly", supports_opus: true, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://opencode.ai"), status_page_url: None, tertiary_label_key: Some("ProviderMonthly") }
+  sources=[Auto, Web, Cli] oauth=false web=true cli=true
+Kilo cli=kilo display="Kilo" cookie=None color=#5D87FF deprecated=false blocking=None
+  map=["kilo"]
+  metadata=ProviderMetadata { id: Kilo, display_name: "Kilo", session_label: "Credits", weekly_label: "Pass", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://app.kilo.ai/usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Bedrock cli=bedrock display="AWS Bedrock" cookie=None color=#01A88D deprecated=false blocking=None
+  map=["aws bedrock", "aws-bedrock", "bedrock"]
+  metadata=ProviderMetadata { id: Bedrock, display_name: "AWS Bedrock", session_label: "Budget", weekly_label: "Cost", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.aws.amazon.com/bedrock"), status_page_url: Some("https://health.aws.amazon.com/health/status"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Codebuff cli=codebuff display="Codebuff" cookie=None color=#00FF95 deprecated=false blocking=None
+  map=["codebuff", "manicode"]
+  metadata=ProviderMetadata { id: Codebuff, display_name: "Codebuff", session_label: "Credits", weekly_label: "Weekly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://www.codebuff.com/usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+CodeRabbit cli=coderabbit display="CodeRabbit" cookie=None color=#FF5C35 deprecated=false blocking=None
+  map=["coderabbit"]
+  metadata=ProviderMetadata { id: CodeRabbit, display_name: "CodeRabbit", session_label: "Reviews", weekly_label: "Billing", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://app.coderabbit.ai"), status_page_url: Some("https://status.coderabbit.ai"), tertiary_label_key: None }
+  sources=[Auto, Cli] oauth=false web=false cli=true
+DeepSeek cli=deepseek display="DeepSeek" cookie=None color=#4D6BFE deprecated=false blocking=None
+  map=["deep-seek", "deepseek", "ds"]
+  metadata=ProviderMetadata { id: DeepSeek, display_name: "DeepSeek", session_label: "Balance", weekly_label: "Balance", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://platform.deepseek.com/usage"), status_page_url: Some("https://status.deepseek.com"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+DeepInfra cli=deepinfra display="DeepInfra" cookie=None color=#2A3275 deprecated=false blocking=None
+  map=["deep-infra", "deepinfra", "di"]
+  metadata=ProviderMetadata { id: DeepInfra, display_name: "DeepInfra", session_label: "Balance", weekly_label: "Balance", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://deepinfra.com/dash"), status_page_url: Some("https://status.deepinfra.com"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+AiAnd cli=aiand display="ai&" cookie=None color=#E25C2B deprecated=false blocking=None
+  map=["ai&", "ai-and", "aiand"]
+  metadata=ProviderMetadata { id: AiAnd, display_name: "ai&", session_label: "Spend", weekly_label: "Spend", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.aiand.com"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Windsurf cli=windsurf display="Windsurf" cookie=None color=#22C55E deprecated=false blocking=None
+  map=["codeium", "windsurf"]
+  metadata=ProviderMetadata { id: Windsurf, display_name: "Windsurf", session_label: "Daily", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://windsurf.com/subscription"), status_page_url: Some("https://status.windsurf.com"), tertiary_label_key: None }
+  sources=[Auto, Cli] oauth=false web=false cli=true
+Manus cli=manus display="Manus" cookie=Some("manus.im") color=#34322D deprecated=false blocking=None
+  map=["manus"]
+  metadata=ProviderMetadata { id: Manus, display_name: "Manus", session_label: "Credits", weekly_label: "Refresh", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://manus.im"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+MiMo cli=mimo display="Xiaomi MiMo" cookie=Some("platform.xiaomimimo.com") color=#FF6900 deprecated=false blocking=None
+  map=["mimo", "xiaomi-mimo", "xiaomimimo"]
+  metadata=ProviderMetadata { id: MiMo, display_name: "Xiaomi MiMo", session_label: "Tokens", weekly_label: "Balance", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://platform.xiaomimimo.com/#/console/balance"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Doubao cli=doubao display="Doubao" cookie=None color=#2563EB deprecated=false blocking=None
+  map=["ark", "doubao", "volcengine"]
+  metadata=ProviderMetadata { id: Doubao, display_name: "Doubao", session_label: "Requests", weekly_label: "Usage", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.volcengine.com/ark/region:ark+cn-beijing/usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth, Cli] oauth=false web=false cli=false
+CommandCode cli=commandcode display="Command Code" cookie=Some("commandcode.ai") color=#8C4EDD deprecated=false blocking=None
+  map=["command-code", "commandcode"]
+  metadata=ProviderMetadata { id: CommandCode, display_name: "Command Code", session_label: "5-hour", weekly_label: "Weekly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://commandcode.ai"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+StepFun cli=stepfun display="StepFun" cookie=None color=#999999 deprecated=false blocking=None
+  map=["step-fun", "stepfun"]
+  metadata=ProviderMetadata { id: StepFun, display_name: "StepFun", session_label: "5-hour", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://platform.stepfun.com/dashboard"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Venice cli=venice display="Venice" cookie=Some("venice.ai") color=#3C8FDD deprecated=false blocking=None
+  map=["venice"]
+  metadata=ProviderMetadata { id: Venice, display_name: "Venice", session_label: "Balance", weekly_label: "DIEM", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://venice.ai/settings/api"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth, Web] oauth=false web=true cli=false
+OpenAIApi cli=openaiapi display="OpenAI API" cookie=None color=#10A37F deprecated=false blocking=None
+  map=["openai-api", "openai-balance", "openaiapi"]
+  metadata=ProviderMetadata { id: OpenAIApi, display_name: "OpenAI", session_label: "Spend", weekly_label: "Requests", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://platform.openai.com/usage"), status_page_url: Some("https://status.openai.com"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Grok cli=grok display="Grok" cookie=Some("grok.com") color=#111827 deprecated=false blocking=None
+  map=["grok", "supergrok"]
+  metadata=ProviderMetadata { id: Grok, display_name: "Grok", session_label: "Credits", weekly_label: "On-demand", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://grok.com/?_s=usage"), status_page_url: Some("https://status.x.ai"), tertiary_label_key: None }
+  sources=[Auto, Cli, OAuth, Web] oauth=false web=true cli=true
+ElevenLabs cli=elevenlabs display="ElevenLabs" cookie=None color=#111827 deprecated=false blocking=None
+  map=["11labs", "eleven-labs", "elevenlabs"]
+  metadata=ProviderMetadata { id: ElevenLabs, display_name: "ElevenLabs", session_label: "Credits", weekly_label: "Voices", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://elevenlabs.io/app/settings/api-keys"), status_page_url: Some("https://status.elevenlabs.io"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Deepgram cli=deepgram display="Deepgram" cookie=None color=#13EF93 deprecated=false blocking=None
+  map=["deepgram", "dg"]
+  metadata=ProviderMetadata { id: Deepgram, display_name: "Deepgram", session_label: "Requests", weekly_label: "Usage", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.deepgram.com/usage"), status_page_url: Some("https://status.deepgram.com"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Groq cli=groq display="Groq" cookie=Some("groq.com") color=#F55036 deprecated=false blocking=None
+  map=["groq", "groq-cloud", "groqcloud"]
+  metadata=ProviderMetadata { id: Groq, display_name: "Groq", session_label: "Requests", weekly_label: "Tokens", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.groq.com/dashboard/usage"), status_page_url: Some("https://status.groq.com"), tertiary_label_key: None }
+  sources=[Auto, Web, OAuth] oauth=false web=true cli=false
+HuggingFace cli=huggingface display="Hugging Face" cookie=None color=#FFD21E deprecated=false blocking=None
+  map=["hf", "hugging-face", "huggingface"]
+  metadata=ProviderMetadata { id: HuggingFace, display_name: "Hugging Face", session_label: "Credits", weekly_label: "ZeroGPU", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://huggingface.co/settings/billing"), status_page_url: Some("https://status.huggingface.co"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Helmcode cli=helmcode display="Helmcode" cookie=Some("helmcode.com") color=#4F46E5 deprecated=false blocking=None
+  map=["helmcode", "nan-builders"]
+  metadata=ProviderMetadata { id: Helmcode, display_name: "Helmcode", session_label: "Quota", weekly_label: "Quota", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://cloud.helmcode.com/dashboard"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+V0 cli=v0 display="v0" cookie=None color=#111827 deprecated=false blocking=None
+  map=["v0", "v0-dev"]
+  metadata=ProviderMetadata { id: V0, display_name: "v0", session_label: "Billing", weekly_label: "Rate limit", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://v0.app/settings/billing"), status_page_url: Some("https://www.vercel-status.com/"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+TypeSafe cli=typesafe display="TypeSafe" cookie=Some("typesafe.ai") color=#2563EB deprecated=false blocking=None
+  map=["type-safe", "typesafe"]
+  metadata=ProviderMetadata { id: TypeSafe, display_name: "TypeSafe", session_label: "Balance", weekly_label: "Spend", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.typesafe.ai/settings/billing"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+LLMProxy cli=llmproxy display="LLM Proxy" cookie=None color=#4F46E5 deprecated=false blocking=None
+  map=["llm-proxy", "llmproxy"]
+  metadata=ProviderMetadata { id: LLMProxy, display_name: "LLM Proxy", session_label: "Quota", weekly_label: "Requests", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: None, status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Chutes cli=chutes display="Chutes" cookie=None color=#FF5C35 deprecated=false blocking=None
+  map=["chutes", "chutes-ai"]
+  metadata=ProviderMetadata { id: Chutes, display_name: "Chutes", session_label: "4-hour quota", weekly_label: "Monthly quota", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://chutes.ai"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+LiteLLM cli=litellm display="LiteLLM" cookie=None color=#0EA5E9 deprecated=false blocking=None
+  map=["lite-llm", "litellm"]
+  metadata=ProviderMetadata { id: LiteLLM, display_name: "LiteLLM", session_label: "Personal budget", weekly_label: "Team budget", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: None, status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Poe cli=poe display="Poe" cookie=None color=#5D5FEF deprecated=false blocking=None
+  map=["poe"]
+  metadata=ProviderMetadata { id: Poe, display_name: "Poe", session_label: "Balance", weekly_label: "Points", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://poe.com/settings/subscription"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Devin cli=devin display="Devin" cookie=None color=#317CFF deprecated=false blocking=None
+  map=["devin"]
+  metadata=ProviderMetadata { id: Devin, display_name: "Devin", session_label: "Daily", weekly_label: "Weekly", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://app.devin.ai/settings/billing"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Zed cli=zed display="Zed" cookie=Some("zed.dev") color=#084CCF deprecated=false blocking=None
+  map=["zed", "zed-ai"]
+  metadata=ProviderMetadata { id: Zed, display_name: "Zed", session_label: "Edits", weekly_label: "Cycle", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://zed.dev/account"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web, OAuth] oauth=false web=true cli=false
+CrossModel cli=crossmodel display="CrossModel (removed)" cookie=None color=#C084FC deprecated=true blocking=None
+  map=["cross-model", "crossmodel"]
+  metadata=ProviderMetadata { id: CrossModel, display_name: "CrossModel", session_label: "Daily cost", weekly_label: "Weekly cost", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://crossmodel.ai"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Qoder cli=qoder display="Qoder" cookie=Some("qoder.com") color=#2563EB deprecated=false blocking=None
+  map=["qoder"]
+  metadata=ProviderMetadata { id: Qoder, display_name: "Qoder", session_label: "Credits", weekly_label: "Shared credits", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://qoder.com/account/usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+CodeBuddy cli=codebuddy display="CodeBuddy" cookie=Some("codebuddy.cn") color=#0052D9 deprecated=false blocking=None
+  map=["codebuddy"]
+  metadata=ProviderMetadata { id: CodeBuddy, display_name: "CodeBuddy", session_label: "Credits", weekly_label: "Packages", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://www.codebuddy.cn/profile/plans-usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web, Cli] oauth=false web=true cli=false
+Sakana cli=sakana display="Sakana AI" cookie=Some("console.sakana.ai") color=#0EA5E9 deprecated=false blocking=None
+  map=["sakana", "sakana-ai"]
+  metadata=ProviderMetadata { id: Sakana, display_name: "Sakana AI", session_label: "5-hour", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.sakana.ai/billing"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Sub2Api cli=sub2api display="sub2api" cookie=None color=#14B8A6 deprecated=false blocking=None
+  map=["sub-2-api", "sub2api"]
+  metadata=ProviderMetadata { id: Sub2Api, display_name: "sub2api", session_label: "Quota", weekly_label: "Weekly quota", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: None, status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Wayfinder cli=wayfinder display="Wayfinder" cookie=None color=#14B8A6 deprecated=false blocking=None
+  map=["wayfinder"]
+  metadata=ProviderMetadata { id: Wayfinder, display_name: "Wayfinder", session_label: "Gateway", weekly_label: "Savings", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: None, status_page_url: None, tertiary_label_key: None }
+  sources=[Auto] oauth=false web=false cli=false
+ZenMux cli=zenmux display="ZenMux" cookie=None color=#6C5CE7 deprecated=false blocking=None
+  map=["zenmux"]
+  metadata=ProviderMetadata { id: ZenMux, display_name: "ZenMux", session_label: "5-hour quota", weekly_label: "Weekly quota", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://zenmux.ai/platform/management"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+ClinePass cli=clinepass display="ClinePass" cookie=None color=#5487C8 deprecated=false blocking=None
+  map=["clinepass"]
+  metadata=ProviderMetadata { id: ClinePass, display_name: "ClinePass", session_label: "5-hour", weekly_label: "Weekly", supports_opus: true, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://app.cline.bot/dashboard/subscription?personal=true"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+LongCat cli=longcat display="LongCat" cookie=Some("longcat.chat") color=#29E154 deprecated=false blocking=None
+  map=["longcat"]
+  metadata=ProviderMetadata { id: LongCat, display_name: "LongCat", session_label: "Quota", weekly_label: "Fuel Pack", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://longcat.chat/platform/"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=false cli=false
+Neuralwatt cli=neuralwatt display="Neuralwatt" cookie=None color=#D55934 deprecated=false blocking=None
+  map=["neuralwatt"]
+  metadata=ProviderMetadata { id: Neuralwatt, display_name: "Neuralwatt", session_label: "Subscription", weekly_label: "Key allowance", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://portal.neuralwatt.com/dashboard"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+ZoomMate cli=zoommate display="ZoomMate" cookie=Some("zoommate.zoom.us") color=#0B5CFF deprecated=false blocking=None
+  map=["zoommate"]
+  metadata=ProviderMetadata { id: ZoomMate, display_name: "ZoomMate", session_label: "Credits", weekly_label: "Credits", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://zoommate.zoom.us/#/?settings=credit-usage"), status_page_url: Some("https://www.zoomstatus.com/"), tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+QwenCloud cli=qwen-cloud display="Qwen Cloud" cookie=Some("qwencloud.com") color=#615CED deprecated=false blocking=None
+  map=["qwen", "qwen-cloud", "qwen-token-plan", "qwencloud"]
+  metadata=ProviderMetadata { id: QwenCloud, display_name: "Qwen Cloud", session_label: "5-hour", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://home.qwencloud.com/billing/subscription/token-plan-individual"), status_page_url: Some("https://status.alibabacloud.com"), tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Notion cli=notion display="Notion AI" cookie=Some("app.notion.com") color=#337EA9 deprecated=false blocking=None
+  map=["notion", "notion-ai", "notionai"]
+  metadata=ProviderMetadata { id: Notion, display_name: "Notion AI", session_label: "Rolling", weekly_label: "Monthly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://app.notion.com/"), status_page_url: Some("https://status.notion.so"), tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Xai cli=xai display="xAI" cookie=None color=#8E8E93 deprecated=false blocking=None
+  map=["x.ai", "xai"]
+  metadata=ProviderMetadata { id: Xai, display_name: "xAI", session_label: "Spend", weekly_label: "Spend", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.x.ai"), status_page_url: Some("https://status.x.ai"), tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Fireworks cli=fireworks display="Fireworks" cookie=None color=#F25B1C deprecated=false blocking=None
+  map=["fireworks", "fireworks-ai", "fw"]
+  metadata=ProviderMetadata { id: Fireworks, display_name: "Fireworks", session_label: "Spend", weekly_label: "Spend", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://app.fireworks.ai"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+AtlasCloud cli=atlascloud display="Atlas Cloud" cookie=None color=#5975F5 deprecated=false blocking=None
+  map=["atlascloud"]
+  metadata=ProviderMetadata { id: AtlasCloud, display_name: "Atlas Cloud", session_label: "Balance", weekly_label: "Balance", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://www.atlascloud.ai/console"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Meta cli=meta display="Meta" cookie=None color=#0467DF deprecated=false blocking=None
+  map=["meta", "meta muse spark", "meta-spark", "metaspark", "muse spark", "muse-spark", "musespark"]
+  metadata=ProviderMetadata { id: Meta, display_name: "Meta", session_label: "Status", weekly_label: "Models", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://dev.meta.ai/docs"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Muse cli=muse display="Muse Code" cookie=Some("dev.meta.ai") color=#0668E1 deprecated=false blocking=None
+  map=["muse", "muse code", "muse-code"]
+  metadata=ProviderMetadata { id: Muse, display_name: "Muse Code", session_label: "5 hours", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://dev.meta.ai"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=true web=false cli=false
+Replicate cli=replicate display="Replicate" cookie=Some("replicate.com") color=#000000 deprecated=false blocking=None
+  map=["replicate"]
+  metadata=ProviderMetadata { id: Replicate, display_name: "Replicate", session_label: "Spend", weekly_label: "Spend", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://replicate.com/account/billing"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Nous cli=nous display="Nous Portal" cookie=None color=#D6A55C deprecated=false blocking=None
+  map=["hermes", "nous", "nous portal", "nous-portal"]
+  metadata=ProviderMetadata { id: Nous, display_name: "Nous Portal", session_label: "Monthly credits", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://portal.nousresearch.com/usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=true web=false cli=false
+Hyper cli=hyper display="Charm Hyper" cookie=Some("hyper.charm.land") color=#FF60FF deprecated=false blocking=None
+  map=["hyper"]
+  metadata=ProviderMetadata { id: Hyper, display_name: "Charm Hyper", session_label: "Balance", weekly_label: "Balance", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://hyper.charm.land"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web, OAuth] oauth=false web=true cli=false
+GitKraken cli=gitkraken display="GitKraken AI" cookie=None color=#179287 deprecated=false blocking=None
+  map=["gitkraken"]
+  metadata=ProviderMetadata { id: GitKraken, display_name: "GitKraken AI", session_label: "Personal", weekly_label: "Shared pool", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://gitkraken.dev/account#ai-usage"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Bifrost cli=bifrost display="Bifrost" cookie=None color=#33C09E deprecated=false blocking=None
+  map=["bifrost"]
+  metadata=ProviderMetadata { id: Bifrost, display_name: "Bifrost", session_label: "Budget", weekly_label: "Spend", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: None, status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Aixy cli=aixy display="Aixy" cookie=None color=#123650 deprecated=false blocking=None
+  map=["aixy"]
+  metadata=ProviderMetadata { id: Aixy, display_name: "Aixy", session_label: "Budget", weekly_label: "Secondary budget", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://dash.aixy-gateway.com"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+LLMMan cli=llmman display="llmman" cookie=None color=#6CC5B0 deprecated=false blocking=None
+  map=["llmman"]
+  metadata=ProviderMetadata { id: LLMMan, display_name: "llmman", session_label: "Memory", weekly_label: "Models", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("http://127.0.0.1:17434"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+DevPass cli=devpass display="DevPass" cookie=None color=#2563EB deprecated=false blocking=None
+  map=["devpass"]
+  metadata=ProviderMetadata { id: DevPass, display_name: "DevPass", session_label: "Plan credits", weekly_label: "Premium weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://devpass.llmgateway.io/dashboard"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+XKiro cli=xkiro display="xKiro" cookie=None color=#52C99B deprecated=false blocking=None
+  map=["x-kiro", "xkiro"]
+  metadata=ProviderMetadata { id: XKiro, display_name: "xKiro", session_label: "Daily free tokens", weekly_label: "Weekly", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://xkiro.com"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Raycast cli=raycast display="Raycast" cookie=Some("www.raycast.com") color=#FF6363 deprecated=false blocking=None
+  map=["raycast"]
+  metadata=ProviderMetadata { id: Raycast, display_name: "Raycast", session_label: "Credits", weekly_label: "Plan", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://www.raycast.com/settings"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, Web] oauth=false web=true cli=false
+Vercel cli=vercel display="Vercel AI Gateway" cookie=None color=#737373 deprecated=false blocking=None
+  map=["ai gateway", "ai-gateway", "vercel", "vercel ai gateway", "vercel-ai-gateway"]
+  metadata=ProviderMetadata { id: Vercel, display_name: "Vercel AI Gateway", session_label: "Balance", weekly_label: "Balance", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false

@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
-use crate::providers::{BoundedBodyError, read_bounded_response};
+use crate::providers::{BoundedBodyError, format, read_bounded_response};
 
 const BALANCE_URL: &str = "https://api.atlascloud.ai/public/v1/balance";
 const CREDENTIAL_TARGET: &str = "codexbar-atlascloud";
@@ -20,7 +20,6 @@ const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct AtlasCloudProvider {
-    metadata: ProviderMetadata,
     client: Client,
     balance_url: String,
 }
@@ -37,19 +36,6 @@ impl AtlasCloudProvider {
 
     fn with_client(balance_url: impl Into<String>, client: Client) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::AtlasCloud,
-                display_name: "Atlas Cloud",
-                session_label: "Balance",
-                weekly_label: "Balance",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DASHBOARD_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client,
             balance_url: balance_url.into(),
         }
@@ -103,21 +89,11 @@ fn balance_result(balance: f64) -> ProviderFetchResult {
     let detail = ProviderDisplayDetail::new(
         "atlascloud-available",
         "Available balance",
-        format_usd(balance),
+        format::usd_signed(balance),
     );
     ProviderFetchResult::new(usage, "api")
         .with_cost(cost)
         .with_display_detail(detail)
-}
-
-/// `$95.50` / `-$1.25`; a negative that rounds to zero shows no sign.
-fn format_usd(amount: f64) -> String {
-    let magnitude = format!("{:.2}", amount.abs());
-    if amount < 0.0 && magnitude != "0.00" {
-        format!("-${magnitude}")
-    } else {
-        format!("${magnitude}")
-    }
 }
 
 impl Default for AtlasCloudProvider {
@@ -130,10 +106,6 @@ impl Default for AtlasCloudProvider {
 impl Provider for AtlasCloudProvider {
     fn id(&self) -> ProviderId {
         ProviderId::AtlasCloud
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

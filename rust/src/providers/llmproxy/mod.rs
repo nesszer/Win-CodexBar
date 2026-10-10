@@ -10,8 +10,9 @@ use std::collections::HashMap;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::format;
 
 const LLM_PROXY_CREDENTIAL_TARGET: &str = "codexbar-llmproxy";
 const LLM_PROXY_BASE_URL_ENV: &str = "LLM_PROXY_BASE_URL";
@@ -96,26 +97,12 @@ struct LLMProxySummary {
 }
 
 pub struct LLMProxyProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl LLMProxyProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::LLMProxy,
-                display_name: "LLM Proxy",
-                session_label: "Quota",
-                weekly_label: "Requests",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: None,
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -170,10 +157,6 @@ impl Default for LLMProxyProvider {
 impl Provider for LLMProxyProvider {
     fn id(&self) -> ProviderId {
         ProviderId::LLMProxy
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -378,10 +361,12 @@ fn snapshot_from_summary(summary: &LLMProxySummary) -> UsageSnapshot {
 
     // Totals and provider rows are counts, not quotas. Informational rows keep
     // them from rendering as empty bars with a "Resets" prefix.
-    let secondary =
-        RateWindow::informational(format!("{} requests", format_count(summary.total_requests)));
+    let secondary = RateWindow::informational(format!(
+        "{} requests",
+        format::count(summary.total_requests)
+    ));
     let tertiary =
-        RateWindow::informational(format!("{} tokens", format_count(summary.total_tokens)));
+        RateWindow::informational(format!("{} tokens", format::count(summary.total_tokens)));
 
     let mut snapshot = UsageSnapshot::new(primary)
         .with_secondary(secondary)
@@ -394,8 +379,8 @@ fn snapshot_from_summary(summary: &LLMProxySummary) -> UsageSnapshot {
 
     for provider in summary.top_providers.iter().take(3) {
         let mut parts = vec![
-            format!("{} req", format_count(provider.requests)),
-            format!("{} tok", format_count(provider.tokens)),
+            format!("{} req", format::count(provider.requests)),
+            format!("{} tok", format::count(provider.tokens)),
         ];
         if let Some(cost) = provider.approximate_cost_usd {
             parts.push(format_usd(cost));
@@ -428,7 +413,7 @@ fn format_usd(value: f64) -> String {
     )]
     let cents = (value.abs() * 100.0).round() as u64;
     let sign = if value < 0.0 && cents > 0 { "-" } else { "" };
-    format!("{sign}${}.{:02}", format_count(cents / 100), cents % 100)
+    format!("{sign}${}.{:02}", format::count(cents / 100), cents % 100)
 }
 
 fn token_total(tokens: Option<&TokenStats>) -> u64 {
@@ -455,18 +440,6 @@ fn parse_date(raw: Option<&str>) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(raw?)
         .ok()
         .map(|dt| dt.with_timezone(&Utc))
-}
-
-fn format_count(value: u64) -> String {
-    let raw = value.to_string();
-    let mut out = String::with_capacity(raw.len() + raw.len() / 3);
-    for (idx, ch) in raw.chars().rev().enumerate() {
-        if idx > 0 && idx % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out.chars().rev().collect()
 }
 
 fn resolve_api_key(

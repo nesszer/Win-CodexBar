@@ -11,9 +11,9 @@ use serde::Deserialize;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode,
-    SubscriptionMetadata, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, SubscriptionMetadata, UsageSnapshot,
 };
+use crate::providers::format;
 
 const MANAGEMENT_BASE: &str = "https://zenmux.ai/api/v1/management";
 const CREDENTIAL_TARGET: &str = "codexbar-zenmux";
@@ -67,26 +67,12 @@ struct BalanceData {
 }
 
 pub struct ZenMuxProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ZenMuxProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::ZenMux,
-                display_name: "ZenMux",
-                session_label: "5-hour quota",
-                weekly_label: "Weekly quota",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://zenmux.ai/platform/management"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -132,10 +118,6 @@ impl Default for ZenMuxProvider {
 impl Provider for ZenMuxProvider {
     fn id(&self) -> ProviderId {
         ProviderId::ZenMux
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -219,18 +201,10 @@ fn quota_window(q: &QuotaInfo, minutes: u32) -> RateWindow {
     w.resets_at = parse_iso(q.resets_at.as_deref());
     w.reset_description = Some(format!(
         "{} / {} flows",
-        format_amount(q.used_flows),
-        format_amount(q.max_flows)
+        format::whole_or_two_decimals(q.used_flows),
+        format::whole_or_two_decimals(q.max_flows)
     ));
     w
-}
-
-fn format_amount(value: f64) -> String {
-    if (value - value.round()).abs() < f64::EPSILON {
-        format!("{:.0}", value)
-    } else {
-        format!("{:.2}", value)
-    }
 }
 
 fn snapshot_from_subscription(value: &serde_json::Value) -> Result<UsageSnapshot, ProviderError> {
@@ -317,18 +291,9 @@ fn payg_from_balance(
     let row = ProviderDisplayDetail::new(
         "payg_balance",
         "Pay-as-you-go balance",
-        format_signed_usd(env.data.total_credits),
+        format::usd_signed(env.data.total_credits),
     );
     Ok((cost, row))
-}
-
-fn format_signed_usd(value: f64) -> String {
-    let magnitude = format!("{:.2}", value.abs());
-    if value < 0.0 && magnitude != "0.00" {
-        format!("-${magnitude}")
-    } else {
-        format!("${magnitude}")
-    }
 }
 
 fn capitalize(s: &str) -> String {
@@ -555,13 +520,16 @@ mod tests {
 
     #[test]
     fn flow_labels_use_two_decimals_or_integers() {
-        assert_eq!(format_amount(57.2), "57.20");
-        assert_eq!(format_amount(6182.0), "6182");
-        assert_eq!(format_amount(0.125), "0.12");
-        assert_eq!(format_amount(1.375), "1.38");
-        assert_eq!(format_amount(-0.125), "-0.12");
-        assert_eq!(format_amount(-0.0), "-0");
-        assert_eq!(format_amount(1e21), "1000000000000000000000");
+        assert_eq!(format::whole_or_two_decimals(57.2), "57.20");
+        assert_eq!(format::whole_or_two_decimals(6182.0), "6182");
+        assert_eq!(format::whole_or_two_decimals(0.125), "0.12");
+        assert_eq!(format::whole_or_two_decimals(1.375), "1.38");
+        assert_eq!(format::whole_or_two_decimals(-0.125), "-0.12");
+        assert_eq!(format::whole_or_two_decimals(-0.0), "-0");
+        assert_eq!(
+            format::whole_or_two_decimals(1e21),
+            "1000000000000000000000"
+        );
     }
 
     #[test]

@@ -29,7 +29,7 @@ fn formats_signed_usd_like_upstream() {
         (-0.001, "$0.00"),
         (1234.5678, "$1234.57"),
     ] {
-        assert_eq!(format_usd(amount), expected);
+        assert_eq!(format::usd_signed(amount), expected);
     }
 }
 

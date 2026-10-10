@@ -24,8 +24,9 @@ use std::path::PathBuf;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::json;
 
 const CODING_PLAN_PATH: &str = "/user-center/payment/coding-plan";
 const CODING_PLAN_QUERY: &str = "cycle_type=3";
@@ -176,29 +177,12 @@ impl MiniMaxRegion {
 }
 
 /// MiniMax provider
-pub struct MiniMaxProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct MiniMaxProvider;
 
 impl MiniMaxProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::MiniMax,
-                display_name: "MiniMax",
-                session_label: "Usage",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(
-                    "https://platform.minimax.io/user-center/payment/coding-plan?cycle_type=3",
-                ),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     pub fn region_from_settings(value: Option<&str>) -> MiniMaxRegion {
@@ -940,8 +924,8 @@ fn record_token_count(record: &MiniMaxBillingRecord) -> i64 {
 }
 
 fn record_cash(record: &MiniMaxBillingRecord) -> Option<f64> {
-    value_f64(record.consume_cash_after_voucher.as_ref())
-        .or_else(|| value_f64(record.consume_cash.as_ref()))
+    json::lenient_f64(record.consume_cash_after_voucher.as_ref())
+        .or_else(|| json::lenient_f64(record.consume_cash.as_ref()))
 }
 
 fn record_date(record: &MiniMaxBillingRecord) -> Option<DateTime<Utc>> {
@@ -981,14 +965,6 @@ fn value_i64(value: Option<&serde_json::Value>) -> Option<i64> {
     }
 }
 
-fn value_f64(value: Option<&serde_json::Value>) -> Option<f64> {
-    match value? {
-        serde_json::Value::Number(number) => number.as_f64(),
-        serde_json::Value::String(text) => text.trim().replace(',', "").parse().ok(),
-        _ => None,
-    }
-}
-
 fn scalar_string(value: Option<&serde_json::Value>) -> Option<String> {
     match value? {
         serde_json::Value::String(text) => Some(text.clone()),
@@ -1010,12 +986,6 @@ fn format_count(value: i64) -> String {
     out.chars().rev().collect()
 }
 
-impl Default for MiniMaxProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for MiniMaxProvider {
     fn automatic_metric_prioritizes_exhausted_window(&self) -> bool {
@@ -1024,10 +994,6 @@ impl Provider for MiniMaxProvider {
 
     fn id(&self) -> ProviderId {
         ProviderId::MiniMax
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -1070,14 +1036,6 @@ impl Provider for MiniMaxProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::Cli]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
     }
 }
 

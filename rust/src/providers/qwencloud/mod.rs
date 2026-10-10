@@ -14,15 +14,15 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
-use crate::providers::browser_cookie_header;
+use crate::providers::{browser_cookie_header, strip_cookie_prefix};
 
 const GATEWAY_BASE_URL: &str = "https://home.qwencloud.com";
 const DATA_GATEWAY_BASE_URL: &str = "https://cs-data.qwencloud.com";
-const DASHBOARD_URL: &str = "https://home.qwencloud.com/billing/subscription/token-plan-individual";
-const STATUS_PAGE_URL: &str = "https://status.alibabacloud.com";
+pub(crate) const DASHBOARD_URL: &str =
+    "https://home.qwencloud.com/billing/subscription/token-plan-individual";
 const PRODUCT_CODE: &str = "sfm_tokenplansolo_public_intl";
 const CONSOLE_PRODUCT: &str = "sfm_bailian";
 const CONSOLE_ACTION: &str = "IntlBroadScopeAspnGateway";
@@ -52,9 +52,8 @@ const WEEKLY_MINUTES: u32 = 7 * 24 * 60;
 const LEGACY_MINUTES: u32 = 30 * 24 * 60;
 const MONTHLY_MINUTES: u32 = 30 * 24 * 60;
 
-pub struct QwenCloudProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct QwenCloudProvider;
 
 #[derive(Debug, Clone, PartialEq)]
 struct QwenCloudSnapshot {
@@ -91,21 +90,7 @@ const USAGE_WINDOW_KEYS: &[&str] = &[
 
 impl QwenCloudProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::QwenCloud,
-                display_name: "Qwen Cloud",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DASHBOARD_URL),
-                status_page_url: Some(STATUS_PAGE_URL),
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
@@ -395,7 +380,7 @@ impl QwenCloudProvider {
         let (primary, secondary, mut primary_label, monthly_extra) =
             match (five_hour.or(legacy), weekly) {
                 (Some(primary), secondary) => (primary, secondary, None, monthly),
-                (None, Some(weekly)) => (weekly, None, Some(self.metadata.weekly_label), monthly),
+                (None, Some(weekly)) => (weekly, None, Some(self.metadata().weekly_label), monthly),
                 (None, None) => match monthly {
                     Some(monthly) => (monthly, None, None, None),
                     None => {
@@ -426,20 +411,10 @@ impl QwenCloudProvider {
     }
 }
 
-impl Default for QwenCloudProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for QwenCloudProvider {
     fn id(&self) -> ProviderId {
         ProviderId::QwenCloud
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -456,10 +431,6 @@ impl Provider for QwenCloudProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 }
 
@@ -687,13 +658,7 @@ fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError> {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim();
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
+    let mut header = strip_cookie_prefix(raw.trim());
     if (header.starts_with('"') && header.ends_with('"'))
         || (header.starts_with('\'') && header.ends_with('\''))
     {

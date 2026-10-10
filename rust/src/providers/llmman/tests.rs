@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::test_support::{mock_response, mock_status};
 use mockito::Matcher;
 
 const NODE_BODY: &str = r#"{"memory":40000000000,"loaded":{"fixture/small:Q4_K_M":2000000000,"fixture/large:Q4_K_M":8000000000},"stored":{"fixture/small:Q4_K_M":2000000000,"fixture/large:Q4_K_M":8000000000,"fixture/idle":500000000}}"#;
@@ -278,11 +279,7 @@ async fn open_daemon_is_queried_without_an_authorization_header() {
         .with_body(NODE_BODY)
         .create_async()
         .await;
-    server
-        .mock("GET", "/api/version")
-        .with_status(404)
-        .create_async()
-        .await;
+    mock_status(&mut server, "GET", "/api/version", 404).await;
 
     let result = fetch_daemon(&client(), &server.url(), None).await.unwrap();
 
@@ -300,16 +297,8 @@ async fn open_daemon_is_queried_without_an_authorization_header() {
 #[tokio::test]
 async fn a_v1_base_is_dropped_from_request_paths() {
     let mut server = mockito::Server::new_async().await;
-    let node = server
-        .mock("GET", "/llmman/node")
-        .with_body(NODE_BODY)
-        .create_async()
-        .await;
-    server
-        .mock("GET", "/api/version")
-        .with_body(VERSION_BODY)
-        .create_async()
-        .await;
+    let node = mock_response(&mut server, "GET", "/llmman/node", 200, NODE_BODY).await;
+    mock_response(&mut server, "GET", "/api/version", 200, VERSION_BODY).await;
 
     fetch_daemon(&client(), &format!("{}/v1", server.url()), None)
         .await
@@ -328,16 +317,8 @@ async fn unusable_version_replies_are_ignored() {
         r#"{"pid":1}"#,
     ] {
         let mut server = mockito::Server::new_async().await;
-        server
-            .mock("GET", "/llmman/node")
-            .with_body(NODE_BODY)
-            .create_async()
-            .await;
-        server
-            .mock("GET", "/api/version")
-            .with_body(reply)
-            .create_async()
-            .await;
+        mock_response(&mut server, "GET", "/llmman/node", 200, NODE_BODY).await;
+        mock_response(&mut server, "GET", "/api/version", 200, reply).await;
 
         let result = fetch_daemon(&client(), &server.url(), None).await.unwrap();
         assert!(
@@ -352,12 +333,14 @@ async fn unusable_version_replies_are_ignored() {
 
 async fn node_status_error(status: usize, key: Option<&str>) -> ProviderError {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/llmman/node")
-        .with_status(status)
-        .with_body("sk-echoed-secret")
-        .create_async()
-        .await;
+    mock_response(
+        &mut server,
+        "GET",
+        "/llmman/node",
+        status,
+        "sk-echoed-secret",
+    )
+    .await;
     fetch_daemon(&client(), &server.url(), key)
         .await
         .unwrap_err()
@@ -402,11 +385,7 @@ async fn other_statuses_map_to_friendly_errors() {
 #[tokio::test]
 async fn unrecognized_body_is_a_parse_error() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/llmman/node")
-        .with_body("not json")
-        .create_async()
-        .await;
+    mock_response(&mut server, "GET", "/llmman/node", 200, "not json").await;
     let error = fetch_daemon(&client(), &server.url(), None)
         .await
         .unwrap_err();

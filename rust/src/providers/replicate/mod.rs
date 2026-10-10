@@ -18,11 +18,11 @@ use tokio::time::timeout;
 
 use crate::core::{
     CostSnapshot, FetchContext, ManualEmptyCookiePolicy, Provider, ProviderDisplayDetail,
-    ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode,
-    UsageSnapshot,
+    ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::strip_cookie_prefix;
 
-const BILLING_URL: &str = "https://replicate.com/account/billing";
+pub(crate) const BILLING_URL: &str = "https://replicate.com/account/billing";
 const REPLICATE_ORIGIN: &str = "https://replicate.com";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 const OPTIONAL_CREDIT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -56,26 +56,12 @@ struct InvoiceSpend {
 }
 
 pub struct ReplicateProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ReplicateProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Replicate,
-                display_name: "Replicate",
-                session_label: "Spend",
-                weekly_label: "Spend",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(BILLING_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -219,10 +205,6 @@ impl Provider for ReplicateProvider {
         ProviderId::Replicate
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::Web => self.fetch_with_cookie_source(ctx).await,
@@ -232,10 +214,6 @@ impl Provider for ReplicateProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 
     fn manual_cookie_precedes_token_account(&self) -> bool {
@@ -551,13 +529,7 @@ fn result_from_billing(
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut value = raw.trim();
-    if value
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        value = value["cookie:".len()..].trim();
-    }
+    let value = strip_cookie_prefix(raw.trim());
     let mut pairs = Vec::new();
     for part in value.split(';') {
         let part = part.trim();

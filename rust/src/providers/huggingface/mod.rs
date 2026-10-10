@@ -15,12 +15,13 @@ use std::time::Duration;
 use super::{BoundedBodyError, read_bounded_response};
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
 mod identity_cache;
 mod wallet;
 
+use crate::providers::format;
 use identity_cache::{get_or_fetch_identity, process_identity_cache};
 use wallet::{WalletCandidate, fetch_matching_wallet_balance, parse_wallet_balance};
 
@@ -136,26 +137,12 @@ impl TokenEnvironment {
 }
 
 pub struct HuggingFaceProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl HuggingFaceProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::HuggingFace,
-                display_name: "Hugging Face",
-                session_label: "Credits",
-                weekly_label: "ZeroGPU",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://huggingface.co/settings/billing"),
-                status_page_url: Some("https://status.huggingface.co"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(PRIMARY_TIMEOUT)
                 .build()
@@ -305,10 +292,6 @@ impl Default for HuggingFaceProvider {
 impl Provider for HuggingFaceProvider {
     fn id(&self) -> ProviderId {
         ProviderId::HuggingFace
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -524,27 +507,31 @@ fn build_result(
         (
             "billable-usage",
             "Billable inference usage",
-            format_usd(billing.billable_usd),
+            format::usd_plain(billing.billable_usd),
         ),
         (
             "gross-inference-usage",
             "Gross inference usage",
-            format_usd(billing.used_usd),
+            format::usd_plain(billing.used_usd),
         ),
         (
             "included-inference-amount",
             "Included inference amount",
-            format_usd(billing.included_usd),
+            format::usd_plain(billing.included_usd),
         ),
     ];
     if let Some(limit) = billing.limit_usd {
-        details.push(("spending-limit", "Spending limit", format_usd(limit)));
+        details.push(("spending-limit", "Spending limit", format::usd_plain(limit)));
     }
     if let Some(requests) = billing.requests {
         details.push(("inference-requests", "Requests", requests.to_string()));
     }
     if let Some(balance) = balance {
-        details.push(("prepaid-balance", "Prepaid balance", format_usd(balance)));
+        details.push((
+            "prepaid-balance",
+            "Prepaid balance",
+            format::usd_plain(balance),
+        ));
     }
 
     let mut rows: Vec<Option<ProviderDisplayDetail>> = details
@@ -589,10 +576,6 @@ fn build_result(
         result = result.with_display_detail(row);
     }
     result
-}
-
-fn format_usd(value: f64) -> String {
-    format!("${value:.2}")
 }
 
 fn classify_optional_status(status: StatusCode) -> ProviderError {

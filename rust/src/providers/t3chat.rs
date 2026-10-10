@@ -9,10 +9,10 @@ use regex_lite::Regex;
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
-use crate::providers::browser_cookie_header;
+use crate::providers::{browser_cookie_header, strip_cookie_prefix};
 
 const BASE_URL: &str = "https://t3.chat";
 const CUSTOMER_DATA_URL: &str = "https://t3.chat/api/trpc/getCustomerData";
@@ -20,9 +20,8 @@ const CUSTOMER_DATA_INPUT: &str =
     r#"{"0":{"json":{"sessionId":null},"meta":{"values":{"sessionId":["undefined"]}}}}"#;
 const COOKIE_DOMAINS: [&str; 2] = ["t3.chat", "www.t3.chat"];
 
-pub struct T3ChatProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct T3ChatProvider;
 
 #[derive(Debug, Clone)]
 struct T3RequestContext {
@@ -52,21 +51,7 @@ struct T3Subscription {
 
 impl T3ChatProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::T3Chat,
-                display_name: "T3 Chat",
-                session_label: "Base",
-                weekly_label: "Overage",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://t3.chat/settings/customization"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
@@ -276,13 +261,7 @@ impl T3ChatProvider {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim();
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
+    let header = strip_cookie_prefix(raw.trim());
     (!header.is_empty() && header.contains('=')).then(|| header.to_string())
 }
 
@@ -369,20 +348,10 @@ fn plan_name(customer: &T3CustomerData) -> Option<String> {
     )
 }
 
-impl Default for T3ChatProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for T3ChatProvider {
     fn id(&self) -> ProviderId {
         ProviderId::T3Chat
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -399,10 +368,6 @@ impl Provider for T3ChatProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 }
 

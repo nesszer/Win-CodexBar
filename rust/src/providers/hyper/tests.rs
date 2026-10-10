@@ -3,6 +3,7 @@
 //! missing cookie, so no test reads the keyring or a real browser.
 
 use super::*;
+use crate::providers::test_support::mock_status_expect;
 use mockito::{Matcher, Mock, Server, ServerGuard};
 
 const KEY: &str = "fixture-key";
@@ -70,11 +71,7 @@ async fn api_mock(server: &mut ServerGuard, status: usize, body: &str, hits: usi
 
 /// Fails the test if the provider sends any request at all.
 async fn no_request_mock(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("GET", Matcher::Any)
-        .expect(0)
-        .create_async()
-        .await
+    mock_status_expect(server, "GET", Matcher::Any, 200, 0).await
 }
 
 fn closed_port_url() -> String {

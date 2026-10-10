@@ -15,8 +15,8 @@ use chrono::{Duration, Utc};
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 use crate::providers::browser_cookie_header;
 use crate::settings::ApiKeys;
@@ -370,27 +370,12 @@ pub(crate) fn factory_api_error_is_recoverable(error: &ProviderError) -> bool {
 // ── Provider ─────────────────────────────────────────────────────────
 
 /// Droid (Factory) provider
-pub struct FactoryProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct FactoryProvider;
 
 impl FactoryProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Factory,
-                display_name: "Droid",
-                session_label: "Standard",
-                weekly_label: "Premium",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://app.factory.ai"),
-                status_page_url: Some("https://status.factory.ai"),
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     fn get_cookies(&self, ctx: &FetchContext) -> Result<String, ProviderError> {
@@ -743,20 +728,10 @@ fn snapshot_from_billing_limits(
     usage.with_login_method(login)
 }
 
-impl Default for FactoryProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for FactoryProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Factory
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -777,10 +752,6 @@ impl Provider for FactoryProvider {
     fn available_sources(&self) -> Vec<SourceMode> {
         // Auto (API→web), OAuth (= explicit API key), Web (cookies).
         vec![SourceMode::Auto, SourceMode::OAuth, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 
     fn supports_cli(&self) -> bool {

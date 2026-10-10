@@ -13,9 +13,9 @@ use std::time::Duration;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
-use crate::providers::{BoundedBodyError, read_bounded_response};
+use crate::providers::{BoundedBodyError, format, read_bounded_response};
 
 const CREDITS_URL: &str = "https://ai-gateway.vercel.sh/v1/credits";
 const CREDENTIAL_TARGET: &str = "codexbar-vercel";
@@ -25,7 +25,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const SECTION_LABEL: &str = "Team credits";
 
 pub struct VercelProvider {
-    metadata: ProviderMetadata,
     client: Client,
     credits_url: String,
 }
@@ -42,19 +41,6 @@ impl VercelProvider {
 
     fn with_client(credits_url: impl Into<String>, client: Client) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Vercel,
-                display_name: "Vercel AI Gateway",
-                session_label: "Balance",
-                weekly_label: "Balance",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client,
             credits_url: credits_url.into(),
         }
@@ -97,10 +83,6 @@ impl Default for VercelProvider {
 impl Provider for VercelProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Vercel
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -184,16 +166,6 @@ fn parse_amount(value: &str) -> Option<f64> {
         .filter(|amount| amount.is_finite())
 }
 
-/// `$95.50`, `-$1.25`, `$0.00`; a negative that rounds to zero carries no sign.
-fn format_usd(value: f64) -> String {
-    let cents = format!("{:.2}", value.abs());
-    if value < 0.0 && cents != "0.00" {
-        format!("-${cents}")
-    } else {
-        format!("${cents}")
-    }
-}
-
 fn build_result(credits: Credits) -> ProviderFetchResult {
     let usage =
         UsageSnapshot::new(RateWindow::informational(SECTION_LABEL)).with_login_method("API");
@@ -208,12 +180,12 @@ fn build_result(credits: Credits) -> ProviderFetchResult {
         .with_display_detail(ProviderDisplayDetail::new(
             "vercel-balance",
             "Available balance",
-            format_usd(credits.balance),
+            format::usd_signed(credits.balance),
         ))
         .with_display_detail(ProviderDisplayDetail::new(
             "vercel-lifetime-spend",
             "Lifetime spend",
-            format_usd(credits.total_used),
+            format::usd_signed(credits.total_used),
         ))
 }
 

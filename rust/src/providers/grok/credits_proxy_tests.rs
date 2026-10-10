@@ -1,6 +1,9 @@
 use super::credits_proxy::{BearerBilling, parse_credits_response};
 use super::tests::billing_response_with_percent;
 use super::*;
+use crate::providers::test_support::{
+    mock_response, mock_response_expect, mock_status, mock_status_expect,
+};
 
 /// Upstream live capture shape (`GrokCreditsProxyFetcherTests`), including
 /// fields the port does not read.
@@ -187,12 +190,7 @@ async fn bearer_billing_sends_the_cli_proxy_request_and_skips_grpc() {
         .expect(1)
         .create_async()
         .await;
-    let grpc = server
-        .mock("POST", "/billing")
-        .with_status(200)
-        .expect(0)
-        .create_async()
-        .await;
+    let grpc = mock_status_expect(&mut server, "POST", "/billing", 200, 0).await;
 
     let bearer = provider_for(&server)
         .fetch_bearer_billing(&GrokCredentials::from_bearer("token-123"))
@@ -212,11 +210,7 @@ async fn bearer_billing_sends_the_cli_proxy_request_and_skips_grpc() {
 async fn proxy_failure_falls_back_to_grpc_billing() {
     for status in [401, 500] {
         let mut server = mockito::Server::new_async().await;
-        let proxy = server
-            .mock("GET", "/credits")
-            .with_status(status)
-            .create_async()
-            .await;
+        let proxy = mock_status(&mut server, "GET", "/credits", status).await;
         let grpc = server
             .mock("POST", "/billing")
             .match_header("authorization", "Bearer token-123")
@@ -240,19 +234,16 @@ async fn proxy_failure_falls_back_to_grpc_billing() {
 #[tokio::test]
 async fn period_only_answer_adopts_the_grpc_percent_and_keeps_proxy_metadata() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/credits")
-        .with_status(200)
-        .with_body(PERIOD_ONLY_BODY)
-        .create_async()
-        .await;
-    let grpc = server
-        .mock("POST", "/billing")
-        .with_status(200)
-        .with_body(billing_response_with_percent(90.0))
-        .expect(1)
-        .create_async()
-        .await;
+    mock_response(&mut server, "GET", "/credits", 200, PERIOD_ONLY_BODY).await;
+    let grpc = mock_response_expect(
+        &mut server,
+        "POST",
+        "/billing",
+        200,
+        billing_response_with_percent(90.0),
+        1,
+    )
+    .await;
 
     let bearer = provider_for(&server)
         .fetch_bearer_billing(&GrokCredentials::from_bearer("token-123"))
@@ -271,18 +262,8 @@ async fn period_only_answer_stays_unknown_when_grpc_has_no_percent_or_fails() {
     // An empty gRPC-web frame carries no percent; a 401 is a failed retry.
     for (status, body) in [(200, vec![0, 0, 0, 0, 0]), (401, Vec::new())] {
         let mut server = mockito::Server::new_async().await;
-        server
-            .mock("GET", "/credits")
-            .with_status(200)
-            .with_body(PERIOD_ONLY_BODY)
-            .create_async()
-            .await;
-        let grpc = server
-            .mock("POST", "/billing")
-            .with_status(status)
-            .with_body(body)
-            .create_async()
-            .await;
+        mock_response(&mut server, "GET", "/credits", 200, PERIOD_ONLY_BODY).await;
+        let grpc = mock_response(&mut server, "POST", "/billing", status, body).await;
 
         let bearer = provider_for(&server)
             .fetch_bearer_billing(&GrokCredentials::from_bearer("token-123"))
@@ -299,16 +280,8 @@ async fn period_only_answer_stays_unknown_when_grpc_has_no_percent_or_fails() {
 #[tokio::test]
 async fn expired_credentials_are_never_sent() {
     let mut server = mockito::Server::new_async().await;
-    let proxy = server
-        .mock("GET", "/credits")
-        .expect(0)
-        .create_async()
-        .await;
-    let grpc = server
-        .mock("POST", "/billing")
-        .expect(0)
-        .create_async()
-        .await;
+    let proxy = mock_status_expect(&mut server, "GET", "/credits", 200, 0).await;
+    let grpc = mock_status_expect(&mut server, "POST", "/billing", 200, 0).await;
     let mut credentials = GrokCredentials::from_bearer("stale-token");
     credentials.expires_at = Some(Utc::now() - chrono::Duration::minutes(1));
 
@@ -329,14 +302,7 @@ async fn expired_credentials_are_never_sent() {
 #[tokio::test]
 async fn credits_plan_labels_oauth_results_without_settings_lookup() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/credits")
-        .with_status(200)
-        .with_body(
-            r#"{"config":{"creditUsagePercent":40,"billingPeriodEnd":"2026-08-13T00:00:00Z"},"subscriptionTier":"SUPERGROK_HEAVY"}"#,
-        )
-        .create_async()
-        .await;
+    mock_response(&mut server, "GET", "/credits", 200, r#"{"config":{"creditUsagePercent":40,"billingPeriodEnd":"2026-08-13T00:00:00Z"},"subscriptionTier":"SUPERGROK_HEAVY"}"#,).await;
     let context = FetchContext {
         include_credits: false,
         ..FetchContext::default()

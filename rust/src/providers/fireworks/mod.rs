@@ -15,8 +15,9 @@ use std::collections::BTreeSet;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::format;
 
 const BILLING_SUMMARY_URL: &str = "https://api.fireworks.ai/v1/accounts";
 const CREDENTIAL_TARGET: &str = "codexbar-fireworks";
@@ -159,7 +160,7 @@ impl FireworksSummary {
         let spend_text = self
             .last_30_days_spend
             .zip(self.currency_code.as_deref())
-            .map(|(spend, _)| format_money(spend));
+            .map(|(spend, _)| format::usd_plain(spend));
         let mut primary = RateWindow::new(0.0);
         primary.reset_description = spend_text.clone();
         let mut snapshot = UsageSnapshot::new(primary);
@@ -176,31 +177,13 @@ impl FireworksSummary {
     }
 }
 
-fn format_money(value: f64) -> String {
-    format!("${value:.2}")
-}
-
 pub struct FireworksProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl FireworksProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Fireworks,
-                display_name: "Fireworks",
-                session_label: "Spend",
-                weekly_label: "Spend",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://app.fireworks.ai"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -462,10 +445,6 @@ fn parse_summary_for_testing(body: &str) -> Result<FireworksSummary, ProviderErr
 impl Provider for FireworksProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Fireworks
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -16,32 +16,17 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Vertex AI provider
-pub struct VertexAIProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct VertexAIProvider;
 
 impl VertexAIProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::VertexAI,
-                display_name: "Vertex AI",
-                session_label: "Usage",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://console.cloud.google.com/vertex-ai"),
-                status_page_url: Some("https://status.cloud.google.com"),
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     /// Get Google Cloud credentials path
@@ -309,20 +294,10 @@ fn parse_access_token_response(body: &[u8]) -> Result<String, ProviderError> {
         .ok_or_else(|| ProviderError::Parse("No access_token in response".to_string()))
 }
 
-impl Default for VertexAIProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for VertexAIProvider {
     fn id(&self) -> ProviderId {
         ProviderId::VertexAI
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     fn retains_last_good_on_transport_failure(&self) -> bool {
@@ -356,14 +331,6 @@ impl Provider for VertexAIProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::Cli]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
     }
 }
 

@@ -25,14 +25,13 @@ use std::process::Stdio;
 use tokio::process::Command;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Kiro provider (AWS AI assistant)
-pub struct KiroProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct KiroProvider;
 struct KiroCliUsage {
     plan_name: String,
     matched_new_format: bool,
@@ -50,21 +49,7 @@ struct KiroCliUsage {
 
 impl KiroProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Kiro,
-                display_name: "Kiro",
-                session_label: "Session",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://kiro.dev/account"),
-                status_page_url: Some("https://health.aws.amazon.com"),
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     /// Get Kiro config directory
@@ -454,20 +439,10 @@ impl KiroProvider {
     }
 }
 
-impl Default for KiroProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for KiroProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Kiro
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -493,14 +468,6 @@ impl Provider for KiroProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Cli]
-    }
-
-    fn supports_web(&self) -> bool {
-        false
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
     }
     /// Kiro's CLI probes raise `NotInstalled` when the `kiro-cli` binary is
     /// missing ("kiro-cli not found. Install from https://kiro.dev") — an

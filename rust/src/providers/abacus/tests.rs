@@ -4,6 +4,7 @@ use mockito::Matcher;
 use tokio::time::Instant;
 
 use super::*;
+use crate::providers::test_support::mock_response;
 
 // Wire fixtures copied from upstream `TestsPlugin/AbacusPluginTests.swift` (v0.68.0).
 const POINTS: &str =
@@ -396,17 +397,22 @@ async fn billing_failures_keep_credits_and_fallback_window() {
     ];
     for (name, status, body) in cases {
         let mut server = mockito::Server::new_async().await;
-        server
-            .mock("GET", "/api/_getOrganizationComputePoints")
-            .with_body(POINTS)
-            .create_async()
-            .await;
-        server
-            .mock("POST", "/api/_getBillingInfo")
-            .with_status(status.into())
-            .with_body(body)
-            .create_async()
-            .await;
+        mock_response(
+            &mut server,
+            "GET",
+            "/api/_getOrganizationComputePoints",
+            200,
+            POINTS,
+        )
+        .await;
+        mock_response(
+            &mut server,
+            "POST",
+            "/api/_getBillingInfo",
+            status.into(),
+            body,
+        )
+        .await;
 
         let provider = AbacusProvider::with_origin(&server.url());
         let usage = provider
@@ -451,17 +457,15 @@ async fn required_failures_are_classified() {
     ];
     for (status, body, check) in cases {
         let mut server = mockito::Server::new_async().await;
-        server
-            .mock("GET", "/api/_getOrganizationComputePoints")
-            .with_status(status.into())
-            .with_body(body)
-            .create_async()
-            .await;
-        server
-            .mock("POST", "/api/_getBillingInfo")
-            .with_body(BILLING)
-            .create_async()
-            .await;
+        mock_response(
+            &mut server,
+            "GET",
+            "/api/_getOrganizationComputePoints",
+            status.into(),
+            body,
+        )
+        .await;
+        mock_response(&mut server, "POST", "/api/_getBillingInfo", 200, BILLING).await;
         let provider = AbacusProvider::with_origin(&server.url());
         let error = provider
             .fetch_with_cookies("sessionid=fixture", Duration::from_secs(2))
@@ -499,11 +503,7 @@ async fn failed_candidates_advance_to_the_next_session() {
         let mut server = mockito::Server::new_async().await;
         let stale = credits_for(&mut server, "session=stale", stale_status, stale_body).await;
         let fresh = credits_for(&mut server, "session=fresh", 200, POINTS).await;
-        server
-            .mock("POST", "/api/_getBillingInfo")
-            .with_body(BILLING)
-            .create_async()
-            .await;
+        mock_response(&mut server, "POST", "/api/_getBillingInfo", 200, BILLING).await;
 
         let provider = AbacusProvider::with_origin(&server.url());
         let usage = provider
@@ -527,11 +527,7 @@ async fn exhausted_candidates_report_the_last_error() {
     let mut server = mockito::Server::new_async().await;
     let first = credits_for(&mut server, "session=one", 500, "boom").await;
     let second = credits_for(&mut server, "session=two", 401, "").await;
-    server
-        .mock("POST", "/api/_getBillingInfo")
-        .with_body(BILLING)
-        .create_async()
-        .await;
+    mock_response(&mut server, "POST", "/api/_getBillingInfo", 200, BILLING).await;
 
     let provider = AbacusProvider::with_origin(&server.url());
     let error = provider
@@ -574,11 +570,7 @@ async fn manual_cookie_is_exclusive_and_errors_propagate() {
         .expect(1)
         .create_async()
         .await;
-    server
-        .mock("POST", "/api/_getBillingInfo")
-        .with_body(BILLING)
-        .create_async()
-        .await;
+    mock_response(&mut server, "POST", "/api/_getBillingInfo", 200, BILLING).await;
 
     let provider = AbacusProvider::with_origin(&server.url());
     let error = provider

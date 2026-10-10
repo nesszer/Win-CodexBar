@@ -38,9 +38,10 @@ use serde::Deserialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
+use crate::providers::json;
 
 /// Extra-window id of the monthly membership pool (`Total usage`).
 pub const MONTHLY_WINDOW_ID: &str = "kimi-monthly";
@@ -92,7 +93,7 @@ impl KimiRatioPool {
     /// Explicit zero is a known quota value; missing or malformed ratios stay
     /// unknown rather than being rendered as 0% used.
     fn rate_window(&self, window_minutes: u32) -> Option<RateWindow> {
-        let ratio = value_as_f64(self.used_ratio.as_ref())?;
+        let ratio = json::lenient_f64(self.used_ratio.as_ref())?;
         if !ratio.is_finite() || ratio < 0.0 {
             return None;
         }
@@ -243,27 +244,12 @@ struct KimiWindow {
 }
 
 /// Kimi AI provider
-pub struct KimiProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct KimiProvider;
 
 impl KimiProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Kimi,
-                display_name: "Kimi",
-                session_label: "Weekly",
-                weekly_label: "Rate Limit",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://kimi.moonshot.cn"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     fn auth_token_from_cookie_headers(
@@ -304,12 +290,12 @@ impl KimiProvider {
         detail: &KimiUsageDetail,
         window_minutes: Option<u32>,
     ) -> Result<RateWindow, ProviderError> {
-        let limit = value_as_f64(detail.limit.as_ref())
+        let limit = json::lenient_f64(detail.limit.as_ref())
             .filter(|limit| *limit > 0.0)
             .ok_or_else(|| ProviderError::Parse("Kimi usage limit missing".into()))?;
         let used = match (
-            value_as_f64(detail.used.as_ref()),
-            value_as_f64(detail.remaining.as_ref()),
+            json::lenient_f64(detail.used.as_ref()),
+            json::lenient_f64(detail.remaining.as_ref()),
         ) {
             (Some(used), _) => used,
             (None, Some(remaining)) => (limit - remaining).max(0.0),
@@ -335,20 +321,10 @@ impl KimiProvider {
     }
 }
 
-impl Default for KimiProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for KimiProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Kimi
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -422,14 +398,6 @@ impl Provider for KimiProvider {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::OAuth]
     }
 
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
-    }
-
     fn supports_oauth(&self) -> bool {
         true
     }
@@ -478,7 +446,7 @@ fn apply_subscription_windows(
         && matches!(balance.feature.as_deref(), None | Some("FEATURE_OMNI"))
         && matches!(balance.balance_type.as_deref(), None | Some("SUBSCRIPTION"))
         && let Some(ratio) =
-            value_as_f64(balance.amount_used_ratio.as_ref()).filter(|value| value.is_finite())
+            json::lenient_f64(balance.amount_used_ratio.as_ref()).filter(|value| value.is_finite())
     {
         // Verified monthly sentinel (#2431 / #2566).
         usage = usage.with_extra_rate_window(
@@ -495,7 +463,8 @@ fn apply_subscription_windows(
 
     if let Some(limit) = subscription.ratelimit_code7d.as_ref()
         && limit.enabled.unwrap_or(true)
-        && let Some(ratio) = value_as_f64(limit.ratio.as_ref()).filter(|value| value.is_finite())
+        && let Some(ratio) =
+            json::lenient_f64(limit.ratio.as_ref()).filter(|value| value.is_finite())
     {
         // Upstream 0.49.0 #2741: the membership 7-day Code ratio and the
         // FEATURE_CODING weekly detail report the same quota through two
@@ -557,14 +526,6 @@ async fn kimi_web_post(
         .send()
         .await
         .map_err(ProviderError::from)
-}
-
-fn value_as_f64(value: Option<&serde_json::Value>) -> Option<f64> {
-    match value? {
-        serde_json::Value::Number(number) => number.as_f64(),
-        serde_json::Value::String(text) => text.trim().replace(',', "").parse().ok(),
-        _ => None,
-    }
 }
 
 fn parse_kimi_timestamp(value: &serde_json::Value) -> Option<DateTime<Utc>> {

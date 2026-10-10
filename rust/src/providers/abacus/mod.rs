@@ -14,8 +14,8 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    ProviderStateKind, RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderStateKind,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 #[cfg(test)]
@@ -26,7 +26,7 @@ const COMPUTE_PATH: &str = "/api/_getOrganizationComputePoints";
 const BILLING_PATH: &str = "/api/_getBillingInfo";
 /// Parent domain of `apps.abacus.ai`; one browser query covers both hosts.
 const COOKIE_DOMAIN: &str = "abacus.ai";
-const CREDITS_LABEL: &str = "Credits";
+pub(crate) const CREDITS_LABEL: &str = "Credits";
 const FALLBACK_MONTHLY_WINDOW_MINUTES: u32 = 30 * 24 * 60;
 const MAX_COOKIE_CANDIDATES: u32 = 5;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -114,7 +114,6 @@ fn lenient_finite_number<'de, D: Deserializer<'de>>(
 }
 
 pub struct AbacusProvider {
-    metadata: ProviderMetadata,
     client: Client,
     origin: String,
 }
@@ -126,19 +125,6 @@ impl AbacusProvider {
 
     fn with_origin(origin: &str) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Abacus,
-                display_name: "Abacus AI",
-                session_label: CREDITS_LABEL,
-                weekly_label: "",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://apps.abacus.ai/app/billing"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             // Every request sets its own timeout; the client has none so a
             // configured web timeout above 30 s is honored.
             client: crate::core::credentialed_http_client_builder()
@@ -486,10 +472,6 @@ impl Provider for AbacusProvider {
         ProviderId::Abacus
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Fetching Abacus AI usage");
 
@@ -514,13 +496,5 @@ impl Provider for AbacusProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
     }
 }

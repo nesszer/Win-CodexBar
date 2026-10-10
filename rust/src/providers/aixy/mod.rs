@@ -16,40 +16,24 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode, Url};
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    SourceMode,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, SourceMode,
 };
 
 const CREDENTIAL_TARGET: &str = "codexbar-aixy";
 const API_KEY_ENV: &str = "AIXY_API_KEY";
 const BASE_URL_ENV: &str = "AIXY_BASE_URL";
 const DEFAULT_BASE_URL: &str = "https://api.aixy-gateway.com";
-const DASHBOARD_URL: &str = "https://dash.aixy-gateway.com";
 const USAGE_PATH: &str = "/v1/usage";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 pub struct AixyProvider {
-    metadata: ProviderMetadata,
     client: Option<Client>,
 }
 
 impl AixyProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Aixy,
-                display_name: "Aixy",
-                session_label: "Budget",
-                weekly_label: "Secondary budget",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DASHBOARD_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 // The Bearer credential must never follow a gateway redirect
@@ -114,10 +98,6 @@ impl Default for AixyProvider {
 impl Provider for AixyProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Aixy
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

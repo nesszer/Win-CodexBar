@@ -12,16 +12,16 @@ use regex_lite::Regex;
 use reqwest::{Client, RequestBuilder, Url};
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
+use crate::providers::{normalize_cookie_pairs, strip_cookie_prefix};
 
-const BILLING_URL: &str = "https://console.sakana.ai/billing";
+pub(crate) const BILLING_URL: &str = "https://console.sakana.ai/billing";
 const PAYG_QUERY: &str = "tab=payAsYouGo";
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 pub struct SakanaProvider {
-    metadata: ProviderMetadata,
     client: Client,
     billing_url: Url,
 }
@@ -29,19 +29,6 @@ pub struct SakanaProvider {
 impl SakanaProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Sakana,
-                display_name: "Sakana AI",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(BILLING_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -128,23 +115,7 @@ impl Default for SakanaProvider {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim();
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
-    let pairs = header
-        .split(';')
-        .filter_map(|chunk| {
-            let (name, value) = chunk.trim().split_once('=')?;
-            let name = name.trim();
-            let value = value.trim();
-            (!name.is_empty() && !value.is_empty()).then(|| format!("{name}={value}"))
-        })
-        .collect::<Vec<_>>();
-    (!pairs.is_empty()).then(|| pairs.join("; "))
+    normalize_cookie_pairs(strip_cookie_prefix(raw.trim()))
 }
 
 fn looks_signed_out(text: &str) -> bool {
@@ -238,10 +209,6 @@ impl Provider for SakanaProvider {
         ProviderId::Sakana
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::Web => {
@@ -259,10 +226,6 @@ impl Provider for SakanaProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 }
 

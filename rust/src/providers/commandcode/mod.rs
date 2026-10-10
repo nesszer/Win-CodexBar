@@ -13,8 +13,9 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot, looks_like_curl_capture,
 };
+use crate::providers::strip_cookie_prefix;
 use plan_cache::CommandCodePlanCache;
 
 const COMMAND_CODE_API_BASE: &str = "https://api.commandcode.ai";
@@ -103,26 +104,12 @@ fn find_plan(plan_id: &str) -> Option<&'static CommandCodePlan> {
 }
 
 pub struct CommandCodeProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl CommandCodeProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::CommandCode,
-                display_name: "Command Code",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://commandcode.ai"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -216,12 +203,7 @@ fn normalize_cookie_header(raw: &str) -> Option<String> {
     } else if looks_like_curl_capture(header) {
         return None;
     }
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
+    header = strip_cookie_prefix(header);
     if header.is_empty() {
         return None;
     }
@@ -280,11 +262,6 @@ fn cookie_header_from_curl(raw: &str) -> Option<String> {
             .then(|| value.trim().to_string())
             .filter(|value| !value.is_empty())
     })
-}
-
-fn looks_like_curl_capture(raw: &str) -> bool {
-    let lower = raw.trim_start().to_ascii_lowercase();
-    lower.starts_with("curl ") || lower.starts_with("curl.exe ")
 }
 
 fn split_header(field: &str) -> Option<(&str, &str)> {
@@ -615,10 +592,6 @@ impl Provider for CommandCodeProvider {
         ProviderId::CommandCode
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::Web => {
@@ -635,10 +608,6 @@ impl Provider for CommandCodeProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 }
 

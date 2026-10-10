@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
@@ -53,7 +53,6 @@ struct ModelQuota {
 }
 
 pub struct HelmcodeProvider {
-    metadata: ProviderMetadata,
     client: Client,
     #[cfg(test)]
     api_base_override: Option<String>,
@@ -62,19 +61,6 @@ pub struct HelmcodeProvider {
 impl HelmcodeProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Helmcode,
-                display_name: "Helmcode",
-                session_label: "Quota",
-                weekly_label: "Quota",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://cloud.helmcode.com/dashboard"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(Duration::from_secs(10))
                 .redirect(reqwest::redirect::Policy::none())
@@ -261,9 +247,6 @@ impl Default for HelmcodeProvider {
 impl Provider for HelmcodeProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Helmcode
-    }
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
@@ -454,6 +437,7 @@ fn parse_failure(field: impl AsRef<str>) -> ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::test_support::{mock_response, mock_response_expect, mock_status};
     use serde_json::json;
 
     const QUOTA_GOLDEN: &str = r#"{"periodStart":"2026-09-01","models":[
@@ -496,31 +480,28 @@ mod tests {
         workspace_id: Option<&str>,
     ) -> Result<ProviderFetchResult, ProviderError> {
         let mut server = mockito::Server::new_async().await;
-        let quota = server
-            .mock("GET", "/api/usage/quota")
-            .with_status(200)
-            .with_body(QUOTA_GOLDEN)
-            .create_async()
-            .await;
-        let billing = server
-            .mock("GET", "/api/billing")
-            .with_status(billing_status)
-            .with_body(billing_body)
-            .create_async()
-            .await;
-        let credits = server
-            .mock("GET", "/api/billing/credits")
-            .with_status(credits_status)
-            .with_body(credits_body)
-            .expect(
-                if workspace_id.is_some_and(|id| id.eq_ignore_ascii_case("nanBuilders")) {
-                    0
-                } else {
-                    1
-                },
-            )
-            .create_async()
-            .await;
+        let quota = mock_response(&mut server, "GET", "/api/usage/quota", 200, QUOTA_GOLDEN).await;
+        let billing = mock_response(
+            &mut server,
+            "GET",
+            "/api/billing",
+            billing_status,
+            billing_body,
+        )
+        .await;
+        let credits = mock_response_expect(
+            &mut server,
+            "GET",
+            "/api/billing/credits",
+            credits_status,
+            credits_body,
+            if workspace_id.is_some_and(|id| id.eq_ignore_ascii_case("nanBuilders")) {
+                0
+            } else {
+                1
+            },
+        )
+        .await;
 
         let result = provider_at(&server.url())
             .fetch_usage(&fetch_context(workspace_id))
@@ -785,24 +766,9 @@ mod tests {
             {"model":"helm-a","cap":1000,"tokensUsed":2000,"creditTokens":20}
         ]}"#;
         let mut server = mockito::Server::new_async().await;
-        let quota = server
-            .mock("GET", "/api/usage/quota")
-            .with_status(200)
-            .with_body(quota_body)
-            .create_async()
-            .await;
-        let billing = server
-            .mock("GET", "/api/billing")
-            .with_status(200)
-            .with_body("{}")
-            .create_async()
-            .await;
-        let credits = server
-            .mock("GET", "/api/billing/credits")
-            .with_status(200)
-            .with_body("{}")
-            .create_async()
-            .await;
+        let quota = mock_response(&mut server, "GET", "/api/usage/quota", 200, quota_body).await;
+        let billing = mock_response(&mut server, "GET", "/api/billing", 200, "{}").await;
+        let credits = mock_response(&mut server, "GET", "/api/billing/credits", 200, "{}").await;
         let result = provider_at(&server.url())
             .fetch_tenant(Tenant::Helmcode, "session=test-cookie")
             .await
@@ -892,17 +858,9 @@ mod tests {
     async fn quota_auth_responses_still_require_authentication() {
         for status in [401, 403, 302] {
             let mut server = mockito::Server::new_async().await;
-            let quota = server
-                .mock("GET", "/api/usage/quota")
-                .with_status(status)
-                .create_async()
-                .await;
-            let billing = server
-                .mock("GET", "/api/billing")
-                .with_status(200)
-                .with_body(BILLING_FREE)
-                .create_async()
-                .await;
+            let quota = mock_status(&mut server, "GET", "/api/usage/quota", status).await;
+            let billing =
+                mock_response(&mut server, "GET", "/api/billing", 200, BILLING_FREE).await;
             let result = provider_at(&server.url())
                 .fetch_usage(&fetch_context(None))
                 .await;
@@ -918,18 +876,8 @@ mod tests {
     #[tokio::test]
     async fn quota_schema_drift_remains_a_parse_error_when_optional_billing_fails() {
         let mut server = mockito::Server::new_async().await;
-        let quota = server
-            .mock("GET", "/api/usage/quota")
-            .with_status(200)
-            .with_body(r#"{"periodStart":"2026-09-01T00:00:00Z","models":[{"model":"helm-model-a","limit":1000000,"consumed":250000}]}"#)
-            .create_async()
-            .await;
-        let billing = server
-            .mock("GET", "/api/billing")
-            .with_status(503)
-            .with_body("bad JSON")
-            .create_async()
-            .await;
+        let quota = mock_response(&mut server, "GET", "/api/usage/quota", 200, r#"{"periodStart":"2026-09-01T00:00:00Z","models":[{"model":"helm-model-a","limit":1000000,"consumed":250000}]}"#).await;
+        let billing = mock_response(&mut server, "GET", "/api/billing", 503, "bad JSON").await;
         let result = provider_at(&server.url())
             .fetch_usage(&fetch_context(None))
             .await;

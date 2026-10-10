@@ -8,34 +8,20 @@ mod api;
 use async_trait::async_trait;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, SourceMode,
+    UsageSnapshot,
 };
 
 pub use api::GeminiApi;
 
 /// Gemini provider for fetching AI usage limits
 pub struct GeminiProvider {
-    metadata: ProviderMetadata,
     api: GeminiApi,
 }
 
 impl GeminiProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Gemini,
-                display_name: "Gemini",
-                session_label: "Daily",
-                weekly_label: "Daily",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: true,
-                is_primary: false,
-                dashboard_url: Some("https://aistudio.google.com"),
-                status_page_url: Some("https://status.cloud.google.com"),
-                tertiary_label_key: None,
-            },
             api: GeminiApi::new(),
         }
     }
@@ -51,10 +37,6 @@ impl Default for GeminiProvider {
 impl Provider for GeminiProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Gemini
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -82,9 +64,5 @@ impl Provider for GeminiProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Cli]
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
     }
 }

@@ -8,37 +8,16 @@
 use async_trait::async_trait;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
-pub struct PiProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct PiProvider;
 
 impl PiProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Pi,
-                display_name: "Pi",
-                session_label: "Session",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://github.com/badlogic/pi-mono"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
-    }
-}
-
-impl Default for PiProvider {
-    fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -46,10 +25,6 @@ impl Default for PiProvider {
 impl Provider for PiProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Pi
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

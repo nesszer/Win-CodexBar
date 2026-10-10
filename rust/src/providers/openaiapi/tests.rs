@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::test_support::{mock_response_expect, mock_status};
 use mockito::{Matcher, Server, ServerGuard};
 
 const COSTS_PATH: &str = "/v1/organization/costs";
@@ -206,8 +207,11 @@ fn openai_admin_usage_sums_costs_and_ranks_line_items() {
 
 #[test]
 fn openai_admin_usage_rejects_nonfinite_cost_amounts() {
-    assert_eq!(number_value(&serde_json::json!("NaN")), None);
-    assert_eq!(number_value(&serde_json::json!("Infinity")), None);
+    assert_eq!(json::lenient_finite_f64(&serde_json::json!("NaN")), None);
+    assert_eq!(
+        json::lenient_finite_f64(&serde_json::json!("Infinity")),
+        None
+    );
     for value in ["NaN", "Infinity", "-Infinity", "1e309", "-1e309"] {
         let costs = [cost_bucket(serde_json::json!(value))];
         let error = result_from_admin_usage(&costs, &[], fixed_now(0), None)
@@ -734,12 +738,7 @@ async fn mock_admin_status(server: &mut ServerGuard, status: usize) -> mockito::
 async fn openai_unscoped_key_falls_back_to_balance_on_admin_auth_failure() {
     let mut server = Server::new_async().await;
     let _costs = mock_admin_status(&mut server, 403).await;
-    let grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_body(GRANTS_BODY)
-        .expect(1)
-        .create_async()
-        .await;
+    let grants = mock_response_expect(&mut server, "GET", GRANTS_PATH, 200, GRANTS_BODY, 1).await;
 
     let result = provider(&server)
         .fetch_admin_or_balance(&admin_credential(), None, fixed_now(3_600))
@@ -760,12 +759,7 @@ async fn openai_unscoped_key_falls_back_to_balance_on_admin_auth_failure() {
 async fn openai_unscoped_key_falls_back_to_balance_during_admin_outage() {
     let mut server = Server::new_async().await;
     let costs = mock_admin_status(&mut server, 500).await.expect(2);
-    let grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_body(GRANTS_BODY)
-        .expect(1)
-        .create_async()
-        .await;
+    let grants = mock_response_expect(&mut server, "GET", GRANTS_PATH, 200, GRANTS_BODY, 1).await;
 
     let result = provider(&server)
         .fetch_admin_or_balance(&admin_credential(), None, fixed_now(3_600))
@@ -781,12 +775,7 @@ async fn openai_unscoped_key_falls_back_to_balance_during_admin_outage() {
 async fn openai_project_scoped_admin_key_never_uses_the_unfiltered_balance() {
     let mut server = Server::new_async().await;
     let _costs = mock_admin_status(&mut server, 403).await;
-    let grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_body(GRANTS_BODY)
-        .expect(0)
-        .create_async()
-        .await;
+    let grants = mock_response_expect(&mut server, "GET", GRANTS_PATH, 200, GRANTS_BODY, 0).await;
 
     let error = provider(&server)
         .fetch_admin_or_balance(&admin_credential(), Some("proj_abc"), fixed_now(3_600))
@@ -801,12 +790,7 @@ async fn openai_project_scoped_admin_key_never_uses_the_unfiltered_balance() {
 async fn openai_project_scoped_plain_key_keeps_the_balance_fallback() {
     let mut server = Server::new_async().await;
     let _costs = mock_admin_status(&mut server, 403).await;
-    let grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_body(GRANTS_BODY)
-        .expect(1)
-        .create_async()
-        .await;
+    let grants = mock_response_expect(&mut server, "GET", GRANTS_PATH, 200, GRANTS_BODY, 1).await;
     let credential = ApiCredential {
         key: "sk-plain".to_string(),
         is_admin: false,
@@ -825,11 +809,7 @@ async fn openai_project_scoped_plain_key_keeps_the_balance_fallback() {
 async fn openai_balance_failure_keeps_the_admin_outage_error() {
     let mut server = Server::new_async().await;
     let _costs = mock_admin_status(&mut server, 500).await;
-    let _grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_status(404)
-        .create_async()
-        .await;
+    let _grants = mock_status(&mut server, "GET", GRANTS_PATH, 404).await;
 
     let error = provider(&server)
         .fetch_admin_or_balance(&admin_credential(), None, fixed_now(3_600))

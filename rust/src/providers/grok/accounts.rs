@@ -16,6 +16,8 @@ use uuid::Uuid;
 use crate::atomic_file::replace_staged;
 use crate::secure_file;
 
+use super::text_field;
+
 pub use login::{begin_login, cancel_login, cleanup_abandoned_logins, login};
 pub use orca::select_account as select_orca_account;
 
@@ -411,15 +413,6 @@ fn required_string<'a>(object: &'a Value, key: &str) -> io::Result<&'a str> {
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| io::Error::other(format!("Grok login is missing {key}. Sign in again.")))
-}
-
-fn text_field(value: &Value, key: &str) -> Option<String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 fn identity_id(auth: &Value) -> io::Result<String> {

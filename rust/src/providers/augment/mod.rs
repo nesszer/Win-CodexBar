@@ -21,32 +21,17 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Augment provider
-pub struct AugmentProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct AugmentProvider;
 
 impl AugmentProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Augment,
-                display_name: "Augment",
-                session_label: "Session",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://app.augmentcode.com/account"),
-                status_page_url: Some("https://status.augmentcode.com"),
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     /// Get Augment config directory
@@ -276,20 +261,10 @@ impl AugmentProvider {
     }
 }
 
-impl Default for AugmentProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for AugmentProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Augment
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -317,14 +292,6 @@ impl Provider for AugmentProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web, SourceMode::Cli]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        true
     }
     /// Augment's CLI probes raise `NotInstalled` when the CLI binary or
     /// config root is absent ("Augment CLI not found. Install from ...",

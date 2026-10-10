@@ -14,9 +14,10 @@ use serde_json::Value;
 use std::time::Duration;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
+use crate::providers::{normalize_cookie_pairs, strip_cookie_prefix};
 
 const BX_VERSION: &str = "2.5.35";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -25,26 +26,12 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 use routing::QoderSite;
 
 pub struct QoderProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl QoderProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Qoder,
-                display_name: "Qoder",
-                session_label: "Credits",
-                weekly_label: "Shared credits",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://qoder.com/account/usage"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -205,26 +192,11 @@ impl Default for QoderProvider {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim();
+    let header = raw.trim();
     if header.chars().any(char::is_control) {
         return None;
     }
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
-    let pairs = header
-        .split(';')
-        .filter_map(|chunk| {
-            let (name, value) = chunk.trim().split_once('=')?;
-            let name = name.trim();
-            let value = value.trim();
-            (!name.is_empty() && !value.is_empty()).then(|| format!("{name}={value}"))
-        })
-        .collect::<Vec<_>>();
-    (!pairs.is_empty()).then(|| pairs.join("; "))
+    normalize_cookie_pairs(strip_cookie_prefix(header))
 }
 
 fn snapshot_from_payload(
@@ -509,10 +481,6 @@ impl Provider for QoderProvider {
         ProviderId::Qoder
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::Web => self.fetch_usage_web(ctx).await,
@@ -524,10 +492,6 @@ impl Provider for QoderProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 }
 

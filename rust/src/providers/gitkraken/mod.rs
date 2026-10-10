@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
@@ -39,27 +39,12 @@ struct GitKrakenUsage {
 }
 
 /// GitKraken AI provider.
-pub struct GitKrakenProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct GitKrakenProvider;
 
 impl GitKrakenProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::GitKraken,
-                display_name: "GitKraken AI",
-                session_label: "Personal",
-                weekly_label: "Shared pool",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://gitkraken.dev/account#ai-usage"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
     async fn fetch(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -116,20 +101,10 @@ impl GitKrakenProvider {
     }
 }
 
-impl Default for GitKrakenProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for GitKrakenProvider {
     fn id(&self) -> ProviderId {
         ProviderId::GitKraken
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

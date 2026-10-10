@@ -18,12 +18,13 @@ use serde::Deserialize;
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, ProviderStateKind, RateWindow, SourceMode, UsageSnapshot,
+    ProviderStateKind, RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
+pub(crate) use endpoint::DEFAULT_BASE_URL;
+use endpoint::request_base;
 pub(crate) use endpoint::validated_llmman_base_url;
-use endpoint::{DEFAULT_BASE_URL, request_base};
 
 const CREDENTIAL_TARGET: &str = "codexbar-llmman";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -34,26 +35,12 @@ const MAX_SAFE_BYTES: u64 = (1 << 53) - 1;
 const NOT_REACHABLE_PREFIX: &str = "llmman is not reachable at ";
 
 pub struct LLMManProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl LLMManProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::LLMMan,
-                display_name: "llmman",
-                session_label: "Memory",
-                weekly_label: "Models",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DEFAULT_BASE_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -71,10 +58,6 @@ impl Default for LLMManProvider {
 impl Provider for LLMManProvider {
     fn id(&self) -> ProviderId {
         ProviderId::LLMMan
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

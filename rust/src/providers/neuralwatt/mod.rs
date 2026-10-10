@@ -16,8 +16,9 @@ use serde::Deserialize;
 
 use crate::core::{
     CostSnapshot, FetchContext, NamedRateWindow, Provider, ProviderError, ProviderFetchResult,
-    ProviderId, ProviderMetadata, RateWindow, SourceMode, SubscriptionMetadata, UsageSnapshot,
+    ProviderId, RateWindow, SourceMode, SubscriptionMetadata, UsageSnapshot,
 };
+use crate::providers::format;
 
 const DEFAULT_API_BASE: &str = "https://api.neuralwatt.com";
 const CREDENTIAL_TARGET: &str = "codexbar-neuralwatt";
@@ -124,26 +125,12 @@ struct KeyAllowance {
 }
 
 pub struct NeuralwattProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl NeuralwattProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Neuralwatt,
-                display_name: "Neuralwatt",
-                session_label: "Subscription",
-                weekly_label: "Key allowance",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://portal.neuralwatt.com/dashboard"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -192,10 +179,6 @@ impl Default for NeuralwattProvider {
 impl Provider for NeuralwattProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Neuralwatt
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -356,14 +339,6 @@ fn parse_failure(message: &str) -> ProviderError {
     ProviderError::Parse(format!("Failed to parse Neuralwatt response: {message}"))
 }
 
-fn format_kwh(value: f64) -> String {
-    if (value - value.round()).abs() < f64::EPSILON {
-        format!("{:.0}", value)
-    } else {
-        format!("{:.2}", value)
-    }
-}
-
 fn subscription_window(sub: &Subscription) -> Result<Option<RateWindow>, ProviderError> {
     let start = optional_iso(sub.current_period_start.as_deref(), "current_period_start")?;
     let end = optional_iso(sub.current_period_end.as_deref(), "current_period_end")?;
@@ -393,7 +368,11 @@ fn subscription_window(sub: &Subscription) -> Result<Option<RateWindow>, Provide
         }
         w.resets_at = Some(end);
     }
-    w.reset_description = Some(format!("{} / {} kWh", format_kwh(used), format_kwh(total)));
+    w.reset_description = Some(format!(
+        "{} / {} kWh",
+        format::whole_or_two_decimals(used),
+        format::whole_or_two_decimals(total)
+    ));
     Ok(Some(w))
 }
 
