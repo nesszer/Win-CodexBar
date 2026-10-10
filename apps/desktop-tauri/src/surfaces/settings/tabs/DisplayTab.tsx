@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useDraftNumber } from "../../../hooks/useDraftNumber";
 import { useLocale } from "../../../hooks/useLocale";
 import { Field, Select, Toggle } from "../../../components/FormControls";
 import type {
@@ -12,6 +13,12 @@ import type { TabProps } from "../settingsTabs";
 import FloatBarSettingsSection from "../../../floatbar/SettingsSection";
 import SwitcherShortcutsSection from "../SwitcherShortcutsSection";
 import { getTrayVisibilityStatus } from "../../../lib/tauri";
+import {
+  clampTrayScalePercent,
+  TRAY_SCALE_MAX,
+  TRAY_SCALE_MIN,
+  TRAY_SCALE_STEP,
+} from "../../../lib/trayScale";
 
 export default function DisplayTab({
   mode = "menu",
@@ -25,6 +32,10 @@ export default function DisplayTab({
 }) {
   const { t } = useLocale();
   const [trayVisibility, setTrayVisibility] = useState<TrayVisibilityStatusDto | null>(null);
+  const panelScale = useDraftNumber(clampTrayScalePercent(settings.trayScalePercent));
+  const commitPanelScale = () => {
+    panelScale.commit(panelScale.draft, (value) => set({ trayScalePercent: value }));
+  };
 
   useEffect(() => {
     getTrayVisibilityStatus()
@@ -257,6 +268,24 @@ export default function DisplayTab({
               ariaLabel={t("ShowPace")}
               disabled={saving}
               onChange={(v) => set({ showPace: v })}
+            />
+          </Field>
+          <Field
+            label={`${t("PanelScaleLabel")} (${panelScale.draft}%)`}
+            description={t("PanelScaleHelper")}
+          >
+            <input
+              type="range"
+              min={TRAY_SCALE_MIN}
+              max={TRAY_SCALE_MAX}
+              step={TRAY_SCALE_STEP}
+              value={panelScale.draft}
+              onChange={(e) => panelScale.setDraft(Number(e.target.value))}
+              onPointerUp={commitPanelScale}
+              onTouchEnd={commitPanelScale}
+              onBlur={commitPanelScale}
+              onKeyUp={commitPanelScale}
+              aria-label={t("PanelScaleLabel")}
             />
           </Field>
         </div>

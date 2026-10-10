@@ -698,6 +698,8 @@ export const ALL_LOCALE_KEYS = [
   "DisplayModeMinimal",
   "TrayPanelAlwaysOnTopLabel",
   "TrayPanelAlwaysOnTopHelper",
+  "PanelScaleLabel",
+  "PanelScaleHelper",
   "WindowMinimize",
   "WindowRestore",
   "WindowClose",

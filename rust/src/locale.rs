@@ -968,6 +968,8 @@ locale_keys! {
     DisplayModeMinimal,
     TrayPanelAlwaysOnTopLabel,
     TrayPanelAlwaysOnTopHelper,
+    PanelScaleLabel,
+    PanelScaleHelper,
     WindowMinimize,
     WindowRestore,
     WindowClose,
