@@ -9,6 +9,4 @@ pub mod session;
     unused_imports,
     reason = "command runner API re-exported for future CLI integration"
 )]
-pub use command_runner::{
-    CommandError, CommandOptions, CommandResult, CommandRunner, RollingBuffer,
-};
+pub use command_runner::{CommandError, CommandOptions, CommandResult, CommandRunner};
