@@ -4,12 +4,10 @@
 
 use super::team_budget::CursorMemberBudget;
 use crate::core::{CostSnapshot, NamedRateWindow, ProviderError, RateWindow};
-use crate::providers::browser_cookie_header;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 const BASE_URL: &str = "https://cursor.com";
-const COOKIE_DOMAINS: [&str; 2] = ["cursor.com", "cursor.sh"];
 
 #[derive(Debug)]
 pub struct CursorUsageResult {
@@ -56,13 +54,6 @@ impl CursorApi {
         &self.base_url
     }
 
-    /// Fetch usage information from Cursor API
-    pub async fn fetch_usage(&self) -> Result<CursorUsageResult, ProviderError> {
-        // Try to get cookies from browser
-        let cookie_header = self.get_cookie_header()?;
-        self.fetch_usage_with_cookie_header(&cookie_header).await
-    }
-
     /// Fetch usage information with an already resolved Cookie header.
     pub async fn fetch_usage_with_cookie_header(
         &self,
@@ -84,10 +75,6 @@ impl CursorApi {
             self.build_result_with_team_budget(usage_summary, user_info, team_budget)?;
         result.grok_bot = sand_result.ok().flatten();
         Ok(result)
-    }
-
-    fn get_cookie_header(&self) -> Result<String, ProviderError> {
-        browser_cookie_header(&COOKIE_DOMAINS)
     }
 
     async fn fetch_usage_summary(
