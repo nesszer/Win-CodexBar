@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::core::{ProviderError, RateWindow, UsageSnapshot};
 
 use super::coding_plan::{
-    MiniMaxCodingPlanSnapshot, RemainsRow, ServiceRow, parse_coding_plan_value,
+    MiniMaxCodingPlanSnapshot, RemainsRow, ServiceRow, next_time_today, parse_coding_plan_value,
 };
 
 impl ServiceRow {
@@ -295,13 +295,7 @@ fn date_for_time(time: &str, tz_hint: Option<&str>, now: DateTime<Utc>) -> Optio
         None => FixedOffset::east_opt(0).unwrap(),
     };
     let time_only = chrono::NaiveTime::parse_from_str(time.trim(), "%H:%M").ok()?;
-    let today = now.date_naive();
-    let dt = today.and_time(time_only).and_local_timezone(tz).single()?;
-    let mut candidate = dt.with_timezone(&Utc);
-    if candidate < now {
-        candidate = now + Duration::days(1);
-    }
-    Some(candidate)
+    next_time_today(time_only, tz, now)
 }
 
 /// Parse a `UTC±H[:MM]`/`GMT±H[:MM]` hint into a `FixedOffset`. Non-numeric hints
@@ -484,6 +478,24 @@ mod tests {
         let text = "Resets in 2 days";
         let reset = parse_resets_at_from_text(text, now()).expect("2 days");
         assert_eq!(reset, now() + Duration::seconds(2 * 86_400));
+    }
+
+    #[test]
+    fn reset_clock_times_roll_forward_with_the_zone_hint() {
+        let at = |d, h, mi| Some(Utc.with_ymd_and_hms(2026, 8, d, h, mi, 0).unwrap());
+        let tomorrow = Some(now() + Duration::days(1));
+        let cases = [
+            ("Resets at 15:30", at(3, 15, 30)),
+            ("Resets at 11:59", tomorrow),
+            ("Reset at 13:00 (UTC+8)", tomorrow),
+            ("resets at 23:00 (GMT-5:30)", at(4, 4, 30)),
+            ("Resets at 20:00 (PST)", at(3, 20, 0)),
+            ("Resets at 20:00 (UTC+0130)", at(3, 18, 30)),
+            ("Resets at 25:00", None),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(parse_resets_at_from_text(text, now()), expected, "{text}");
+        }
     }
 
     #[test]
