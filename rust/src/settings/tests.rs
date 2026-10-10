@@ -1491,3 +1491,31 @@ fn cookie_denial_round_trips_through_settings_persistence() {
     assert_eq!(loaded.cookie_source(ProviderId::Codex), "off");
     assert!(!loaded.openai_web_extras(ProviderId::Codex));
 }
+
+/// Decision 7.2 of the Mac card rework: "% left" is the default only where no
+/// choice was ever saved, so a new install and a settings file without the key
+/// both show remaining quota.
+#[test]
+fn show_as_used_defaults_to_left_without_a_saved_value() {
+    let dir = tempfile::tempdir().unwrap();
+    let new_install = dir.path().join("missing.json");
+    let without_key = dir.path().join("settings.json");
+    std::fs::write(&without_key, r#"{ "enabled_providers": ["claude"] }"#).unwrap();
+
+    assert!(!Settings::load_from_path(Some(&new_install)).show_as_used);
+    assert!(!Settings::load_from_path(Some(&without_key)).show_as_used);
+}
+
+/// Existing users keep the "% used" choice their settings file already holds.
+#[test]
+fn show_as_used_keeps_a_saved_used_preference() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(
+        &path,
+        r#"{ "enabled_providers": ["claude"], "show_as_used": true }"#,
+    )
+    .unwrap();
+
+    assert!(Settings::load_from_path(Some(&path)).show_as_used);
+}

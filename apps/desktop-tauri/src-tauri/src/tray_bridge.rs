@@ -780,6 +780,13 @@ mod tests {
         fake_snapshot_with(id, display, used_percent, None, None, None)
     }
 
+    fn used_view_settings() -> Settings {
+        Settings {
+            show_as_used: true,
+            ..Settings::default()
+        }
+    }
+
     fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
         crate::commands::NamedRateWindowSnapshot {
             id: "additional_budget".to_string(),
@@ -919,7 +926,7 @@ mod tests {
     }
     #[test]
     fn selected_tray_percent_uses_cursor_extra_usage_cost() {
-        let mut settings = Settings::default();
+        let mut settings = used_view_settings();
         settings.set_provider_metric(ProviderId::Cursor, MetricPreference::ExtraUsage);
         let snapshot = fake_snapshot_with(
             "cursor",
@@ -935,7 +942,7 @@ mod tests {
     }
     #[test]
     fn selected_tray_percent_tracks_extra_rate_window() {
-        let mut settings = Settings::default();
+        let mut settings = used_view_settings();
         settings.set_provider_metric(ProviderId::Copilot, MetricPreference::ExtraUsage);
         let mut snapshot = fake_snapshot("copilot", "Copilot", 20.0);
         snapshot.extra_rate_windows.push(fake_extra_window(42.0));
@@ -945,7 +952,7 @@ mod tests {
     }
     #[test]
     fn copilot_automatic_tracks_highest_extra_rate_window() {
-        let settings = Settings::default();
+        let settings = used_view_settings();
         let mut snapshot = fake_snapshot("copilot", "Copilot", 20.0);
         snapshot.extra_rate_windows.push(fake_extra_window(42.0));
         let (primary, _) = selected_tray_percents(&snapshot, &settings);
@@ -1033,7 +1040,7 @@ mod tests {
     }
     #[test]
     fn selected_tray_percent_falls_back_when_extra_usage_missing() {
-        let mut settings = Settings::default();
+        let mut settings = used_view_settings();
         settings.set_provider_metric(ProviderId::Cursor, MetricPreference::ExtraUsage);
         let snapshot = fake_snapshot_with("cursor", "Cursor", 10.0, Some(72.0), None, None);
         let (primary, _) = selected_tray_percents(&snapshot, &settings);
@@ -1041,7 +1048,7 @@ mod tests {
     }
     #[test]
     fn single_meaningful_secondary_quota_uses_full_single_meter() {
-        let settings = Settings::default();
+        let settings = used_view_settings();
         let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), None, None);
         snapshot.primary.is_informational = true;
         let (primary, secondary) = selected_tray_percents(&snapshot, &settings);
@@ -1050,7 +1057,7 @@ mod tests {
     }
     #[test]
     fn selected_secondary_quota_is_not_duplicated_when_tertiary_is_meaningful() {
-        let settings = Settings::default();
+        let settings = used_view_settings();
         let mut snapshot =
             fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), Some(30.0), None);
         snapshot.primary.is_informational = true;
@@ -1060,7 +1067,7 @@ mod tests {
     }
     #[test]
     fn two_meaningful_quotas_keep_two_meter_layout() {
-        let mut settings = Settings::default();
+        let mut settings = used_view_settings();
         settings.set_provider_metric(ProviderId::Cursor, MetricPreference::Session);
         let snapshot = fake_snapshot_with("cursor", "Cursor", 15.0, Some(40.0), None, None);
         let (primary, secondary) = selected_tray_percents(&snapshot, &settings);
@@ -1069,7 +1076,7 @@ mod tests {
     }
     #[test]
     fn informational_primary_skips_session_and_automatic_phantom_zero() {
-        let mut settings = Settings::default();
+        let mut settings = used_view_settings();
         settings.set_provider_metric(ProviderId::Claude, MetricPreference::Session);
         let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), None, None);
         snapshot.primary.is_informational = true;
@@ -1085,7 +1092,7 @@ mod tests {
     }
     #[test]
     fn claude_automatic_prefers_weekly_when_model_exhausted() {
-        let settings = Settings::default();
+        let settings = used_view_settings();
         let mut snapshot = fake_snapshot_with("claude", "Claude", 40.0, Some(22.0), None, None);
         snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
             used_percent: 100.0,
@@ -1112,7 +1119,7 @@ mod tests {
     }
     #[test]
     fn automatic_prefers_exhausted_weekly_over_low_session() {
-        let settings = Settings::default();
+        let settings = used_view_settings();
         let snapshot = fake_snapshot_with("codex", "Codex", 20.0, Some(100.0), None, None);
         let (primary, _) = selected_tray_percents(&snapshot, &settings);
         assert_eq!(primary, 100.0);
@@ -1124,7 +1131,7 @@ mod tests {
     }
     #[test]
     fn automatic_picks_highest_among_model_and_extra_windows() {
-        let settings = Settings::default();
+        let settings = used_view_settings();
         let mut snapshot =
             fake_snapshot_with("gemini", "Gemini", 10.0, Some(30.0), Some(40.0), None);
         snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {

@@ -605,8 +605,8 @@ impl Default for Settings {
             menu_bar_shows_highest_usage: false,
             menu_bar_shows_percent: false,
             menu_bar_color_pace: false,
-            show_as_used: true,        // Show as "used" by default
-            enable_animations: true,   // Animations enabled by default
+            show_as_used: false,     // "% left"; a saved file keeps its own value
+            enable_animations: true, // Animations enabled by default
             reset_time_relative: true, // Show relative times by default
             show_reset_when_exhausted: false,
             predictive_pace_warning_enabled: false,
