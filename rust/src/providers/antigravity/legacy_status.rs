@@ -13,10 +13,6 @@ pub(crate) struct UserStatusResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UserStatus {
-    #[allow(
-        dead_code,
-        reason = "field mirrors the Antigravity API user payload; deserialized for round-trip fidelity but not read yet"
-    )]
     email: Option<String>,
     plan_status: Option<PlanStatus>,
     user_tier: Option<UserTier>,
@@ -224,9 +220,14 @@ fn model_window_id(config: &ModelConfig) -> String {
         .as_deref()
         .or(config.id.as_deref())
         .unwrap_or_else(|| model_label(config));
-    let raw = canonical_model_id(raw);
-    let slug = raw
-        .chars()
+    let slug = slug(canonical_model_id(raw));
+    format!("model-{}", if slug.is_empty() { "unknown" } else { &slug })
+}
+
+/// Lowercase ASCII alphanumerics; every other character becomes `-`, and
+/// leading or trailing dashes are dropped.
+pub(super) fn slug(raw: &str) -> String {
+    raw.chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() {
                 ch.to_ascii_lowercase()
@@ -236,8 +237,7 @@ fn model_window_id(config: &ModelConfig) -> String {
         })
         .collect::<String>()
         .trim_matches('-')
-        .to_string();
-    format!("model-{}", if slug.is_empty() { "unknown" } else { &slug })
+        .to_string()
 }
 
 fn rate_window_from_quota(quota: &QuotaInfo) -> RateWindow {

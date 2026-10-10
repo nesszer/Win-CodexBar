@@ -17,7 +17,7 @@ mod local_step_resolver;
 mod offline_reason;
 mod quota_summary;
 
-use legacy_status::{UserStatus, UserStatusResponse};
+use legacy_status::UserStatusResponse;
 use offline_reason::LiveFailure;
 
 #[cfg(windows)]
@@ -467,7 +467,7 @@ impl AntigravityProvider {
         .await?;
         let response: UserStatusResponse = serde_json::from_slice(&bytes)
             .map_err(|e| ProviderError::Parse(format!("Failed to parse response: {e}")))?;
-        let usage = self.parse_user_status(response)?;
+        let usage = legacy_status::parse_user_status(response)?;
         Ok(Self::fetch_result(usage, AntigravityStrategyId::Local))
     }
 
@@ -837,17 +837,6 @@ impl AntigravityProvider {
             status.as_u16(),
             ProviderError::Other(format!("API error {status}: {text}")),
         ))
-    }
-
-    fn resolve_plan_name(status: &UserStatus) -> Option<String> {
-        legacy_status::resolve_plan_name(status)
-    }
-
-    fn parse_user_status(
-        &self,
-        response: UserStatusResponse,
-    ) -> Result<UsageSnapshot, ProviderError> {
-        legacy_status::parse_user_status(response)
     }
 }
 

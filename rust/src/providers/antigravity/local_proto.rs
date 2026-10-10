@@ -127,11 +127,6 @@ fn identity_text(field: Field<'_>) -> Option<Option<String>> {
     Some((!value.trim().is_empty()).then(|| value.to_string()))
 }
 
-fn auxiliary_text(field: Field<'_>) -> Result<Option<String>, ()> {
-    let value = std::str::from_utf8(message(field).ok_or(())?).map_err(|_| ())?;
-    Ok((!value.trim().is_empty()).then(|| value.to_string()))
-}
-
 #[derive(Debug, Default)]
 struct AuxiliaryIdentifier {
     value: Option<String>,
@@ -150,12 +145,9 @@ impl AuxiliaryIdentifier {
         if !self.valid {
             return;
         }
-        match auxiliary_text(field) {
-            Ok(value) => self.value = value,
-            Err(()) => {
-                self.value = None;
-                self.valid = false;
-            }
+        match identity_text(field) {
+            Some(value) => self.value = value,
+            None => self.invalidate(),
         }
     }
 
@@ -165,11 +157,20 @@ impl AuxiliaryIdentifier {
     }
 }
 
+/// Positive and no later than 9999-12-31T23:59:59Z.
+fn valid_seconds(seconds: u64) -> bool {
+    seconds != 0 && seconds <= 253_402_300_799
+}
+
+fn valid_nanos(nanos: u64) -> bool {
+    nanos <= 999_999_999
+}
+
 fn timestamp_millis(seconds: Option<u64>, nanos: u64) -> Option<Option<i64>> {
     let Some(seconds) = seconds else {
         return Some(None);
     };
-    if seconds == 0 || seconds > 253_402_300_799 || nanos > 999_999_999 {
+    if !valid_seconds(seconds) || !valid_nanos(nanos) {
         return None;
     }
     let seconds = i64::try_from(seconds).ok()?;
@@ -302,20 +303,8 @@ fn parse_generation(bytes: &[u8], seconds: &mut Option<u64>, nanos: &mut u64) ->
 fn parse_timestamp_field(bytes: &[u8], seconds: &mut Option<u64>, nanos: &mut u64) -> Option<()> {
     fields(bytes, |stamp| {
         match stamp.number {
-            1 => {
-                let value = integer(stamp)?;
-                if value == 0 || value > 253_402_300_799 {
-                    return None;
-                }
-                *seconds = Some(value);
-            }
-            2 => {
-                let value = integer(stamp)?;
-                if value > 999_999_999 {
-                    return None;
-                }
-                *nanos = value;
-            }
+            1 => *seconds = Some(integer(stamp).filter(|value| valid_seconds(*value))?),
+            2 => *nanos = integer(stamp).filter(|value| valid_nanos(*value))?,
             _ => {}
         }
         Some(())

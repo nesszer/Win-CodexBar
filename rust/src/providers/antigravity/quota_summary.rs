@@ -2,6 +2,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
+use super::legacy_status::slug;
 use crate::core::{NamedRateWindow, ProviderError, RateWindow, UsageSnapshot};
 
 const WINDOW_ID_PREFIX: &str = "antigravity-quota-summary-";
@@ -287,49 +288,35 @@ fn most_constrained_named(windows: &[NamedRateWindow], minutes: u32) -> Option<&
         })
 }
 
-fn group_rank(group: &QuotaSummaryGroup) -> u8 {
-    let title = group
-        .display_name
-        .as_deref()
-        .or(group.name.as_deref())
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if title.contains("gemini") {
+/// The group's trimmed name and its rank: 0 for Gemini, 1 for Claude/GPT,
+/// 2 for everything else.
+fn group_family(group: &QuotaSummaryGroup) -> (Option<&str>, u8) {
+    let title = non_empty(group.display_name.as_deref().or(group.name.as_deref()));
+    let lower = title.unwrap_or_default().to_ascii_lowercase();
+    let rank = if lower.contains("gemini") {
         0
-    } else if title.contains("claude") || title.contains("gpt") {
+    } else if lower.contains("claude") || lower.contains("gpt") {
         1
     } else {
         2
-    }
+    };
+    (title, rank)
+}
+
+fn group_rank(group: &QuotaSummaryGroup) -> u8 {
+    group_family(group).1
 }
 
 fn group_title(group: &QuotaSummaryGroup) -> String {
-    let title =
-        non_empty(group.display_name.as_deref().or(group.name.as_deref())).unwrap_or("Quota");
-    let lower = title.to_ascii_lowercase();
-    if lower.contains("gemini") {
-        "Gemini".into()
-    } else if lower.contains("claude") || lower.contains("gpt") {
-        "Claude/GPT".into()
-    } else {
-        title.to_string()
+    match group_family(group) {
+        (_, 0) => "Gemini".into(),
+        (_, 1) => "Claude/GPT".into(),
+        (title, _) => title.unwrap_or("Quota").to_string(),
     }
 }
 
 fn group_scope(group: &QuotaSummaryGroup) -> String {
-    group_title(group)
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string()
+    slug(&group_title(group))
 }
 
 fn bucket_kind(bucket: &QuotaSummaryBucket) -> BucketKind {

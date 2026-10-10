@@ -37,7 +37,7 @@ pub(super) fn configured_tokscale_sessions(home: &Path) -> PathBuf {
     tokscale_sessions_from_values(home, tokscale.as_deref())
 }
 
-fn clean_env_path(value: Option<&str>) -> Option<PathBuf> {
+pub(super) fn clean_env_path(value: Option<&str>) -> Option<PathBuf> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())

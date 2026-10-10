@@ -9,13 +9,6 @@ use chrono::{DateTime, Utc};
 
 use crate::spend_contract::{LocalHistoryCoverage, LocalTokenHistorySummary};
 
-fn clean_env_path(value: Option<&str>) -> Option<PathBuf> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-}
-
 fn configured_database_roots(home: &Path) -> [PathBuf; 3] {
     let gemini_cli_home = std::env::var("GEMINI_CLI_HOME").ok();
     configured_database_roots_from_values(home, gemini_cli_home.as_deref())
@@ -25,7 +18,8 @@ fn configured_database_roots_from_values(
     home: &Path,
     gemini_cli_home: Option<&str>,
 ) -> [PathBuf; 3] {
-    let gemini_base = clean_env_path(gemini_cli_home).unwrap_or_else(|| home.join(".gemini"));
+    let gemini_base =
+        local_sessions::clean_env_path(gemini_cli_home).unwrap_or_else(|| home.join(".gemini"));
     local_sqlite::database_roots(&gemini_base)
 }
 

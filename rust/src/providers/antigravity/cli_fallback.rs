@@ -144,13 +144,15 @@ pub(super) async fn managed_spawn_is_csrf_gated(binary: Option<PathBuf>) -> bool
     let Some(binary) = binary else {
         return false;
     };
-    let Ok(version) =
-        run_cli_command(&binary, &VERSION_ARGS, VERSION_TIMEOUT, VERSION_TOO_LARGE).await
-    else {
-        return false;
-    };
-    let version = String::from_utf8_lossy(&version);
-    is_csrf_gated_version(version.trim())
+    agy_version(&binary, VERSION_TIMEOUT)
+        .await
+        .is_ok_and(|version| is_csrf_gated_version(&version))
+}
+
+/// `agy --version` output, trimmed.
+async fn agy_version(binary: &Path, timeout: Duration) -> Result<String, LiveFailure> {
+    let version = run_cli_command(binary, &VERSION_ARGS, timeout, VERSION_TOO_LARGE).await?;
+    Ok(String::from_utf8_lossy(&version).trim().to_string())
 }
 
 async fn fetch_print_usage(binary: &Path) -> Result<ProviderFetchResult, LiveFailure> {
@@ -161,10 +163,7 @@ async fn fetch_print_usage_with_version_timeout(
     binary: &Path,
     version_timeout: Duration,
 ) -> Result<ProviderFetchResult, LiveFailure> {
-    let version =
-        run_cli_command(binary, &VERSION_ARGS, version_timeout, VERSION_TOO_LARGE).await?;
-    let version = String::from_utf8_lossy(&version);
-    if !is_supported_version(version.trim()) {
+    if !is_supported_version(&agy_version(binary, version_timeout).await?) {
         return Err(ProviderError::Parse(
             "Antigravity CLI usage reports require agy 1.1.11 or later".into(),
         )

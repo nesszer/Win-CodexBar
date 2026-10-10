@@ -1,4 +1,7 @@
-use super::legacy_status::{ModelFamily, canonical_model_id, classify_model};
+use super::legacy_status::{
+    ModelFamily, UserStatus, canonical_model_id, classify_model, parse_user_status,
+    resolve_plan_name,
+};
 use super::*;
 use std::sync::{
     Arc,
@@ -127,9 +130,7 @@ fn unselected_model_window_ids_are_lowercase_ascii_slugs() {
         }
     }))
     .unwrap();
-    let snap = AntigravityProvider::new()
-        .parse_user_status(response)
-        .unwrap();
+    let snap = parse_user_status(response).unwrap();
     let mut ids: Vec<_> = snap
         .extra_rate_windows
         .iter()
@@ -267,7 +268,7 @@ fn antigravity_extra_windows_preserve_usage_known() {
         }
     });
     let resp: UserStatusResponse = serde_json::from_value(json).unwrap();
-    let snap = AntigravityProvider::new().parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
     let claude = snap
         .extra_rate_windows
         .iter()
@@ -284,8 +285,7 @@ fn test_parse_user_status_standard() {
         ("Gemini 2.5 Pro Low", 0.5),
         ("Gemini 2.5 Flash", 0.9),
     ]);
-    let provider = AntigravityProvider::new();
-    let snap = provider.parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
 
     assert!((snap.primary.used_percent - 20.0).abs() < 0.1);
     let sec = snap.secondary.unwrap();
@@ -303,8 +303,7 @@ fn antigravity_extra_windows_preserve_all_unselected_configs() {
         ("Mistral Large", 0.6),
         ("Qwen Max", 0.6),
     ]);
-    let provider = AntigravityProvider::new();
-    let snap = provider.parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
 
     assert_eq!(snap.extra_rate_windows.len(), 3);
     assert!(
@@ -331,8 +330,7 @@ fn test_parse_user_status_thinking_skipped() {
         ("Claude 3.5 Sonnet", 0.7),
         ("Gemini 2.5 Flash", 0.5),
     ]);
-    let provider = AntigravityProvider::new();
-    let snap = provider.parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
 
     assert!((snap.primary.used_percent - 30.0).abs() < 0.1);
 }
@@ -340,8 +338,7 @@ fn test_parse_user_status_thinking_skipped() {
 #[test]
 fn test_parse_user_status_fallback_first() {
     let resp = make_response(vec![("GPT-4o", 0.4), ("Mistral Large", 0.6)]);
-    let provider = AntigravityProvider::new();
-    let snap = provider.parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
 
     assert!((snap.primary.used_percent - 60.0).abs() < 0.1);
     assert!(snap.secondary.is_none());
@@ -358,8 +355,7 @@ fn test_noisy_models_do_not_drive_summary_windows() {
         ("Gemini 2.5 Pro Low", 0.6),
         ("Gemini 2.5 Flash", 0.7),
     ]);
-    let provider = AntigravityProvider::new();
-    let snap = provider.parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
 
     assert!((snap.primary.used_percent - 20.0).abs() < 0.1);
     assert!((snap.secondary.unwrap().used_percent - 40.0).abs() < 0.1);
@@ -570,8 +566,7 @@ fn multiple_unselected_models_with_same_reading_remain_visible() {
         ("Mistral Large", 0.8),
         ("Qwen Max", 0.8),
     ]);
-    let provider = AntigravityProvider::new();
-    let snap = provider.parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
     assert_eq!(
         snap.extra_rate_windows.len(),
         2,
@@ -586,8 +581,7 @@ fn models_in_distinct_quota_buckets_keep_separate_lanes() {
         ("Claude 4 Sonnet", 0.7),
         ("Gemini 2.5 Pro Low", 0.5),
     ]);
-    let provider = AntigravityProvider::new();
-    let snap = provider.parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
     assert_eq!(snap.extra_rate_windows.len(), 1);
 }
 
@@ -888,7 +882,7 @@ fn user_tier_resolves_google_ai_ultra_plan_name() {
         }
     });
     let resp: UserStatusResponse = serde_json::from_value(json).unwrap();
-    let snap = AntigravityProvider::new().parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
     assert_eq!(snap.login_method.as_deref(), Some("Google AI Ultra"));
     assert_eq!(snap.account_email.as_deref(), Some("user@example.com"));
 }
@@ -914,7 +908,7 @@ fn user_status_falls_back_to_plan_status_when_user_tier_is_absent() {
         }
     });
     let resp: UserStatusResponse = serde_json::from_value(json).unwrap();
-    let snap = AntigravityProvider::new().parse_user_status(resp).unwrap();
+    let snap = parse_user_status(resp).unwrap();
     assert_eq!(snap.login_method.as_deref(), Some("Pro"));
 }
 
@@ -929,7 +923,7 @@ fn plan_name_fallback_skips_blank_user_tier_name() {
     .unwrap();
 
     assert_eq!(
-        AntigravityProvider::resolve_plan_name(&status).as_deref(),
+        resolve_plan_name(&status).as_deref(),
         Some("Google AI Ultra")
     );
 }
@@ -946,8 +940,5 @@ fn plan_name_fallback_skips_blank_display_name() {
     }))
     .unwrap();
 
-    assert_eq!(
-        AntigravityProvider::resolve_plan_name(&status).as_deref(),
-        Some("Pro")
-    );
+    assert_eq!(resolve_plan_name(&status).as_deref(), Some("Pro"));
 }
