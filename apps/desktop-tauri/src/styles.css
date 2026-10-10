@@ -3804,10 +3804,6 @@ html:has(.menu-surface--tray) {
 .menu-surface--tray .menu-metric__detail {
   font-size: 10px;
 }
-.menu-surface--tray .menu-metric__reserve {
-  margin-top: 0;
-  font-size: 10px;
-}
 /* Secondary charts and pace are available inside the Usage details disclosure. */
 .menu-surface--tray .menu-card__local-grid {
   gap: 9px 20px;
@@ -4445,10 +4441,6 @@ html:has(.menu-surface--tray) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.menu-metric__reserve {
-  opacity: 0.7;
-  font-size: 10px;
 }
 
 .menu-metric__budget {
