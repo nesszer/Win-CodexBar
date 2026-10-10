@@ -6,11 +6,6 @@
 //! - Manual cookies
 //! - Other user preferences
 
-#![allow(
-    dead_code,
-    reason = "settings types mirror the full config schema; some fields are not yet consumed"
-)]
-
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};

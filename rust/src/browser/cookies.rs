@@ -3,11 +3,6 @@
 //! Chromium browsers store cookies in an SQLite database encrypted with DPAPI.
 //! Firefox stores cookies in an unencrypted SQLite database.
 
-#![allow(
-    dead_code,
-    reason = "the cookie API surface is shared across providers and cfg-split Windows/WSLS code paths, so individual helpers are reached only from their own browser/provider callers"
-)]
-
 use std::path::Path;
 
 use aes_gcm::{

@@ -3,11 +3,6 @@
 //! Executes interactive CLI commands using the platform pseudo-console.
 //! Provides PTY-like functionality for capturing output from interactive TUI programs.
 
-#![allow(
-    dead_code,
-    reason = "TTY runner types reserved for future interactive session management"
-)]
-
 use super::tty_responder::{ResponderState, ScreenResponder};
 use crate::process_environment::ProcessEnvironment;
 use regex_lite::Regex;

@@ -14,10 +14,6 @@ pub enum UsageLevel {
     /// 95-100% used - red
     Critical,
     /// Unknown/error state - gray
-    #[allow(
-        dead_code,
-        reason = "tray icon types reserved for future system tray integration"
-    )]
     Unknown,
 }
 

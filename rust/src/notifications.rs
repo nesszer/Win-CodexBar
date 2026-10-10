@@ -2,11 +2,6 @@
 //!
 //! Provides Windows toast notifications for usage alerts
 
-#![allow(
-    dead_code,
-    reason = "notification helpers are reserved for future alert integration"
-)]
-
 use crate::core::ProviderId;
 use crate::core::{RateWindow, UsagePace};
 use crate::locale::{self, LocaleKey};
@@ -623,7 +618,7 @@ impl Default for NotificationManager {
 /// `CreateToastNotifier("CodexBar")` resolves to a valid notifier instead of returning
 /// null.  Must be called at least once before the first toast.  Safe to call multiple
 /// times (idempotent registry write).
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(test)))]
 fn ensure_aumid_registered() {
     use winreg::RegKey;
     use winreg::enums::*;

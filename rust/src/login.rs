@@ -2,11 +2,6 @@
 //!
 //! Runs CLI login commands and captures output/URLs
 
-#![allow(
-    dead_code,
-    reason = "login flow types reserved for future session management integration"
-)]
-
 use regex_lite::Regex;
 use std::io::{BufRead, BufReader, Read};
 #[cfg(windows)]

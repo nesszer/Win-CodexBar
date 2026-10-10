@@ -4,11 +4,6 @@
 //! On Windows, uses standard process spawning with output capture.
 //! Designed for running interactive CLI tools like `codex` and `claude`.
 
-#![allow(
-    dead_code,
-    reason = "command runner types reserved for future host management integration"
-)]
-
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 #[cfg(windows)]

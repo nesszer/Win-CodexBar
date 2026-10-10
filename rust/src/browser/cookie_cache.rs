@@ -5,13 +5,6 @@
 //! are session secrets, so they are written through `secure_file` (DPAPI on
 //! Windows, staged and published atomically) rather than as plaintext.
 
-// The cache API is currently unused by the crate (reserved for provider
-// cookie reuse), so every public item would trip dead_code.
-#![allow(
-    dead_code,
-    reason = "module reserved: CookieHeaderCache has no callers yet"
-)]
-
 use crate::core::ProviderId;
 use crate::secure_file;
 use chrono::{DateTime, Utc};

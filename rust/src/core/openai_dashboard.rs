@@ -2,14 +2,6 @@
 //!
 //! Data structures for OpenAI/Codex dashboard usage breakdown and credits tracking.
 
-// Serde data model mirroring the OpenAI dashboard payload plus its cache
-// store; several fields and helpers have no consumer yet but must survive
-// (de)serialization round-trips.
-#![allow(
-    dead_code,
-    reason = "dashboard snapshot fields mirror the upstream OpenAI payload; not all are consumed yet"
-)]
-
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

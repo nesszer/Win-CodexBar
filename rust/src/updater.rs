@@ -36,15 +36,7 @@ pub struct UpdateInfo {
     pub version: String,
     pub download_url: String,
     pub expected_sha256: Option<String>,
-    #[allow(
-        dead_code,
-        reason = "update metadata fields are deserialized for version comparison but not all are read"
-    )]
     pub release_url: String,
-    #[allow(
-        dead_code,
-        reason = "update metadata fields are deserialized for version comparison but not all are read"
-    )]
     pub release_notes: String,
     pub delivery: UpdateDelivery,
 }
@@ -67,12 +59,6 @@ struct GitHubRelease {
     assets: Vec<GitHubAsset>,
     #[serde(default)]
     draft: bool,
-    #[serde(default)]
-    #[allow(
-        dead_code,
-        reason = "update metadata fields are deserialized for version comparison but not all are read"
-    )]
-    prerelease: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,10 +73,6 @@ struct GitHubAsset {
 ///
 /// When `channel` is `UpdateChannel::Beta`, includes pre-release versions.
 /// When `channel` is `UpdateChannel::Stable`, only considers stable releases.
-#[allow(
-    dead_code,
-    reason = "update check response fields are deserialized for parsing but not all are read"
-)]
 pub async fn check_for_updates() -> Option<UpdateInfo> {
     check_for_updates_with_channel(UpdateChannel::Stable).await
 }
@@ -614,7 +596,6 @@ mod tests {
                 },
             ],
             draft: false,
-            prerelease: false,
         };
 
         let update = select_release_target(&release).expect("update target");
@@ -639,7 +620,6 @@ mod tests {
                 digest: None,
             }],
             draft: false,
-            prerelease: false,
         };
 
         let update = select_release_target(&release).expect("update target");
