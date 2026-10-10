@@ -9,6 +9,54 @@ impl CostUsagePricing {
             .get(key.as_str())
             .and_then(|p| p.display_label)
     }
+
+    /// Format model name for display (e.g., "claude-3.5-sonnet" → "Sonnet 3.5")
+    fn format_model_name(model: &str) -> String {
+        let lower = model.to_lowercase();
+
+        // GPT models: format as "GPT-{version}[ Mini| Nano]"
+        if lower.contains("gpt-") {
+            let version = regex_lite::Regex::new(r"gpt-(\d+(?:\.\d+)?)")
+                .ok()
+                .and_then(|re| re.captures(&lower))
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string());
+
+            let suffix = if lower.contains("nano") {
+                " Nano"
+            } else if lower.contains("mini") {
+                " Mini"
+            } else {
+                ""
+            };
+
+            return match version {
+                Some(v) => format!("GPT-{}{}", v, suffix),
+                None => model.to_string(),
+            };
+        }
+
+        // Claude models: extract version and family
+        let version = regex_lite::Regex::new(r"(\d+(?:\.\d+)?)")
+            .ok()
+            .and_then(|re| re.find(&lower))
+            .map(|m| m.as_str().to_string());
+
+        let family = if lower.contains("opus") {
+            "Opus"
+        } else if lower.contains("sonnet") {
+            "Sonnet"
+        } else if lower.contains("haiku") {
+            "Haiku"
+        } else {
+            return model.to_string();
+        };
+
+        match version {
+            Some(v) => format!("{} {}", family, v),
+            None => family.to_string(),
+        }
+    }
 }
 
 #[test]
