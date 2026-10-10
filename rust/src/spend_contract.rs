@@ -894,37 +894,21 @@ fn merge_coverage(
 }
 
 fn merge_token_mix(mut left: SpendTokenMix, right: &SpendTokenMix) -> SpendTokenMix {
-    left.overflowed_classes |= right.overflowed_classes;
-    left.input_tokens = merge_token_class(
-        left.input_tokens,
-        right.input_tokens,
-        &mut left.overflowed_classes,
-        1 << 0,
-    );
-    left.output_tokens = merge_token_class(
-        left.output_tokens,
-        right.output_tokens,
-        &mut left.overflowed_classes,
-        1 << 1,
-    );
-    left.cache_read_tokens = merge_token_class(
-        left.cache_read_tokens,
-        right.cache_read_tokens,
-        &mut left.overflowed_classes,
-        1 << 2,
-    );
-    left.cache_creation_tokens = merge_token_class(
-        left.cache_creation_tokens,
-        right.cache_creation_tokens,
-        &mut left.overflowed_classes,
-        1 << 3,
-    );
-    left.reasoning_tokens = merge_token_class(
-        left.reasoning_tokens,
-        right.reasoning_tokens,
-        &mut left.overflowed_classes,
-        1 << 4,
-    );
+    let mut overflowed_classes = left.overflowed_classes | right.overflowed_classes;
+    for (bit, merged, incoming) in [
+        (0, &mut left.input_tokens, right.input_tokens),
+        (1, &mut left.output_tokens, right.output_tokens),
+        (2, &mut left.cache_read_tokens, right.cache_read_tokens),
+        (
+            3,
+            &mut left.cache_creation_tokens,
+            right.cache_creation_tokens,
+        ),
+        (4, &mut left.reasoning_tokens, right.reasoning_tokens),
+    ] {
+        *merged = merge_token_class(*merged, incoming, &mut overflowed_classes, 1 << bit);
+    }
+    left.overflowed_classes = overflowed_classes;
     left
 }
 
