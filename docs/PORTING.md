@@ -130,7 +130,7 @@ Hosted CI and review granularity are intentionally different:
 New or materially changed provider — touch the full registration path:
 
 1. Provider module — `rust/src/providers/<name>/` (parse, auth, `fetch_usage`)
-2. `ProviderId` — `rust/src/core/provider.rs` (`cli_name`, display, cookie domain, …)
+2. `ProviderId` — `rust/src/core/provider/id.rs`, plus its row in `rust/src/core/provider/spec.rs` (`cli_name`, display, cookie domain, …)
 3. Factory arm — `rust/src/core/provider_factory.rs` (exhaustive match)
 4. Token accounts / multi-account plumbing if the provider uses it
 5. Frontend catalog — `providerIcons` / `providerCatalog` (and any settings

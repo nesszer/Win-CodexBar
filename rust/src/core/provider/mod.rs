@@ -1,4 +1,4 @@
-//! Provider trait - defines the interface all providers must implement
+//! Provider identity (`ProviderId` + spec table), fetch context, errors and the `Provider` trait
 
 mod context;
 mod error;

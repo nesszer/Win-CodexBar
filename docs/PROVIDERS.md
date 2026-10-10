@@ -11,7 +11,7 @@ All shells and the CLI construct providers through:
 codexbar::core::instantiate_provider  →  rust/src/core/provider_factory.rs
 ```
 
-`ProviderId` lives in `rust/src/core/provider.rs`. The factory match is **exhaustive** (missing arm = compile error). Tests ensure every id instantiates.
+`ProviderId` lives in `rust/src/core/provider/id.rs`; its names, aliases, brand color and metadata are one row in `rust/src/core/provider/spec.rs`. The factory match is **exhaustive** (missing arm = compile error). Tests ensure every id instantiates.
 
 **Never** duplicate provider factories in the Tauri shell or ad-hoc commands.
 
@@ -243,7 +243,7 @@ The provider calls `GET /key/info`, then `GET /user/info?user_id=…` for a user
 
 Upstream `docs/providers.md` is a large auto-strategy matrix (60+ providers) for the macOS app. Use it as **inspiration** when porting a provider. For runtime truth on Windows:
 
-1. `rust/src/core/provider.rs` (`ProviderId`)
+1. `rust/src/core/provider/id.rs` (`ProviderId`) and `rust/src/core/provider/spec.rs` (its spec row)
 2. `rust/src/providers/<id>/`
 3. `codexbar usage -p <id> -v` / desktop provider detail errors
 
