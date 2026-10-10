@@ -10,11 +10,13 @@ mod fetch_helpers;
 mod render;
 
 use fetch_helpers::{fetch_provider_json_output, fetch_provider_text_output};
+#[cfg(test)]
+use render::render_text;
 pub(super) use render::{
     append_status_line, format_percent, render_status_indicator, render_text_error,
 };
 use render::{is_terminal, print_usage_output};
-pub use render::{render_brief_text, render_text, render_text_with_status};
+pub use render::{render_brief_text, render_text_with_status};
 
 pub(super) enum UsageOutput {
     Text(Vec<String>),

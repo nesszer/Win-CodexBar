@@ -526,7 +526,12 @@ fn format_token_count(tokens: u64) -> String {
 }
 
 /// Render usage as text (backwards compatible version)
-pub fn render_text(provider: ProviderId, result: &ProviderFetchResult, use_color: bool) -> String {
+#[cfg(test)]
+pub(super) fn render_text(
+    provider: ProviderId,
+    result: &ProviderFetchResult,
+    use_color: bool,
+) -> String {
     render_text_with_status(provider, result, None, use_color)
 }
 

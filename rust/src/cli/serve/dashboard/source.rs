@@ -93,7 +93,7 @@ impl SnapshotProducer {
         for (index, provider_id) in provider_ids.iter().enumerate() {
             let provider_id = *provider_id;
             let fetch_timeout = self.fetch_timeout;
-            let mut ctx = provider_fetch_context();
+            let mut ctx = FetchContext::default();
             populate_api_region_from_settings(provider_id, &settings, &mut ctx);
             set.spawn(async move {
                 (
@@ -163,28 +163,6 @@ async fn fetch_provider_envelope(
         session_label: metadata.session_label.to_string(),
         weekly_label: metadata.weekly_label.to_string(),
         fetch,
-    }
-}
-
-fn provider_fetch_context() -> FetchContext {
-    FetchContext {
-        source_mode: SourceMode::Auto,
-        include_credits: true,
-        web_timeout: 60,
-        verbose: false,
-        manual_cookie_header: None,
-        manual_cookie_missing: false,
-        api_key: None,
-        token_account_kind: None,
-        token_account_isolated: false,
-        workspace_id: None,
-        seat_credit_entitlement: None,
-        api_region: None,
-        gateway_url: None,
-        auto_prefer_web: false,
-        browser_cookie_import: false,
-        requires_optional_usage_completeness: false,
-        optional_details_enabled: false,
     }
 }
 
