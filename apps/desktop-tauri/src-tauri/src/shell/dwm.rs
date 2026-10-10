@@ -89,15 +89,6 @@ unsafe extern "system" {
 }
 
 #[cfg(windows)]
-#[link(name = "gdi32")]
-unsafe extern "system" {
-    fn CreateSolidBrush(color: u32) -> isize;
-}
-
-#[cfg(windows)]
-static DARK_BRUSH: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
-
-#[cfg(windows)]
 const WM_NCCALCSIZE: u32 = 0x0083;
 #[cfg(windows)]
 const WM_NCPAINT: u32 = 0x0085;
@@ -204,6 +195,12 @@ impl Chrome {
     fn border_color(self) -> Option<u32> {
         (self == Self::LightPanel).then_some(PANEL_HAIRLINE)
     }
+
+    /// Value for `DWMWA_USE_IMMERSIVE_DARK_MODE`. `None` leaves the title bar
+    /// on the light theme, which the tray flyout uses.
+    fn immersive_dark_mode(self) -> Option<u32> {
+        (self != Self::LightPanel).then_some(1)
+    }
 }
 
 /// Eliminate the DWM caption bar by subclassing the window to zero the
@@ -246,23 +243,25 @@ fn apply_chrome(win: &tauri::WebviewWindow, chrome: Chrome) {
 
     const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
     const DWMWA_CAPTION_COLOR: u32 = 35;
-    let dark_mode: u32 = 1;
     let caption_color: u32 = 0x001C1C1E;
 
     unsafe {
-        let r1 = DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
-            &raw const dark_mode as *const c_void,
-            4,
-        );
+        if let Some(dark_mode) = chrome.immersive_dark_mode() {
+            let r1 = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_IMMERSIVE_DARK_MODE,
+                &raw const dark_mode as *const c_void,
+                4,
+            );
+            tracing::info!("dwm: dark_mode={r1:#x}");
+        }
         let r2 = DwmSetWindowAttribute(
             hwnd,
             DWMWA_CAPTION_COLOR,
             &raw const caption_color as *const c_void,
             4,
         );
-        tracing::info!("dwm: dark_mode={r1:#x} caption_color={r2:#x}");
+        tracing::info!("dwm: caption_color={r2:#x}");
 
         const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
         const DWMWA_BORDER_COLOR: u32 = 34;
@@ -299,13 +298,6 @@ fn apply_chrome(win: &tauri::WebviewWindow, chrome: Chrome) {
         // Install subclass proc (safe for multiple windows)
         let ok = SetWindowSubclass(hwnd, borderless_subclass_proc, BORDERLESS_SUBCLASS_ID, 0);
         tracing::info!("dwm: subclass installed={ok}");
-
-        // Set background brush to dark (reuse a single GDI brush)
-        const GCL_HBRBACKGROUND: i32 = -10;
-        let brush = *DARK_BRUSH.get_or_init(|| CreateSolidBrush(0x001C1C1E));
-        if brush != 0 {
-            SetWindowLongPtrW(hwnd, GCL_HBRBACKGROUND, brush);
-        }
 
         // Remove WS_CAPTION; only strip WS_THICKFRAME for non-resizable windows
         const GWL_STYLE: i32 = -16;
@@ -373,6 +365,13 @@ mod tests {
         assert_eq!(Chrome::Dark.border_color(), None);
         assert_eq!(Chrome::DarkResizable.corner_preference(), None);
         assert_eq!(Chrome::DarkResizable.border_color(), None);
+    }
+
+    #[test]
+    fn only_the_dark_surfaces_request_immersive_dark_mode() {
+        assert_eq!(Chrome::Dark.immersive_dark_mode(), Some(1));
+        assert_eq!(Chrome::DarkResizable.immersive_dark_mode(), Some(1));
+        assert_eq!(Chrome::LightPanel.immersive_dark_mode(), None);
     }
 
     #[test]
