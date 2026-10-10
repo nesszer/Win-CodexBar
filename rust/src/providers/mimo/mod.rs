@@ -394,7 +394,11 @@ mod tests {
     #[test]
     fn mimo_token_percent_fraction_is_scaled_to_percentage() {
         let snapshot = snapshot_with_usage(usage_response(PACK_USAGE_JSON));
-        assert!((snapshot.primary.used_percent - 37.0).abs() < 1e-9);
+        assert_eq!(snapshot.primary.used_percent, 37.0);
+        assert_eq!(
+            snapshot.primary.reset_description.as_deref(),
+            Some("370000/1000000 tokens")
+        );
     }
 
     #[test]
