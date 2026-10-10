@@ -543,19 +543,11 @@ fn snapshot_from_parsed(parsed: ParsedUsage) -> ProviderFetchResult {
         }
         Kind::Unknown => {
             // Prefer any totals over a blank "No quota data" row.
-            if let Some(today) = &parsed.today {
-                UsageSnapshot::new(RateWindow::informational(totals_description(
-                    today,
-                    &parsed.unit,
-                )))
-            } else if let Some(total) = &parsed.total {
-                UsageSnapshot::new(RateWindow::informational(totals_description(
-                    total,
-                    &parsed.unit,
-                )))
-            } else {
-                UsageSnapshot::new(RateWindow::informational("No quota data"))
-            }
+            let description = parsed.today.as_ref().or(parsed.total.as_ref()).map_or_else(
+                || "No quota data".to_string(),
+                |t| totals_description(t, &parsed.unit),
+            );
+            UsageSnapshot::new(RateWindow::informational(description))
         }
     };
 
