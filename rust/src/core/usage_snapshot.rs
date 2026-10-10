@@ -43,21 +43,33 @@ impl SubscriptionMetadata {
 }
 
 /// Provider-specific operational data reported by a Wayfinder gateway.
+///
+/// Serialized as camelCase because the frontend bridge (`WayfinderUsageSnapshot`
+/// in `bridge.ts`) reads it that way. The snake_case aliases keep earlier
+/// snake_case JSON readable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WayfinderUsageSnapshot {
+    #[serde(alias = "gateway_status")]
     pub gateway_status: String,
     pub offline: bool,
+    #[serde(alias = "dry_run")]
     pub dry_run: bool,
+    #[serde(alias = "missing_keys")]
     pub missing_keys: Vec<String>,
+    #[serde(alias = "model_count")]
     pub model_count: usize,
     pub models: Vec<String>,
     pub requests: u64,
+    #[serde(alias = "estimated_requests")]
     pub estimated_requests: u64,
     pub tokens: u64,
     pub realized: f64,
     pub baseline: f64,
     pub saved: f64,
+    #[serde(alias = "saved_percent")]
     pub saved_percent: f64,
+    #[serde(alias = "period_days")]
     pub period_days: u32,
     pub unit: String,
     pub priced: bool,
@@ -66,6 +78,7 @@ pub struct WayfinderUsageSnapshot {
 
 /// Per-route savings data reported by Wayfinder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WayfinderRouteSummary {
     pub name: String,
     pub requests: u64,
@@ -1059,5 +1072,53 @@ mod tests {
         assert_eq!(decoded.balance, Some(0.0));
         assert_eq!(decoded.balance_updated_at, Some(observed_at));
         assert_eq!(decoded.account_id.as_deref(), Some("account-1"));
+    }
+
+    #[test]
+    fn wayfinder_snapshot_still_reads_snake_case_json() {
+        let snake = serde_json::json!({
+            "gateway_status": "degraded",
+            "offline": false,
+            "dry_run": true,
+            "missing_keys": ["RIG_CLOUD_KEY"],
+            "model_count": 1,
+            "models": ["cheap-local"],
+            "requests": 12,
+            "estimated_requests": 2,
+            "tokens": 3400,
+            "realized": 0.5,
+            "baseline": 1.5,
+            "saved": 1.0,
+            "saved_percent": 66.7,
+            "period_days": 30,
+            "unit": "USD",
+            "priced": true,
+            "routes": [{
+                "name": "cheap",
+                "requests": 12,
+                "tokens": 3400,
+                "realized": 0.5,
+                "baseline": 1.5,
+                "saved": 1.0
+            }]
+        });
+
+        let decoded: WayfinderUsageSnapshot = serde_json::from_value(snake).unwrap();
+        assert_eq!(decoded.gateway_status, "degraded");
+        assert!(decoded.dry_run);
+        assert_eq!(decoded.missing_keys, ["RIG_CLOUD_KEY"]);
+        assert_eq!(decoded.model_count, 1);
+        assert_eq!(decoded.estimated_requests, 2);
+        assert_eq!(decoded.saved_percent, 66.7);
+        assert_eq!(decoded.period_days, 30);
+
+        // Re-encoding emits the camelCase shape the frontend reads, and that
+        // shape decodes back to the same values.
+        let camel = serde_json::to_value(&decoded).unwrap();
+        assert_eq!(camel["savedPercent"], 66.7);
+        assert!(camel.get("saved_percent").is_none());
+        let round_trip: WayfinderUsageSnapshot = serde_json::from_value(camel).unwrap();
+        assert_eq!(round_trip.missing_keys, decoded.missing_keys);
+        assert_eq!(round_trip.routes.len(), 1);
     }
 }
