@@ -102,6 +102,15 @@ pub(crate) fn build_fetch_context(
     let cookies_only_enrich_usage = provider.cookies_only_enrich_usage();
     let browser_cookie_import =
         cookies_only_enrich_usage && matches!(cookie_source, "auto" | "browser" | "web");
+    // #433: an explicitly selected, non-empty Claude manual cookie is
+    // authoritative. Do not let an active OAuth token account silently
+    // replace it; this keeps tray refresh behavior aligned with diagnose,
+    // whose Claude Auto path tries the supplied Web cookie before OAuth.
+    let manual_cookie_wins = cookie_source == "manual"
+        && provider.manual_cookie_precedes_token_account()
+        && stored_cookie
+            .as_deref()
+            .is_some_and(|cookie| !cookie.trim().is_empty());
     let (mut source_mode, mut cookie_header, fails_closed_without_cookie) = if id
         .cookie_domain()
         .is_none()
@@ -109,138 +118,26 @@ pub(crate) fn build_fetch_context(
         // The #725 wallet rule (#725 keeps Auto for wallet providers) folds into
         // the account-source decision; other no-cookie providers still honor
         // cookie_source below (the account-source pack's fix for the #619 merge).
-        let keeps_auto =
-            usage_source == SourceMode::Auto && provider.token_account_preserves_auto_source();
         // A wallet provider keeps its saved usage source even with a selected
         // token account: rewriting it to OAuth would skip the wallet read
         // (#725 / upstream base-source resolver).
-        if keeps_auto || active_token_env.is_none() {
-            // A wallet provider keeps its saved usage source even with a
-            // selected token account: rewriting it to OAuth would skip the
-            // wallet read (#725 / upstream base-source resolver).
-            if active_token_env.is_some() {
-                (usage_source, None, false)
-            } else {
-                match cookie_source {
-                    // #433: an explicitly selected, non-empty Claude manual cookie is
-                    // authoritative. Do not let an active OAuth token account silently
-                    // replace it; this keeps tray refresh behavior aligned with diagnose,
-                    // whose Claude Auto path tries the supplied Web cookie before OAuth.
-                    "manual"
-                        if provider.manual_cookie_precedes_token_account()
-                            && stored_cookie
-                                .as_deref()
-                                .is_some_and(|cookie| !cookie.trim().is_empty()) =>
-                    {
-                        (SourceMode::Web, stored_cookie.clone(), false)
-                    }
-                    "auto" | "browser" | "web" => (usage_source, None, false),
-                    _ => (usage_source, None, false),
-                }
-            }
+        let keeps_auto =
+            usage_source == SourceMode::Auto && provider.token_account_preserves_auto_source();
+        if active_token_env.is_some() && keeps_auto {
+            (usage_source, None, false)
+        } else if active_token_env.is_some()
+            && provider.web_is_opt_in()
+            && usage_source != SourceMode::Web
+        {
+            // Opt-in web providers keep their default credential lane
+            // unless the usage source is explicitly Web.
+            (usage_source, None, false)
+        } else if manual_cookie_wins {
+            (SourceMode::Web, stored_cookie.clone(), false)
+        } else if active_token_env.is_some() {
+            (SourceMode::OAuth, None, false)
         } else {
-            match cookie_source {
-                // Opt-in web providers keep their default credential lane
-                // unless the usage source is explicitly Web; a stored or
-                // browser cookie must not turn Auto into Web.
-                _ if provider.web_is_opt_in() && usage_source != SourceMode::Web => {
-                    (usage_source, None, false)
-                }
-                // #433: an explicitly selected, non-empty Claude manual cookie is
-                // authoritative. Do not let an active OAuth token account silently
-                // replace it; this keeps tray refresh behavior aligned with diagnose,
-                // whose Claude Auto path tries the supplied Web cookie before OAuth.
-                "manual"
-                    if provider.manual_cookie_precedes_token_account()
-                        && stored_cookie
-                            .as_deref()
-                            .is_some_and(|cookie| !cookie.trim().is_empty()) =>
-                {
-                    (SourceMode::Web, stored_cookie.clone(), false)
-                }
-                _ if active_token_env.is_some() => (SourceMode::OAuth, None, false),
-                // Charm Hyper: the cookie source only picks the session, and
-                // the usage source keeps routing. Off and an empty Manual
-                // source never import a browser session, while Auto keeps its
-                // API-key fallback.
-                "off" | "manual" if provider.cookie_source_scopes_session_only() => {
-                    let cookie_header = if cookie_source == "manual" {
-                        active_token_cookie.clone().or(stored_cookie)
-                    } else {
-                        None
-                    };
-                    let source_mode = if provider.available_sources().contains(&usage_source) {
-                        usage_source
-                    } else {
-                        SourceMode::Auto
-                    };
-                    let cookie_missing = cookie_header.is_none();
-                    (source_mode, cookie_header, cookie_missing)
-                }
-                "off" if provider_uses_oauth_without_cookies(id, usage_source) => {
-                    (SourceMode::OAuth, None, false)
-                }
-                "off"
-                    if (has_kimi_code_api_key || has_opencodego_api_key)
-                        && usage_source == SourceMode::Auto =>
-                {
-                    (SourceMode::Auto, None, false)
-                }
-                // Droid/Factory: cookie-off must never scrape browser cookies. Map to
-                // Cli (API-only in the provider) so Auto does not fall through to web.
-                "off" if id == ProviderId::Factory => (SourceMode::Cli, None, false),
-                "off" => (SourceMode::Cli, None, false),
-                "manual" => {
-                    let cookie_header = active_token_cookie.clone().or(stored_cookie);
-                    let fails_closed_without_cookie = cookie_header
-                        .as_deref()
-                        .is_none_or(|header| header.trim().is_empty())
-                        && provider.manual_empty_cookie_policy()
-                            == ManualEmptyCookiePolicy::FailClosedWeb;
-                    let source_mode = if (has_kimi_code_api_key || has_opencodego_api_key)
-                        && usage_source == SourceMode::Auto
-                    {
-                        SourceMode::Auto
-                    } else if let Some(mode) = grok_source_mode_for_manual_cookie(id, usage_source)
-                    {
-                        // Grok Switch writes ~/.grok/auth.json. Leftover grok.com
-                        // cookies must not force Web, or Weekly/notifications keep
-                        // showing the previous browser account.
-                        mode
-                    } else if cookie_header.is_some() {
-                        SourceMode::Web
-                    } else if fails_closed_without_cookie {
-                        // The provider owns this policy; Web with no header means
-                        // it fails closed instead of importing a browser account
-                        // the user did not select.
-                        SourceMode::Web
-                    } else if provider_uses_oauth_without_cookies(id, usage_source) {
-                        SourceMode::OAuth
-                    } else {
-                        SourceMode::Cli
-                    };
-                    (source_mode, cookie_header, fails_closed_without_cookie)
-                }
-                // `browser` is accepted as a legacy alias from older settings.
-                "auto" | "browser" | "web" => {
-                    // Claude resolves its cached cookie and browser fallback inside
-                    // the provider; other providers retain the shell fallback.
-                    let cookie_header =
-                        active_token_cookie.clone().or(stored_cookie).or_else(|| {
-                            if defer_provider_browser_cookie_lookup {
-                                None
-                            } else {
-                                provider_cookie_domain(id, settings).and_then(|domain| {
-                                    codexbar::browser::cookies::get_cookie_header(domain)
-                                        .ok()
-                                        .filter(|h| !h.is_empty())
-                                })
-                            }
-                        });
-                    (usage_source, cookie_header, false)
-                }
-                _ => (usage_source, stored_cookie, false),
-            }
+            (usage_source, None, false)
         }
     } else if cookies_only_enrich_usage {
         let cookie_header = (cookie_source == "manual")
@@ -249,18 +146,7 @@ pub(crate) fn build_fetch_context(
         (usage_source, cookie_header, false)
     } else {
         match cookie_source {
-            // #433: an explicitly selected, non-empty Claude manual cookie is
-            // authoritative. Do not let an active OAuth token account silently
-            // replace it; this keeps tray refresh behavior aligned with diagnose,
-            // whose Claude Auto path tries the supplied Web cookie before OAuth.
-            "manual"
-                if provider.manual_cookie_precedes_token_account()
-                    && stored_cookie
-                        .as_deref()
-                        .is_some_and(|cookie| !cookie.trim().is_empty()) =>
-            {
-                (SourceMode::Web, stored_cookie.clone(), false)
-            }
+            _ if manual_cookie_wins => (SourceMode::Web, stored_cookie.clone(), false),
             _ if active_token_env.is_some() => (SourceMode::OAuth, None, false),
             // Opt-in web providers keep their default credential lane
             // unless the usage source is explicitly Web; a stored or
@@ -295,9 +181,8 @@ pub(crate) fn build_fetch_context(
             {
                 (SourceMode::Auto, None, false)
             }
-            // Droid/Factory: cookie-off must never scrape browser cookies. Map to
+            // Cookie-off must never scrape browser cookies (Droid/Factory). Map to
             // Cli (API-only in the provider) so Auto does not fall through to web.
-            "off" if id == ProviderId::Factory => (SourceMode::Cli, None, false),
             "off" => (SourceMode::Cli, None, false),
             "manual" => {
                 let cookie_header = active_token_cookie.clone().or(stored_cookie);
@@ -334,15 +219,9 @@ pub(crate) fn build_fetch_context(
                 // Claude resolves its cached cookie and browser fallback inside
                 // the provider; other providers retain the shell fallback.
                 let cookie_header = active_token_cookie.clone().or(stored_cookie).or_else(|| {
-                    if defer_provider_browser_cookie_lookup {
-                        None
-                    } else {
-                        provider_cookie_domain(id, settings).and_then(|domain| {
-                            codexbar::browser::cookies::get_cookie_header(domain)
-                                .ok()
-                                .filter(|h| !h.is_empty())
-                        })
-                    }
+                    (!defer_provider_browser_cookie_lookup)
+                        .then(|| browser_cookie_header(id, settings))
+                        .flatten()
                 });
                 (usage_source, cookie_header, false)
             }
@@ -368,11 +247,7 @@ pub(crate) fn build_fetch_context(
             .map(str::trim)
             .is_none_or(|s| s.is_empty())
         {
-            cookie_header = provider_cookie_domain(id, settings).and_then(|domain| {
-                codexbar::browser::cookies::get_cookie_header(domain)
-                    .ok()
-                    .filter(|h| !h.is_empty())
-            });
+            cookie_header = browser_cookie_header(id, settings);
         }
         source_mode = SourceMode::Web;
     }
@@ -453,6 +328,14 @@ pub(crate) fn build_fetch_context(
         optional_details_enabled: settings.optional_details_enabled(id),
         ..FetchContext::default()
     }
+}
+
+fn browser_cookie_header(id: ProviderId, settings: &Settings) -> Option<String> {
+    provider_cookie_domain(id, settings).and_then(|domain| {
+        codexbar::browser::cookies::get_cookie_header(domain)
+            .ok()
+            .filter(|h| !h.is_empty())
+    })
 }
 
 fn provider_uses_oauth_without_cookies(id: ProviderId, usage_source: SourceMode) -> bool {
