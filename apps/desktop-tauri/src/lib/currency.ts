@@ -3,10 +3,6 @@ import { CURRENCY_CATALOG } from "./currencyCatalog.generated";
 // The catalog (order, symbols, offline rates) is generated from rust/src/currency.rs.
 export const SUPPORTED_CURRENCIES: readonly string[] = CURRENCY_CATALOG.map((entry) => entry.code);
 
-export const FALLBACK_CURRENCY_RATES: Record<string, number> = Object.fromEntries(
-  CURRENCY_CATALOG.map((entry) => [entry.code, entry.fallbackRate]),
-);
-
 export const CURRENCY_PICKER_OPTIONS: ReadonlyArray<{ value: string; label: string }> =
   CURRENCY_CATALOG.map((entry) => ({ value: entry.code, label: `${entry.code} (${entry.symbol})` }));
 
