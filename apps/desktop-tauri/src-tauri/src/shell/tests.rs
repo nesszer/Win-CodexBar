@@ -17,6 +17,14 @@ use crate::surface::{SurfaceMode, SurfaceTransition};
 use crate::surface_target::SurfaceTarget;
 use crate::window_positioner::{self, Rect};
 
+fn monitor(bounds: Rect, work_area: Rect, scale_factor: f64) -> MonitorPlacement {
+    MonitorPlacement {
+        bounds,
+        work_area,
+        scale_factor,
+    }
+}
+
 #[test]
 fn hide_to_tray_resets_hidden_target_to_summary() {
     let mut state = AppState::new();
@@ -271,11 +279,11 @@ fn preserved_visible_monitor_prefers_top_left_for_straddling_window() {
 
 #[test]
 fn inferred_tray_anchor_defaults_to_bottom_right_of_work_area() {
-    let monitor = MonitorPlacement {
-        bounds: Rect::new(0, 0, 1920, 1080),
-        work_area: Rect::new(0, 0, 1920, 1040),
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(0, 0, 1920, 1040),
+        1.0,
+    );
 
     let anchor = inferred_tray_anchor_rect(&monitor);
 
@@ -287,11 +295,11 @@ fn inferred_tray_anchor_defaults_to_bottom_right_of_work_area() {
 
 #[test]
 fn inferred_tray_anchor_supports_top_taskbar_layouts() {
-    let monitor = MonitorPlacement {
-        bounds: Rect::new(0, 0, 1920, 1080),
-        work_area: Rect::new(0, 40, 1920, 1040),
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(0, 40, 1920, 1040),
+        1.0,
+    );
 
     let anchor = inferred_tray_anchor_rect(&monitor);
 
@@ -301,11 +309,11 @@ fn inferred_tray_anchor_supports_top_taskbar_layouts() {
 
 #[test]
 fn inferred_tray_anchor_supports_left_taskbar_layouts() {
-    let monitor = MonitorPlacement {
-        bounds: Rect::new(0, 0, 1920, 1080),
-        work_area: Rect::new(40, 0, 1880, 1080),
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(40, 0, 1880, 1080),
+        1.0,
+    );
 
     let anchor = inferred_tray_anchor_rect(&monitor);
 
@@ -315,11 +323,11 @@ fn inferred_tray_anchor_supports_left_taskbar_layouts() {
 
 #[test]
 fn inferred_tray_anchor_supports_right_taskbar_layouts() {
-    let monitor = MonitorPlacement {
-        bounds: Rect::new(0, 0, 1920, 1080),
-        work_area: Rect::new(0, 0, 1880, 1080),
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(0, 0, 1880, 1080),
+        1.0,
+    );
 
     let anchor = inferred_tray_anchor_rect(&monitor);
 
@@ -329,11 +337,11 @@ fn inferred_tray_anchor_supports_right_taskbar_layouts() {
 
 #[test]
 fn inferred_tray_panel_position_uses_tray_style_corner_fallback() {
-    let monitor = MonitorPlacement {
-        bounds: Rect::new(0, 0, 1920, 1080),
-        work_area: Rect::new(0, 0, 1920, 1040),
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(0, 0, 1920, 1040),
+        1.0,
+    );
 
     let position = inferred_tray_panel_position_for_monitor(&monitor);
 
@@ -485,11 +493,7 @@ fn hidden_surface_snapshot_matches_non_visible_shell_state() {
 
 #[test]
 fn remembered_popout_position_clamps_using_stored_size() {
-    let monitor = MonitorPlacement {
-        bounds: Rect::new(0, 0, 1000, 800),
-        work_area: Rect::new(0, 0, 1000, 800),
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(Rect::new(0, 0, 1000, 800), Rect::new(0, 0, 1000, 800), 1.0);
     let stored = crate::geometry_store::StoredGeometry {
         x: 900,
         y: 700,
