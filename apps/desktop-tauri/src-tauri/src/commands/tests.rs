@@ -441,20 +441,10 @@ fn provider_detail_carries_openai_daily_usage_only_when_present() {
 #[test]
 fn usage_item_descriptors_keep_raw_ids_and_redact_titles() {
     let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        "OAuth",
+    );
     let mut snapshot =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
     snapshot.primary_label = Some("Account owner@example.com".to_string());
@@ -485,27 +475,16 @@ fn usage_item_descriptors_keep_raw_ids_and_redact_titles() {
 #[test]
 fn usage_item_descriptors_include_detail_sections() {
     let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
-        cost: None,
-        wayfinder_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: vec![
-            codexbar::core::ProviderDisplayDetail::new("d1", "Rate limits", "5")
-                .expect("valid detail"),
-            codexbar::core::ProviderDisplayDetail::new("d2", "Rate limits", "6")
-                .expect("valid detail"),
-            codexbar::core::ProviderDisplayDetail::new("d3", "owner@example.com quota", "1")
-                .expect("valid detail"),
-        ],
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        open_ai_api_usage: None,
-        last_good_owner: None,
-    };
+    let mut result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        "OAuth",
+    );
+    result.display_details = vec![
+        codexbar::core::ProviderDisplayDetail::new("d1", "Rate limits", "5").expect("valid detail"),
+        codexbar::core::ProviderDisplayDetail::new("d2", "Rate limits", "6").expect("valid detail"),
+        codexbar::core::ProviderDisplayDetail::new("d3", "owner@example.com quota", "1")
+            .expect("valid detail"),
+    ];
     let snapshot =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
 
@@ -746,20 +725,10 @@ fn provider_fetch_timeout_respects_context_web_timeout_with_cap() {
 #[test]
 fn provider_cache_upsert_replaces_existing_provider() {
     let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "CLI".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        "CLI",
+    );
     let mut first =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
     let mut second = first.clone();
@@ -777,20 +746,10 @@ fn provider_cache_upsert_replaces_existing_provider() {
 #[test]
 fn provider_cache_prunes_disabled_providers() {
     let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "CLI".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0)),
+        "CLI",
+    );
     let codex =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
     let claude_meta = instantiate_provider(ProviderId::Claude).metadata().clone();
@@ -816,20 +775,10 @@ fn superseded_refresh_generation_is_not_current() {
 
 fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        "OAuth",
+    );
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let snapshot = ProviderUsageSnapshot::from_error(
@@ -856,20 +805,10 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
 #[test]
 fn codex_transient_transport_failure_helper_uses_typed_policy() {
     let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        "OAuth",
+    );
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
     let snapshot = ProviderUsageSnapshot::from_error(
@@ -895,20 +834,10 @@ fn codex_transient_transport_failure_helper_uses_typed_policy() {
 #[test]
 fn claude_repeated_auth_failure_surfaces_error() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        "OAuth",
+    );
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let first_error = ProviderUsageSnapshot::from_error(
@@ -941,20 +870,10 @@ fn claude_repeated_auth_failure_surfaces_error() {
 #[test]
 fn claude_cloudflare_challenge_retains_prior_usage_while_surfaceing_guidance() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        "OAuth",
+    );
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let challenge = codexbar::providers::claude::CLOUDFLARE_CHALLENGE_MESSAGE;
@@ -998,20 +917,10 @@ fn claude_cloudflare_challenge_retains_prior_usage_while_surfaceing_guidance() {
 #[test]
 fn claude_cloudflare_challenge_keeps_prior_usage_when_guidance_surfaces() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "Web".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        "Web",
+    );
     let mut good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     good.updated_at = "2026-09-01T00:00:00Z".to_string();
@@ -1052,20 +961,11 @@ fn claude_cloudflare_challenge_keeps_prior_usage_when_guidance_surfaces() {
 #[test]
 fn claude_cli_parse_failure_keeps_last_good_every_time() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "CLI".to_string(),
-        has_successful_claude_cli_quota: true,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let mut result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
+        "CLI",
+    );
+    result.has_successful_claude_cli_quota = true;
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let err = ProviderUsageSnapshot::from_error(
@@ -1102,20 +1002,10 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
 #[test]
 fn claude_hard_credentials_missing_does_not_preserve_stale() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
-    let result = ProviderFetchResult {
-        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
+        "OAuth",
+    );
     let good =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let err = ProviderUsageSnapshot::from_error(
@@ -1312,20 +1202,7 @@ fn japanese_provider_snapshot_localizes_weekly_label() {
     let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
     let usage = codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0))
         .with_secondary(codexbar::core::RateWindow::new(20.0));
-    let result = ProviderFetchResult {
-        usage,
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(usage, "OAuth");
 
     let snapshot =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
@@ -1349,20 +1226,7 @@ fn japanese_provider_snapshot_localizes_pace_reserve_description() {
     );
     let usage = codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0))
         .with_secondary(secondary);
-    let result = ProviderFetchResult {
-        usage,
-        cost: None,
-        wayfinder_usage: None,
-        open_ai_api_usage: None,
-        inventory: Vec::new(),
-        reset_credits: None,
-        display_details: Vec::new(),
-        source_label: "OAuth".to_string(),
-        has_successful_claude_cli_quota: false,
-        pace_authoritative: true,
-        account_identity: None,
-        last_good_owner: None,
-    };
+    let result = ProviderFetchResult::new(usage, "OAuth");
 
     let snapshot =
         ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
