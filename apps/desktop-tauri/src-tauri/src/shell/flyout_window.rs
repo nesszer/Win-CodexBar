@@ -340,10 +340,7 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
                 return true;
             };
             {
-                let mut guard = st.lock().unwrap();
-                if guard.take_startup_tray_blur_grace(Instant::now()) {
-                    return true;
-                }
+                let guard = st.lock().unwrap();
                 if guard.was_tray_panel_recently_shown(Instant::now(), RECENTLY_SHOWN_GRACE) {
                     return true;
                 }

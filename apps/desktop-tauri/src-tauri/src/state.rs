@@ -161,9 +161,6 @@ pub struct AppState {
     /// Instant when focus loss last dismissed the tray panel. The following
     /// tray click consumes this marker instead of reopening the panel.
     pub last_blur_dismissed_at: Option<std::time::Instant>,
-    /// One-shot grace for a blur event caused while revealing the tray panel
-    /// during explicit startup.
-    pub startup_tray_blur_grace_until: Option<std::time::Instant>,
     /// One-shot permission for frontend layout code to reveal a newly opened
     /// flyout, carrying whether the revealed window may take focus.
     pub flyout_reveal_pending: Option<Activation>,
@@ -223,7 +220,6 @@ impl AppState {
             notification_manager: codexbar::notifications::NotificationManager::new(),
             last_shown_at: None,
             last_blur_dismissed_at: None,
-            startup_tray_blur_grace_until: None,
             flyout_reveal_pending: None,
             gesture_blur_guard: None,
             auto_resume: crate::auto_resume::AutoResumeState::default(),
@@ -255,12 +251,6 @@ impl AppState {
         self.last_blur_dismissed_at
             .take()
             .is_some_and(|dismissed_at| now.duration_since(dismissed_at) <= max_age)
-    }
-
-    pub fn take_startup_tray_blur_grace(&mut self, now: std::time::Instant) -> bool {
-        self.startup_tray_blur_grace_until
-            .take()
-            .is_some_and(|until| now <= until)
     }
 
     pub fn arm_flyout_reveal(&mut self, activation: Activation) {

@@ -382,14 +382,6 @@ fn main() {
                     ) {
                         return;
                     }
-                    if let Some(st) = window.app_handle().try_state::<Mutex<AppState>>()
-                        && st
-                            .lock()
-                            .unwrap()
-                            .take_startup_tray_blur_grace(std::time::Instant::now())
-                    {
-                        return;
-                    }
                     // Grace period: ignore blur within 500ms of showing the panel.
                     // On Windows, the tray click can cause a spurious blur before
                     // the window fully acquires focus.
