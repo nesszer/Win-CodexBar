@@ -344,6 +344,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn icon_table_embeds_every_svg_in_the_icons_dir() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cli/serve/dashboard/icons");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        on_disk.sort();
+        let embedded: Vec<String> = ICONS
+            .iter()
+            .map(|(name, _)| format!("{name}.svg"))
+            .collect();
+        assert_eq!(embedded, on_disk);
+        assert_eq!(ICONS.len(), 69);
+        for (name, bytes) in ICONS {
+            let expected = std::fs::read(dir.join(format!("{name}.svg"))).unwrap();
+            assert_eq!(*bytes, expected.as_slice(), "{name}");
+        }
+    }
+
+    #[test]
     fn icon_table_is_sorted_for_binary_search() {
         let mut sorted = ICONS.iter().map(|(name, _)| *name).collect::<Vec<_>>();
         let original = sorted.clone();
