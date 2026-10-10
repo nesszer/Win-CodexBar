@@ -89,15 +89,6 @@ unsafe extern "system" {
 }
 
 #[cfg(windows)]
-#[link(name = "gdi32")]
-unsafe extern "system" {
-    fn CreateSolidBrush(color: u32) -> isize;
-}
-
-#[cfg(windows)]
-static DARK_BRUSH: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
-
-#[cfg(windows)]
 const WM_NCCALCSIZE: u32 = 0x0083;
 #[cfg(windows)]
 const WM_NCPAINT: u32 = 0x0085;
@@ -299,13 +290,6 @@ fn apply_chrome(win: &tauri::WebviewWindow, chrome: Chrome) {
         // Install subclass proc (safe for multiple windows)
         let ok = SetWindowSubclass(hwnd, borderless_subclass_proc, BORDERLESS_SUBCLASS_ID, 0);
         tracing::info!("dwm: subclass installed={ok}");
-
-        // Set background brush to dark (reuse a single GDI brush)
-        const GCL_HBRBACKGROUND: i32 = -10;
-        let brush = *DARK_BRUSH.get_or_init(|| CreateSolidBrush(0x001C1C1E));
-        if brush != 0 {
-            SetWindowLongPtrW(hwnd, GCL_HBRBACKGROUND, brush);
-        }
 
         // Remove WS_CAPTION; only strip WS_THICKFRAME for non-resizable windows
         const GWL_STYLE: i32 = -16;
