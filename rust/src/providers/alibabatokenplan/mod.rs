@@ -117,45 +117,16 @@ impl AlibabaTokenPlanProvider {
             ("params", Self::team_request_params(region)),
             ("region", region.current_region_id().to_string()),
         ];
-        if let Some(token) = sec_token
-            .as_deref()
-            .filter(|token| !token.trim().is_empty())
-        {
-            form.push(("sec_token", token.to_string()));
-        }
-        let mut request = client
-            .post(Self::team_quota_url(region))
-            .header("Cookie", cookie_header)
-            .header("Accept", "*/*")
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .header("Origin", region.gateway_base_url())
-            .header("Referer", region.dashboard_url())
-            .header("User-Agent", USER_AGENT)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .form(&form);
-
-        if let Some(csrf) = cookie_value("login_aliyunid_csrf", cookie_header)
-            .or_else(|| cookie_value("csrf", cookie_header))
-        {
-            request = request
-                .header("x-xsrf-token", csrf.clone())
-                .header("x-csrf-token", csrf);
-        }
-
-        let response = request.send().await?;
-        let status = response.status();
-        let body = response.bytes().await?;
-        if !status.is_success() {
-            if status == reqwest::StatusCode::UNAUTHORIZED
-                || status == reqwest::StatusCode::FORBIDDEN
-            {
-                return Err(ProviderError::AuthRequired);
-            }
-            return Err(ProviderError::Other(format!(
-                "Alibaba Token Plan API error: HTTP {status}"
-            )));
-        }
-
+        push_sec_token(&mut form, sec_token.as_deref());
+        let body = send_console_form(
+            client.post(Self::team_quota_url(region)),
+            cookie_header,
+            region,
+            "*/*",
+            &form,
+            "Alibaba Token Plan",
+        )
+        .await?;
         Self::parse_usage_snapshot(&body)
     }
 
@@ -415,6 +386,54 @@ impl Provider for AlibabaTokenPlanProvider {
             _ => error.state_kind(),
         }
     }
+}
+
+pub(super) fn push_sec_token(form: &mut Vec<(&'static str, String)>, sec_token: Option<&str>) {
+    if let Some(token) = sec_token.filter(|token| !token.trim().is_empty()) {
+        form.push(("sec_token", token.to_string()));
+    }
+}
+
+/// POST a console gateway form. The CSRF headers go after the form so the
+/// header order matches the browser capture.
+pub(super) async fn send_console_form(
+    request: reqwest::RequestBuilder,
+    cookie_header: &str,
+    region: Region,
+    accept: &str,
+    form: &[(&'static str, String)],
+    scope: &str,
+) -> Result<Vec<u8>, ProviderError> {
+    let mut request = request
+        .header("Cookie", cookie_header)
+        .header("Accept", accept)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Origin", region.gateway_base_url())
+        .header("Referer", region.dashboard_url())
+        .header("User-Agent", USER_AGENT)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .form(form);
+
+    if let Some(csrf) = cookie_value("login_aliyunid_csrf", cookie_header)
+        .or_else(|| cookie_value("csrf", cookie_header))
+    {
+        request = request
+            .header("x-xsrf-token", csrf.clone())
+            .header("x-csrf-token", csrf);
+    }
+
+    let response = request.send().await?;
+    let status = response.status();
+    let body = response.bytes().await?;
+    if !status.is_success() {
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ProviderError::AuthRequired);
+        }
+        return Err(ProviderError::Other(format!(
+            "{scope} API error: HTTP {status}"
+        )));
+    }
+    Ok(body.to_vec())
 }
 
 pub(super) fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError> {

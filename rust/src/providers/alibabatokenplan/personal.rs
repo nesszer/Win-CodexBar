@@ -7,9 +7,9 @@ use uuid::Uuid;
 use super::region::AlibabaTokenPlanRegion;
 use super::{
     LANGUAGE, PERSONAL_CONSOLE_PRODUCT, PERSONAL_QUOTA_CONFIG_API, PERSONAL_SUBSCRIPTION_API,
-    PERSONAL_USAGE_API, TokenPlanSnapshot, USER_AGENT, cookie_value, date_field, deep_find,
+    PERSONAL_USAGE_API, TokenPlanSnapshot, cookie_value, date_field, deep_find,
     expand_json_strings, find_object_containing_any_of, is_likely_login_html, number_field,
-    percentage_points, throw_if_error_payload,
+    percentage_points, push_sec_token, send_console_form, throw_if_error_payload,
 };
 use crate::core::{FetchContext, ProviderError};
 
@@ -144,41 +144,21 @@ async fn post_personal_api(
         context.sec_token,
     );
 
-    let mut request = context
+    let request = context
         .client
         .post(&url)
         .timeout(std::time::Duration::from_secs(
             context.fetch_context.web_timeout.max(1),
-        ))
-        .header("Cookie", context.cookie_header)
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Origin", context.region.gateway_base_url())
-        .header("Referer", context.region.dashboard_url())
-        .header("User-Agent", USER_AGENT)
-        .header("X-Requested-With", "XMLHttpRequest")
-        .form(&form);
-
-    if let Some(csrf) = cookie_value("login_aliyunid_csrf", context.cookie_header)
-        .or_else(|| cookie_value("csrf", context.cookie_header))
-    {
-        request = request
-            .header("x-xsrf-token", csrf.clone())
-            .header("x-csrf-token", csrf);
-    }
-
-    let response = request.send().await?;
-    let status = response.status();
-    let body = response.bytes().await?;
-    if !status.is_success() {
-        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-            return Err(ProviderError::AuthRequired);
-        }
-        return Err(ProviderError::Other(format!(
-            "Alibaba Token Plan Personal API error: HTTP {status}"
-        )));
-    }
-    Ok(body.to_vec())
+        ));
+    send_console_form(
+        request,
+        context.cookie_header,
+        context.region,
+        "application/json, text/plain, */*",
+        &form,
+        "Alibaba Token Plan Personal",
+    )
+    .await
 }
 
 async fn post_personal_api_optional(
@@ -204,9 +184,7 @@ fn build_personal_form(
         ("language", LANGUAGE.to_string()),
         ("params", params_json),
     ];
-    if let Some(token) = sec_token.filter(|token| !token.trim().is_empty()) {
-        form.push(("sec_token", token.to_string()));
-    }
+    push_sec_token(&mut form, sec_token);
     form
 }
 
