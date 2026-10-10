@@ -531,3 +531,107 @@ fn missing_key_message_explains_primary_and_management_fields() {
         "Enter a regular API key or a Management API key in the API key field, or set OPENROUTER_API_KEY. In Settings, the optional Management API key field does not replace it."
     );
 }
+
+// ── Shared JSON GET: status typing and safe reasons per call site ──
+
+#[tokio::test]
+async fn get_json_keeps_each_call_sites_auth_set_and_reason() {
+    use reqwest::StatusCode;
+
+    let mut server = mockito::Server::new_async().await;
+    let client = reqwest::Client::new();
+    let credits_auth = &[StatusCode::UNAUTHORIZED][..];
+    // (label, auth statuses, forbidden reason, HTTP status, body,
+    //  expected error, expected reason)
+    let cases: [(&str, &[StatusCode], Option<&str>, usize, &str, &str, &str); 7] = [
+        ("credits", credits_auth, None, 200, r#"{"ok":1}"#, "", ""),
+        (
+            "credits",
+            credits_auth,
+            None,
+            401,
+            "",
+            "auth",
+            "Request returned HTTP 401",
+        ),
+        (
+            "credits",
+            credits_auth,
+            None,
+            403,
+            "",
+            "OpenRouter credits request returned HTTP 403 Forbidden",
+            "Request returned HTTP 403",
+        ),
+        (
+            "key",
+            AUTH_REJECTED,
+            None,
+            403,
+            "",
+            "auth",
+            "Request returned HTTP 403",
+        ),
+        (
+            "key",
+            AUTH_REJECTED,
+            None,
+            200,
+            "not json",
+            "OpenRouter key response was invalid:",
+            "Response was invalid",
+        ),
+        (
+            "Activity",
+            AUTH_REJECTED,
+            Some(ACTIVITY_KEY_REQUIRED),
+            403,
+            "",
+            "auth",
+            ACTIVITY_KEY_REQUIRED,
+        ),
+        (
+            "Activity",
+            AUTH_REJECTED,
+            Some(ACTIVITY_KEY_REQUIRED),
+            500,
+            "",
+            "OpenRouter Activity request returned HTTP 500 Internal Server Error",
+            "Request returned HTTP 500",
+        ),
+    ];
+    for (index, (label, auth, forbidden, status, body, error, reason)) in
+        cases.into_iter().enumerate()
+    {
+        let path = format!("/case-{index}");
+        let mock = server
+            .mock("GET", path.as_str())
+            .match_header("authorization", "Bearer sk-or-synthetic")
+            .match_header("accept", "application/json")
+            .with_status(status)
+            .with_body(body)
+            .create_async()
+            .await;
+        let request = client.get(format!("{}{path}", server.url()));
+        let result: Result<Value, Degraded> =
+            OpenRouterProvider::get_json(request, "sk-or-synthetic", label, auth, forbidden).await;
+        mock.assert_async().await;
+        match result {
+            Ok(value) => {
+                assert_eq!(error, "", "{label} {status}");
+                assert_eq!(value, serde_json::json!({ "ok": 1 }));
+            }
+            Err(degraded) => {
+                assert_eq!(degraded.reason, reason, "{label} {status}");
+                match degraded.error {
+                    ProviderError::AuthRequired => assert_eq!(error, "auth", "{label} {status}"),
+                    ProviderError::Other(message) => assert_eq!(message, error),
+                    ProviderError::Parse(message) => {
+                        assert!(message.starts_with(error), "{message}")
+                    }
+                    other => panic!("{label} {status}: unexpected {other:?}"),
+                }
+            }
+        }
+    }
+}

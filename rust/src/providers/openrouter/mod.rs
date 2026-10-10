@@ -296,26 +296,48 @@ impl OpenRouterProvider {
         management_key: &str,
         date: Option<&str>,
     ) -> Result<Value, Degraded> {
-        let mut request = client
-            .get(OPENROUTER_ACTIVITY_URL)
-            .header("Authorization", format!("Bearer {management_key}"))
-            .header("Accept", "application/json");
+        let mut request = client.get(OPENROUTER_ACTIVITY_URL);
         if let Some(date) = date {
             request = request.query(&[("date", date)]);
         }
-        let response = request.send().await?;
+        Self::get_json(
+            request,
+            management_key,
+            "Activity",
+            AUTH_REJECTED,
+            Some(diagnostics::ACTIVITY_KEY_REQUIRED),
+        )
+        .await
+    }
+
+    /// Bearer-authenticated JSON GET. Statuses in `auth_statuses` are typed as
+    /// auth failures; a 403 shows `forbidden_reason` when one is given.
+    async fn get_json<T: serde::de::DeserializeOwned>(
+        request: reqwest::RequestBuilder,
+        api_key: &str,
+        label: &str,
+        auth_statuses: &[reqwest::StatusCode],
+        forbidden_reason: Option<&str>,
+    ) -> Result<T, Degraded> {
+        let response = request
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Accept", "application/json")
+            .send()
+            .await?;
         let status = response.status();
-        if status == reqwest::StatusCode::FORBIDDEN {
-            return Err(Degraded::http("Activity", status, AUTH_REJECTED)
-                .with_reason(diagnostics::ACTIVITY_KEY_REQUIRED));
-        }
         if !status.is_success() {
-            return Err(Degraded::http("Activity", status, AUTH_REJECTED));
+            let degraded = Degraded::http(label, status, auth_statuses);
+            return Err(match forbidden_reason {
+                Some(reason) if status == reqwest::StatusCode::FORBIDDEN => {
+                    degraded.with_reason(reason)
+                }
+                _ => degraded,
+            });
         }
         response
-            .json::<Value>()
+            .json::<T>()
             .await
-            .map_err(|error| Degraded::body("Activity", error))
+            .map_err(|error| Degraded::body(label, error))
     }
 
     fn build_client() -> Result<reqwest::Client, ProviderError> {
@@ -330,25 +352,14 @@ impl OpenRouterProvider {
         api_key: &str,
     ) -> Result<CreditsResponse, Degraded> {
         let credits_url = format!("{}/credits", OPENROUTER_API_BASE);
-        let resp = client
-            .get(&credits_url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Accept", "application/json")
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            return Err(Degraded::http(
-                "credits",
-                resp.status(),
-                &[reqwest::StatusCode::UNAUTHORIZED],
-            ));
-        }
-
-        let response = resp
-            .json::<CreditsResponse>()
-            .await
-            .map_err(|error| Degraded::body("credits", error))?;
+        let response: CreditsResponse = Self::get_json(
+            client.get(&credits_url),
+            api_key,
+            "credits",
+            &[reqwest::StatusCode::UNAUTHORIZED],
+            None,
+        )
+        .await?;
         response.data.validate().map_err(Degraded::invalid)?;
         Ok(response)
     }
@@ -430,21 +441,8 @@ impl OpenRouterProvider {
 
     async fn fetch_key_data(client: &reqwest::Client, api_key: &str) -> Result<KeyData, Degraded> {
         let key_url = format!("{}/key", OPENROUTER_API_BASE);
-        let key_resp = client
-            .get(&key_url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Accept", "application/json")
-            .send()
-            .await?;
-
-        if !key_resp.status().is_success() {
-            return Err(Degraded::http("key", key_resp.status(), AUTH_REJECTED));
-        }
-
-        let response = key_resp
-            .json::<KeyResponse>()
-            .await
-            .map_err(|error| Degraded::body("key", error))?;
+        let response: KeyResponse =
+            Self::get_json(client.get(&key_url), api_key, "key", AUTH_REJECTED, None).await?;
         response.data.validate().map_err(Degraded::invalid)?;
         Ok(response.data)
     }
@@ -455,27 +453,23 @@ impl OpenRouterProvider {
     }
 
     fn add_spend_windows(usage: &mut UsageSnapshot, key_data: &KeyData) {
-        Self::add_spend_window(
-            usage,
-            key_data.usage_daily,
-            "daily-spend",
-            "Daily spend",
-            "today",
-        );
-        Self::add_spend_window(
-            usage,
-            key_data.usage_weekly,
-            "weekly-spend",
-            "Weekly spend",
-            "this week",
-        );
-        Self::add_spend_window(
-            usage,
-            key_data.usage_monthly,
-            "monthly-spend",
-            "Monthly spend",
-            "this month",
-        );
+        for (value, id, label, period) in [
+            (key_data.usage_daily, "daily-spend", "Daily spend", "today"),
+            (
+                key_data.usage_weekly,
+                "weekly-spend",
+                "Weekly spend",
+                "this week",
+            ),
+            (
+                key_data.usage_monthly,
+                "monthly-spend",
+                "Monthly spend",
+                "this month",
+            ),
+        ] {
+            Self::add_spend_window(usage, value, id, label, period);
+        }
     }
 
     fn key_quota_metrics(key_data: &KeyData) -> Option<(f64, f64, f64)> {
