@@ -4,9 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getAppInfo, playNotificationSound, quitApp } from "../../../lib/tauri";
 import type { AppInfoBridge } from "../../../types/bridge";
-import { Field, NumberInput, Select, Toggle } from "../../../components/FormControls";
+import { Field, NumberInput, Select, SettingSelect, SettingToggle } from "../../../components/FormControls";
 import type {
-  Language,
   LanguageOption,
   NotificationSoundEvent,
   NotificationSoundPaths,
@@ -191,6 +190,7 @@ export default function GeneralTab({
   saving,
 }: TabProps & { mode?: "general" | "notifications" }) {
   const { t } = useLocale();
+  const ctl = { settings, set, saving };
   const [playingSound, setPlayingSound] = useState<NotificationSoundEvent | null>(null);
   const [soundError, setSoundError] = useState<string | null>(null);
   const [languageOptions, setLanguageOptions] = useState<LanguageOption[]>(
@@ -267,70 +267,61 @@ export default function GeneralTab({
       {mode === "general" && <section className="settings-section">
         <h3 className="settings-section__title">{t("SectionLanguage")}</h3>
         <div className="settings-section__group">
-          <Field label={t("InterfaceLanguage")}>
-            <Select
-              value={settings.uiLanguage}
-              disabled={saving}
-              options={languageOptions.map((opt) => ({
-                value: opt.value,
-                label: opt.display,
-              }))}
-              onChange={(v) => set({ uiLanguage: v as Language })}
-            />
-          </Field>
-          <Field label={t("PreferredCurrencyLabel")} description={t("PreferredCurrencyHelper")}>
-            <Select
-              value={settings.preferredCurrencyCode ?? "AUTO"}
-              disabled={saving}
-              ariaLabel={t("PreferredCurrencyLabel")}
-              options={[
-                { value: "AUTO", label: "AUTO" },
-                ...CURRENCY_PICKER_OPTIONS,
-              ]}
-              onChange={(value) => set({ preferredCurrencyCode: value })}
-            />
-          </Field>
+          <SettingSelect
+            ctl={ctl}
+            field="uiLanguage"
+            label={t("InterfaceLanguage")}
+            options={languageOptions.map((opt) => ({
+              value: opt.value,
+              label: opt.display,
+            }))}
+          />
+          <SettingSelect
+            ctl={ctl}
+            field="preferredCurrencyCode"
+            value={settings.preferredCurrencyCode ?? "AUTO"}
+            label={t("PreferredCurrencyLabel")}
+            description={t("PreferredCurrencyHelper")}
+            ariaLabel={t("PreferredCurrencyLabel")}
+            options={[
+              { value: "AUTO", label: "AUTO" },
+              ...CURRENCY_PICKER_OPTIONS,
+            ]}
+          />
         </div>
       </section>}
 
       {mode === "general" && <section className="settings-section">
         <h3 className="settings-section__title">{t("SectionTheme")}</h3>
         <div className="settings-section__group">
-          <Field label={t("ThemeLabel")} description={t("ThemeHelper")}>
-            <Select
-              value={settings.theme}
-              disabled={saving}
-              ariaLabel={t("ThemeLabel")}
-              options={THEME_OPTIONS.map((option) => ({
-                value: option.value,
-                label: t(option.labelKey),
-              }))}
-              onChange={(value) => set({ theme: value as ThemePreference })}
-            />
-          </Field>
+          <SettingSelect
+            ctl={ctl}
+            field="theme"
+            label={t("ThemeLabel")}
+            description={t("ThemeHelper")}
+            ariaLabel={t("ThemeLabel")}
+            options={THEME_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+            }))}
+          />
         </div>
       </section>}
       {mode === "general" && <section className="settings-section">
         <h3 className="settings-section__title">{t("StartupSettings")}</h3>
         <div className="settings-section__group">
-          <Field label={t("StartAtLogin")} description={t("StartAtLoginHelper")} leading>
-            <Toggle
-              checked={settings.startAtLogin}
-              disabled={saving}
-              onChange={(v) => set({ startAtLogin: v })}
-            />
-          </Field>
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="startAtLogin"
+            label={t("StartAtLogin")}
+            description={t("StartAtLoginHelper")}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="startMinimized"
             label={t("StartMinimized")}
             description={t("StartMinimizedHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.startMinimized}
-              disabled={saving}
-              onChange={(v) => set({ startMinimized: v })}
-            />
-          </Field>
+          />
         </div>
       </section>}
 
@@ -339,48 +330,32 @@ export default function GeneralTab({
           {t("SectionNotifications")}
         </h3>
         <div className="settings-section__group">
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="showNotifications"
             label={t("ShowNotifications")}
             description={t("ShowNotificationsHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.showNotifications}
-              disabled={saving}
-              onChange={(v) => set({ showNotifications: v })}
-            />
-          </Field>
-          <Field
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="predictivePaceWarningEnabled"
             label={t("PredictivePaceWarnings")}
             description={t("PredictivePaceWarningsHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.predictivePaceWarningEnabled}
-              ariaLabel={t("PredictivePaceWarnings")}
-              disabled={saving}
-              onChange={(v) => set({ predictivePaceWarningEnabled: v })}
-            />
-          </Field>
-          <Field
+            ariaLabel={t("PredictivePaceWarnings")}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="credentialExpiryNotificationsEnabled"
             label={t("CredentialExpiryNotifications")}
             description={t("CredentialExpiryNotificationsHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.credentialExpiryNotificationsEnabled}
-              ariaLabel={t("CredentialExpiryNotifications")}
-              disabled={saving}
-              onChange={(v) => set({ credentialExpiryNotificationsEnabled: v })}
-            />
-          </Field>
-          <Field label={t("SoundEnabled")} description={t("SoundEnabledHelper")} leading>
-            <Toggle
-              checked={settings.soundEnabled}
-              disabled={saving}
-              onChange={(v) => set({ soundEnabled: v })}
-            />
-          </Field>
+            ariaLabel={t("CredentialExpiryNotifications")}
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="soundEnabled"
+            label={t("SoundEnabled")}
+            description={t("SoundEnabledHelper")}
+          />
           {settings.soundEnabled && (
             <>
               <Field
@@ -573,34 +548,24 @@ export default function GeneralTab({
               }}
             />
           </Field>
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="refreshAllProvidersOnMenuOpen"
             label={t("RefreshAllProvidersOnMenuOpen")}
             description={t("RefreshAllProvidersOnMenuOpenHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.refreshAllProvidersOnMenuOpen}
-              disabled={saving}
-              onChange={(v) => set({ refreshAllProvidersOnMenuOpen: v })}
-            />
-          </Field>
-          <Field
+          />
+          <SettingSelect
+            ctl={ctl}
+            field="lowPowerModePreference"
+            value={settings.lowPowerModePreference ?? (settings.lowPowerMode ? "on" : "off")}
             label={t("LowPowerMode")}
             description={t("LowPowerModeHelper")}
-          >
-            <Select
-              value={settings.lowPowerModePreference ?? (settings.lowPowerMode ? "on" : "off")}
-              disabled={saving}
-              options={[
-                { value: "off", label: t("LowPowerModeOff") },
-                { value: "on", label: t("LowPowerModeOn") },
-                { value: "automatic", label: t("LowPowerModeAutomatic") },
-              ]}
-              onChange={(v) => set({
-                lowPowerModePreference: v as "off" | "on" | "automatic",
-              })}
-            />
-          </Field>
+            options={[
+              { value: "off", label: t("LowPowerModeOff") },
+              { value: "on", label: t("LowPowerModeOn") },
+              { value: "automatic", label: t("LowPowerModeAutomatic") },
+            ]}
+          />
           <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
             <button
               type="button"

@@ -6,7 +6,7 @@ import {
   unregisterGlobalShortcut,
 } from "../../../lib/tauri";
 import { ShortcutCapture } from "../../../components/ShortcutCapture";
-import { Field, Toggle } from "../../../components/FormControls";
+import { Field, SettingToggle } from "../../../components/FormControls";
 import type { TabProps } from "../settingsTabs";
 import PreferencesTransferSection from "./PreferencesTransferSection";
 
@@ -27,6 +27,7 @@ function parseSshHosts(value: string): string[] {
 
 export default function AdvancedTab({ settings, set, saving }: TabProps) {
   const { t } = useLocale();
+  const ctl = { settings, set, saving };
   const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [diagnosticsStatus, setDiagnosticsStatus] = useState<string | null>(
     null,
@@ -183,28 +184,18 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
       <section className="settings-section">
         <h3 className="settings-section__title">{t("AgentSessionsTitle")}</h3>
         <div className="settings-section__group">
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="agentSessionsEnabled"
             label={t("AgentSessionsEnableLabel")}
             description={t("AgentSessionsEnableHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.agentSessionsEnabled ?? false}
-              disabled={saving}
-              onChange={(v) => set({ agentSessionsEnabled: v })}
-            />
-          </Field>
-          <Field
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="stayAwakeEnabled"
             label={t("AgentSessionsStayAwakeLabel")}
             description={t("AgentSessionsStayAwakeHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.stayAwakeEnabled ?? false}
-              disabled={saving}
-              onChange={(v) => set({ stayAwakeEnabled: v })}
-            />
-          </Field>
+          />
           <Field
             label={t("AgentSessionsSshHostsLabel")}
             description={t("AgentSessionsSshHostsHelper")}
@@ -229,17 +220,12 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
       <section className="settings-section">
         <h3 className="settings-section__title">{t("PrivacyTitle")}</h3>
         <div className="settings-section__group">
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="hidePersonalInfo"
             label={t("HidePersonalInfo")}
             description={t("HidePersonalInfoHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.hidePersonalInfo}
-              disabled={saving}
-              onChange={(v) => set({ hidePersonalInfo: v })}
-            />
-          </Field>
+          />
         </div>
       </section>
 
@@ -249,17 +235,12 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
           {t("SectionLocalIntegrations")}
         </h3>
         <div className="settings-section__group">
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="powertoysStatusPipeEnabled"
             label={t("PowerToysPipeLabel")}
             description={t("PowerToysPipeHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.powertoysStatusPipeEnabled}
-              disabled={saving}
-              onChange={(v) => set({ powertoysStatusPipeEnabled: v })}
-            />
-          </Field>
+          />
         </div>
       </section>
 
@@ -268,17 +249,12 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
         <h3 className="settings-section__title">{t("NetworkProxyTitle")}</h3>
         <p className="settings-section__caption">{t("NetworkProxyCaption")}</p>
         <div className="settings-section__group">
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="httpProxyEnabled"
             label={t("NetworkProxyEnableLabel")}
             description={t("NetworkProxyEnableHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.httpProxyEnabled ?? false}
-              disabled={saving}
-              onChange={(v) => set({ httpProxyEnabled: v })}
-            />
-          </Field>
+          />
           <Field
             label={t("NetworkProxyUrlLabel")}
             description={t("NetworkProxyUrlHelper")}
@@ -338,17 +314,12 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
         <h3 className="settings-section__title">{t("HooksTitle")}</h3>
         <p className="settings-section__caption">{t("HooksCaption")}</p>
         <div className="settings-section__group">
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="hooksEnabled"
             label={t("HooksEnableLabel")}
             description={t("HooksEnableHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.hooksEnabled ?? false}
-              disabled={saving}
-              onChange={(v) => set({ hooksEnabled: v })}
-            />
-          </Field>
+          />
         </div>
         <p className="settings-section__hint">{t("HooksConfigPathHint")}</p>
       </section>
@@ -363,28 +334,19 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
           unavailable; paste Cookie headers manually in Providers.
         </p>
         <div className="settings-section__group">
-          <Field
+          <SettingToggle
+            ctl={ctl}
+            field="disableKeychainAccess"
             label={t("DisableAllKeychainLabel")}
             description={t("DisableAllKeychainHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.disableKeychainAccess}
-              disabled={saving}
-              onChange={(v) => set({ disableKeychainAccess: v })}
-            />
-          </Field>
-          <Field
+          />
+          <SettingToggle
+            ctl={ctl}
+            field="claudeAvoidKeychainPrompts"
             label={t("AvoidKeychainPromptsLabel")}
             description={t("AvoidKeychainPromptsHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.claudeAvoidKeychainPrompts}
-              disabled={saving || settings.disableKeychainAccess}
-              onChange={(v) => set({ claudeAvoidKeychainPrompts: v })}
-            />
-          </Field>
+            disabled={saving || settings.disableKeychainAccess}
+          />
         </div>
       </section>
 

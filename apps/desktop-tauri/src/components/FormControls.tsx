@@ -1,5 +1,6 @@
 import type React from "react";
 import { createContext, useContext, useId } from "react";
+import type { SettingsSnapshot, SettingsUpdate } from "../types/bridge";
 
 // A Field's label and description ids, so the control inside it gets an
 // accessible name without every call site passing `ariaLabel`.
@@ -152,5 +153,82 @@ export function Field({
       </div>
       {!leading && control}
     </div>
+  );
+}
+
+// ── settings-bound rows ──────────────────────────────────────────────
+
+export interface SettingsControl {
+  settings: SettingsSnapshot;
+  set: (patch: SettingsUpdate) => void;
+  saving: boolean;
+}
+
+type SettingKey<T> = {
+  [K in keyof SettingsUpdate & keyof SettingsSnapshot]-?: NonNullable<SettingsUpdate[K]> extends T
+    ? K
+    : never;
+}[keyof SettingsUpdate & keyof SettingsSnapshot];
+
+/** A leading Field + Toggle that writes one boolean setting; an unset value reads as off. */
+export function SettingToggle({
+  ctl,
+  field,
+  label,
+  description,
+  checked,
+  disabled,
+  ariaLabel,
+}: {
+  ctl: SettingsControl;
+  field: SettingKey<boolean>;
+  label: string;
+  description?: string;
+  checked?: boolean;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  return (
+    <Field label={label} description={description} leading>
+      <Toggle
+        checked={checked ?? ctl.settings[field] ?? false}
+        ariaLabel={ariaLabel}
+        disabled={disabled ?? ctl.saving}
+        onChange={(v) => ctl.set({ [field]: v })}
+      />
+    </Field>
+  );
+}
+
+/** A Field + Select that writes one string setting; an unset value selects "". */
+export function SettingSelect({
+  ctl,
+  field,
+  label,
+  description,
+  options,
+  value,
+  disabled,
+  ariaLabel,
+}: {
+  ctl: SettingsControl;
+  field: SettingKey<string>;
+  label: string;
+  description?: string;
+  options: { value: string; label: string }[];
+  value?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  return (
+    <Field label={label} description={description}>
+      <Select
+        value={value ?? ctl.settings[field] ?? ""}
+        disabled={disabled ?? ctl.saving}
+        ariaLabel={ariaLabel}
+        options={options}
+        onChange={(v) => ctl.set({ [field]: v })}
+      />
+    </Field>
   );
 }
