@@ -25,6 +25,7 @@ fn fake_snapshot_with(
         reserve_description: None,
         reserve_will_last_to_reset: false,
         reserve_eta_seconds: None,
+        pace: None,
         monthly_limit_block: None,
         description_is_detail: false,
     };
@@ -393,6 +394,7 @@ fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
             reserve_description: None,
             reserve_will_last_to_reset: false,
             reserve_eta_seconds: None,
+            pace: None,
             monthly_limit_block: None,
             description_is_detail: false,
         },
@@ -616,6 +618,7 @@ fn claude_automatic_prefers_weekly_when_model_exhausted() {
         reserve_description: None,
         reserve_will_last_to_reset: false,
         reserve_eta_seconds: None,
+        pace: None,
         monthly_limit_block: None,
         description_is_detail: false,
     });
@@ -661,6 +664,7 @@ fn automatic_picks_highest_among_model_and_extra_windows() {
         reserve_description: None,
         reserve_will_last_to_reset: false,
         reserve_eta_seconds: None,
+        pace: None,
         monthly_limit_block: None,
         description_is_detail: false,
     });
