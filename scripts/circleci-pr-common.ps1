@@ -26,9 +26,23 @@ function Test-DocsOnlyDiff {
 
 <#
 .SYNOPSIS
+    True for pushes that always run the full checks and never take the
+    docs-only skip: main/master, and GitHub merge-queue builds, which push to
+    gh-readonly-queue/<base>/pr-<N>-<sha> and carry no PR URL.
+#>
+function Test-MainLikePushBranch {
+    param([AllowEmptyString()][string]$Branch)
+
+    if ($Branch -in @('main', 'master')) { return $true }
+    return ($Branch -match '^gh-readonly-queue/')
+}
+
+<#
+.SYNOPSIS
     Gates 1 and 2 of the hosted pr-check: budget emergency stop and
     branch/PR scope. Gate 3 (docs-only) needs a diff and lives in
-    scripts\circleci-pr-gates.ps1; main/master pushes never reach it.
+    scripts\circleci-pr-gates.ps1; main/master and merge-queue pushes never
+    reach it.
 #>
 function Get-TriggerGateDecision {
     param(
@@ -46,16 +60,17 @@ function Get-TriggerGateDecision {
         }
     }
 
-    # Gate 2 - scope: PR pipelines and main/master pushes run the checks;
-    # every other branch push skips. CircleCI delivers same-repo PR builds
-    # as branch pipelines, so PR association comes from the compile-time
-    # GitHub App pipeline value pipeline.event.context.github.pr_url.
+    # Gate 2 - scope: PR pipelines, main/master pushes and merge-queue pushes
+    # (gh-readonly-queue/...) run the checks; every other branch push skips.
+    # CircleCI delivers same-repo PR builds as branch pipelines, so PR
+    # association comes from the compile-time GitHub App pipeline value
+    # pipeline.event.context.github.pr_url.
     $isPr = -not [string]::IsNullOrWhiteSpace($PrUrl)
-    $isMainPush = $Branch -in @('main', 'master')
+    $isMainPush = Test-MainLikePushBranch -Branch $Branch
     if (-not $isPr -and -not $isMainPush) {
         return [pscustomobject]@{
             Skip = $true
-            Reason = "Branch push to '$Branch' (not a PR, not main/master): hosted pr-check skips."
+            Reason = "Branch push to '$Branch' (not a PR, not main/master, not a merge-queue branch): hosted pr-check skips."
         }
     }
 

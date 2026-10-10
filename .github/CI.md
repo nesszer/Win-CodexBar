@@ -36,7 +36,9 @@ node --test .github/scripts/interaction-guard.test.mjs
 
 CircleCI's GitHub App trigger and auto-cancel settings live outside the
 repository. Keep PR, default-branch, and budget rules there; do not add a
-second tag trigger.
+second tag trigger. Merge-queue builds (`gh-readonly-queue/...` pushes) need
+the "Pushes to merge queues" trigger turned on there; the scope gate runs
+them as full checks, never as docs-only skips.
 
 ## Fork pull requests
 
