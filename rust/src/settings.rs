@@ -1289,150 +1289,78 @@ impl Settings {
     pub fn codex_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Codex)
     }
-    pub fn set_codex_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Codex, v)
-    }
     pub fn claude_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Claude)
-    }
-    pub fn set_claude_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Claude, v)
     }
     pub fn cursor_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Cursor)
     }
-    pub fn set_cursor_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Cursor, v)
-    }
     pub fn opencode_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::OpenCode)
-    }
-    pub fn set_opencode_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::OpenCode, v)
     }
     pub fn factory_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Factory)
     }
-    pub fn set_factory_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Factory, v)
-    }
     pub fn alibaba_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Alibaba)
-    }
-    pub fn set_alibaba_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Alibaba, v)
     }
     pub fn kimi_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Kimi)
     }
-    pub fn set_kimi_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Kimi, v)
-    }
     pub fn minimax_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::MiniMax)
-    }
-    pub fn set_minimax_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::MiniMax, v)
     }
     pub fn augment_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Augment)
     }
-    pub fn set_augment_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Augment, v)
-    }
     pub fn amp_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Amp)
     }
-    pub fn set_amp_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Amp, v)
-    }
     pub fn ollama_cookie_source(&self) -> &str {
         self.cookie_source(ProviderId::Ollama)
-    }
-    pub fn set_ollama_cookie_source(&mut self, v: impl Into<String>) {
-        self.set_cookie_source(ProviderId::Ollama, v)
     }
 
     pub fn claude_usage_source(&self) -> &str {
         self.usage_source(ProviderId::Claude)
     }
-    pub fn set_claude_usage_source(&mut self, v: impl Into<String>) {
-        self.set_usage_source(ProviderId::Claude, v)
-    }
     pub fn codex_usage_source(&self) -> &str {
         self.usage_source(ProviderId::Codex)
-    }
-    pub fn set_codex_usage_source(&mut self, v: impl Into<String>) {
-        self.set_usage_source(ProviderId::Codex, v)
     }
 
     pub fn alibaba_api_region(&self) -> &str {
         self.api_region(ProviderId::Alibaba)
     }
-    pub fn set_alibaba_api_region(&mut self, v: impl Into<String>) {
-        self.set_api_region(ProviderId::Alibaba, v)
-    }
     pub fn zai_api_region(&self) -> &str {
         self.api_region(ProviderId::Zai)
     }
-    pub fn set_zai_api_region(&mut self, v: impl Into<String>) {
-        self.set_api_region(ProviderId::Zai, v)
-    }
     pub fn minimax_api_region(&self) -> &str {
         self.api_region(ProviderId::MiniMax)
-    }
-    pub fn set_minimax_api_region(&mut self, v: impl Into<String>) {
-        self.set_api_region(ProviderId::MiniMax, v)
     }
 
     pub fn alibaba_cookie_header(&self) -> &str {
         self.manual_cookie_header(ProviderId::Alibaba)
     }
-    pub fn set_alibaba_cookie_header(&mut self, v: impl Into<String>) {
-        self.set_manual_cookie_header(ProviderId::Alibaba, v)
-    }
     pub fn kimi_manual_cookie_header(&self) -> &str {
         self.manual_cookie_header(ProviderId::Kimi)
-    }
-    pub fn set_kimi_manual_cookie_header(&mut self, v: impl Into<String>) {
-        self.set_manual_cookie_header(ProviderId::Kimi, v)
     }
     pub fn augment_cookie_header(&self) -> &str {
         self.manual_cookie_header(ProviderId::Augment)
     }
-    pub fn set_augment_cookie_header(&mut self, v: impl Into<String>) {
-        self.set_manual_cookie_header(ProviderId::Augment, v)
-    }
     pub fn amp_cookie_header(&self) -> &str {
         self.manual_cookie_header(ProviderId::Amp)
-    }
-    pub fn set_amp_cookie_header(&mut self, v: impl Into<String>) {
-        self.set_manual_cookie_header(ProviderId::Amp, v)
     }
     pub fn ollama_cookie_header(&self) -> &str {
         self.manual_cookie_header(ProviderId::Ollama)
     }
-    pub fn set_ollama_cookie_header(&mut self, v: impl Into<String>) {
-        self.set_manual_cookie_header(ProviderId::Ollama, v)
-    }
     pub fn minimax_cookie_header(&self) -> &str {
         self.manual_cookie_header(ProviderId::MiniMax)
-    }
-    pub fn set_minimax_cookie_header(&mut self, v: impl Into<String>) {
-        self.set_manual_cookie_header(ProviderId::MiniMax, v)
     }
 
     pub fn opencode_workspace_id(&self) -> &str {
         self.workspace_id(ProviderId::OpenCode)
     }
-    pub fn set_opencode_workspace_id(&mut self, v: impl Into<String>) {
-        self.set_workspace_id(ProviderId::OpenCode, v)
-    }
     pub fn minimax_api_token(&self) -> &str {
         self.api_token(ProviderId::MiniMax)
-    }
-    pub fn set_minimax_api_token(&mut self, v: impl Into<String>) {
-        self.set_api_token(ProviderId::MiniMax, v)
     }
     pub fn jetbrains_ide_base_path(&self) -> &str {
         self.ide_base_path(ProviderId::JetBrains)
@@ -1444,9 +1372,6 @@ impl Settings {
     pub fn codex_openai_web_extras(&self) -> bool {
         self.openai_web_extras(ProviderId::Codex)
     }
-    pub fn set_codex_openai_web_extras(&mut self, v: bool) {
-        self.set_openai_web_extras(ProviderId::Codex, v)
-    }
     pub fn codex_spark_usage_visible(&self) -> bool {
         self.spark_usage_visible(ProviderId::Codex)
     }
@@ -1455,9 +1380,6 @@ impl Settings {
     }
     pub fn codex_historical_tracking(&self) -> bool {
         self.historical_tracking(ProviderId::Codex)
-    }
-    pub fn set_codex_historical_tracking(&mut self, v: bool) {
-        self.set_historical_tracking(ProviderId::Codex, v)
     }
     pub fn claude_avoid_keychain_prompts(&self) -> bool {
         self.avoid_keychain_prompts(ProviderId::Claude)
@@ -1496,34 +1418,5 @@ impl Settings {
         } else {
             Some(trimmed)
         }
-    }
-
-    // ── Per-provider accent color override (#2972) ──────────────────
-
-    /// The user-overridden accent color for `id`, or `None` to use the
-    /// shipped brand color.
-    pub fn accent_color(&self, id: ProviderId) -> Option<&str> {
-        self.provider_configs
-            .get(&id)
-            .and_then(|c| c.accent_color.as_deref())
-            .filter(|s| !s.trim().is_empty())
-    }
-
-    /// Set the accent color override for `id`. Pass an empty string or
-    /// `None` to clear the override and revert to the shipped brand color.
-    pub fn set_accent_color(&mut self, id: ProviderId, color: Option<impl Into<String>>) {
-        let entry = self.provider_config_mut(id);
-        entry.accent_color = color
-            .map(Into::into)
-            .filter(|s: &String| !s.trim().is_empty());
-    }
-
-    /// Resolve the effective accent color for `id`: the user override if
-    /// set, otherwise the shipped brand color from the provider registry.
-    pub fn effective_accent_color(&self, id: ProviderId) -> String {
-        if let Some(override_color) = self.accent_color(id) {
-            return override_color.trim().to_string();
-        }
-        crate::core::brand_color(id).to_string()
     }
 }
