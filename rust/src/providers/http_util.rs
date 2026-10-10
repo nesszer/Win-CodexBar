@@ -99,6 +99,48 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn send_json_matches_inline_decode_error_and_auth_mapping() {
+        let mut server = mockito::Server::new_async().await;
+        let _bad = server
+            .mock("GET", "/bad")
+            .with_body("not json")
+            .create_async()
+            .await;
+        let _denied = server
+            .mock("GET", "/denied")
+            .with_status(403)
+            .create_async()
+            .await;
+        let client = reqwest::Client::new();
+        let bad_url = format!("{}/bad", server.url());
+
+        let inline = client
+            .get(&bad_url)
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|e| format!("Failed to parse Poe balance: {e}"))
+            .unwrap_err();
+        let shared = send_json::<serde_json::Value>(
+            client.get(&bad_url),
+            &StatusPolicy::auth_401_403("Poe usage"),
+            "Poe balance",
+        )
+        .await;
+        assert!(matches!(shared, Err(ProviderError::Parse(message)) if message == inline));
+
+        let denied = send_json::<serde_json::Value>(
+            client.get(format!("{}/denied", server.url())),
+            &StatusPolicy::auth_401_403("Poe usage"),
+            "Poe balance",
+        )
+        .await;
+        assert!(matches!(denied, Err(ProviderError::AuthRequired)));
+    }
+
     #[test]
     fn provider_status_messages_are_pinned() {
         let deepgram_projects = StatusPolicy::auth_401("Deepgram projects API")

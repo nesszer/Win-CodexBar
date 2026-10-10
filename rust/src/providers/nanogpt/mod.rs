@@ -11,6 +11,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::http_util::StatusPolicy;
 
 /// NanoGPT API base URL
 const NANOGPT_API_BASE: &str = "https://nano-gpt.com/api/subscription/v1";
@@ -87,21 +88,14 @@ impl NanoGPTProvider {
             return Ok(key.to_string());
         }
 
-        match keyring::Entry::new(NANOGPT_CREDENTIAL_TARGET, "api_token") {
-            Ok(entry) => match entry.get_password() {
-                Ok(token) => Ok(token),
-                Err(_) => std::env::var("NANOGPT_API_KEY").map_err(|_| {
-                    ProviderError::NotInstalled(
-                        "NanoGPT API key not found. Set in Preferences → Providers or NANOGPT_API_KEY environment variable.".to_string(),
-                    )
-                }),
-            },
-            Err(_) => std::env::var("NANOGPT_API_KEY").map_err(|_| {
+        keyring::Entry::new(NANOGPT_CREDENTIAL_TARGET, "api_token")
+            .and_then(|entry| entry.get_password())
+            .or_else(|_| std::env::var("NANOGPT_API_KEY"))
+            .map_err(|_| {
                 ProviderError::NotInstalled(
                     "NanoGPT API key not found. Set in Preferences → Providers or NANOGPT_API_KEY environment variable.".to_string(),
                 )
-            }),
-        }
+            })
     }
 
     /// Convert millisecond epoch to DateTime<Utc>
@@ -183,16 +177,7 @@ impl NanoGPTProvider {
             .send()
             .await?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !resp.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "NanoGPT API returned status {}",
-                resp.status()
-            )));
-        }
+        StatusPolicy::auth_401("NanoGPT API").check(resp.status())?;
 
         let response_text = resp
             .text()

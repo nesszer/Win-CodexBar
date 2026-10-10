@@ -13,6 +13,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::http_util::{StatusPolicy, send_json};
 
 const DEFAULT_API_BASE: &str = "https://www.codebuff.com";
 const CODEBUFF_CREDENTIAL_TARGET: &str = "codexbar-codebuff";
@@ -105,28 +106,18 @@ impl CodebuffProvider {
             .join("api/v1/usage")
             .map_err(|e| ProviderError::Other(format!("Invalid Codebuff API URL: {e}")))?;
 
-        let usage_resp = self
+        let request = self
             .client
             .post(usage_url)
             .header("Authorization", format!("Bearer {api_key}"))
             .header("Accept", "application/json")
-            .json(&json!({ "fingerprintId": "codexbar-usage" }))
-            .send()
-            .await?;
-
-        if usage_resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(ProviderError::AuthRequired);
-        }
-        if !usage_resp.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "Codebuff API returned status {}",
-                usage_resp.status()
-            )));
-        }
-
-        let usage: Value = usage_resp.json().await.map_err(|e| {
-            ProviderError::Parse(format!("Failed to parse Codebuff usage response: {e}"))
-        })?;
+            .json(&json!({ "fingerprintId": "codexbar-usage" }));
+        let usage: Value = send_json(
+            request,
+            &StatusPolicy::auth_401("Codebuff API"),
+            "Codebuff usage response",
+        )
+        .await?;
 
         let subscription = self.fetch_subscription(&base, &api_key).await;
         Ok(Self::snapshot_from_values(&usage, subscription.as_ref()))
