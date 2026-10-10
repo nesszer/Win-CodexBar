@@ -344,28 +344,9 @@ impl ZoomMateProvider {
         ctx: &RequestContext,
         timeout_secs: u64,
     ) -> Result<UsageSnapshot, ProviderError> {
-        let preferred = ctx.preferred_host.clone();
-        let authorization = ctx.authorization.clone();
-        let headers = ctx.headers.clone();
-        let cookie_by_host = ctx.cookie_by_host.clone();
-        let account_email = ctx.account_email.clone();
-
-        with_api_host_failover(preferred.as_deref(), |host| {
-            let authorization = authorization.clone();
-            let headers = headers.clone();
-            let cookie_by_host = cookie_by_host.clone();
-            let account_email = account_email.clone();
-            async move {
-                self.fetch_credits_status_on_host(
-                    host,
-                    &authorization,
-                    &headers,
-                    &cookie_by_host,
-                    account_email.as_deref(),
-                    timeout_secs,
-                )
+        with_api_host_failover(ctx.preferred_host.as_deref(), |host| async move {
+            self.fetch_credits_status_on_host(host, ctx, timeout_secs)
                 .await
-            }
         })
         .await
     }
@@ -373,10 +354,7 @@ impl ZoomMateProvider {
     async fn fetch_credits_status_on_host(
         &self,
         host: &str,
-        authorization: &str,
-        headers: &HashMap<String, String>,
-        cookie_by_host: &HashMap<String, String>,
-        account_email: Option<&str>,
+        ctx: &RequestContext,
         timeout_secs: u64,
     ) -> Result<UsageSnapshot, ProviderError> {
         let url = format!("https://{host}{CREDITS_STATUS_PATH}");
@@ -392,7 +370,7 @@ impl ZoomMateProvider {
             .header("Sec-Fetch-Site", "same-site");
 
         // Captured headers first (except Origin/Referer/Authorization which we pin).
-        for (name, value) in headers {
+        for (name, value) in &ctx.headers {
             if name.eq_ignore_ascii_case("origin")
                 || name.eq_ignore_ascii_case("referer")
                 || name.eq_ignore_ascii_case("authorization")
@@ -403,12 +381,12 @@ impl ZoomMateProvider {
             req = req.header(name.as_str(), value.as_str());
         }
         // Upstream #2627: only the header scoped to THIS destination host is sent.
-        if let Some(cookie) = cookie_by_host.get(host) {
+        if let Some(cookie) = ctx.cookie_by_host.get(host) {
             req = req.header("Cookie", cookie);
         }
         // Fixed Origin/Referer so captured values never widen the first-party boundary.
         req = req
-            .header("Authorization", authorization)
+            .header("Authorization", ctx.authorization.as_str())
             .header("Origin", ORIGIN_REFERER)
             .header("Referer", ORIGIN_REFERER);
 
@@ -434,7 +412,7 @@ impl ZoomMateProvider {
 
         Ok(snapshot_from_credit_status(
             &credit_status,
-            account_email,
+            ctx.account_email.as_deref(),
             Utc::now(),
         ))
     }
