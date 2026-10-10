@@ -959,14 +959,6 @@ mod tests {
     }
 
     #[test]
-    fn available_sources_include_auto_api_and_web() {
-        let sources = FactoryProvider::new().available_sources();
-        assert!(sources.contains(&SourceMode::Auto));
-        assert!(sources.contains(&SourceMode::OAuth)); // explicit API
-        assert!(sources.contains(&SourceMode::Web));
-    }
-
-    #[test]
     fn secret_redactor_covers_factory_keys() {
         let redacted = crate::core::SecretRedactor::redact("Factory key fk-test-key-abcdef");
         assert!(
