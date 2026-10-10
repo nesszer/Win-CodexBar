@@ -659,6 +659,20 @@ fn test_api_key_provider_catalog_includes_token_providers() {
 }
 
 #[test]
+fn groq_api_key_help_matches_upstream_copy() {
+    let info = get_api_key_providers()
+        .into_iter()
+        .find(|info| info.id == ProviderId::Groq)
+        .expect("Groq api key metadata");
+    assert_eq!(
+        info.api_key_help,
+        Some(
+            "Usage & spend come from your console.groq.com browser session automatically. An API key is optional and only adds Enterprise Prometheus metrics."
+        )
+    );
+}
+
+#[test]
 fn openrouter_api_key_help_explains_management_keys() {
     let info = get_api_key_providers()
         .into_iter()
