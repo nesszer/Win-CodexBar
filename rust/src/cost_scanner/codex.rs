@@ -475,17 +475,7 @@ impl CostScanner {
             && cache_entry_is_fresh(entry)
             && identity_matches_cached(entry)
         {
-            let (session_cost, has_tokens) =
-                add_codex_days_map_to_summary(summary, &entry.days, range);
-            if has_tokens {
-                summary.total_cost_usd += session_cost;
-                summary.sessions_count += 1;
-            }
-            stats.files_skipped = stats.files_skipped.saturating_add(1);
-            return CodexFileScanOutcome {
-                bytes_read: 0,
-                is_complete: true,
-            };
+            return skip_fresh_codex_file(summary, stats, entry, range);
         }
 
         let session_metadata = if let Some(prepared) = prepared_candidate {
@@ -561,6 +551,40 @@ impl CostScanner {
                         state.history_base_thread_id != session_metadata.history_base_thread_id
                     }))
         });
+        let mark_unresolved_fork = |cache: &mut CostUsageCache,
+                                    stats: &mut CostScanStats,
+                                    path_key: String,
+                                    bytes_read: i64| {
+            // Priority evidence lives in `codex_fork_rows`; a fork whose parent
+            // baseline is unresolved or ambiguous must not keep stale rows.
+            cache.codex_fork_rows.remove(&path_key);
+            cache.files.insert(
+                path_key,
+                CostUsageFileUsage {
+                    mtime_unix_ms: mtime_ms,
+                    size,
+                    codex_file_identity: file_identity.clone(),
+                    days: HashMap::new(),
+                    parsed_bytes: Some(0),
+                    codex_scan_target_size: None,
+                    last_model: None,
+                    last_totals: None,
+                    codex_token_timestamps_monotonic: None,
+                    codex_last_token_timestamp: None,
+                    codex_session_id: codex_session_id.clone(),
+                    codex_forked_from_id: codex_forked_from_id.clone(),
+                    codex_fork_accounting_state: None,
+                    codex_lineage,
+                    codex_fork_timestamp: codex_fork_timestamp.clone(),
+                    codex_unresolved_fork_parent: true,
+                },
+            );
+            stats.files_parsed = stats.files_parsed.saturating_add(1);
+            CodexFileScanOutcome {
+                bytes_read,
+                is_complete: false,
+            }
+        };
         let is_fork = codex_lineage.uses_parent_baseline();
         let cached_fork_state_matches =
             cached_fork_accounting_state.as_ref().is_some_and(|state| {
@@ -597,35 +621,7 @@ impl CostScanner {
         );
 
         if accounting_mode.is_unresolved() {
-            // Priority evidence lives in `codex_fork_rows`; a fork that could
-            // not resolve its parent baseline must not keep stale rows.
-            cache.codex_fork_rows.remove(&path_key);
-            cache.files.insert(
-                path_key,
-                CostUsageFileUsage {
-                    mtime_unix_ms: mtime_ms,
-                    size,
-                    codex_file_identity: file_identity.clone(),
-                    days: HashMap::new(),
-                    parsed_bytes: Some(0),
-                    codex_scan_target_size: None,
-                    last_model: None,
-                    last_totals: None,
-                    codex_token_timestamps_monotonic: None,
-                    codex_last_token_timestamp: None,
-                    codex_session_id,
-                    codex_forked_from_id,
-                    codex_fork_accounting_state: None,
-                    codex_lineage,
-                    codex_fork_timestamp,
-                    codex_unresolved_fork_parent: true,
-                },
-            );
-            stats.files_parsed = stats.files_parsed.saturating_add(1);
-            return CodexFileScanOutcome {
-                bytes_read: 0,
-                is_complete: false,
-            };
+            return mark_unresolved_fork(cache, stats, path_key, 0);
         }
 
         if let Some(entry) = &cached
@@ -634,17 +630,7 @@ impl CostScanner {
             && !cached_identity_changed
             && !accounting_mode.requires_cached_reparse()
         {
-            let (session_cost, has_tokens) =
-                add_codex_days_map_to_summary(summary, &entry.days, range);
-            if has_tokens {
-                summary.total_cost_usd += session_cost;
-                summary.sessions_count += 1;
-            }
-            stats.files_skipped = stats.files_skipped.saturating_add(1);
-            return CodexFileScanOutcome {
-                bytes_read: 0,
-                is_complete: true,
-            };
+            return skip_fresh_codex_file(summary, stats, entry, range);
         }
 
         stats.codex_history_read_paths.push(path_key.clone());
@@ -700,12 +686,8 @@ impl CostScanner {
                 } else {
                     cache.codex_fork_rows.remove(&path_key);
                 }
-                let (session_cost, has_tokens) =
-                    add_codex_days_map_to_summary(summary, &days, range);
-                if has_tokens {
-                    summary.total_cost_usd += session_cost;
-                    summary.sessions_count += 1;
-                }
+                let billed = add_codex_days_map_to_summary(summary, &days, range);
+                bill_codex_session(summary, billed);
                 let outcome = CodexFileScanOutcome {
                     bytes_read: parse_result.bytes_read,
                     is_complete: parse_result.is_complete,
@@ -764,10 +746,8 @@ impl CostScanner {
                     .and_then(|entry| codex_resumable_scan_target_size(size, entry))
             })
             .flatten();
-        let parse_result = match match &accounting_mode {
-            CodexAccountingMode::Standard => JsonlScanner::parse_codex(
-                path,
-                range,
+        let (parse_mode, target_size) = match &accounting_mode {
+            CodexAccountingMode::Standard => (
                 CodexParseMode::Standard {
                     start_offset: 0,
                     initial_model: None,
@@ -775,55 +755,47 @@ impl CostScanner {
                     previous_token_timestamp: None,
                     token_timestamps_monotonic: None,
                 },
-                cancel,
                 None,
-                max_bytes_to_read,
             ),
             CodexAccountingMode::Baseline {
                 baseline,
                 paginated_continuation,
                 ..
             } => match fork_resume {
-                Some(resume) => JsonlScanner::parse_codex(
-                    path,
-                    range,
+                Some(resume) => (
                     CodexParseMode::ResumeParentBaseline(resume.parse),
-                    cancel,
                     Some(resume.target_size),
-                    max_bytes_to_read,
                 ),
-                None => {
-                    JsonlScanner::parse_codex(
-                        path,
-                        range,
-                        CodexParseMode::ParentBaseline {
-                            baseline: baseline.clone(),
-                            paginated_continuation: *paginated_continuation,
-                            // A parse from byte zero replays the inherited counters
-                            // itself. Only a resumed parse carries their used-up
-                            // remainder, as upstream restores fork state only then.
-                            remaining_inherited_totals: None,
-                        },
-                        cancel,
-                        parse_target_size,
-                        max_bytes_to_read,
-                    )
-                }
+                None => (
+                    CodexParseMode::ParentBaseline {
+                        baseline: baseline.clone(),
+                        paginated_continuation: *paginated_continuation,
+                        // A parse from byte zero replays the inherited counters
+                        // itself. Only a resumed parse carries their used-up
+                        // remainder, as upstream restores fork state only then.
+                        remaining_inherited_totals: None,
+                    },
+                    parse_target_size,
+                ),
             },
-            CodexAccountingMode::InferSubagent { start_ordinal } => JsonlScanner::parse_codex(
-                path,
-                range,
+            CodexAccountingMode::InferSubagent { start_ordinal } => (
                 CodexParseMode::InferSubagent {
                     start_ordinal: *start_ordinal,
                 },
-                cancel,
                 parse_target_size,
-                max_bytes_to_read,
             ),
             CodexAccountingMode::Unresolved => {
                 unreachable!("unresolved forks return before parsing")
             }
-        } {
+        };
+        let parse_result = match JsonlScanner::parse_codex(
+            path,
+            range,
+            parse_mode,
+            cancel,
+            target_size,
+            max_bytes_to_read,
+        ) {
             Ok(result) => result,
             Err(_) => return CodexFileScanOutcome::default(),
         };
@@ -834,35 +806,7 @@ impl CostScanner {
             || (accounting_mode.infers_subagent_baseline()
                 && !parse_result.fork_baseline_locally_resolved)
         {
-            // Priority evidence lives in `codex_fork_rows`; an ambiguous fork
-            // baseline must not keep stale rows.
-            cache.codex_fork_rows.remove(&path_key);
-            cache.files.insert(
-                path_key,
-                CostUsageFileUsage {
-                    mtime_unix_ms: mtime_ms,
-                    size,
-                    codex_file_identity: file_identity.clone(),
-                    days: HashMap::new(),
-                    parsed_bytes: Some(0),
-                    codex_scan_target_size: None,
-                    last_model: None,
-                    last_totals: None,
-                    codex_token_timestamps_monotonic: None,
-                    codex_last_token_timestamp: None,
-                    codex_session_id,
-                    codex_forked_from_id,
-                    codex_fork_accounting_state: None,
-                    codex_lineage,
-                    codex_fork_timestamp,
-                    codex_unresolved_fork_parent: true,
-                },
-            );
-            stats.files_parsed = stats.files_parsed.saturating_add(1);
-            return CodexFileScanOutcome {
-                bytes_read: parse_result.bytes_read,
-                is_complete: false,
-            };
+            return mark_unresolved_fork(cache, stats, path_key, parse_result.bytes_read);
         }
         // A resumed parse returns only the suffix; its prefix is the cached day
         // map, which is billed as the non-fork resume path bills it.
@@ -882,15 +826,12 @@ impl CostScanner {
         } else {
             cache.codex_fork_rows.remove(&path_key);
         }
-        let (session_cost, has_tokens) = if resumed {
+        let billed = if resumed {
             add_codex_days_map_to_summary(summary, &days, range)
         } else {
             add_codex_records_to_summary(summary, &parse_result.records, range)
         };
-        if has_tokens {
-            summary.total_cost_usd += session_cost;
-            summary.sessions_count += 1;
-        }
+        bill_codex_session(summary, billed);
         let outcome = CodexFileScanOutcome {
             bytes_read: parse_result.bytes_read,
             is_complete: parse_result.is_complete,
@@ -940,6 +881,30 @@ impl CostScanner {
             stats.files_parsed = stats.files_parsed.saturating_add(1);
         }
         outcome
+    }
+}
+
+/// Count one file's billed (cost, has_tokens) as a session when it has tokens.
+fn bill_codex_session(summary: &mut CostSummary, (cost, has_tokens): (f64, bool)) {
+    if has_tokens {
+        summary.total_cost_usd += cost;
+        summary.sessions_count += 1;
+    }
+}
+
+/// Bill a fresh cached file from its day map without reading it.
+fn skip_fresh_codex_file(
+    summary: &mut CostSummary,
+    stats: &mut CostScanStats,
+    entry: &CostUsageFileUsage,
+    range: &CostUsageDayRange,
+) -> CodexFileScanOutcome {
+    let billed = add_codex_days_map_to_summary(summary, &entry.days, range);
+    bill_codex_session(summary, billed);
+    stats.files_skipped = stats.files_skipped.saturating_add(1);
+    CodexFileScanOutcome {
+        bytes_read: 0,
+        is_complete: true,
     }
 }
 
