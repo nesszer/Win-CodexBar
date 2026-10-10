@@ -1023,15 +1023,6 @@ export interface ProviderTokenAccountsBridge {
   activeIndex: number;
 }
 
-// ── Phase 4 — provider ordering / cookie source / region ─────────────
-
-export interface ProviderSummary {
-  id: string;
-  displayName: string;
-  enabled: boolean;
-  order: number;
-}
-
 // ── Phase 4 — credential detection ───────────────────────────────────
 
 export interface GeminiCliStatus {
