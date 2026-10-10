@@ -164,11 +164,7 @@ pub fn fetch_local_usage(now: DateTime<Utc>) -> Result<LocalUsageSnapshot, Provi
             Err(e) => last_err = Some(e),
         }
     }
-    Err(last_err.unwrap_or_else(|| {
-        ProviderError::NotInstalled(
-            "OpenCode Go not detected. Log in with OpenCode Go or use it locally first.".into(),
-        )
-    }))
+    Err(last_err.unwrap_or_else(not_detected))
 }
 
 pub fn fetch_from_paths(
@@ -183,17 +179,13 @@ pub fn fetch_from_paths(
                 "OpenCode Go local usage history is unavailable: database not found".into(),
             )
         } else {
-            ProviderError::NotInstalled(
-                "OpenCode Go not detected. Log in with OpenCode Go or use it locally first.".into(),
-            )
+            not_detected()
         });
     }
 
     let rows = read_rows(db_path)?;
     if !has_auth && rows.is_empty() {
-        return Err(ProviderError::NotInstalled(
-            "OpenCode Go not detected. Log in with OpenCode Go or use it locally first.".into(),
-        ));
+        return Err(not_detected());
     }
     if rows.is_empty() {
         return Err(ProviderError::Other(
@@ -202,6 +194,16 @@ pub fn fetch_from_paths(
     }
 
     Ok(snapshot_from_rows(&rows, now))
+}
+
+fn not_detected() -> ProviderError {
+    ProviderError::NotInstalled(
+        "OpenCode Go not detected. Log in with OpenCode Go or use it locally first.".into(),
+    )
+}
+
+fn sqlite_err(e: rusqlite::Error) -> ProviderError {
+    ProviderError::Other(format!("SQLite error reading OpenCode Go usage: {e}"))
 }
 
 fn has_auth_key(path: &Path) -> bool {
@@ -221,9 +223,7 @@ fn has_auth_key(path: &Path) -> bool {
 fn read_rows(db_path: &Path) -> Result<Vec<UsageRow>, ProviderError> {
     let conn = open_readonly_connection(db_path)?;
     conn.busy_timeout(std::time::Duration::from_millis(250))
-        .map_err(|e| {
-            ProviderError::Other(format!("SQLite error reading OpenCode Go usage: {e}"))
-        })?;
+        .map_err(sqlite_err)?;
 
     let sql = if has_table(&conn, "part") {
         MESSAGE_AND_PART_USAGE_SQL
@@ -231,9 +231,7 @@ fn read_rows(db_path: &Path) -> Result<Vec<UsageRow>, ProviderError> {
         MESSAGE_USAGE_SQL
     };
 
-    let mut stmt = conn.prepare(sql).map_err(|e| {
-        ProviderError::Other(format!("SQLite error reading OpenCode Go usage: {e}"))
-    })?;
+    let mut stmt = conn.prepare(sql).map_err(sqlite_err)?;
     let rows = stmt
         .query_map([], |row| {
             Ok(UsageRow {
@@ -253,15 +251,11 @@ fn read_rows(db_path: &Path) -> Result<Vec<UsageRow>, ProviderError> {
                     .and_then(|json| RowTokens::parse(&json)),
             })
         })
-        .map_err(|e| {
-            ProviderError::Other(format!("SQLite error reading OpenCode Go usage: {e}"))
-        })?;
+        .map_err(sqlite_err)?;
 
     let mut out = Vec::new();
     for row in rows {
-        let row = row.map_err(|e| {
-            ProviderError::Other(format!("SQLite error reading OpenCode Go usage: {e}"))
-        })?;
+        let row = row.map_err(sqlite_err)?;
         if row.created_ms > 0 && row.cost.is_finite() && row.cost >= 0.0 {
             out.push(row);
         }
@@ -273,7 +267,7 @@ fn read_rows(db_path: &Path) -> Result<Vec<UsageRow>, ProviderError> {
 /// WAL-mode databases (upstream #2544).
 fn open_readonly_connection(db_path: &Path) -> Result<Connection, ProviderError> {
     crate::core::open_readonly_sqlite_connection(db_path, std::time::Duration::from_millis(250))
-        .map_err(|e| ProviderError::Other(format!("SQLite error reading OpenCode Go usage: {e}")))
+        .map_err(sqlite_err)
 }
 
 fn has_table(conn: &Connection, name: &str) -> bool {
@@ -772,6 +766,20 @@ mod tests {
     }
 
     #[test]
+    fn unreadable_database_reports_the_sqlite_error_prefix() {
+        let db = temp_db_path("garbage");
+        std::fs::write(&db, b"not a sqlite database, just synthetic bytes").unwrap();
+        let err = read_rows(&db).unwrap_err();
+        // Best-effort teardown; the temp file may already be gone.
+        let _removed = std::fs::remove_file(&db);
+        assert!(
+            matches!(&err, ProviderError::Other(message)
+                if message.starts_with("SQLite error reading OpenCode Go usage: ")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
     fn not_detected_without_db_or_auth() {
         let dir = std::env::temp_dir().join(format!(
             "opencodego-missing-{}",
@@ -785,7 +793,11 @@ mod tests {
         let auth = dir.join("auth.json");
         let db = dir.join("opencode.db");
         let err = fetch_from_paths(&auth, &db, Utc::now()).unwrap_err();
-        assert!(matches!(err, ProviderError::NotInstalled(_)));
+        assert!(matches!(
+            &err,
+            ProviderError::NotInstalled(message)
+                if message == "OpenCode Go not detected. Log in with OpenCode Go or use it locally first."
+        ));
         // Best-effort teardown; temp dir may already be gone.
         let _removed_dir = std::fs::remove_dir_all(&dir);
     }
