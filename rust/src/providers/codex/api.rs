@@ -1373,6 +1373,7 @@ mod credential_retry_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::test_support::{mock_response, mock_response_expect, mock_status_expect};
     use serde_json::json;
 
     #[test]
@@ -1432,98 +1433,37 @@ mod tests {
 
     #[test]
     fn next_expiry_picks_soonest_available() {
-        let now = DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let now = utc("2026-07-01T00:00:00Z");
         let credits = vec![
-            ResetCredit {
-                id: None,
-                reset_type: None,
-                status: Some("available".into()),
-                expires_at: Some("2026-07-10T00:00:00Z".into()),
-            },
-            ResetCredit {
-                id: None,
-                reset_type: None,
-                status: Some("available".into()),
-                expires_at: Some("2026-07-05T00:00:00Z".into()),
-            },
-            ResetCredit {
-                id: None,
-                reset_type: None,
-                status: Some("available".into()),
-                expires_at: Some("2026-07-20T00:00:00Z".into()),
-            },
+            credit(Some("available"), "2026-07-10T00:00:00Z"),
+            credit(Some("available"), "2026-07-05T00:00:00Z"),
+            credit(Some("available"), "2026-07-20T00:00:00Z"),
         ];
         let expiry = next_available_reset_credit_expiry(&credits, now).expect("expiry");
-        assert_eq!(
-            expiry,
-            DateTime::parse_from_rfc3339("2026-07-05T00:00:00Z")
-                .unwrap()
-                .with_timezone(&Utc)
-        );
+        assert_eq!(expiry, utc("2026-07-05T00:00:00Z"));
     }
 
     #[test]
     fn next_expiry_skips_past_and_non_available() {
-        let now = DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let now = utc("2026-07-01T00:00:00Z");
         let credits = vec![
-            ResetCredit {
-                id: None,
-                reset_type: None,
-                status: Some("available".into()),
-                expires_at: Some("2026-06-01T00:00:00Z".into()),
-            },
-            ResetCredit {
-                id: None,
-                reset_type: None,
-                status: Some("used".into()),
-                expires_at: Some("2026-07-03T00:00:00Z".into()),
-            },
-            ResetCredit {
-                id: None,
-                reset_type: None,
-                status: Some("AVAILABLE".into()),
-                expires_at: Some("2026-07-08T00:00:00Z".into()),
-            },
-            ResetCredit {
-                id: None,
-                reset_type: None,
-                status: None,
-                expires_at: Some("2026-07-09T00:00:00Z".into()),
-            },
+            credit(Some("available"), "2026-06-01T00:00:00Z"),
+            credit(Some("used"), "2026-07-03T00:00:00Z"),
+            credit(Some("AVAILABLE"), "2026-07-08T00:00:00Z"),
+            credit(None, "2026-07-09T00:00:00Z"),
         ];
         let expiry = next_available_reset_credit_expiry(&credits, now).expect("expiry");
-        assert_eq!(
-            expiry,
-            DateTime::parse_from_rfc3339("2026-07-08T00:00:00Z")
-                .unwrap()
-                .with_timezone(&Utc)
-        );
+        assert_eq!(expiry, utc("2026-07-08T00:00:00Z"));
     }
 
     #[test]
     fn reset_credits_window_sets_informational_and_expiry() {
-        let now = DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let now = utc("2026-07-01T00:00:00Z");
         let reset = ResetCredits {
             available_count: 2,
             credits: vec![
-                ResetCredit {
-                    id: None,
-                    reset_type: None,
-                    status: Some("available".into()),
-                    expires_at: Some("2026-07-15T12:00:00Z".into()),
-                },
-                ResetCredit {
-                    id: None,
-                    reset_type: None,
-                    status: Some("available".into()),
-                    expires_at: Some("2026-07-10T12:00:00Z".into()),
-                },
+                credit(Some("available"), "2026-07-15T12:00:00Z"),
+                credit(Some("available"), "2026-07-10T12:00:00Z"),
             ],
         };
         let window = reset_credits_rate_window(&reset, now);
@@ -1532,21 +1472,12 @@ mod tests {
             window.reset_description.as_deref(),
             Some("2 reset credits available")
         );
-        assert_eq!(
-            window.resets_at,
-            Some(
-                DateTime::parse_from_rfc3339("2026-07-10T12:00:00Z")
-                    .unwrap()
-                    .with_timezone(&Utc)
-            )
-        );
+        assert_eq!(window.resets_at, Some(utc("2026-07-10T12:00:00Z")));
     }
 
     #[test]
     fn reset_credits_window_count_only_without_expiry() {
-        let now = DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let now = utc("2026-07-01T00:00:00Z");
         let reset = ResetCredits {
             available_count: 1,
             credits: vec![],
@@ -1558,6 +1489,55 @@ mod tests {
             Some("1 reset credit available")
         );
         assert!(window.resets_at.is_none());
+    }
+
+    const PLUS_USAGE: &str = r#"{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":10,"limit_window_seconds":18000}}}"#;
+
+    fn utc(value: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(value)
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    fn credit(status: Option<&str>, expires_at: &str) -> ResetCredit {
+        ResetCredit {
+            id: None,
+            reset_type: None,
+            status: status.map(str::to_string),
+            expires_at: Some(expires_at.to_string()),
+        }
+    }
+
+    /// An unsigned JWT whose payload carries only `exp` (seconds since the epoch).
+    fn jwt_with_exp(exp: i64) -> String {
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#));
+        format!("header.{payload}.signature")
+    }
+
+    fn external_creds(access_token: &str, last_refresh: Option<DateTime<Utc>>) -> CodexCredentials {
+        CodexCredentials {
+            access_token: access_token.to_string(),
+            account_id: None,
+            is_external_oauth: true,
+            access_token_expires_at: None,
+            last_refresh,
+        }
+    }
+
+    async fn mock_reset_credits(
+        server: &mut mockito::ServerGuard,
+        available_count: u32,
+    ) -> mockito::Mock {
+        mock_response_expect(
+            server,
+            "GET",
+            RESET_CREDITS_PATH,
+            200,
+            format!(r#"{{"available_count":{available_count},"credits":[]}}"#),
+            1,
+        )
+        .await
     }
 
     fn write_codex_home(base_url: &str) -> tempfile::TempDir {
@@ -1578,12 +1558,7 @@ mod tests {
     #[tokio::test]
     async fn reset_credit_cache_single_flight_and_unknown_are_ten_minute_observations() {
         let mut server = mockito::Server::new_async().await;
-        let request = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .expect(1)
-            .with_status(503)
-            .create_async()
-            .await;
+        let request = mock_status_expect(&mut server, "GET", RESET_CREDITS_PATH, 503, 1).await;
         let home = write_codex_home(&server.url());
         let api = CodexApi::new().with_codex_home(home.path());
         let creds = api.load_credentials().await.unwrap();
@@ -1682,14 +1657,7 @@ mod tests {
         // makes its own observation instead of reading the other's.
         let mut server = mockito::Server::new_async().await;
         let base = server.url();
-        let first = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .expect(1)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"available_count":2,"credits":[]}"#)
-            .create_async()
-            .await;
+        let first = mock_reset_credits(&mut server, 2).await;
         let first_home = write_codex_home(&base);
         let first_api = CodexApi::new().with_codex_home(first_home.path());
         let first_creds = first_api.load_credentials().await.unwrap();
@@ -1701,12 +1669,7 @@ mod tests {
         first.assert_async().await;
         first.remove_async().await;
 
-        let second = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .expect(1)
-            .with_status(503)
-            .create_async()
-            .await;
+        let second = mock_status_expect(&mut server, "GET", RESET_CREDITS_PATH, 503, 1).await;
         let second_home = write_codex_home(&base);
         let second_api = CodexApi::new().with_codex_home(second_home.path());
         let second_creds = second_api.load_credentials().await.unwrap();
@@ -1724,14 +1687,7 @@ mod tests {
     #[tokio::test]
     async fn suspicious_weekly_reset_uses_independent_credit_observations() {
         let mut server = mockito::Server::new_async().await;
-        let cached_response = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .expect(1)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"available_count":2,"credits":[]}"#)
-            .create_async()
-            .await;
+        let cached_response = mock_reset_credits(&mut server, 2).await;
         let home = write_codex_home(&server.url());
         let api = CodexApi::new().with_codex_home(home.path());
         let creds = api.load_credentials().await.unwrap();
@@ -1743,14 +1699,7 @@ mod tests {
         cached_response.remove_async().await;
 
         let started = Instant::now();
-        let initial_response = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .expect(1)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"available_count":1,"credits":[]}"#)
-            .create_async()
-            .await;
+        let initial_response = mock_reset_credits(&mut server, 1).await;
         let initial = api
             .fresh_reset_credits_for_confirmation(&creds, &base, started)
             .await
@@ -1759,14 +1708,7 @@ mod tests {
         initial_response.assert_async().await;
         initial_response.remove_async().await;
 
-        let confirmation_response = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .expect(1)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"available_count":0,"credits":[]}"#)
-            .create_async()
-            .await;
+        let confirmation_response = mock_reset_credits(&mut server, 0).await;
         let confirmation = api
             .fetch_rate_limit_reset_credits_fresh(&creds, &base)
             .await
@@ -1778,14 +1720,7 @@ mod tests {
     #[tokio::test]
     async fn pending_delayed_candidate_revalidates_with_a_fresh_credit_observation() {
         let mut server = mockito::Server::new_async().await;
-        let candidate_observation = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .expect(1)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"available_count":2,"credits":[]}"#)
-            .create_async()
-            .await;
+        let candidate_observation = mock_reset_credits(&mut server, 2).await;
         let home = write_codex_home(&server.url());
         let api = CodexApi::new().with_codex_home(home.path());
         let creds = api.load_credentials().await.unwrap();
@@ -1799,14 +1734,7 @@ mod tests {
         // A later refresh: the ten-minute cache still holds the observation
         // that created the candidate.
         let started = Instant::now();
-        let changed = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .expect(1)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"available_count":1,"credits":[]}"#)
-            .create_async()
-            .await;
+        let changed = mock_reset_credits(&mut server, 1).await;
         let without_candidate = api
             .initial_reset_credits(&creds, &base, started, cached.clone(), false)
             .await;
@@ -1835,9 +1763,7 @@ mod tests {
             .match_header("authorization", "Bearer test-token")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(
-                r#"{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":10,"limit_window_seconds":18000}}}"#,
-            )
+            .with_body(PLUS_USAGE)
             .create_async()
             .await;
 
@@ -1874,9 +1800,7 @@ mod tests {
             extra.window.reset_description.as_deref(),
             Some("2 reset credits available")
         );
-        let expected = DateTime::parse_from_rfc3339(&soonest)
-            .unwrap()
-            .with_timezone(&Utc);
+        let expected = utc(&soonest);
         assert_eq!(extra.window.resets_at, Some(expected));
     }
 
@@ -1918,9 +1842,7 @@ mod tests {
             .match_header("authorization", "Bearer opaque-token")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(
-                r#"{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":10,"limit_window_seconds":18000}}}"#,
-            )
+            .with_body(PLUS_USAGE)
             .create_async()
             .await;
         let reset_mock = server
@@ -1959,23 +1881,9 @@ mod tests {
     async fn fetch_usage_skips_reset_credits_when_available_count_zero() {
         let mut server = mockito::Server::new_async().await;
 
-        let usage_mock = server
-            .mock("GET", "/wham/usage")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                r#"{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":10,"limit_window_seconds":18000}}}"#,
-            )
-            .create_async()
-            .await;
+        let usage_mock = mock_response(&mut server, "GET", USAGE_PATH, 200, PLUS_USAGE).await;
 
-        let reset_mock = server
-            .mock("GET", "/wham/rate-limit-reset-credits")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"available_count":0,"credits":[]}"#)
-            .create_async()
-            .await;
+        let reset_mock = mock_reset_credits(&mut server, 0).await;
 
         let home = write_codex_home(&server.url());
         let api = CodexApi::new().with_codex_home(home.path());
@@ -2309,13 +2217,7 @@ mod tests {
 
     #[test]
     fn external_oauth_gate_fails_closed_without_last_refresh() {
-        let creds = CodexCredentials {
-            access_token: "access".to_string(),
-            account_id: None,
-            is_external_oauth: true,
-            access_token_expires_at: None,
-            last_refresh: None,
-        };
+        let creds = external_creds("access", None);
         let err = CodexApi::enforce_external_oauth_gate(&creds)
             .expect_err("external OAuth without provenance must fail closed");
         assert!(matches!(err, ProviderError::AuthRequired));
@@ -2324,26 +2226,14 @@ mod tests {
     #[test]
     fn external_oauth_gate_ignores_old_last_refresh_for_opaque_token() {
         let old = Utc::now() - chrono::Duration::days(10);
-        let creds = CodexCredentials {
-            access_token: "access".to_string(),
-            account_id: None,
-            is_external_oauth: true,
-            access_token_expires_at: None,
-            last_refresh: Some(old),
-        };
+        let creds = external_creds("access", Some(old));
         assert!(CodexApi::enforce_external_oauth_gate(&creds).is_ok());
     }
 
     #[test]
     fn external_oauth_gate_allows_refresh_provenance() {
         let fresh = Utc::now() - chrono::Duration::hours(1);
-        let creds = CodexCredentials {
-            access_token: "access".to_string(),
-            account_id: None,
-            is_external_oauth: true,
-            access_token_expires_at: None,
-            last_refresh: Some(fresh),
-        };
+        let creds = external_creds("access", Some(fresh));
         assert!(CodexApi::enforce_external_oauth_gate(&creds).is_ok());
     }
 
@@ -2351,9 +2241,7 @@ mod tests {
     fn external_oauth_gate_uses_future_jwt_expiry_over_old_last_refresh() {
         let now = Utc::now();
         let future = now + chrono::Duration::hours(2);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(format!(r#"{{"exp":{}}}"#, future.timestamp()));
-        let token = format!("header.{payload}.signature");
+        let token = jwt_with_exp(future.timestamp());
         let json = format!(
             r#"{{"tokens":{{"access_token":"{token}","refresh_token":"refresh"}},"last_refresh":"2026-01-01T00:00:00Z"}}"#
         );
@@ -2366,9 +2254,7 @@ mod tests {
     #[test]
     fn external_oauth_gate_rejects_expired_jwt() {
         let expired = Utc::now() - chrono::Duration::minutes(1);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(format!(r#"{{"exp":{}}}"#, expired.timestamp()));
-        let token = format!("header.{payload}.signature");
+        let token = jwt_with_exp(expired.timestamp());
         let json = format!(
             r#"{{"tokens":{{"access_token":"{token}","refresh_token":"refresh"}},"last_refresh":"{}"}}"#,
             Utc::now().to_rfc3339()
@@ -2382,9 +2268,7 @@ mod tests {
     #[test]
     fn external_oauth_gate_requires_cli_refresh_when_jwt_is_near_expiry() {
         let soon = Utc::now() + chrono::Duration::minutes(2);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(format!(r#"{{"exp":{}}}"#, soon.timestamp()));
-        let token = format!("header.{payload}.signature");
+        let token = jwt_with_exp(soon.timestamp());
         let json = format!(
             r#"{{"tokens":{{"access_token":"{token}","refresh_token":"refresh"}},"last_refresh":"{}"}}"#,
             Utc::now().to_rfc3339()
@@ -2397,13 +2281,7 @@ mod tests {
 
     #[test]
     fn external_oauth_gate_allows_missing_last_refresh_when_opted_in() {
-        let creds = CodexCredentials {
-            access_token: "opaque-token".to_string(),
-            account_id: None,
-            is_external_oauth: true,
-            access_token_expires_at: None,
-            last_refresh: None,
-        };
+        let creds = external_creds("opaque-token", None);
         assert!(CodexApi::enforce_external_oauth_gate_at(&creds, true, Utc::now()).is_ok());
     }
 
