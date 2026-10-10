@@ -231,7 +231,7 @@ impl BedrockProvider {
     }
 
     fn credentials_from_profile(profile: &str) -> Result<AwsCredentials, ProviderError> {
-        let aws = aws_cli_path()?;
+        let aws = aws_cli_path();
         let mut command = std::process::Command::new(&aws);
         command
             .args([
@@ -618,10 +618,10 @@ fn json_profile_name(json: &Value) -> Option<String> {
     json_str(json, &["profile", "aws_profile", "AWS_PROFILE"]).map(str::to_string)
 }
 
-fn aws_cli_path() -> Result<String, ProviderError> {
-    Ok(cleaned_env("CODEXBAR_AWS_CLI_PATH")
+fn aws_cli_path() -> String {
+    cleaned_env("CODEXBAR_AWS_CLI_PATH")
         .or_else(|| cleaned_env("AWS_CLI_PATH"))
-        .unwrap_or_else(|| "aws".to_string()))
+        .unwrap_or_else(|| "aws".to_string())
 }
 
 fn map_aws_profile_error(profile: &str, stderr: &str) -> ProviderError {
