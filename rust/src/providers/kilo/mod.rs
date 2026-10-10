@@ -9,6 +9,8 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
 
+mod pass;
+
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
@@ -145,39 +147,36 @@ impl KiloProvider {
         let mut snap = UsageSnapshot::new(primary);
 
         // --- Kilo Pass (secondary window) ---
-        if let Some(pass) = kilo_pass_data {
-            let usage = pass
-                .get("currentPeriodUsageUsd")
-                .and_then(|v| v.as_f64())
-                .filter(|value| value.is_finite())
-                .unwrap_or(0.0);
-            let base = pass
-                .get("currentPeriodBaseCreditsUsd")
-                .and_then(|v| v.as_f64())
-                .filter(|value| value.is_finite())
-                .unwrap_or(0.0);
-            let bonus = pass
-                .get("currentPeriodBonusCreditsUsd")
-                .and_then(|v| v.as_f64())
-                .filter(|value| value.is_finite())
-                .unwrap_or(0.0);
-            let pass_total = base + bonus;
-            if pass_total.is_finite() && pass_total > 0.0 {
-                let pass_pct = ((usage / pass_total) * 100.0).clamp(0.0, 100.0);
+        // `kiloPass.getState` nests the pass under `subscription`; the decoding
+        // (nested, flat and generic fallback shapes) lives in `pass.rs`.
+        let fields = pass::pass_fields(kilo_pass_data);
+        let pass_total = fields
+            .total
+            .or_else(|| Some(fields.used? + fields.remaining?))
+            .map(|total| total.max(0.0))
+            .filter(|total| total.is_finite());
+        if let Some(pass_total) = pass_total {
+            let usage = fields
+                .used
+                .or_else(|| Some(pass_total - fields.remaining?))
+                .unwrap_or(0.0)
+                .max(0.0);
+            let pass_pct = if pass_total > 0.0 {
+                ((usage / pass_total) * 100.0).clamp(0.0, 100.0)
+            } else {
+                // Matches upstream: a valid zero-total pass reads as exhausted.
+                100.0
+            };
+            if pass_pct.is_finite() {
                 let mut secondary = RateWindow::new(pass_pct);
-                secondary.reset_description = Some(format!("${:.2}/${:.2}", usage, pass_total));
+                secondary.resets_at = fields.resets_at;
+                secondary.reset_description = Some(format!("${usage:.2}/${pass_total:.2}"));
                 snap = snap.with_secondary(secondary);
             }
+        }
 
-            if let Some(plan) = pass
-                .get("planName")
-                .or_else(|| pass.get("tier"))
-                .or_else(|| pass.get("status"))
-                .and_then(|v| v.as_str())
-                && !plan.is_empty()
-            {
-                snap = snap.with_login_method(plan.to_string());
-            }
+        if let Some(plan) = pass::plan_name(kilo_pass_data) {
+            snap = snap.with_login_method(plan);
         }
 
         Ok(snap)
@@ -221,10 +220,11 @@ impl KiloProvider {
         let parsed: Value = serde_json::from_str(&body)
             .map_err(|e| ProviderError::Parse(format!("Failed to parse Kilo response: {}", e)))?;
 
-        let credit_blocks = Self::extract_data(&parsed, 0);
-        let kilo_pass = Self::extract_data(&parsed, 1);
+        Self::snapshot_from_batch(&parsed)
+    }
 
-        Self::build_snapshot(credit_blocks, kilo_pass)
+    fn snapshot_from_batch(batch: &Value) -> Result<UsageSnapshot, ProviderError> {
+        Self::build_snapshot(Self::extract_data(batch, 0), Self::extract_data(batch, 1))
     }
 }
 
@@ -363,6 +363,48 @@ mod tests {
         // 5/25 = 20%
         assert!((secondary.used_percent - 20.0).abs() < 0.001);
         assert_eq!(snap.login_method.as_deref(), Some("Kilo Pass"));
+    }
+
+    /// Batch body from the Mac-parity Kilo pack (routes.json), synthetic values.
+    fn parity_pack_batch() -> Value {
+        serde_json::json!([
+            {"result": {"data": {"json": {
+                "creditBlocks": [
+                    {"amount_mUsd": 25_000_000, "balance_mUsd": 12_500_000, "expiry_date": "2026-11-09T00:00:00Z"},
+                    {"amount_mUsd": 25_000_000, "balance_mUsd": 20_000_000, "expiry_date": "2027-01-08T00:00:00Z"}
+                ],
+                "totalBalance_mUsd": 32_500_000
+            }}}},
+            {"result": {"data": {"json": {
+                "subscription": {
+                    "tier": "tier_49",
+                    "currentPeriodUsageUsd": 12.4,
+                    "currentPeriodBaseCreditsUsd": 49.0,
+                    "currentPeriodBonusCreditsUsd": 10.0,
+                    "nextBillingAt": "2026-10-17T00:00:00Z"
+                }
+            }}}},
+            {"result": {"data": {"json": {"enabled": true, "paymentMethod": "visa"}}}}
+        ])
+    }
+
+    #[test]
+    fn parses_nested_subscription_from_parity_pack() {
+        let snap = KiloProvider::snapshot_from_batch(&parity_pack_batch()).unwrap();
+
+        // Credits: $50 total, $32.50 left, $17.50 used -> 35% used (65% left).
+        assert!((snap.primary.used_percent - 35.0).abs() < 0.001);
+
+        // Kilo Pass: $12.40 of $49 base + $10 bonus -> 21% used (79% left).
+        let pass = snap
+            .secondary
+            .expect("Kilo Pass window from nested subscription");
+        assert!((pass.used_percent - 12.4 / 59.0 * 100.0).abs() < 0.001);
+        assert_eq!(
+            pass.resets_at.map(|date| date.to_rfc3339()),
+            Some("2026-10-17T00:00:00+00:00".to_string())
+        );
+        assert_eq!(snap.login_method.as_deref(), Some("Pro"));
     }
 
     #[test]
