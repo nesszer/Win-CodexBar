@@ -194,10 +194,10 @@ Deepgram cli=deepgram display="Deepgram" cookie=None color=#13EF93 deprecated=fa
   map=["deepgram", "dg"]
   metadata=ProviderMetadata { id: Deepgram, display_name: "Deepgram", session_label: "Requests", weekly_label: "Usage", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.deepgram.com/usage"), status_page_url: Some("https://status.deepgram.com"), tertiary_label_key: None }
   sources=[Auto, OAuth] oauth=false web=false cli=false
-Groq cli=groq display="Groq" cookie=None color=#F55036 deprecated=false blocking=None
+Groq cli=groq display="Groq" cookie=Some("groq.com") color=#F55036 deprecated=false blocking=None
   map=["groq", "groq-cloud", "groqcloud"]
-  metadata=ProviderMetadata { id: Groq, display_name: "Groq", session_label: "Requests", weekly_label: "Tokens", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.groq.com/settings/metrics"), status_page_url: Some("https://status.groq.com"), tertiary_label_key: None }
-  sources=[Auto, OAuth] oauth=false web=false cli=false
+  metadata=ProviderMetadata { id: Groq, display_name: "Groq", session_label: "Requests", weekly_label: "Tokens", supports_opus: false, supports_credits: true, default_enabled: false, is_primary: false, dashboard_url: Some("https://console.groq.com/dashboard/usage"), status_page_url: Some("https://status.groq.com"), tertiary_label_key: None }
+  sources=[Auto, Web, OAuth] oauth=false web=true cli=false
 HuggingFace cli=huggingface display="Hugging Face" cookie=None color=#FFD21E deprecated=false blocking=None
   map=["hf", "hugging-face", "huggingface"]
   metadata=ProviderMetadata { id: HuggingFace, display_name: "Hugging Face", session_label: "Credits", weekly_label: "ZeroGPU", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://huggingface.co/settings/billing"), status_page_url: Some("https://status.huggingface.co"), tertiary_label_key: None }

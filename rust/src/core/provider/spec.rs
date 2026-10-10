@@ -454,8 +454,11 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .aliases(&["dg"]),
     spec(P::Groq, "groq", "Groq", "#F55036")
         .labels("Requests", "Tokens")
+        // The console session cookies live on `.groq.com` and
+        // `console.groq.com`; the parent domain matches both.
+        .cookie("groq.com")
         .credits()
-        .dashboard("https://console.groq.com/settings/metrics")
+        .dashboard("https://console.groq.com/dashboard/usage")
         .status("https://status.groq.com")
         .aliases(&["groqcloud", "groq-cloud"])
         .parse_aliases(&["groq cloud"]),
