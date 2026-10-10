@@ -36,15 +36,7 @@ fn plan_upgrade_starts_a_new_baseline_and_publishes_the_new_plan() {
     assert!(state.credit_inventory.is_none());
     assert!(state.candidate.is_none());
     assert_eq!(
-        confirmation_decision(
-            &mut state,
-            &initial,
-            Some(&inv),
-            &confirmation,
-            Some(&inv),
-            true,
-            now(),
-        ),
+        confirm(&mut state, &initial, &confirmation, Some(&inv)),
         ConfirmationDecision::Publish
     );
 }
@@ -63,15 +55,7 @@ fn same_plan_near_zero_reading_keeps_the_previous_weekly_pinned() {
     );
     assert!(state.published_weekly.is_some());
     assert_eq!(
-        confirmation_decision(
-            &mut state,
-            &initial,
-            Some(&inv),
-            &confirmation,
-            Some(&inv),
-            true,
-            now(),
-        ),
+        confirm(&mut state, &initial, &confirmation, Some(&inv)),
         ConfirmationDecision::Preserve
     );
 }
@@ -93,15 +77,7 @@ fn plan_upgrade_does_not_pin_the_previous_plan_weekly_window() {
 #[test]
 fn plan_change_discards_a_pending_candidate() {
     let mut state = plus_baseline();
-    state.candidate = Some(DelayedCandidate {
-        evidence_version: EVIDENCE_VERSION,
-        first_observed_at: now(),
-        created_at: now(),
-        snapshot_updated_at: now(),
-        weekly: RateWindow::new(0.0),
-        plan: Some("ChatGPT Plus".to_string()),
-        inventory: inventory("credit-a"),
-    });
+    state.candidate = Some(pending_candidate(RateWindow::new(0.0), "ChatGPT Plus"));
     let current = plan_snapshot(Some("ChatGPT Pro"), 5.0, 10);
     assert_eq!(
         initial_decision(&mut state, &current, None, true, now()),
@@ -181,15 +157,7 @@ fn near_zero_confirmation_must_report_the_initial_plan() {
             let initial = plan_snapshot(Some("ChatGPT Pro"), 0.0, 10);
             let confirmation = plan_snapshot(confirmation_plan, 0.0, 11);
             assert_eq!(
-                confirmation_decision(
-                    &mut state,
-                    &initial,
-                    Some(&inv),
-                    &confirmation,
-                    Some(&inv),
-                    true,
-                    now(),
-                ),
+                confirm(&mut state, &initial, &confirmation, Some(&inv)),
                 ConfirmationDecision::Preserve,
                 "{confirmation_plan:?} baseline {has_baseline}"
             );
@@ -204,7 +172,7 @@ fn nonzero_confirmation_can_publish_its_own_plan() {
     let initial = plan_snapshot(Some("ChatGPT Pro"), 0.0, 10);
     let confirmation = plan_snapshot(Some("ChatGPT Plus"), 5.0, 11);
     assert_eq!(
-        confirmation_decision(&mut state, &initial, None, &confirmation, None, true, now()),
+        confirm(&mut state, &initial, &confirmation, None),
         ConfirmationDecision::Publish
     );
 }
@@ -253,15 +221,7 @@ fn new_plan_replaces_the_previous_plan_quota_baseline() {
             InitialDecision::Publish => current.clone(),
             InitialDecision::RequiresConfirmation => {
                 assert_eq!(
-                    confirmation_decision(
-                        &mut state,
-                        &current,
-                        Some(&inv),
-                        &confirmation,
-                        Some(&inv),
-                        true,
-                        now(),
-                    ),
+                    confirm(&mut state, &current, &confirmation, Some(&inv)),
                     ConfirmationDecision::Publish,
                     "{used}% confirmation"
                 );
@@ -299,15 +259,7 @@ fn same_or_unknown_plan_cannot_discard_previous_quota_evidence() {
             "{plan:?}"
         );
         assert_eq!(
-            confirmation_decision(
-                &mut state,
-                &current,
-                Some(&inv),
-                &current,
-                Some(&inv),
-                true,
-                now(),
-            ),
+            confirm(&mut state, &current, &current, Some(&inv)),
             ConfirmationDecision::Preserve,
             "{plan:?}"
         );

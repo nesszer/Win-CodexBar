@@ -51,16 +51,6 @@ pub struct ClaudeResetObservationMergeResult {
     pub changed: bool,
 }
 
-pub fn default_store_path() -> Result<PathBuf, ClaudeResetObservationError> {
-    let root = dirs::config_dir().ok_or_else(|| {
-        ClaudeResetObservationError::Read(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "configuration directory not found",
-        ))
-    })?;
-    Ok(root.join("CodexBar").join(STORE_RELATIVE_PATH))
-}
-
 pub fn store_path(config_root: &Path) -> PathBuf {
     config_root.join(STORE_RELATIVE_PATH)
 }
@@ -70,20 +60,8 @@ pub fn load_reset_observations(
     account_scope: &str,
 ) -> Result<Vec<ClaudeQuotaResetObservation>, ClaudeResetObservationError> {
     validate_scope(account_scope)?;
-    let path = store_path(config_root);
-    let raw = match secure_file::read_string(&path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(ClaudeResetObservationError::Read(error)),
-    };
-    let store: ClaudeResetObservationStore =
-        serde_json::from_str(&raw).map_err(ClaudeResetObservationError::Deserialize)?;
-    validate_store(&store)?;
-    Ok(store
-        .accounts
-        .get(account_scope)
-        .cloned()
-        .unwrap_or_default())
+    let mut store = load_store(&store_path(config_root))?;
+    Ok(store.accounts.remove(account_scope).unwrap_or_default())
 }
 
 pub fn merge_reset_observations(
@@ -228,6 +206,31 @@ mod tests {
             second.observations,
             vec![early, first.observations[1].clone()]
         );
+    }
+
+    #[test]
+    fn missing_store_loads_empty_and_invalid_scopes_fail() {
+        let root = tempdir().unwrap();
+        assert_eq!(load_reset_observations(root.path(), "a").unwrap(), vec![]);
+        assert!(matches!(
+            load_reset_observations(root.path(), " "),
+            Err(ClaudeResetObservationError::EmptyAccountScope)
+        ));
+        let path = store_path(root.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, br#"{"version":1}"#).unwrap();
+        assert_eq!(load_reset_observations(root.path(), "a").unwrap(), vec![]);
+        let stray = observation("b", "2026-09-20T10:00:00Z", "2026-09-21T10:00:00Z");
+        let store = serde_json::json!({"version": 1, "accounts": {"a": [stray]}});
+        std::fs::write(&path, store.to_string()).unwrap();
+        assert!(matches!(
+            load_reset_observations(root.path(), "z"),
+            Err(ClaudeResetObservationError::AccountScopeMismatch)
+        ));
+        assert!(matches!(
+            merge_and_persist_reset_observations(root.path(), "z", &[]),
+            Err(ClaudeResetObservationError::AccountScopeMismatch)
+        ));
     }
 
     #[test]

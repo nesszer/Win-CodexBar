@@ -6,7 +6,9 @@
 //! injected reader does. The clock is paused, so the 50 ms retry delays are
 //! exact and the tests never race a writer thread.
 
+use super::credentials::CREDENTIAL_READ_RETRY_DELAY;
 use super::*;
+use base64::Engine;
 use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;

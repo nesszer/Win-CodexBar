@@ -11,18 +11,25 @@ fn regex(cell: &'static OnceLock<Regex>, pattern: &'static str) -> &'static Rege
     cell.get_or_init(|| Regex::new(pattern).expect("valid Claude CLI regex"))
 }
 
-pub(super) fn parse_percent_line(line: &str) -> Option<f64> {
+/// Every "N% used/left/..." in order, as used percent clamped to 0..=100.
+pub(super) fn percent_matches(text: &str) -> impl Iterator<Item = f64> + '_ {
     static PERCENT: OnceLock<Regex> = OnceLock::new();
-    let captures = regex(
+    regex(
         &PERCENT,
         r"(?i)(\d{1,3}(?:\.\d+)?)\s*%\s*(used|spent|consumed|left|remaining|available)",
     )
-    .captures(line)?;
-    let value: f64 = captures.get(1)?.as_str().parse().ok()?;
-    match captures.get(2)?.as_str().to_ascii_lowercase().as_str() {
-        "left" | "remaining" | "available" => Some((100.0 - value).max(0.0)),
-        _ => Some(value.min(100.0)),
-    }
+    .captures_iter(text)
+    .filter_map(|captures| {
+        let value: f64 = captures.get(1)?.as_str().parse().ok()?;
+        match captures.get(2)?.as_str().to_ascii_lowercase().as_str() {
+            "left" | "remaining" | "available" => Some((100.0 - value).max(0.0)),
+            _ => Some(value.min(100.0)),
+        }
+    })
+}
+
+pub(super) fn parse_percent_line(line: &str) -> Option<f64> {
+    percent_matches(line).next()
 }
 
 pub(super) fn normalized_for_label_search(text: &str) -> String {
@@ -35,6 +42,25 @@ pub(super) fn normalized_for_label_search(text: &str) -> String {
 pub(super) fn starts_next_usage_section(line: &str, current_label: &str) -> bool {
     let normalized = normalized_for_label_search(line);
     normalized.starts_with("current") && !normalized.contains(current_label)
+}
+
+/// Up to `max_lines` lines from the label line at `idx`, ending before the
+/// next "Current ..." heading that is not `label_normalized`.
+pub(super) fn label_section<'a>(
+    lines: &'a [&'a str],
+    idx: usize,
+    label_normalized: &'a str,
+    max_lines: usize,
+) -> impl Iterator<Item = &'a str> {
+    lines
+        .iter()
+        .skip(idx)
+        .take(max_lines)
+        .enumerate()
+        .take_while(move |(offset, line)| {
+            *offset == 0 || !starts_next_usage_section(line, label_normalized)
+        })
+        .map(|(_, line)| *line)
 }
 
 pub(super) fn extract_cli_scoped_weekly_limits(
@@ -69,10 +95,7 @@ pub(super) fn extract_cli_scoped_weekly_limits(
         let mut used_percent = None;
         let mut reset_description = None;
         let current_label = normalized_for_label_search(line);
-        for (offset, section_line) in lines.iter().skip(idx).take(14).enumerate() {
-            if offset > 0 && starts_next_usage_section(section_line, &current_label) {
-                break;
-            }
+        for section_line in label_section(&lines, idx, &current_label, 14) {
             used_percent = used_percent.or_else(|| parse_percent_line(section_line));
             reset_description = reset_description.or_else(|| {
                 reset_re
@@ -142,42 +165,33 @@ pub(super) fn parse_claude_reset_date_in_system_zone(
     let (raw, timezone) = normalize_claude_reset_text(text, system_timezone)?;
     let components = parse_claude_reset_components(&raw)?;
     let now_local = now.with_timezone(&timezone);
-    let candidates = match (components.year, components.month, components.day) {
-        (Some(year), Some(month), Some(day)) => local_reset_occurrences(
-            timezone,
-            year,
-            month,
-            day,
-            components.hour,
-            components.minute,
-        ),
+    // Without a year, try nearby years; without a date, yesterday to tomorrow.
+    let dates: Vec<(i32, u32, u32)> = match (components.year, components.month, components.day) {
+        (Some(year), Some(month), Some(day)) => vec![(year, month, day)],
         (None, Some(month), Some(day)) => (now_local.year() - 8..=now_local.year() + 8)
-            .flat_map(|year| {
-                local_reset_occurrences(
-                    timezone,
-                    year,
-                    month,
-                    day,
-                    components.hour,
-                    components.minute,
-                )
-            })
+            .map(|year| (year, month, day))
             .collect(),
         (None, None, None) => (-1..=1)
-            .flat_map(|offset| {
+            .map(|offset| {
                 let date = now_local.date_naive() + Duration::days(offset);
-                local_reset_occurrences(
-                    timezone,
-                    date.year(),
-                    date.month(),
-                    date.day(),
-                    components.hour,
-                    components.minute,
-                )
+                (date.year(), date.month(), date.day())
             })
             .collect(),
         _ => return None,
     };
+    let candidates = dates
+        .into_iter()
+        .flat_map(|(year, month, day)| {
+            local_reset_occurrences(
+                timezone,
+                year,
+                month,
+                day,
+                components.hour,
+                components.minute,
+            )
+        })
+        .collect();
 
     resolve_claude_reset_occurrence(candidates, now, expected_window_minutes)
 }
@@ -290,21 +304,14 @@ fn parse_claude_hour(
 }
 
 fn claude_month(month: &str) -> Option<u32> {
-    match month.to_ascii_lowercase().as_str() {
-        "jan" => Some(1),
-        "feb" => Some(2),
-        "mar" => Some(3),
-        "apr" => Some(4),
-        "may" => Some(5),
-        "jun" => Some(6),
-        "jul" => Some(7),
-        "aug" => Some(8),
-        "sep" => Some(9),
-        "oct" => Some(10),
-        "nov" => Some(11),
-        "dec" => Some(12),
-        _ => None,
-    }
+    const MONTHS: [&str; 12] = [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
+    let month = month.to_ascii_lowercase();
+    (1..)
+        .zip(MONTHS)
+        .find(|(_, name)| *name == month)
+        .map(|(number, _)| number)
 }
 
 fn local_reset_occurrences(

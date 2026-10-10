@@ -417,9 +417,18 @@ mod tests {
     }
 
     #[cfg(windows)]
+    fn make_junction(link: &Path, target: &Path, failure: &str) {
+        use std::os::windows::process::CommandExt;
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", "New-Item -ItemType Junction -Path $env:CODEXBAR_TEST_LINK -Target $env:CODEXBAR_TEST_TARGET | Out-Null"])
+            .env("CODEXBAR_TEST_LINK", link).env("CODEXBAR_TEST_TARGET", target)
+            .creation_flags(0x0800_0000).output().unwrap();
+        assert!(output.status.success(), "{failure}");
+    }
+
+    #[cfg(windows)]
     #[test]
     fn startup_cleanup_does_not_follow_junctions() {
-        use std::os::windows::process::CommandExt;
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("logins");
         let outside = dir.path().join("outside");
@@ -427,13 +436,10 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("keep.txt"), "preserved").unwrap();
         let link = root.join(uuid::Uuid::new_v4().to_string());
-        let output = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", "New-Item -ItemType Junction -Path $env:CODEXBAR_TEST_LINK -Target $env:CODEXBAR_TEST_TARGET | Out-Null"])
-            .env("CODEXBAR_TEST_LINK", &link).env("CODEXBAR_TEST_TARGET", &outside)
-            .creation_flags(0x0800_0000).output().unwrap();
-        assert!(
-            output.status.success(),
-            "Failed to create the isolated test junction."
+        make_junction(
+            &link,
+            &outside,
+            "Failed to create the isolated test junction.",
         );
         cleanup_login_root(&root).unwrap();
         assert!(outside.join("keep.txt").exists());
@@ -730,18 +736,14 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn ordinary_junction_is_not_treated_as_wsl_backed() {
-        use std::os::windows::process::CommandExt;
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("target");
         let link = dir.path().join("link");
         std::fs::create_dir_all(&target).unwrap();
-        let output = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", "New-Item -ItemType Junction -Path $env:CODEXBAR_TEST_LINK -Target $env:CODEXBAR_TEST_TARGET | Out-Null"])
-            .env("CODEXBAR_TEST_LINK", &link).env("CODEXBAR_TEST_TARGET", &target)
-            .creation_flags(0x0800_0000).output().unwrap();
-        assert!(
-            output.status.success(),
-            "Failed to create the local junction fixture."
+        make_junction(
+            &link,
+            &target,
+            "Failed to create the local junction fixture.",
         );
         assert!(!path_is_wsl_backed(&link));
         assert!(!path_is_wsl_backed(&target));

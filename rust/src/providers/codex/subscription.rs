@@ -7,6 +7,10 @@ use super::CodexApi;
 
 const SUBSCRIPTION_PATH: &str = "/subscriptions";
 
+/// Subscription metadata is optional enrichment. Usage remains usable when
+/// the endpoint is unavailable, malformed, unauthorized, or points at a
+/// custom backend. A successful empty cancellation response is the only
+/// result allowed to clear dates on the fresh snapshot.
 pub(super) async fn enrich_subscription_metadata(
     api: &CodexApi,
     base_url: &str,
@@ -17,16 +21,13 @@ pub(super) async fn enrich_subscription_metadata(
     if !crate::settings::Settings::load().codex_openai_web_extras() {
         return usage;
     }
-    match api
-        .fetch_subscription_metadata(base_url, access_token, account_id)
-        .await
-    {
+    match fetch_subscription_metadata(api, base_url, access_token, account_id).await {
         OpenAISubscriptionFetchResult::Success(metadata) => usage.with_subscription(metadata),
         OpenAISubscriptionFetchResult::Unavailable => usage,
     }
 }
 
-pub(super) async fn fetch_subscription_metadata(
+async fn fetch_subscription_metadata(
     api: &CodexApi,
     base_url: &str,
     access_token: &str,
@@ -42,22 +43,15 @@ pub(super) async fn fetch_subscription_metadata(
         return OpenAISubscriptionFetchResult::Unavailable;
     }
 
-    let mut request = api
-        .client
-        .get(format!(
-            "{}{}",
-            base_url.trim_end_matches('/'),
-            SUBSCRIPTION_PATH
-        ))
-        .header("Authorization", format!("Bearer {access_token}"))
-        .header("User-Agent", "CodexBar")
-        .header("Accept", "application/json")
+    let request = api
+        .authed_get(
+            &format!("{}{}", base_url.trim_end_matches('/'), SUBSCRIPTION_PATH),
+            access_token,
+            account_id,
+        )
         .header("Cache-Control", "no-cache, no-store, max-age=0")
         .header("Pragma", "no-cache")
         .timeout(Duration::from_secs(8));
-    if let Some(account_id) = account_id.filter(|id| !id.is_empty()) {
-        request = request.header("ChatGPT-Account-Id", account_id);
-    }
     let Ok(response) = request.send().await else {
         return OpenAISubscriptionFetchResult::Unavailable;
     };

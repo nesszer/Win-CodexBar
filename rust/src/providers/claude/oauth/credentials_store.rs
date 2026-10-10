@@ -460,6 +460,27 @@ fn apply_refresh_to_credentials_json(
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        CredentialSource, apply_refresh_to_credentials_json, cached_refreshed_if_fresher,
+        parse_credentials_json, replacement_from_changed_fresh_keyring, store_refreshed,
+    };
+    use crate::providers::claude::oauth::ClaudeOAuthCredentials;
+    use chrono::{DateTime, Duration, Utc};
+
+    fn creds(
+        access_token: &str,
+        refresh_token: Option<&str>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> ClaudeOAuthCredentials {
+        ClaudeOAuthCredentials {
+            access_token: access_token.to_string(),
+            refresh_token: refresh_token.map(str::to_string),
+            expires_at,
+            scopes: vec!["user:profile".to_string()],
+            rate_limit_tier: None,
+        }
+    }
+
     #[test]
     fn a_new_saved_login_cannot_inherit_an_older_longer_lived_rotation() {
         let path = std::path::PathBuf::from(format!("saved-cache-{}", uuid::Uuid::new_v4()));
@@ -482,11 +503,6 @@ mod tests {
         assert!(super::cached_refreshed_if_fresher(&old_source, &shorter_login).is_some());
         assert!(super::cached_refreshed_if_fresher(&new_source, &shorter_login).is_none());
     }
-    use super::{
-        CredentialSource, apply_refresh_to_credentials_json, cached_refreshed_if_fresher,
-        parse_credentials_json, replacement_from_changed_fresh_keyring, store_refreshed,
-    };
-    use crate::providers::claude::oauth::ClaudeOAuthCredentials;
 
     #[test]
     fn parses_claude_code_credentials_payload() {
@@ -548,21 +564,17 @@ mod tests {
 
     #[test]
     fn changed_fresh_keyring_replaces_expired_file_credentials() {
-        let expired_file = ClaudeOAuthCredentials {
-            access_token: "expired-file-token".to_string(),
-            refresh_token: Some("expired-file-refresh".to_string()),
-            expires_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
-            scopes: vec!["user:profile".to_string()],
-            rate_limit_tier: None,
-        };
+        let expired_file = creds(
+            "expired-file-token",
+            Some("expired-file-refresh"),
+            Some(Utc::now() - Duration::hours(1)),
+        );
         let keyring_source = CredentialSource::Keyring("test-user".to_string());
-        let fresh_keyring = ClaudeOAuthCredentials {
-            access_token: "fresh-keyring-token".to_string(),
-            refresh_token: Some("fresh-keyring-refresh".to_string()),
-            expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
-            scopes: vec!["user:profile".to_string()],
-            rate_limit_tier: None,
-        };
+        let fresh_keyring = creds(
+            "fresh-keyring-token",
+            Some("fresh-keyring-refresh"),
+            Some(Utc::now() + Duration::hours(1)),
+        );
 
         let adopted = replacement_from_changed_fresh_keyring(
             &expired_file,
@@ -572,13 +584,11 @@ mod tests {
         assert_eq!(adopted.0.access_token, "fresh-keyring-token");
         assert_eq!(adopted.1, keyring_source);
 
-        let expired_keyring = ClaudeOAuthCredentials {
-            access_token: "another-keyring-token".to_string(),
-            refresh_token: None,
-            expires_at: Some(chrono::Utc::now() - chrono::Duration::minutes(1)),
-            scopes: vec!["user:profile".to_string()],
-            rate_limit_tier: None,
-        };
+        let expired_keyring = creds(
+            "another-keyring-token",
+            None,
+            Some(Utc::now() - Duration::minutes(1)),
+        );
         assert!(
             replacement_from_changed_fresh_keyring(
                 &expired_file,
@@ -645,22 +655,14 @@ mod tests {
             "env_source_not_shadowed_by_file_cache-unique-marker.json",
         ));
 
-        let file_cached_creds = ClaudeOAuthCredentials {
-            access_token: "file-refreshed-token".to_string(),
-            refresh_token: Some("file-refresh".to_string()),
-            expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
-            scopes: vec!["user:profile".to_string()],
-            rate_limit_tier: None,
-        };
+        let file_cached_creds = creds(
+            "file-refreshed-token",
+            Some("file-refresh"),
+            Some(Utc::now() + Duration::hours(1)),
+        );
         store_refreshed(&file_source, &file_cached_creds);
 
-        let env_creds = ClaudeOAuthCredentials {
-            access_token: "env-token".to_string(),
-            refresh_token: None,
-            expires_at: None,
-            scopes: vec!["user:profile".to_string()],
-            rate_limit_tier: None,
-        };
+        let env_creds = creds("env-token", None, None);
 
         // Looking up under the Environment source must not see the File
         // source's cached (and "fresher"-by-the-naive-rule) entry.
@@ -672,13 +674,7 @@ mod tests {
 
         // Sanity check: the file source's own cache entry is still there and
         // still considered fresher than a file-read with no expiry.
-        let file_disk_creds = ClaudeOAuthCredentials {
-            access_token: "file-disk-token".to_string(),
-            refresh_token: Some("file-disk-refresh".to_string()),
-            expires_at: None,
-            scopes: vec!["user:profile".to_string()],
-            rate_limit_tier: None,
-        };
+        let file_disk_creds = creds("file-disk-token", Some("file-disk-refresh"), None);
         let same_source_result = cached_refreshed_if_fresher(&file_source, &file_disk_creds);
         assert_eq!(
             same_source_result.map(|c| c.access_token),

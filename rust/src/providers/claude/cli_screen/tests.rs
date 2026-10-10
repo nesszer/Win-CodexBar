@@ -186,7 +186,7 @@ fn a_cursor_sequence_after_plain_text_switches_to_replay() {
 #[test]
 fn differential_redraw_fixture_keeps_the_scoped_weekly_quota() {
     // Plain escape stripping fuses the redraw fragments, which is the bug.
-    let stripped = crate::providers::claude::strip_ansi(USAGE_FIXTURE);
+    let stripped = strip_ansi(USAGE_FIXTURE);
     assert!(stripped.contains("51%usd"), "{stripped}");
 
     let provider = ClaudeProvider::new();
@@ -226,4 +226,60 @@ fn redrawn_identity_uses_the_final_frame_with_cursor_positioned_spaces() {
     let usage = ClaudeProvider::new().parse_cli_output(&text).unwrap().usage;
     assert_eq!(usage.account_email.as_deref(), Some("fixture@example.com"));
     assert_eq!(usage.login_method.as_deref(), Some("Claude Max Account"));
+}
+
+#[test]
+fn rendered_text_never_carries_an_escape() {
+    let inputs = [
+        USAGE_FIXTURE,
+        STATUS_FIXTURE,
+        "plain \u{1b}[1mLogin method: Claude Max\u{1b}[22m",
+        "osc \u{1b}]0;title\u{7}tail \u{1b}]8;;x\u{1b}\\link",
+        "lone \u{1b}\n\u{1b}Xtrail \u{1b}",
+        "abc\u{1b}[2DZ \u{1b}(B done",
+    ];
+    for input in inputs {
+        for preserve in [true, false] {
+            let rendered = render(input, preserve);
+            assert!(!rendered.contains('\u{1b}'), "{rendered:?}");
+            assert_eq!(strip_ansi(&rendered), rendered);
+        }
+    }
+}
+
+/// Plain escape stripping, the pre-replay behavior these tests compare against.
+fn strip_ansi(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1B' {
+            // Skip CSI sequences: ESC[...letter
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                let mut final_char = None;
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next.is_ascii_alphabetic() {
+                        final_char = Some(next);
+                        break;
+                    }
+                }
+                if final_char == Some('C') {
+                    result.push(' ');
+                }
+            // Skip OSC sequences: ESC]...BEL
+            } else if chars.peek() == Some(&']') {
+                for next in chars.by_ref() {
+                    if next == '\x07' || next == '\\' {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
 }

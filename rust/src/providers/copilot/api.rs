@@ -64,35 +64,17 @@ impl CopilotApi {
         github_host: Option<&str>,
         seat_credit_entitlement: Option<f64>,
     ) -> Result<UsageSnapshot, ProviderError> {
-        let api_url = copilot_usage_url(github_host);
-        let response = self
+        let request = self
             .client
-            .get(api_url)
+            .get(copilot_usage_url(github_host))
             .header("Authorization", format!("token {}", token.trim()))
             .header("Accept", "application/json")
             .header("Editor-Version", "vscode/1.96.2")
             .header("Editor-Plugin-Version", "copilot-chat/0.26.7")
             .header("User-Agent", "GitHubCopilotChat/0.26.7")
-            .header("X-Github-Api-Version", "2025-04-01")
-            .send()
-            .await
-            .map_err(|e| ProviderError::Other(format!("Request failed: {}", e)))?;
-
-        if response.status() == 401 || response.status() == 403 {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "GitHub Copilot usage endpoint returned {}",
-                response.status()
-            )));
-        }
-
-        let usage_response: CopilotUsageResponse = response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+            .header("X-Github-Api-Version", "2025-04-01");
+        let usage_response: CopilotUsageResponse =
+            send_json(request, "GitHub Copilot usage endpoint").await?;
 
         snapshot_from_response_with_seat_entitlement(usage_response, seat_credit_entitlement)
     }
@@ -103,33 +85,14 @@ impl CopilotApi {
         token: &str,
         github_host: Option<&str>,
     ) -> Result<GitHubIdentity, ProviderError> {
-        let url = github_api_url(github_host, GITHUB_USER_PATH);
-        let response = self
+        let request = self
             .client
-            .get(url)
+            .get(github_api_url(github_host, GITHUB_USER_PATH))
             .header("Authorization", format!("token {}", token.trim()))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "Win-CodexBar")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .send()
-            .await
-            .map_err(|e| ProviderError::Other(format!("Request failed: {}", e)))?;
-
-        if response.status() == 401 || response.status() == 403 {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "GitHub identity endpoint returned {}",
-                response.status()
-            )));
-        }
-
-        response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        send_json(request, "GitHub identity endpoint").await
     }
 
     /// Resolve the Copilot OAuth token from settings/legacy API key, GitHub
@@ -235,6 +198,30 @@ impl Default for CopilotApi {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 401/403 mean the token is rejected; any other non-success names `endpoint`.
+async fn send_json<T: serde::de::DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+    endpoint: &str,
+) -> Result<T, ProviderError> {
+    let response = request
+        .send()
+        .await
+        .map_err(|e| ProviderError::Other(format!("Request failed: {}", e)))?;
+    let status = response.status();
+    if status == 401 || status == 403 {
+        return Err(ProviderError::AuthRequired);
+    }
+    if !status.is_success() {
+        return Err(ProviderError::Other(format!(
+            "{endpoint} returned {status}"
+        )));
+    }
+    response
+        .json()
+        .await
+        .map_err(|e| ProviderError::Parse(e.to_string()))
 }
 
 // --- API Response Types ---
@@ -521,10 +508,7 @@ impl CopilotUsageResponse {
     fn credits_used_counter(&self) -> Option<f64> {
         let mut chat: Option<f64> = None;
         let mut first: Option<f64> = None;
-        for (key, value) in &self.quota_snapshots.entries {
-            let Ok(snapshot) = serde_json::from_value::<QuotaSnapshot>(value.clone()) else {
-                continue;
-            };
+        for (key, snapshot) in self.snapshots() {
             let Some(credits) = snapshot.credits_used else {
                 continue;
             };
@@ -534,64 +518,50 @@ impl CopilotUsageResponse {
             match classify_quota_kind(key, snapshot.quota_id.as_deref().unwrap_or_default()) {
                 CopilotQuotaKind::Premium => return Some(credits),
                 CopilotQuotaKind::Chat => {
-                    if chat.is_none() {
-                        chat = Some(credits);
-                    }
+                    chat.get_or_insert(credits);
                 }
                 _ => {
-                    if first.is_none() {
-                        first = Some(credits);
-                    }
+                    first.get_or_insert(credits);
                 }
             }
         }
         chat.or(first)
     }
 
+    /// Quota snapshot entries that decode; malformed entries are skipped.
+    fn snapshots(&self) -> impl Iterator<Item = (&String, QuotaSnapshot)> {
+        self.quota_snapshots
+            .entries
+            .iter()
+            .filter_map(|(key, value)| {
+                serde_json::from_value::<QuotaSnapshot>(value.clone())
+                    .ok()
+                    .map(|snapshot| (key, snapshot))
+            })
+    }
+
     fn usable_quotas(&self, reset: Option<DateTime<Utc>>) -> UsableQuotas {
         let mut quotas = UsableQuotas::default();
 
-        for (key, value) in &self.quota_snapshots.entries {
-            let Ok(snapshot) = serde_json::from_value::<QuotaSnapshot>(value.clone()) else {
-                continue;
-            };
+        for (key, snapshot) in self.snapshots() {
             let Some(quota) = UsableQuota::from_snapshot(key, snapshot) else {
                 continue;
             };
-
-            match quota.kind {
-                CopilotQuotaKind::Premium => {
-                    if quotas.first.is_none() {
-                        quotas.first = Some(quota.clone());
-                    }
-                    if quotas.premium.is_none() {
-                        quotas.premium = Some(quota);
-                    }
-                }
-                CopilotQuotaKind::Chat => {
-                    if quotas.first.is_none() {
-                        quotas.first = Some(quota.clone());
-                    }
-                    if quotas.chat.is_none() {
-                        quotas.chat = Some(quota);
-                    }
-                }
-                CopilotQuotaKind::Completions => {
-                    if quotas.first.is_none() {
-                        quotas.first = Some(quota.clone());
-                    }
-                    if quotas.completions.is_none() {
-                        quotas.completions = Some(quota);
-                    }
-                }
+            let slot = match quota.kind {
+                CopilotQuotaKind::Premium => &mut quotas.premium,
+                CopilotQuotaKind::Chat => &mut quotas.chat,
+                CopilotQuotaKind::Completions => &mut quotas.completions,
                 CopilotQuotaKind::Other => {
                     quotas.extra.push(NamedRateWindow::new(
                         quota.id.clone(),
                         quota.title.clone(),
                         quota.to_rate_window(reset),
                     ));
+                    continue;
                 }
-            }
+            };
+            slot.get_or_insert_with(|| quota.clone());
+            quotas.first.get_or_insert(quota);
         }
 
         let completions = UsableQuota::from_limited(
@@ -806,500 +776,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse_snapshot(json: &str) -> UsageSnapshot {
-        let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
-        snapshot_from_response_with_seat_entitlement(response, None).unwrap()
-    }
-
-    fn parse_snapshot_result(json: &str) -> Result<UsageSnapshot, ProviderError> {
-        let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
-        snapshot_from_response_with_seat_entitlement(response, None)
-    }
-
-    #[test]
-    fn paid_plan_parses_premium_and_chat_quotas() {
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "pro",
-                "quota_reset_date": "2026-06-01",
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 300,
-                        "remaining": 240,
-                        "percent_remaining": 80,
-                        "quota_id": "premium_interactions"
-                    },
-                    "chat": {
-                        "entitlement": 1000,
-                        "remaining": 900,
-                        "percent_remaining": 90,
-                        "quota_id": "chat"
-                    }
-                }
-            }"#,
-        );
-
-        assert_eq!(usage.login_method.as_deref(), Some("Copilot Pro"));
-        assert!((usage.primary.used_percent - 20.0).abs() < 0.001);
-        assert!((usage.secondary.unwrap().used_percent - 10.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn limited_user_quotas_parse_free_schema() {
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "free",
-                "monthly_quotas": {
-                    "completions": 2000,
-                    "chat": "50"
-                },
-                "limited_user_quotas": {
-                    "completions": "1000",
-                    "chat": 10
-                }
-            }"#,
-        );
-
-        assert_eq!(usage.login_method.as_deref(), Some("Copilot Free"));
-        assert!((usage.primary.used_percent - 50.0).abs() < 0.001);
-        assert!((usage.secondary.unwrap().used_percent - 80.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn derives_missing_percent_and_accepts_numeric_strings() {
-        let usage = parse_snapshot(
-            r#"{
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": "100",
-                        "remaining": "25",
-                        "quota_id": "premium_interactions"
-                    }
-                }
-            }"#,
-        );
-
-        assert!((usage.primary.used_percent - 75.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn ignores_placeholders_and_does_not_promote_chat_to_premium() {
-        let usage = parse_snapshot(
-            r#"{
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "percent_remaining": 0,
-                        "quota_id": ""
-                    },
-                    "chat": {
-                        "entitlement": 100,
-                        "remaining": 75,
-                        "percent_remaining": 75,
-                        "quota_id": "chat"
-                    }
-                }
-            }"#,
-        );
-
-        assert!((usage.primary.used_percent - 25.0).abs() < 0.001);
-        assert!(usage.secondary.is_none());
-    }
-
-    #[test]
-    fn drops_business_token_billing_zero_entitlement_quotas() {
-        let err = parse_snapshot_result(
-            r#"{
-                "copilot_plan": "business",
-                "token_based_billing": true,
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 0,
-                        "remaining": 0,
-                        "percent_remaining": 100,
-                        "quota_id": "premium_interactions"
-                    },
-                    "chat": {
-                        "entitlement": 0,
-                        "remaining": 0,
-                        "percent_remaining": 100,
-                        "quota_id": "chat"
-                    },
-                    "completions": {
-                        "entitlement": 0,
-                        "remaining": 0,
-                        "percent_remaining": 100,
-                        "quota_id": "completions"
-                    }
-                }
-            }"#,
-        )
-        .unwrap_err();
-
-        assert!(
-            err.to_string()
-                .contains("token-based billing usage is unavailable")
-        );
-    }
-
-    #[test]
-    fn keeps_percent_only_quota_snapshots_available() {
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "business",
-                "quota_snapshots": {
-                    "chat": {
-                        "percent_remaining": 40,
-                        "quota_id": "chat"
-                    }
-                }
-            }"#,
-        );
-
-        assert_eq!(usage.login_method.as_deref(), Some("Copilot Business"));
-        assert!((usage.primary.used_percent - 60.0).abs() < 0.001);
-        assert!(usage.secondary.is_none());
-    }
-
-    #[test]
-    fn keeps_fully_consumed_positive_entitlement_quota() {
-        let usage = parse_snapshot(
-            r#"{
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 500,
-                        "remaining": 0,
-                        "percent_remaining": 0,
-                        "quota_id": "premium_interactions"
-                    }
-                }
-            }"#,
-        );
-
-        assert!((usage.primary.used_percent - 100.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn keeps_additional_budget_as_extra_window() {
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "pro",
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 500,
-                        "remaining": 250,
-                        "quota_id": "premium_interactions"
-                    },
-                    "additional_budget": {
-                        "entitlement": 100,
-                        "remaining": 25,
-                        "quota_id": "additional_budget"
-                    }
-                }
-            }"#,
-        );
-
-        assert!((usage.primary.used_percent - 50.0).abs() < 0.001);
-        assert_eq!(usage.extra_rate_windows.len(), 1);
-        assert_eq!(usage.extra_rate_windows[0].id, "additional-budget");
-        assert_eq!(usage.extra_rate_windows[0].title, "Additional Budget");
-        assert!((usage.extra_rate_windows[0].window.used_percent - 75.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn preserves_over_quota_percent_remaining() {
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "pro",
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 500,
-                        "remaining": -75,
-                        "percent_remaining": -15,
-                        "quota_id": "premium_interactions"
-                    }
-                }
-            }"#,
-        );
-
-        assert_eq!(usage.login_method.as_deref(), Some("Copilot Pro"));
-        assert!((usage.primary.used_percent - 115.0).abs() < 0.001);
-        assert_eq!(
-            usage.primary.reset_description.as_deref(),
-            Some("115% used")
-        );
-        assert!(usage.primary.is_exhausted());
-    }
-
-    #[test]
-    fn derives_over_quota_percent_from_negative_remaining() {
-        let usage = parse_snapshot(
-            r#"{
-                "quota_snapshots": {
-                    "chat": {
-                        "entitlement": 500,
-                        "remaining": -75,
-                        "quota_id": "chat"
-                    }
-                }
-            }"#,
-        );
-
-        assert!((usage.primary.used_percent - 115.0).abs() < 0.001);
-        assert_eq!(
-            usage.primary.reset_description.as_deref(),
-            Some("115% used")
-        );
-    }
-
-    #[test]
-    fn normalizes_enterprise_hosts() {
-        assert_eq!(
-            normalized_api_host(Some("github.com")),
-            "api.github.com".to_string()
-        );
-        assert_eq!(
-            normalized_api_host(Some("github.example.com")),
-            "api.github.example.com".to_string()
-        );
-        assert_eq!(
-            normalized_api_host(Some("api.github.example.com")),
-            "api.github.example.com".to_string()
-        );
-    }
-
-    // ── A15: credits_used counter for token-billed seats (upstream #2613) ───
-
-    #[test]
-    fn decodes_credits_used_as_number_or_string() {
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "business",
-                "quota_reset_date": "2026-06-01",
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 300,
-                        "remaining": 240,
-                        "percent_remaining": 80,
-                        "quota_id": "premium_interactions",
-                        "credits_used": "1234.56"
-                    }
-                }
-            }"#,
-        );
-        let extra = &usage.extra_rate_windows;
-        assert!(
-            extra.iter().any(|w| w.id == "ai-credits"
-                && w.window.reset_description.as_deref() == Some("1234.56 AI credits used")),
-            "{extra:?}"
-        );
-    }
-
-    #[test]
-    fn configured_seat_allowance_adds_a_numeric_credit_window() {
-        let response: CopilotUsageResponse = serde_json::from_str(
-            r#"{
-                "copilot_plan": "business",
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 300,
-                        "remaining": 240,
-                        "percent_remaining": 80,
-                        "quota_id": "premium_interactions",
-                        "credits_used": 50
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-        let usage = snapshot_from_response_with_seat_entitlement(response, Some(200.0)).unwrap();
-
-        let seat = usage
-            .extra_rate_windows
-            .iter()
-            .find(|window| window.id == SEAT_CREDIT_WINDOW_ID)
-            .expect("configured seat-credit window");
-        assert!((seat.window.used_percent - 25.0).abs() < 0.001);
-        assert!(!seat.window.is_informational);
-        assert_eq!(seat.title, "Credits used");
-    }
-
-    #[test]
-    fn missing_primary_quota_is_informational_when_seat_credit_is_available() {
-        let response: CopilotUsageResponse = serde_json::from_str(
-            r#"{
-                "copilot_plan": "business",
-                "quota_snapshots": {
-                    "additional_budget": {
-                        "credits_used": 50
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-        let usage = snapshot_from_response_with_seat_entitlement(response, Some(200.0)).unwrap();
-
-        assert!(usage.primary.is_informational);
-        assert!(
-            usage
-                .extra_rate_windows
-                .iter()
-                .any(|window| window.id == SEAT_CREDIT_WINDOW_ID)
-        );
-    }
-
-    #[test]
-    fn non_finite_derived_seat_credit_percentage_is_omitted() {
-        let response: CopilotUsageResponse = serde_json::from_str(
-            r#"{
-                "copilot_plan": "business",
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "credits_used": 1e308
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-        let usage = snapshot_from_response_with_seat_entitlement(response, Some(1e-308)).unwrap();
-
-        assert!(
-            usage
-                .extra_rate_windows
-                .iter()
-                .all(|window| window.id != SEAT_CREDIT_WINDOW_ID)
-        );
-    }
-
-    #[test]
-    fn invalid_seat_allowance_keeps_credit_progress_unknown() {
-        let response: CopilotUsageResponse = serde_json::from_str(
-            r#"{
-                "copilot_plan": "business",
-                "token_based_billing": true,
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 0,
-                        "remaining": 0,
-                        "credits_used": 50
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-        let usage = snapshot_from_response_with_seat_entitlement(response, Some(0.0)).unwrap();
-
-        assert!(usage.primary.is_informational);
-        assert!(
-            usage
-                .extra_rate_windows
-                .iter()
-                .all(|window| window.id != SEAT_CREDIT_WINDOW_ID)
-        );
-    }
-
-    #[test]
-    fn zero_entitlement_business_seat_surfaces_credits_counter() {
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "business",
-                "token_based_billing": true,
-                "quota_reset_date": "2026-06-01",
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 0,
-                        "remaining": 0,
-                        "percent_remaining": 100,
-                        "quota_id": "premium_interactions",
-                        "credits_used": 1234
-                    }
-                }
-            }"#,
-        );
-        // Not an error anymore: informational counter row without a fake bar.
-        assert!(usage.primary.is_informational);
-        assert_eq!(
-            usage.primary.reset_description.as_deref(),
-            Some("1234 AI credits used")
-        );
-        assert!(usage.primary.resets_at.is_some());
-        assert_eq!(usage.login_method.as_deref(), Some("Copilot Business"));
-    }
-
-    #[test]
-    fn placeholder_snapshot_still_carries_its_credits_counter() {
-        // Upstream carriesCreditsCounter: a placeholder cannot become a window,
-        // but its absolute counter is real consumption and must survive.
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "business",
-                "token_based_billing": true,
-                "quota_snapshots": {
-                    "premium_interactions": {
-                        "entitlement": 0,
-                        "remaining": 0,
-                        "percent_remaining": 0,
-                        "quota_id": "",
-                        "placeholder": true,
-                        "credits_used": 42.5
-                    }
-                }
-            }"#,
-        );
-        assert!(usage.primary.is_informational);
-        assert_eq!(
-            usage.primary.reset_description.as_deref(),
-            Some("42.50 AI credits used")
-        );
-    }
-
-    #[test]
-    fn premium_credits_counter_wins_over_chat() {
-        let usage = parse_snapshot(
-            r#"{
-                "copilot_plan": "pro",
-                "quota_snapshots": {
-                    "chat": {
-                        "entitlement": 100,
-                        "remaining": 75,
-                        "percent_remaining": 75,
-                        "quota_id": "chat",
-                        "credits_used": 1
-                    },
-                    "premium_interactions": {
-                        "entitlement": 300,
-                        "remaining": 240,
-                        "percent_remaining": 80,
-                        "quota_id": "premium_interactions",
-                        "credits_used": 7
-                    }
-                }
-            }"#,
-        );
-        let credits_row = usage
-            .extra_rate_windows
-            .iter()
-            .find(|w| w.id == "ai-credits")
-            .expect("ai-credits row");
-        assert_eq!(
-            credits_row.window.reset_description.as_deref(),
-            Some("7 AI credits used")
-        );
-        // Windows still render normally next to the counter.
-        assert!(credits_row.window.is_informational);
-        assert!((usage.primary.used_percent - 20.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn business_seat_without_credits_keeps_existing_error() {
-        let err = parse_snapshot_result(
-            r#"{
-                "copilot_plan": "business",
-                "token_based_billing": true
-            }"#,
-        );
-        assert!(err.is_err());
-    }
-}
+#[path = "api_tests.rs"]
+mod tests;

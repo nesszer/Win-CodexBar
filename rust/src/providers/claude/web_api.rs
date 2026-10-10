@@ -58,6 +58,25 @@ fn classify_web_http_error(
     ProviderError::Other(format!("Failed to get {label}: {status}"))
 }
 
+/// Pass a success through; otherwise read the body and classify the status.
+async fn ensure_success(
+    response: reqwest::Response,
+    label: &str,
+) -> Result<reqwest::Response, ProviderError> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    let response_headers = response.headers().clone();
+    let body = response.bytes().await?;
+    Err(classify_web_http_error(
+        label,
+        status,
+        &response_headers,
+        &body,
+    ))
+}
+
 /// Read the response body as text, then deserialize as JSON. On failure, include
 /// non-sensitive shape metadata so auth redirects, error envelopes, and schema
 /// changes are distinguishable without exposing account data in UI/log output.
@@ -532,26 +551,7 @@ impl ClaudeWebApiFetcher {
         }
 
         let url = format!("{}/organizations", self.base_url);
-
-        let response = self
-            .client
-            .get(&url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let response_headers = response.headers().clone();
-            let body = response.bytes().await?;
-            return Err(classify_web_http_error(
-                "organizations",
-                status,
-                &response_headers,
-                &body,
-            ));
-        }
-
+        let response = ensure_success(self.get(&url, headers).await?, "organizations").await?;
         let orgs: Vec<Organization> = parse_json_with_body(response, "organizations").await?;
 
         orgs.into_iter()
@@ -573,10 +573,7 @@ impl ClaudeWebApiFetcher {
     ) -> Result<UsageResponse, ProviderError> {
         let url = format!("{}/organizations/{}/usage", self.base_url, org_id);
         let opted_in = self
-            .client
-            .get(format!("{url}?{RESET_OPT_IN_QUERY}"))
-            .headers(headers.clone())
-            .send()
+            .get(&format!("{url}?{RESET_OPT_IN_QUERY}"), headers)
             .await?;
 
         let response = match opted_in.status() {
@@ -593,32 +590,38 @@ impl ClaudeWebApiFetcher {
                         &body,
                     ));
                 }
-                self.get_plain_usage(&url, headers).await?
+                self.get(&url, headers).await?
             }
-            _ => self.get_plain_usage(&url, headers).await?,
+            _ => self.get(&url, headers).await?,
         };
 
-        let status = response.status();
-        if !status.is_success() {
-            let response_headers = response.headers().clone();
-            let body = response.bytes().await?;
-            return Err(classify_web_http_error(
-                "usage",
-                status,
-                &response_headers,
-                &body,
-            ));
-        }
-
-        parse_json_with_body(response, "usage").await
+        parse_json_with_body(ensure_success(response, "usage").await?, "usage").await
     }
 
-    async fn get_plain_usage(
+    async fn get(
         &self,
         url: &str,
         headers: &reqwest::header::HeaderMap,
     ) -> Result<reqwest::Response, ProviderError> {
         Ok(self.client.get(url).headers(headers.clone()).send().await?)
+    }
+
+    /// GET and parse JSON. Unlike [`ensure_success`], a failure reports only
+    /// the status, without reading the body or mapping 401/403 to auth.
+    async fn get_json<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        headers: &reqwest::header::HeaderMap,
+        label: &str,
+    ) -> Result<T, ProviderError> {
+        let response = self.get(url, headers).await?;
+        if !response.status().is_success() {
+            return Err(ProviderError::Other(format!(
+                "Failed to get {label}: {}",
+                response.status()
+            )));
+        }
+        parse_json_with_body(response, label).await
     }
 
     /// Get extra usage (credits)
@@ -631,22 +634,7 @@ impl ClaudeWebApiFetcher {
             "{}/organizations/{}/overage_spend_limit",
             self.base_url, org_id
         );
-
-        let response = self
-            .client
-            .get(&url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "Failed to get extra usage: {}",
-                response.status()
-            )));
-        }
-
-        parse_json_with_body(response, "extra usage").await
+        self.get_json(&url, headers, "extra usage").await
     }
 
     /// Best-effort prepaid Extra usage balance. Non-fatal on any failure.
@@ -680,22 +668,7 @@ impl ClaudeWebApiFetcher {
         headers: &reqwest::header::HeaderMap,
     ) -> Result<AccountResponse, ProviderError> {
         let url = format!("{}/account", self.base_url);
-
-        let response = self
-            .client
-            .get(&url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "Failed to get account: {}",
-                response.status()
-            )));
-        }
-
-        parse_json_with_body(response, "account").await
+        self.get_json(&url, headers, "account").await
     }
 
     /// Convert a usage window to a RateWindow
@@ -771,11 +744,6 @@ impl ClaudeWebApiFetcher {
     /// Format reset time for display
     fn format_reset_time(dt: DateTime<Utc>) -> String {
         dt.format("%b %-d at %-I:%M%p").to_string()
-    }
-
-    /// Convert rate limit tier to plan name
-    fn tier_to_plan_name(tier: &str) -> String {
-        super::claude_plan_label(tier)
     }
 }
 
@@ -873,513 +841,8 @@ fn append_web_extra_windows(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        AccountResponse, ClaudeWebApiFetcher, UsageWindow, classify_web_http_error, cookie_value,
-        describe_json_body_shape, is_cookie_authentication_failure,
-    };
-    use crate::core::ProviderError;
-    use reqwest::StatusCode;
-    use reqwest::header;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    #[test]
-    fn keeps_sub_one_utilization_in_percent_units() {
-        let window = UsageWindow {
-            utilization: Some(0.23),
-            resets_at: None,
-        };
-
-        let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
-
-        assert!((rate.used_percent - 0.23).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn one_percent_session_is_not_reported_as_full_quota() {
-        let window = UsageWindow {
-            utilization: Some(1.0),
-            resets_at: None,
-        };
-
-        let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
-
-        assert!(
-            (rate.used_percent - 1.0).abs() < f64::EPSILON,
-            "session was {}, expected 1% (not 100%)",
-            rate.used_percent
-        );
-    }
-
-    #[test]
-    fn null_five_hour_session_is_informational_placeholder() {
-        let placeholder = crate::core::RateWindow::no_active_session();
-        assert!(placeholder.is_informational);
-        assert_eq!(placeholder.window_minutes, Some(300));
-        assert!((placeholder.used_percent - 0.0).abs() < f64::EPSILON);
-        assert_eq!(
-            placeholder.reset_description.as_deref(),
-            Some("No active 5h session")
-        );
-
-        // Real idle session (object present at 0%) stays unflagged.
-        let idle = ClaudeWebApiFetcher::new().to_rate_window(
-            &UsageWindow {
-                utilization: Some(0.0),
-                resets_at: None,
-            },
-            Some(300),
-        );
-        assert!(!idle.is_informational);
-    }
-
-    #[test]
-    fn preserves_existing_percentage_utilization() {
-        let window = UsageWindow {
-            utilization: Some(23.0),
-            resets_at: None,
-        };
-
-        let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
-
-        assert!((rate.used_percent - 23.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn labels_max_5x_and_20x_plans() {
-        assert_eq!(
-            ClaudeWebApiFetcher::tier_to_plan_name("default_claude_max_5x"),
-            "Claude Max 5x"
-        );
-        assert_eq!(
-            ClaudeWebApiFetcher::tier_to_plan_name("v2_default_claude_max_20x"),
-            "Claude Max 20x"
-        );
-    }
-
-    #[test]
-    fn resolves_raw_session_key_from_primary_env_var() {
-        let _guard = env_lock().lock().expect("env lock");
-        // SAFETY: running under env_lock() so no other test thread touches the
-        // environment concurrently; single-threaded w.r.t. these keys.
-        unsafe {
-            std::env::remove_var("CLAUDE_AI_SESSION_KEY");
-            std::env::remove_var("CLAUDE_WEB_SESSION_KEY");
-            std::env::set_var("CLAUDE_AI_SESSION_KEY", "sk-ant-primary");
-            std::env::set_var("CLAUDE_WEB_SESSION_KEY", "sk-ant-secondary");
-        }
-
-        let session_key = ClaudeWebApiFetcher::resolve_session_key_from_env();
-
-        assert_eq!(session_key.as_deref(), Some("sk-ant-primary"));
-
-        // SAFETY: same env_lock()-guarded mutation; restoring state after the
-        // assertions, before the lock is released.
-        unsafe {
-            std::env::remove_var("CLAUDE_AI_SESSION_KEY");
-            std::env::remove_var("CLAUDE_WEB_SESSION_KEY");
-        }
-    }
-
-    #[test]
-    fn resolves_session_key_assignment_from_env_var() {
-        let _guard = env_lock().lock().expect("env lock");
-        // SAFETY: env_lock() held for this whole test, so set_var/remove_var
-        // cannot race another thread's environment access.
-        unsafe {
-            std::env::remove_var("CLAUDE_AI_SESSION_KEY");
-            std::env::remove_var("CLAUDE_WEB_SESSION_KEY");
-            std::env::set_var("CLAUDE_WEB_SESSION_KEY", "sessionKey=sk-ant-cookie-format");
-        }
-
-        let session_key = ClaudeWebApiFetcher::resolve_session_key_from_env();
-
-        assert_eq!(session_key.as_deref(), Some("sk-ant-cookie-format"));
-
-        // SAFETY: cleanup while still holding the env_lock() guard.
-        unsafe {
-            std::env::remove_var("CLAUDE_AI_SESSION_KEY");
-            std::env::remove_var("CLAUDE_WEB_SESSION_KEY");
-        }
-    }
-
-    #[test]
-    fn build_headers_include_required_browser_context() {
-        let headers = ClaudeWebApiFetcher::build_headers("sessionKey=sk-ant-cookie-format");
-
-        assert_eq!(
-            headers
-                .get(header::COOKIE)
-                .and_then(|value| value.to_str().ok()),
-            Some("sessionKey=sk-ant-cookie-format")
-        );
-        assert_eq!(
-            headers
-                .get(header::ACCEPT)
-                .and_then(|value| value.to_str().ok()),
-            Some("application/json")
-        );
-        assert_eq!(
-            headers
-                .get(header::ORIGIN)
-                .and_then(|value| value.to_str().ok()),
-            Some("https://claude.ai")
-        );
-        assert_eq!(
-            headers
-                .get(header::REFERER)
-                .and_then(|value| value.to_str().ok()),
-            Some("https://claude.ai/settings/usage")
-        );
-        assert_eq!(
-            headers
-                .get("anthropic-client-platform")
-                .and_then(|value| value.to_str().ok()),
-            Some("web_claude_ai")
-        );
-        assert!(headers.contains_key(header::USER_AGENT));
-    }
-
-    #[test]
-    fn stale_cookie_recovery_retries_only_after_authentication_failure() {
-        assert!(is_cookie_authentication_failure(
-            &ProviderError::AuthRequired
-        ));
-        assert!(!is_cookie_authentication_failure(&ProviderError::Timeout));
-        assert!(!is_cookie_authentication_failure(&ProviderError::Other(
-            "Failed to get organizations: 503 Service Unavailable".to_string(),
-        )));
-        assert!(!is_cookie_authentication_failure(&classify_web_http_error(
-            "organizations",
-            StatusCode::FORBIDDEN,
-            &header::HeaderMap::new(),
-            b"Just a moment...",
-        )));
-    }
-
-    #[test]
-    fn malformed_response_shape_does_not_echo_body_contents() {
-        let shape = describe_json_body_shape(
-            "sessionKey=secret-session-token",
-            Some("text/html; charset=utf-8"),
-        );
-
-        assert_eq!(
-            shape,
-            "content_type=text/html; charset=utf-8, body_len=31, body_kind=non-json"
-        );
-        assert!(!shape.contains("secret-session-token"));
-
-        let object_shape =
-            describe_json_body_shape(r#"{"z":"secret-value","a":true}"#, Some("application/json"));
-        assert_eq!(
-            object_shape,
-            "content_type=application/json, body_len=29, json_keys=[a, z]"
-        );
-        assert!(!object_shape.contains("secret-value"));
-    }
-
-    #[test]
-    fn extracts_last_active_org_from_cookie_header() {
-        let org = cookie_value(
-            "foo=bar; sessionKey=sk-ant-session; lastActiveOrg=org-123; other=value",
-            "lastActiveOrg",
-        );
-
-        assert_eq!(org.as_deref(), Some("org-123"));
-    }
-
-    #[test]
-    fn account_membership_prefers_nested_organization_uuid() {
-        let account: AccountResponse = serde_json::from_str(
-            r#"{
-                "email_address": "user@example.com",
-                "memberships": [
-                    {
-                        "uuid": "membership-id",
-                        "organization": { "uuid": "org-id" }
-                    }
-                ]
-            }"#,
-        )
-        .unwrap();
-
-        assert_eq!(account.first_membership_org_id().as_deref(), Some("org-id"));
-    }
-
-    #[test]
-    fn parses_extra_design_and_routines_aliases() {
-        let usage: super::UsageResponse = serde_json::from_str(
-            r#"{
-                "five_hour": { "utilization": 0.1 },
-                "seven_day_omelette": { "utilization": 26 },
-                "seven_day_cowork": { "utilization": 11 }
-            }"#,
-        )
-        .unwrap();
-
-        let fetcher = ClaudeWebApiFetcher::new();
-        let design = usage
-            .seven_day_design
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("design window");
-        let routines = usage
-            .seven_day_routines
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("routines window");
-
-        assert!((design.used_percent - 26.0).abs() < f64::EPSILON);
-        assert!((routines.used_percent - 11.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn maps_scoped_weekly_limits_even_when_inactive() {
-        let usage: super::UsageResponse = serde_json::from_str(
-            r#"{
-                "limits": [{
-                    "kind": "weekly_scoped",
-                    "group": "weekly",
-                    "percent": 7,
-                    "resets_at": "2026-07-16T10:00:00Z",
-                    "scope": {"model": {"id": null, "display_name": "Fable"}},
-                    "is_active": false
-                }]
-            }"#,
-        )
-        .unwrap();
-
-        let windows = super::super::scoped_weekly::scoped_weekly_windows(&usage.limits);
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].id, "claude-weekly-scoped-fable");
-        assert_eq!(windows[0].title, "Fable only");
-    }
-
-    #[test]
-    fn parses_duplicate_design_and_routines_aliases_with_preferred_key() {
-        let usage: super::UsageResponse = serde_json::from_str(
-            r#"{
-                "seven_day_design": { "utilization": 31 },
-                "seven_day_omelette": { "utilization": 26 },
-                "seven_day_routines": { "utilization": 19 },
-                "seven_day_cowork": { "utilization": 11 }
-            }"#,
-        )
-        .unwrap();
-
-        let fetcher = ClaudeWebApiFetcher::new();
-        let design = usage
-            .seven_day_design
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("design window");
-        let routines = usage
-            .seven_day_routines
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("routines window");
-
-        assert!((design.used_percent - 31.0).abs() < f64::EPSILON);
-        assert!((routines.used_percent - 19.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn parses_oauth_apps_window_and_embedded_extra_usage() {
-        let usage: super::UsageResponse = serde_json::from_str(
-            r#"{
-                "five_hour": { "utilization": 0.1 },
-                "seven_day_oauth_apps": { "utilization": 42 },
-                "extra_usage": {
-                    "is_enabled": true,
-                    "monthly_credit_limit": 2000,
-                    "used_credits": 550,
-                    "currency": "USD"
-                }
-            }"#,
-        )
-        .unwrap();
-
-        let fetcher = ClaudeWebApiFetcher::new();
-        let oauth_apps = usage
-            .seven_day_oauth_apps
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("oauth apps window");
-        let extra = usage.extra_usage.expect("extra usage");
-
-        assert!((oauth_apps.used_percent - 42.0).abs() < f64::EPSILON);
-        assert_eq!(extra.is_enabled, Some(true));
-        assert_eq!(extra.monthly_credit_limit, Some(2000.0));
-        assert_eq!(extra.used_credits, Some(550.0));
-    }
-
-    #[test]
-    fn issue_279_session_limits_win_over_stale_five_hour_after_rollover() {
-        // Right after a 5h window rollover the legacy five_hour.utilization
-        // can transiently report 1.0 (normalizes to 100%) even though
-        // claude.ai shows only 5% for the fresh window. The limits[] entry
-        // (kind=="session") carries the true value and must win.
-        let usage: super::UsageResponse = serde_json::from_str(
-            r#"{
-                "five_hour": {"utilization": 1.0, "resets_at": "2026-08-13T12:49:59.578826Z"},
-                "seven_day": {"utilization": 0.01, "resets_at": "2026-07-26T22:59:59Z"},
-                "limits": [
-                    {
-                        "kind": "session",
-                        "group": "session",
-                        "percent": 5,
-                        "resets_at": "2026-08-13T12:49:59.578826Z"
-                    },
-                    {
-                        "kind": "weekly_all",
-                        "group": "weekly",
-                        "percent": 1,
-                        "resets_at": "2026-07-26T22:59:59Z"
-                    }
-                ]
-            }"#,
-        )
-        .expect("issue 279 body");
-
-        let fetcher = ClaudeWebApiFetcher::new();
-        let (primary, secondary, _) = fetcher.build_rate_windows(&usage);
-
-        // Primary session must be 5%, not the stale 100%.
-        assert!(
-            (primary.used_percent - 5.0).abs() < f64::EPSILON,
-            "primary was {}, expected 5% (not 100%)",
-            primary.used_percent
-        );
-        assert!((primary.used_percent - 100.0).abs() > 1.0);
-        assert_eq!(primary.window_minutes, Some(300));
-        assert!(primary.resets_at.is_some());
-
-        // Weekly lane is unaffected (still prefers limits weekly_all).
-        let weekly = secondary.expect("weekly");
-        assert!((weekly.used_percent - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn session_falls_back_to_legacy_five_hour_without_limits_entry() {
-        // When no limits[] session entry exists, the legacy five_hour field
-        // is still the source of truth (backwards compatible).
-        let usage: super::UsageResponse = serde_json::from_str(
-            r#"{
-                "five_hour": {"utilization": 10.0, "resets_at": "2026-08-13T12:49:59Z"}
-            }"#,
-        )
-        .expect("legacy-only body");
-
-        let fetcher = ClaudeWebApiFetcher::new();
-        let (primary, _, _) = fetcher.build_rate_windows(&usage);
-
-        assert!((primary.used_percent - 10.0).abs() < f64::EPSILON);
-        assert_eq!(primary.window_minutes, Some(300));
-    }
-
-    #[test]
-    fn parse_prepaid_balance_converts_cents_to_dollars() {
-        let balance = super::parse_prepaid_balance(r#"{"amount": 2550, "currency": "usd"}"#)
-            .expect("prepaid balance");
-        assert!((balance.amount_dollars - 25.5).abs() < f64::EPSILON);
-        assert_eq!(balance.currency_code, "USD");
-    }
-
-    #[test]
-    fn parse_prepaid_balance_rejects_negative_or_non_finite() {
-        assert!(super::parse_prepaid_balance(r#"{"amount": -1, "currency": "USD"}"#).is_none());
-        assert!(super::parse_prepaid_balance(r#"{"amount": 10, "currency": "  "}"#).is_none());
-    }
-
-    #[test]
-    fn apply_prepaid_balance_attaches_to_same_currency_cost() {
-        let existing = crate::core::CostSnapshot::new(1.0, "USD", "Monthly").with_limit(20.0);
-        let balance = super::PrepaidBalance {
-            amount_dollars: 12.34,
-            currency_code: "USD".into(),
-        };
-        let cost = super::apply_prepaid_balance(balance, Some(existing));
-        assert_eq!(cost.balance, Some(12.34));
-        assert!((cost.used - 1.0).abs() < f64::EPSILON);
-        assert_eq!(cost.limit, Some(20.0));
-        assert_eq!(cost.period, "Monthly");
-    }
-
-    #[test]
-    fn apply_prepaid_balance_creates_extra_usage_when_missing_or_mismatch() {
-        let balance = super::PrepaidBalance {
-            amount_dollars: 5.0,
-            currency_code: "USD".into(),
-        };
-        let created = super::apply_prepaid_balance(balance.clone(), None);
-        assert_eq!(created.balance, Some(5.0));
-        assert_eq!(created.period, "Extra usage");
-        assert!((created.used - 0.0).abs() < f64::EPSILON);
-
-        let eur = crate::core::CostSnapshot::new(2.0, "EUR", "Monthly");
-        let replaced = super::apply_prepaid_balance(balance, Some(eur));
-        assert_eq!(replaced.currency_code, "USD");
-        assert_eq!(replaced.period, "Extra usage");
-        assert_eq!(replaced.balance, Some(5.0));
-    }
-
-    #[test]
-    fn web_extras_order_oauth_scoped_then_routines() {
-        use crate::core::{NamedRateWindow, RateWindow, UsageSnapshot};
-
-        let mut snapshot = UsageSnapshot::new(RateWindow::new(10.0));
-        super::append_web_extra_windows(
-            &mut snapshot,
-            Some(RateWindow::new(1.0)),
-            vec![NamedRateWindow::new(
-                "claude-weekly-scoped-fable",
-                "Fable only",
-                RateWindow::new(2.0),
-            )],
-            Some(RateWindow::new(3.0)),
-        );
-
-        let ids: Vec<&str> = snapshot
-            .extra_rate_windows
-            .iter()
-            .map(|w| w.id.as_str())
-            .collect();
-        assert_eq!(
-            ids,
-            vec![
-                "claude-oauth-apps",
-                "claude-weekly-scoped-fable",
-                "claude-routines"
-            ]
-        );
-    }
-
-    #[test]
-    fn web_extras_keep_routines_in_raw_snapshot() {
-        use crate::core::{NamedRateWindow, RateWindow, UsageSnapshot};
-
-        let mut snapshot = UsageSnapshot::new(RateWindow::new(10.0));
-        super::append_web_extra_windows(
-            &mut snapshot,
-            Some(RateWindow::new(1.0)),
-            vec![NamedRateWindow::new(
-                "claude-weekly-scoped-fable",
-                "Fable only",
-                RateWindow::new(2.0),
-            )],
-            Some(RateWindow::new(3.0)),
-        );
-
-        assert_eq!(snapshot.extra_rate_windows.len(), 3);
-        assert_eq!(snapshot.extra_rate_windows[2].id, "claude-routines");
-    }
-}
+#[path = "web_api_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "cloudflare_tests.rs"]
