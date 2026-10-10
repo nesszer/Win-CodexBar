@@ -10,9 +10,8 @@ use crate::surface::SurfaceMode;
 use crate::window_positioner;
 
 use super::geometry::{
-    MonitorPlacement, inferred_tray_anchor_rect, monitor_for_anchor, monitor_placement,
-    monitor_placement_containing_point, monitor_placement_for_anchor, monitor_work_area_rect,
-    point_in_rect, popout_position, surface_panel_size, tray_anchor_rect, tray_panel_size,
+    MonitorPlacement, monitor_for_anchor, monitor_placement, monitor_work_area_rect, point_in_rect,
+    surface_panel_size, tray_anchor_rect, tray_panel_size,
 };
 
 pub fn inferred_tray_panel_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -44,102 +43,13 @@ fn current_tray_anchor(app: &AppHandle) -> Option<crate::state::TrayAnchor> {
     st.lock().ok()?.tray_anchor
 }
 
-fn visible_surface_position_for_mode(app: &AppHandle, mode: SurfaceMode) -> Option<(i32, i32)> {
-    let window = app.get_webview_window("main")?;
-    let monitor_placements = window
-        .available_monitors()
-        .ok()
-        .map(|monitors| monitors.iter().map(monitor_placement).collect::<Vec<_>>());
-    let current_monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .map(|monitor| monitor_placement(&monitor));
-    let current_window_bounds = match (window.outer_position(), window.outer_size()) {
-        (Ok(position), Ok(size)) => Some(((position.x, position.y), (size.width, size.height))),
-        _ => None,
-    };
-    let primary_monitor = window
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|monitor| monitor_placement(&monitor));
-
-    visible_surface_position_for_mode_with_fallbacks(
-        mode,
-        monitor_placements.as_deref(),
-        current_tray_anchor(app),
-        current_monitor,
-        current_window_bounds,
-        primary_monitor,
-    )
-}
-
-pub(super) fn visible_surface_position_for_mode_with_fallbacks(
-    mode: SurfaceMode,
-    monitor_placements: Option<&[MonitorPlacement]>,
-    tray_anchor: Option<crate::state::TrayAnchor>,
-    current_monitor: Option<MonitorPlacement>,
-    current_window_bounds: Option<((i32, i32), (u32, u32))>,
-    primary_monitor: Option<MonitorPlacement>,
-) -> Option<(i32, i32)> {
-    let panel_size = surface_panel_size(mode);
-
-    if let Some(anchor) = tray_anchor
-        && let Some(monitors) = monitor_placements
-        && let Some(monitor) = monitor_placement_for_anchor(monitors, anchor)
-    {
-        return Some(popout_position(
-            Some(&tray_anchor_rect(anchor)),
-            &monitor,
-            &panel_size,
-        ));
-    }
-
-    // No usable tray anchor (e.g. a right-click menu "Pop Out Dashboard" with no
-    // prior left-click, or a proof/automation launch). The tray icon lives on
-    // the primary (taskbar) monitor, so anchor the surface there. Crucially, do
-    // NOT fall through to the hidden main window's `current_monitor`: after a
-    // previous session left the surface on a now-off-view monitor, that monitor
-    // becomes `current_monitor` and the surface would reopen where the user
-    // can't see it — the multi-monitor "nothing happens" bug.
-    if tray_anchor.is_none()
-        && let Some(monitor) = primary_monitor
-    {
-        return Some(popout_position(
-            Some(&inferred_tray_anchor_rect(&monitor)),
-            &monitor,
-            &panel_size,
-        ));
-    }
-
-    if let Some(monitor) = current_monitor {
-        return Some(popout_position(None, &monitor, &panel_size));
-    }
-
-    if let Some(monitors) = monitor_placements
-        && let Some((current_top_left, current_size)) = current_window_bounds
-        && let Some(monitor) = monitor_placement_containing_point(
-            monitors,
-            current_top_left.0 + current_size.0 as i32 / 2,
-            current_top_left.1 + current_size.1 as i32 / 2,
-        )
-    {
-        return Some(popout_position(None, &monitor, &panel_size));
-    }
-
-    let monitor = primary_monitor?;
-    Some(popout_position(None, &monitor, &panel_size))
-}
-
 pub fn default_surface_position(app: &AppHandle, mode: SurfaceMode) -> Option<(i32, i32)> {
     match mode {
         SurfaceMode::Hidden => None,
         SurfaceMode::TrayPanel => tray_panel_position(app)
             .or_else(|| inferred_tray_panel_position(app))
             .or_else(|| shortcut_panel_position(app)),
-        SurfaceMode::PopOut => remembered_surface_position(app, mode)
-            .or_else(|| visible_surface_position_for_mode(app, mode)),
+        SurfaceMode::PopOut => remembered_surface_position(app, mode),
         SurfaceMode::Settings => {
             remembered_surface_position(app, mode).or_else(|| centered_settings_position(app))
         }

@@ -412,4 +412,4 @@ fn display_metric_percent(window: &RateWindowSnapshot, show_as_used: bool) -> f6
 
 #[cfg(test)]
 #[path = "tray_presentation_tests.rs"]
-mod tests;
+pub(crate) mod tests;

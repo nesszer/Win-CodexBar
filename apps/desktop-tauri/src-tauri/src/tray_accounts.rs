@@ -371,13 +371,7 @@ fn grok_accounts_menu(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn menu_contains(menu: &[TrayMenuEntry], id: &str) -> bool {
-        menu.iter().any(|entry| {
-            entry.id.as_deref() == Some(id)
-                || (!entry.children.is_empty() && menu_contains(&entry.children, id))
-        })
-    }
+    use crate::tray_menu::tests::menu_contains;
 
     #[test]
     fn account_action_ids_are_typed_and_validated() {

@@ -26,24 +26,6 @@ fn os_position(_window: &WebviewWindow, x: i32, y: i32) -> tauri::PhysicalPositi
     tauri::PhysicalPosition::new(x, y)
 }
 
-// `should_force_tray_panel_reveal` is the predicate the (now-removed)
-// startup tray-panel reveal fallback used to decide whether to force-show
-// a hidden/tiny `main` window. The fallback itself was deleted once `main`
-// could no longer transition into `SurfaceMode::TrayPanel` (that mode opens
-// as the dedicated `flyout` window — see `shell::flyout_window`). The
-// predicate is retained under `#[cfg(test)]` because `shell::tests` still
-// exercises it as a pure unit.
-#[cfg(test)]
-pub(super) fn should_force_tray_panel_reveal(
-    current: SurfaceMode,
-    main_window_visible: bool,
-    main_window_size: Option<(u32, u32)>,
-) -> bool {
-    current == SurfaceMode::TrayPanel
-        && (!main_window_visible
-            || main_window_size.is_some_and(|(width, height)| width < 100 || height < 100))
-}
-
 fn mark_tray_panel_shown(app: &AppHandle) {
     if let Some(state) = app.try_state::<Mutex<AppState>>()
         && let Ok(mut guard) = state.lock()
@@ -67,10 +49,6 @@ pub(super) enum TransitionResolution {
         mode: SurfaceMode,
         target: SurfaceTarget,
     },
-    SameModeReopen {
-        mode: SurfaceMode,
-        target: SurfaceTarget,
-    },
     Noop {
         mode: SurfaceMode,
     },
@@ -85,31 +63,20 @@ pub fn transition_to_target(
     position: Option<(i32, i32)>,
     activation: Activation,
 ) -> Result<SurfaceMode, String> {
-    apply_transition_request_with_strategy(
+    apply_transition_request(
         app,
         ShellTransitionRequest {
             mode,
             target,
             position,
         },
-        false,
         activation,
     )
-}
-
-fn apply_transition_request_with_strategy(
-    app: &AppHandle,
-    request: ShellTransitionRequest,
-    force_same_mode_apply: bool,
-    activation: Activation,
-) -> Result<SurfaceMode, String> {
-    apply_transition_request(app, request, force_same_mode_apply, activation)
 }
 
 fn apply_transition_request(
     app: &AppHandle,
     request: ShellTransitionRequest,
-    force_same_mode_apply: bool,
     activation: Activation,
 ) -> Result<SurfaceMode, String> {
     let _transition_guard = SHELL_TRANSITION_SERIAL.lock().unwrap();
@@ -123,7 +90,7 @@ fn apply_transition_request(
     let (previous, resolution) = {
         let guard = st.lock().unwrap();
         let previous = current_surface_snapshot(&guard);
-        let resolution = resolve_transition_request(&guard, &request, force_same_mode_apply);
+        let resolution = resolve_transition_request(&guard, &request);
         (previous, resolution)
     };
 
@@ -147,22 +114,6 @@ fn apply_transition_request(
         TransitionResolution::SameModeRetarget { mode, target } => {
             apply_same_mode_target_update(app, &window, mode, target, position, activation)
         }
-        TransitionResolution::SameModeReopen { mode, target } => {
-            let transition = SurfaceTransition {
-                from: mode,
-                to: mode,
-                properties: mode.window_properties(),
-            };
-            apply_transition(
-                app,
-                &window,
-                &transition,
-                &previous,
-                target,
-                position,
-                activation,
-            )
-        }
         TransitionResolution::Noop { mode } => Ok(mode),
     }
 }
@@ -170,7 +121,6 @@ fn apply_transition_request(
 pub(super) fn resolve_transition_request(
     state: &AppState,
     request: &ShellTransitionRequest,
-    force_same_mode_apply: bool,
 ) -> TransitionResolution {
     let mode = state.surface_machine.current();
     let target = AppState::resolved_target_for_mode(request.mode, Some(request.target.clone()));
@@ -186,8 +136,6 @@ pub(super) fn resolve_transition_request(
         }
     } else if state.current_target != target {
         TransitionResolution::SameModeRetarget { mode, target }
-    } else if force_same_mode_apply {
-        TransitionResolution::SameModeReopen { mode, target }
     } else {
         TransitionResolution::Noop { mode }
     }
@@ -214,13 +162,8 @@ where
     }
 
     match resolution {
-        TransitionResolution::ModeChange { .. } | TransitionResolution::SameModeReopen { .. }
-            if synthesize_default =>
-        {
-            fallback()
-        }
+        TransitionResolution::ModeChange { .. } if synthesize_default => fallback(),
         TransitionResolution::ModeChange { .. }
-        | TransitionResolution::SameModeReopen { .. }
         | TransitionResolution::SameModeRetarget { .. }
         | TransitionResolution::Noop { .. } => None,
     }
@@ -374,7 +317,6 @@ pub(super) fn should_synthesize_default_position(resolution: &TransitionResoluti
                 || (transition.from == SurfaceMode::TrayPanel
                     && transition.to == SurfaceMode::Settings)
         }
-        TransitionResolution::SameModeReopen { .. } => true,
         TransitionResolution::SameModeRetarget { .. } | TransitionResolution::Noop { .. } => false,
     }
 }

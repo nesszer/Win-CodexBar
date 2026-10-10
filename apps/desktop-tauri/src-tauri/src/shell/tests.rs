@@ -1,18 +1,14 @@
 use super::ShellTransitionRequest;
 use super::geometry::{
     MonitorPlacement, inferred_tray_anchor_rect, inferred_tray_panel_position_for_monitor,
-    surface_panel_size, tray_anchor_rect,
 };
-use super::position::{
-    remembered_panel_size, remembered_surface_position_with_monitors,
-    visible_surface_position_for_mode_with_fallbacks,
-};
+use super::position::{remembered_panel_size, remembered_surface_position_with_monitors};
 use super::transition::{
     SurfaceSnapshot, TransitionResolution, hidden_surface_snapshot,
     monitor_for_preserved_visible_position, reclamp_preserved_visible_position,
     recovery_snapshot_for_failed_transition, resolve_transition_position,
     resolve_transition_request, restore_recovery_surface, restore_surface_snapshot,
-    should_force_tray_panel_reveal, should_synthesize_default_position,
+    should_synthesize_default_position,
 };
 use super::window::{logical_size_from_geometry, prepare_hide_to_tray_if_current};
 
@@ -20,6 +16,14 @@ use crate::state::AppState;
 use crate::surface::{SurfaceMode, SurfaceTransition};
 use crate::surface_target::SurfaceTarget;
 use crate::window_positioner::{self, Rect};
+
+fn monitor(bounds: Rect, work_area: Rect, scale_factor: f64) -> MonitorPlacement {
+    MonitorPlacement {
+        bounds,
+        work_area,
+        scale_factor,
+    }
+}
 
 #[test]
 fn hide_to_tray_resets_hidden_target_to_summary() {
@@ -66,34 +70,6 @@ fn conditional_hide_to_tray_leaves_non_matching_surface_alone() {
 // `main` window's TrayPanel state no longer exists — the flyout is its own
 // dedicated window now (see `shell::flyout_window::toggle_with_blur_consume`
 // and its own test module in flyout_window.rs).
-
-#[test]
-fn tray_reveal_fallback_only_for_hidden_tray_panel() {
-    assert!(should_force_tray_panel_reveal(
-        SurfaceMode::TrayPanel,
-        false,
-        Some((328, 776)),
-    ));
-    assert!(!should_force_tray_panel_reveal(
-        SurfaceMode::TrayPanel,
-        true,
-        Some((328, 776)),
-    ));
-    assert!(!should_force_tray_panel_reveal(
-        SurfaceMode::Hidden,
-        false,
-        Some((16, 16)),
-    ));
-}
-
-#[test]
-fn tray_reveal_fallback_recovers_tiny_shell_window() {
-    assert!(should_force_tray_panel_reveal(
-        SurfaceMode::TrayPanel,
-        true,
-        Some((16, 16)),
-    ));
-}
 
 #[test]
 fn tray_show_grace_is_based_on_actual_show_time() {
@@ -161,7 +137,6 @@ fn same_mode_about_request_resolves_as_retarget() {
             },
             position: None,
         },
-        false,
     );
 
     match resolution {
@@ -192,7 +167,6 @@ fn same_mode_provider_request_resolves_as_retarget() {
             },
             position: None,
         },
-        false,
     );
 
     match resolution {
@@ -206,30 +180,6 @@ fn same_mode_provider_request_resolves_as_retarget() {
             );
         }
         _ => panic!("expected same-mode retarget"),
-    }
-}
-
-#[test]
-fn same_mode_reopen_request_resolves_as_update() {
-    let mut state = AppState::new();
-    state.transition_surface(SurfaceMode::TrayPanel, SurfaceTarget::Summary);
-
-    let resolution = resolve_transition_request(
-        &state,
-        &ShellTransitionRequest {
-            mode: SurfaceMode::TrayPanel,
-            target: SurfaceTarget::Summary,
-            position: Some((10, 20)),
-        },
-        true,
-    );
-
-    match resolution {
-        TransitionResolution::SameModeReopen { mode, target } => {
-            assert_eq!(mode, SurfaceMode::TrayPanel);
-            assert_eq!(target, SurfaceTarget::Summary);
-        }
-        _ => panic!("expected same-mode reopen update"),
     }
 }
 
@@ -272,26 +222,6 @@ fn same_mode_retarget_preserves_explicit_position() {
 }
 
 #[test]
-fn same_mode_reopen_still_uses_default_position() {
-    let resolution = TransitionResolution::SameModeReopen {
-        mode: SurfaceMode::TrayPanel,
-        target: SurfaceTarget::Summary,
-    };
-    let mut fallback_called = false;
-
-    let position = resolve_transition_position(None, &resolution, true, || {
-        fallback_called = true;
-        Some((42, 24))
-    });
-
-    assert_eq!(position, Some((42, 24)));
-    assert!(
-        fallback_called,
-        "same-mode reopen should still synthesize a default position"
-    );
-}
-
-#[test]
 fn visible_mode_change_skips_default_position_synthesis() {
     let resolution = TransitionResolution::ModeChange {
         transition: SurfaceTransition {
@@ -325,12 +255,7 @@ fn visible_mode_change_skips_default_position_synthesis() {
 #[test]
 fn larger_visible_destination_reclamps_preserved_top_left() {
     let current_top_left = (1492, 512);
-    let monitor = Rect {
-        x: 0,
-        y: 0,
-        width: 1920,
-        height: 1080,
-    };
+    let monitor = Rect::new(0, 0, 1920, 1080);
 
     let reclamped =
         reclamp_preserved_visible_position(current_top_left, &monitor, SurfaceMode::Settings, 1.0);
@@ -341,24 +266,8 @@ fn larger_visible_destination_reclamps_preserved_top_left() {
 #[test]
 fn preserved_visible_monitor_prefers_top_left_for_straddling_window() {
     let monitors = vec![
-        (
-            Rect {
-                x: 0,
-                y: 0,
-                width: 1920,
-                height: 1080,
-            },
-            1.0,
-        ),
-        (
-            Rect {
-                x: 1920,
-                y: 0,
-                width: 1920,
-                height: 1080,
-            },
-            1.25,
-        ),
+        (Rect::new(0, 0, 1920, 1080), 1.0),
+        (Rect::new(1920, 0, 1920, 1080), 1.25),
     ];
 
     let selected = monitor_for_preserved_visible_position(&monitors, (1800, 120), Some((600, 700)))
@@ -369,263 +278,12 @@ fn preserved_visible_monitor_prefers_top_left_for_straddling_window() {
 }
 
 #[test]
-fn visible_surface_position_falls_back_to_current_monitor_without_available_monitors() {
-    let current_monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 1920,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 1920,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        scale_factor: 1.25,
-    };
-    let primary_monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        scale_factor: 1.0,
-    };
-    let anchor = crate::state::TrayAnchor {
-        x: 10,
-        y: 10,
-        width: 16,
-        height: 16,
-    };
-
-    let position = visible_surface_position_for_mode_with_fallbacks(
-        SurfaceMode::PopOut,
-        None,
-        Some(anchor),
-        Some(current_monitor),
-        Some(((2000, 120), (600, 700))),
-        Some(primary_monitor),
-    );
-
-    assert_eq!(
-        position,
-        Some(window_positioner::calculate_popout_position(
-            None,
-            &current_monitor.work_area,
-            &surface_panel_size(SurfaceMode::PopOut),
-            current_monitor.scale_factor,
-        ))
-    );
-}
-
-#[test]
-fn visible_surface_position_without_anchor_prefers_primary_over_offview_current_monitor() {
-    // Regression: the hidden main window is parked on a secondary monitor at
-    // negative coordinates (real machine: DISPLAY5 at x -2048..0). With no tray
-    // anchor (right-click menu / proof launch), the surface must open on the
-    // primary (tray/taskbar) monitor — not the off-view secondary, which is the
-    // "Pop Out Dashboard does nothing" bug.
-    let offview_current = MonitorPlacement {
-        bounds: Rect {
-            x: -2048,
-            y: 0,
-            width: 2048,
-            height: 1152,
-        },
-        work_area: Rect {
-            x: -2048,
-            y: 0,
-            width: 2048,
-            height: 1104,
-        },
-        scale_factor: 1.0,
-    };
-    let primary = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 3413,
-            height: 1440,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 3413,
-            height: 1392,
-        },
-        scale_factor: 1.0,
-    };
-
-    let position = visible_surface_position_for_mode_with_fallbacks(
-        SurfaceMode::PopOut,
-        Some(&[offview_current, primary]),
-        None,                             // no tray anchor
-        Some(offview_current),            // hidden main window parked off-view
-        Some(((-1288, 8), (1024, 1088))), // last bounds also off-view
-        Some(primary),
-    )
-    .expect("should resolve a position");
-
-    // Must land on the primary monitor (x >= 0), never the negative secondary.
-    assert!(
-        position.0 >= 0,
-        "expected on primary monitor, got {position:?}"
-    );
-    assert_eq!(
-        position,
-        window_positioner::calculate_popout_position(
-            Some(&inferred_tray_anchor_rect(&primary)),
-            &primary.work_area,
-            &surface_panel_size(SurfaceMode::PopOut),
-            primary.scale_factor,
-        )
-    );
-}
-
-#[test]
-fn visible_surface_position_anchor_lookup_uses_monitor_bounds() {
-    let anchor_monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1040,
-        },
-        scale_factor: 1.0,
-    };
-    let current_monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 1920,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 1920,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        scale_factor: 1.25,
-    };
-    let anchor = crate::state::TrayAnchor {
-        x: 1800,
-        y: 1040,
-        width: 24,
-        height: 24,
-    };
-
-    let position = visible_surface_position_for_mode_with_fallbacks(
-        SurfaceMode::PopOut,
-        Some(&[anchor_monitor, current_monitor]),
-        Some(anchor),
-        Some(current_monitor),
-        None,
-        None,
-    );
-
-    assert_eq!(
-        position,
-        Some(window_positioner::calculate_popout_position(
-            Some(&tray_anchor_rect(anchor)),
-            &anchor_monitor.work_area,
-            &surface_panel_size(SurfaceMode::PopOut),
-            anchor_monitor.scale_factor,
-        ))
-    );
-}
-
-#[test]
-fn visible_surface_position_settings_surface_uses_tray_anchor_position_when_available() {
-    let anchor_monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1040,
-        },
-        scale_factor: 1.0,
-    };
-    let current_monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 1920,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 1920,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        scale_factor: 1.25,
-    };
-    let anchor = crate::state::TrayAnchor {
-        x: 1800,
-        y: 1040,
-        width: 24,
-        height: 24,
-    };
-
-    let position = visible_surface_position_for_mode_with_fallbacks(
-        SurfaceMode::Settings,
-        Some(&[anchor_monitor, current_monitor]),
-        Some(anchor),
-        Some(current_monitor),
-        None,
-        None,
-    );
-
-    assert_eq!(
-        position,
-        Some(window_positioner::calculate_popout_position(
-            Some(&tray_anchor_rect(anchor)),
-            &anchor_monitor.work_area,
-            &surface_panel_size(SurfaceMode::Settings),
-            anchor_monitor.scale_factor,
-        ))
-    );
-}
-
-#[test]
 fn inferred_tray_anchor_defaults_to_bottom_right_of_work_area() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1040,
-        },
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(0, 0, 1920, 1040),
+        1.0,
+    );
 
     let anchor = inferred_tray_anchor_rect(&monitor);
 
@@ -637,21 +295,11 @@ fn inferred_tray_anchor_defaults_to_bottom_right_of_work_area() {
 
 #[test]
 fn inferred_tray_anchor_supports_top_taskbar_layouts() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 40,
-            width: 1920,
-            height: 1040,
-        },
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(0, 40, 1920, 1040),
+        1.0,
+    );
 
     let anchor = inferred_tray_anchor_rect(&monitor);
 
@@ -661,21 +309,11 @@ fn inferred_tray_anchor_supports_top_taskbar_layouts() {
 
 #[test]
 fn inferred_tray_anchor_supports_left_taskbar_layouts() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 40,
-            y: 0,
-            width: 1880,
-            height: 1080,
-        },
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(40, 0, 1880, 1080),
+        1.0,
+    );
 
     let anchor = inferred_tray_anchor_rect(&monitor);
 
@@ -685,21 +323,11 @@ fn inferred_tray_anchor_supports_left_taskbar_layouts() {
 
 #[test]
 fn inferred_tray_anchor_supports_right_taskbar_layouts() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1880,
-            height: 1080,
-        },
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(0, 0, 1880, 1080),
+        1.0,
+    );
 
     let anchor = inferred_tray_anchor_rect(&monitor);
 
@@ -709,33 +337,18 @@ fn inferred_tray_anchor_supports_right_taskbar_layouts() {
 
 #[test]
 fn inferred_tray_panel_position_uses_tray_style_corner_fallback() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1040,
-        },
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(
+        Rect::new(0, 0, 1920, 1080),
+        Rect::new(0, 0, 1920, 1040),
+        1.0,
+    );
 
     let position = inferred_tray_panel_position_for_monitor(&monitor);
 
     assert_eq!(
         position,
         window_positioner::calculate_panel_position(
-            &Rect {
-                x: 1888,
-                y: 1048,
-                width: 24,
-                height: 24,
-            },
+            &Rect::new(1888, 1048, 24, 24),
             &monitor.bounds,
             &monitor.work_area,
             &super::geometry::tray_panel_size(),
@@ -880,21 +493,7 @@ fn hidden_surface_snapshot_matches_non_visible_shell_state() {
 
 #[test]
 fn remembered_popout_position_clamps_using_stored_size() {
-    let monitor = MonitorPlacement {
-        bounds: Rect {
-            x: 0,
-            y: 0,
-            width: 1000,
-            height: 800,
-        },
-        work_area: Rect {
-            x: 0,
-            y: 0,
-            width: 1000,
-            height: 800,
-        },
-        scale_factor: 1.0,
-    };
+    let monitor = monitor(Rect::new(0, 0, 1000, 800), Rect::new(0, 0, 1000, 800), 1.0);
     let stored = crate::geometry_store::StoredGeometry {
         x: 900,
         y: 700,

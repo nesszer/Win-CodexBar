@@ -340,10 +340,7 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
                 return true;
             };
             {
-                let mut guard = st.lock().unwrap();
-                if guard.take_startup_tray_blur_grace(Instant::now()) {
-                    return true;
-                }
+                let guard = st.lock().unwrap();
                 if guard.was_tray_panel_recently_shown(Instant::now(), RECENTLY_SHOWN_GRACE) {
                     return true;
                 }
@@ -467,12 +464,12 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
     let work_area = crate::shell::geometry::monitor_work_area_rect(&monitor);
     // The target monitor can differ from the window's previous monitor.
     let scale = monitor.scale_factor().max(1.0);
-    let monitor_bounds = Rect {
-        x: monitor.position().x,
-        y: monitor.position().y,
-        width: monitor.size().width,
-        height: monitor.size().height,
-    };
+    let monitor_bounds = Rect::new(
+        monitor.position().x,
+        monitor.position().y,
+        monitor.size().width,
+        monitor.size().height,
+    );
 
     let (x, y) = {
         if let Some(cursor) = cursor {
@@ -484,12 +481,7 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
             )
         } else if let Some(a) = anchor {
             crate::window_positioner::calculate_panel_position(
-                &Rect {
-                    x: a.x,
-                    y: a.y,
-                    width: a.width,
-                    height: a.height,
-                },
+                &Rect::new(a.x, a.y, a.width, a.height),
                 &monitor_bounds,
                 &work_area,
                 &panel_size,

@@ -26,9 +26,7 @@ fn compact_reset_description(
     lang: codexbar::settings::Language,
 ) -> Option<String> {
     if let Some(ref resets_at) = window.resets_at {
-        let dt = chrono::DateTime::parse_from_rfc3339(resets_at)
-            .ok()
-            .map(|dt| dt.with_timezone(&chrono::Utc))?;
+        let dt = super::parse_utc(resets_at)?;
         return Some(format_compact_reset_countdown(dt, lang));
     }
 

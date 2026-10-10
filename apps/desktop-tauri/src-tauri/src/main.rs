@@ -221,7 +221,6 @@ fn main() {
             commands::get_cached_providers,
             commands::get_deepseek_pricing_status,
             commands::codex_accounts_list,
-            commands::claude_accounts_list,
             commands::get_claude_accounts_state,
             commands::claude_reconciliation_state,
             commands::claude_account_add,
@@ -318,12 +317,7 @@ fn main() {
             commands::set_ui_language,
             commands::open_path,
             tray_visibility::tray_visibility_status,
-            floatbar::show_float_bar,
-            floatbar::hide_float_bar,
-            floatbar::set_float_bar_opacity,
-            floatbar::set_float_bar_click_through,
             floatbar::resize_float_bar,
-            floatbar::set_float_bar_orientation,
         ])
         .setup(move |app| {
             if let Err(error) = codexbar::providers::claude::accounts::cleanup_abandoned_logins() {
@@ -380,14 +374,6 @@ fn main() {
                         launch,
                         proof_harness::is_proof_mode(window.app_handle()),
                     ) {
-                        return;
-                    }
-                    if let Some(st) = window.app_handle().try_state::<Mutex<AppState>>()
-                        && st
-                            .lock()
-                            .unwrap()
-                            .take_startup_tray_blur_grace(std::time::Instant::now())
-                    {
                         return;
                     }
                     // Grace period: ignore blur within 500ms of showing the panel.
