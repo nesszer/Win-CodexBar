@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
-use crate::codex_costs::scan_codex_file_cost;
+use crate::codex_costs::tests::scan_codex_file_cost;
 use crate::codex_costs::{
     add_codex_days_map_to_summary, add_codex_records_to_summary, codex_scan_dates,
     merge_codex_records_into_days,
