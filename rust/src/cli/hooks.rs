@@ -688,11 +688,7 @@ Options:
             let err = crate::cli::Cli::command()
                 .try_get_matches_from(["codexbar", "hooks", sub, "--help"])
                 .unwrap_err();
-            out.push_str(&format!(
-                "@@{sub}
-{}",
-                err.render()
-            ));
+            out.push_str(&format!("@@{sub}\n{}", err.render()));
         }
         assert_eq!(out, EXPECTED_HOOKS_HELP);
     }
