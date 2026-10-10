@@ -290,13 +290,11 @@ fn add_codex_tokens_to_summary(
     }
 
     let is_routing_unpriced = is_unpriced_codex_routing_model(model);
+    // Routing models (e.g. "codex-auto-review") keep their own name, so the
+    // breakdown shows a deliberately-unpriced row distinct from the model-less
+    // "unknown" sentinel.
     let model_key = if CostUsagePricing::is_codex_unattributed_model(model) {
         CostUsagePricing::CODEX_UNATTRIBUTED_MODEL.to_string()
-    } else if is_routing_unpriced {
-        // Preserve the original routing model name (e.g. "codex-auto-review") so
-        // the breakdown shows it as a deliberately-unpriced row, distinct from the
-        // model-less "unknown" sentinel.
-        model.to_string()
     } else {
         model.to_string()
     };
