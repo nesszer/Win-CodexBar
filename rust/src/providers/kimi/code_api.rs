@@ -56,10 +56,7 @@ pub(crate) async fn fetch_via_code_api(
     let api_key = code_api_key(api_key_override.or(ctx.api_key.as_deref()))?;
     let base_url = code_api_base_url(region)?;
     let endpoint = code_api_usage_endpoint(&base_url)?;
-    let client = crate::core::credentialed_http_client_builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| ProviderError::Other(e.to_string()))?;
+    let client = web::client()?;
 
     let mut request = client
         .get(endpoint)

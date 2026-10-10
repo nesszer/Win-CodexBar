@@ -330,7 +330,7 @@ fn selected_account_auth_token(cookie_header: Option<&str>) -> Result<String, Pr
         .ok_or(ProviderError::AuthRequired)
 }
 
-fn client() -> Result<reqwest::Client, ProviderError> {
+pub(super) fn client() -> Result<reqwest::Client, ProviderError> {
     crate::core::credentialed_http_client_builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()

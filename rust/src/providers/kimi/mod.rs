@@ -594,19 +594,23 @@ fn ascii_header_value(raw: &str) -> String {
     }
 }
 
-fn format_usage_amount(value: f64) -> String {
-    if value.is_finite()
+/// `value` as an i64 when it is finite, integral and inside the i64 range.
+fn exact_i64(value: f64) -> Option<i64> {
+    // The strict upper bound excludes 2^63, which is representable as f64
+    // but has no exact i64 representation.
+    let integral = value.is_finite()
         && value.fract() == 0.0
         && value >= i64::MIN as f64
-        && value < i64::MAX as f64
-    {
-        // The strict upper bound excludes 2^63, which is representable as f64
-        // but has no exact i64 representation.
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "finite integral value is bounded to the i64 range above"
-        )]
-        let integral = value as i64;
+        && value < i64::MAX as f64;
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "finite integral value is bounded to the i64 range above"
+    )]
+    integral.then_some(value as i64)
+}
+
+fn format_usage_amount(value: f64) -> String {
+    if let Some(integral) = exact_i64(value) {
         format!("{integral}")
     } else if value.is_finite() && value.fract() == 0.0 {
         // Preserve a large integral value without saturating it to i64::MAX.
@@ -868,6 +872,23 @@ mod tests {
         assert_eq!(cleaned_owned("  \"token\"  ").as_deref(), Some("token"));
         assert_eq!(cleaned_owned("'token'").as_deref(), Some("token"));
         assert!(cleaned_owned("   ").is_none());
+    }
+
+    #[test]
+    fn usage_amount_formats_integral_fractional_and_non_finite_values() {
+        let cases = [
+            (42.0, "42"),
+            (-0.0, "0"),
+            (1.5, "1.50"),
+            (-2_f64.powi(63), "-9223372036854775808"),
+            (2_f64.powi(63), "9223372036854775808"),
+            (1e20, "100000000000000000000"),
+            (f64::NAN, "NaN"),
+            (f64::INFINITY, "inf"),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(format_usage_amount(value), expected, "{value}");
+        }
     }
 
     #[test]

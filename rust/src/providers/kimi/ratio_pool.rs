@@ -57,18 +57,9 @@ fn usage_counts(detail: &KimiUsageDetail) -> Option<UsageCounts> {
 /// strings do not.
 fn integer_counter(value: Option<&serde_json::Value>) -> Option<i64> {
     match value? {
-        serde_json::Value::Number(number) => number.as_i64().or_else(|| {
-            let value = number.as_f64()?;
-            let integral = value.is_finite()
-                && value.fract() == 0.0
-                && value >= i64::MIN as f64
-                && value < i64::MAX as f64;
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "finite integral value is bounded to the i64 range above"
-            )]
-            integral.then_some(value as i64)
-        }),
+        serde_json::Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_f64().and_then(super::exact_i64)),
         serde_json::Value::String(text) => text.parse().ok(),
         _ => None,
     }
@@ -162,6 +153,26 @@ mod tests {
     };
     use chrono::{DateTime, Utc};
     use serde_json::{Value, json};
+
+    #[test]
+    fn integer_counter_accepts_exact_integers_only() {
+        let cases = [
+            (json!(3), Some(3)),
+            (json!(3.0), Some(3)),
+            (json!(3.5), None),
+            (json!(-9.223_372_036_854_775_808e18), Some(i64::MIN)),
+            (json!(9.223_372_036_854_775_808e18), None),
+            (json!(u64::MAX), None),
+            (json!("12"), Some(12)),
+            (json!(" 12"), None),
+            (json!("1,000"), None),
+            (json!(null), None),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(super::integer_counter(Some(&value)), expected, "{value}");
+        }
+        assert_eq!(super::integer_counter(None), None);
+    }
 
     fn try_parse(value: Value) -> Result<UsageSnapshot, ProviderError> {
         let response: KimiCodeApiUsageResponse =
