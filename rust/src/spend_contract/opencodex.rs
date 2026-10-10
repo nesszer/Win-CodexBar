@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -10,8 +10,8 @@ use crate::core::{
 };
 
 use super::{
-    CostCoverageCounts, CostProvenance, CustomPricing, CustomRates, ImportedSpendSource,
-    SpendActivityCell, SpendDailyPoint, SpendModelRow, SpendTokenMix,
+    ActivityHistogram, CostCoverageCounts, CostProvenance, CustomPricing, CustomRates,
+    ImportedSpendSource, SpendDailyPoint, SpendModelRow, SpendTokenMix,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,7 +200,7 @@ fn aggregate_with_pricing(
     let mut token_mix = SpendTokenMix::default();
     let mut token_total: Option<u64> = None;
     let mut coverage = CostCoverageCounts::default();
-    let mut activity: BTreeMap<(u8, u8), u32> = BTreeMap::new();
+    let mut activity = ActivityHistogram::default();
     let mut models: HashMap<String, ModelAccumulator> = HashMap::new();
     let mut daily: BTreeMap<String, DailyAccumulator> = BTreeMap::new();
     let mut known_cost = 0.0;
@@ -254,20 +254,7 @@ fn aggregate_with_pricing(
             }
         }
 
-        let local = entry.timestamp.with_timezone(&Local);
-        // Weekday (0-6) and hour (0-23) both fit u8.
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "weekday (0-6) and hour (0-23) fit u8"
-        )]
-        let key = (
-            local.weekday().num_days_from_monday() as u8,
-            local.hour() as u8,
-        );
-        activity.insert(
-            key,
-            activity.get(&key).copied().unwrap_or(0).saturating_add(1),
-        );
+        activity.add_local(entry.timestamp);
 
         let day = daily
             .entry(zone.date(entry.timestamp).format("%Y-%m-%d").to_string())
@@ -363,14 +350,7 @@ fn aggregate_with_pricing(
                 total_tokens: acc.saw_tokens.then_some(acc.total_tokens),
             })
             .collect(),
-        hourly_activity: activity
-            .into_iter()
-            .map(|((weekday, hour), conversations)| SpendActivityCell {
-                weekday,
-                hour,
-                conversations,
-            })
-            .collect(),
+        hourly_activity: activity.into_cells(),
     })
 }
 

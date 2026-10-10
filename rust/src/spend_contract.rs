@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
-use chrono::{Datelike, Local, Timelike, Utc};
+use chrono::{DateTime, Datelike, Local, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::codex_workspaces::{CodexWorkspacesIndex, ProjectUsage, SessionUsage, SourceStatus};
@@ -816,14 +816,13 @@ fn daily_points(provider_id: &str, days: u32) -> Vec<SpendDailyPoint> {
         .collect()
 }
 
-fn activity_from_sessions(sessions: &[SessionUsage]) -> Vec<SpendActivityCell> {
-    let mut cells: BTreeMap<(u8, u8), u32> = BTreeMap::new();
-    for session in sessions {
-        let Some(timestamp) = session.latest_activity.or(session.started_at) else {
-            continue;
-        };
+/// Conversation counts per local (weekday, hour) cell.
+#[derive(Default)]
+struct ActivityHistogram(BTreeMap<(u8, u8), u32>);
+
+impl ActivityHistogram {
+    fn add_local(&mut self, timestamp: DateTime<Utc>) {
         let local = timestamp.with_timezone(&Local);
-        // Weekday (0-6) and hour (0-23) both fit u8.
         #[allow(
             clippy::cast_possible_truncation,
             reason = "weekday (0-6) and hour (0-23) fit u8"
@@ -832,17 +831,34 @@ fn activity_from_sessions(sessions: &[SessionUsage]) -> Vec<SpendActivityCell> {
             local.weekday().num_days_from_monday() as u8,
             local.hour() as u8,
         );
-        let next = cells.get(&key).copied().unwrap_or(0).saturating_add(1);
-        cells.insert(key, next);
+        self.add(key, 1);
     }
-    cells
-        .into_iter()
-        .map(|((weekday, hour), conversations)| SpendActivityCell {
-            weekday,
-            hour,
-            conversations,
-        })
-        .collect()
+
+    fn add(&mut self, key: (u8, u8), conversations: u32) {
+        let count = self.0.entry(key).or_insert(0);
+        *count = count.saturating_add(conversations);
+    }
+
+    fn into_cells(self) -> Vec<SpendActivityCell> {
+        self.0
+            .into_iter()
+            .map(|((weekday, hour), conversations)| SpendActivityCell {
+                weekday,
+                hour,
+                conversations,
+            })
+            .collect()
+    }
+}
+
+fn activity_from_sessions(sessions: &[SessionUsage]) -> Vec<SpendActivityCell> {
+    let mut activity = ActivityHistogram::default();
+    for session in sessions {
+        if let Some(timestamp) = session.latest_activity.or(session.started_at) {
+            activity.add_local(timestamp);
+        }
+    }
+    activity.into_cells()
 }
 fn sum_optional_cost(left: Option<f64>, right: Option<f64>) -> Option<f64> {
     let valid = |value: f64| value.is_finite() && value >= 0.0;
@@ -993,25 +1009,16 @@ fn merge_activity(
     left: Vec<SpendActivityCell>,
     right: &[SpendActivityCell],
 ) -> Vec<SpendActivityCell> {
-    let mut cells: BTreeMap<(u8, u8), u32> = left
-        .into_iter()
-        .map(|cell| ((cell.weekday, cell.hour), cell.conversations))
-        .collect();
+    // Collected, not added: a duplicate cell on the left keeps the last count.
+    let mut activity = ActivityHistogram(
+        left.into_iter()
+            .map(|cell| ((cell.weekday, cell.hour), cell.conversations))
+            .collect(),
+    );
     for cell in right {
-        let current = cells.get(&(cell.weekday, cell.hour)).copied().unwrap_or(0);
-        cells.insert(
-            (cell.weekday, cell.hour),
-            current.saturating_add(cell.conversations),
-        );
+        activity.add((cell.weekday, cell.hour), cell.conversations);
     }
-    cells
-        .into_iter()
-        .map(|((weekday, hour), conversations)| SpendActivityCell {
-            weekday,
-            hour,
-            conversations,
-        })
-        .collect()
+    activity.into_cells()
 }
 
 #[cfg(test)]
