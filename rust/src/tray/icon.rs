@@ -43,21 +43,6 @@ impl UsageLevel {
     }
 }
 
-/// Badge type for status indicators
-#[allow(
-    dead_code,
-    reason = "tray icon types reserved for future system tray integration"
-)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BadgeType {
-    /// Warning indicator (yellow)
-    Warning,
-    /// Error/incident indicator (red)
-    Incident,
-    /// No badge
-    None,
-}
-
 /// Loading animation patterns for tray icon
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum LoadingPattern {
@@ -170,13 +155,5 @@ mod tests {
 
         let (r, g, b) = UsageLevel::Critical.color();
         assert!(r > g && r > b); // Red should be dominant for critical
-    }
-
-    #[test]
-    fn test_badge_type_equality() {
-        assert_eq!(BadgeType::None, BadgeType::None);
-        assert_eq!(BadgeType::Warning, BadgeType::Warning);
-        assert_eq!(BadgeType::Incident, BadgeType::Incident);
-        assert_ne!(BadgeType::None, BadgeType::Warning);
     }
 }

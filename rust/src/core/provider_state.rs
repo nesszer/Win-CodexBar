@@ -39,12 +39,6 @@ pub enum ProviderStateKind {
 }
 
 impl ProviderStateKind {
-    /// Whether this state should mark the provider as having a problem in
-    /// presentation surfaces (tone changes, hides usage details).
-    pub const fn is_problem(self) -> bool {
-        !matches!(self, ProviderStateKind::Ready)
-    }
-
     /// Whether this state means the account must sign in again. The only
     /// states that qualify for credential-expiry alerts; quota, permission,
     /// rate-limit and transport failures map elsewhere and never do.
@@ -141,19 +135,6 @@ mod tests {
         );
         assert_eq!(E::Parse("bad body".into()).state_kind(), K::Unknown);
         assert_eq!(E::Other("API error 500".into()).state_kind(), K::Unknown);
-    }
-
-    #[test]
-    fn ready_is_the_only_non_problem_state() {
-        assert!(!ProviderStateKind::Ready.is_problem());
-        for kind in [
-            ProviderStateKind::NeedsAuthentication,
-            ProviderStateKind::ExpiredSession,
-            ProviderStateKind::LocalRuntimeOffline,
-            ProviderStateKind::Unknown,
-        ] {
-            assert!(kind.is_problem());
-        }
     }
 
     #[test]

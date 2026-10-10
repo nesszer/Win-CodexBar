@@ -94,6 +94,7 @@ impl CodexWorkspacesIndex {
         self
     }
 
+    #[cfg(test)]
     pub fn with_sidecar_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.sidecar_path_override = Some(path.into());
         self
@@ -119,6 +120,7 @@ impl CodexWorkspacesIndex {
         Ok(WorkspaceUsageSidecar::new(path))
     }
 
+    #[cfg(test)]
     pub fn load_cached_snapshot(
         &self,
     ) -> Result<Option<CodexLocalProjectUsageSnapshot>, IndexError> {

@@ -700,11 +700,6 @@ impl ProviderAccountData {
         }
     }
 
-    /// Check if this provider has multiple accounts
-    pub fn has_multiple(&self) -> bool {
-        self.accounts.len() > 1
-    }
-
     /// Get account count
     pub fn count(&self) -> usize {
         self.accounts.len()
@@ -1147,7 +1142,7 @@ mod tests {
         data.add_account(TokenAccount::new("Account 1", "token1"));
         data.add_account(TokenAccount::new("Account 2", "token2"));
 
-        assert!(data.has_multiple());
+        assert_eq!(data.count(), 2);
         assert_eq!(data.active_account().unwrap().label, "Account 1");
 
         data.set_active(1);

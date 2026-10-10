@@ -453,24 +453,6 @@ pub struct CreditsBalanceSnapshot {
     pub balance: Option<f64>,
 }
 
-impl CreditsBalanceSnapshot {
-    pub fn display_value(&self) -> String {
-        if self.unlimited {
-            return "Unlimited".to_string();
-        }
-        if let Some(balance) = self.balance {
-            return format!("{balance:.2}")
-                .trim_end_matches('0')
-                .trim_end_matches('.')
-                .to_string();
-        }
-        if self.has_credits {
-            return "Available".to_string();
-        }
-        "None".to_string()
-    }
-}
-
 /// A fetched snapshot for one Codex account.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -494,33 +476,6 @@ pub struct AccountUsageSnapshot {
 }
 
 impl AccountUsageSnapshot {
-    pub fn is_quota_blocked(&self) -> bool {
-        self.limit_reached == Some(true) || self.allowed == Some(false)
-    }
-
-    pub fn has_usable_quota_now(&self) -> bool {
-        if self.is_quota_blocked() {
-            return false;
-        }
-        let values = [self.primary_window.as_ref(), self.secondary_window.as_ref()]
-            .into_iter()
-            .flatten()
-            .map(|w| w.remaining_percent());
-        let mut values = values.peekable();
-        values.peek().is_some() && values.any(|v| v > 0.001)
-    }
-
-    pub fn lowest_remaining_percent(&self) -> f64 {
-        if self.is_quota_blocked() {
-            return 0.0;
-        }
-        [self.secondary_window.as_ref(), self.primary_window.as_ref()]
-            .into_iter()
-            .flatten()
-            .map(|w| w.remaining_percent())
-            .fold(f64::MAX, f64::min)
-    }
-
     pub fn next_reset_at(&self) -> Option<DateTime<Utc>> {
         [self.primary_window.as_ref(), self.secondary_window.as_ref()]
             .into_iter()
@@ -774,70 +729,10 @@ mod tests {
     }
 
     #[test]
-    fn blocked_account_has_no_usable_quota() {
-        let snapshot = AccountUsageSnapshot {
-            email: None,
-            provider_account_id: None,
-            plan: None,
-            allowed: Some(false),
-            limit_reached: None,
-            primary_window: Some(UsageWindowSnapshot::new(10.0, None, 18_000)),
-            secondary_window: None,
-            credits: None,
-            cost: None,
-            subscription: None,
-            updated_at: utc_now(),
-        };
-        assert!(snapshot.is_quota_blocked());
-        assert!(!snapshot.has_usable_quota_now());
-        assert_eq!(snapshot.lowest_remaining_percent(), 0.0);
-    }
-
-    #[test]
     fn parse_datetime_accepts_z_and_offset() {
         assert!(parse_datetime("2026-01-01T00:00:00Z").is_some());
         assert!(parse_datetime("2026-01-01T00:00:00+00:00").is_some());
         assert!(parse_datetime("").is_none());
-    }
-
-    #[test]
-    fn credits_display_value() {
-        assert_eq!(
-            CreditsBalanceSnapshot {
-                has_credits: true,
-                unlimited: true,
-                balance: None
-            }
-            .display_value(),
-            "Unlimited"
-        );
-        assert_eq!(
-            CreditsBalanceSnapshot {
-                has_credits: true,
-                unlimited: false,
-                balance: Some(12.50)
-            }
-            .display_value(),
-            "12.5"
-        );
-        assert_eq!(
-            CreditsBalanceSnapshot {
-                has_credits: true,
-                unlimited: false,
-                balance: None
-            }
-            .display_value(),
-            "Available"
-        );
-        assert_eq!(
-            CreditsBalanceSnapshot {
-                has_credits: false,
-                unlimited: false,
-                balance: None
-            }
-            .display_value(),
-            "None"
-        );
     }
 
     #[test]

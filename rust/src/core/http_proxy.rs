@@ -105,14 +105,6 @@ pub fn apply_app_proxy(builder: ClientBuilder) -> ClientBuilder {
     apply_proxy_to_builder(builder, &HttpProxySettings::from_app_settings())
 }
 
-/// Validate proxy settings for UI (returns `None` when OK / disabled).
-pub fn validation_error(settings: &HttpProxySettings) -> Option<String> {
-    if !settings.enabled {
-        return None;
-    }
-    resolve_proxy(settings).err()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,14 +153,8 @@ mod tests {
     }
 
     #[test]
-    fn validation_error_none_when_disabled() {
-        let s = HttpProxySettings::from_parts(false, "bad", "", "");
-        assert!(validation_error(&s).is_none());
-    }
-
-    #[test]
     fn validation_error_when_enabled_and_bad() {
         let s = HttpProxySettings::from_parts(true, "ftp://x", "", "");
-        assert!(validation_error(&s).is_some());
+        assert!(resolve_proxy(&s).is_err());
     }
 }
