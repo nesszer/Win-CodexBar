@@ -349,8 +349,11 @@ describe("useTrayPanelLayout sizing", () => {
       timeout: 3000,
     });
 
+    // A follow-up pass can lift the cap while it measures; wait for it to settle.
+    await waitFor(() => expect(surface.style.maxHeight).toBe("400px"), {
+      timeout: 3000,
+    });
     expect(windowMocks.setSize.mock.calls[0][0]).toEqual({ width: 465, height: 200 });
     expect(lastResize()).toEqual({ width: 465, height: 600 });
-    expect(surface.style.maxHeight).toBe("400px");
   });
 });

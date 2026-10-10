@@ -181,6 +181,7 @@ mod tests {
             reserve_percent: None,
             reserve_description: None,
             reserve_eta_seconds: None,
+            pace: None,
             monthly_limit_block: None,
             description_is_detail: false,
             reserve_will_last_to_reset: false,

@@ -156,11 +156,8 @@ fn test_japanese_tray_panel_locale_values_are_translated() {
         (LocaleKey::PanelOneHour, "1時間"),
         (LocaleKey::PanelFiveHours, "5時間"),
         (LocaleKey::PanelTodayBudget, "今日"),
-        (LocaleKey::PanelReserveSuffix, "予備"),
-        (
-            LocaleKey::PanelReserveLastsUntilReset,
-            "リセットまで持ちます",
-        ),
+        (LocaleKey::PaceOnPace, "想定ペース"),
+        (LocaleKey::PaceLastsUntilReset, "リセットまで持ちます"),
         (
             LocaleKey::PanelShowAllProviders,
             "すべてのプロバイダーを表示",
@@ -191,8 +188,8 @@ fn test_chinese_tray_panel_locale_values_are_translated() {
         (LocaleKey::PanelOneHour, "1小时"),
         (LocaleKey::PanelFiveHours, "5小时"),
         (LocaleKey::PanelTodayBudget, "今日"),
-        (LocaleKey::PanelReserveSuffix, "储备"),
-        (LocaleKey::PanelReserveLastsUntilReset, "持续到重置"),
+        (LocaleKey::PaceOnPace, "节奏正常"),
+        (LocaleKey::PaceLastsUntilReset, "持续到重置"),
         (
             LocaleKey::PanelEstimatedFromLocalLogs,
             "根据本地日志估算；可能与账单不同",
@@ -224,8 +221,8 @@ fn test_korean_tray_panel_locale_values_are_translated() {
         (LocaleKey::PanelOneHour, "1시간"),
         (LocaleKey::PanelFiveHours, "5시간"),
         (LocaleKey::PanelTodayBudget, "오늘"),
-        (LocaleKey::PanelReserveSuffix, "예비"),
-        (LocaleKey::PanelReserveLastsUntilReset, "리셋까지 지속"),
+        (LocaleKey::PaceOnPace, "정상 속도"),
+        (LocaleKey::PaceLastsUntilReset, "리셋까지 지속"),
         (
             LocaleKey::PanelEstimatedFromLocalLogs,
             "로컬 로그에서 추정; 청구서와 다를 수 있음",
@@ -257,11 +254,8 @@ fn test_spanish_tray_panel_locale_values_are_translated() {
         (LocaleKey::PanelOneHour, "1h"),
         (LocaleKey::PanelFiveHours, "5h"),
         (LocaleKey::PanelTodayBudget, "hoy"),
-        (LocaleKey::PanelReserveSuffix, "en reserva"),
-        (
-            LocaleKey::PanelReserveLastsUntilReset,
-            "Dura hasta el reinicio",
-        ),
+        (LocaleKey::PaceOnPace, "Al ritmo previsto"),
+        (LocaleKey::PaceLastsUntilReset, "Dura hasta el reinicio"),
         (
             LocaleKey::PanelEstimatedFromLocalLogs,
             "Estimado desde logs locales; puede diferir de tu factura",

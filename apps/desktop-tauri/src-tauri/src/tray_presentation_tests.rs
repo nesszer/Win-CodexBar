@@ -25,6 +25,7 @@ fn fake_snapshot_with(
         reserve_description: None,
         reserve_will_last_to_reset: false,
         reserve_eta_seconds: None,
+        pace: None,
         monthly_limit_block: None,
         description_is_detail: false,
     };
@@ -83,6 +84,7 @@ fn single_plan_uses_highest_provider_for_icon_and_summary() {
     let settings = Settings {
         tray_icon_mode: TrayIconMode::Single,
         menu_bar_shows_highest_usage: true,
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![
@@ -157,6 +159,7 @@ fn stacked_plan_resolves_distinct_preferences_once() {
         tray_icon_mode: TrayIconMode::Stacked,
         stacked_tray_top_provider: Some("claude".to_string()),
         stacked_tray_bottom_provider: Some("codex".to_string()),
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![
@@ -211,6 +214,7 @@ fn stacked_plan_falls_back_around_stale_and_duplicate_preferences() {
         tray_icon_mode: TrayIconMode::Stacked,
         stacked_tray_top_provider: Some("missing".to_string()),
         stacked_tray_bottom_provider: Some("claude".to_string()),
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![
@@ -236,6 +240,7 @@ fn stacked_plan_falls_back_around_stale_and_duplicate_preferences() {
 fn one_provider_stacked_mode_falls_back_to_single_provider_bars() {
     let settings = Settings {
         tray_icon_mode: TrayIconMode::Stacked,
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![fake_snapshot_with(
@@ -265,6 +270,7 @@ fn one_healthy_provider_never_uses_stacked_renderer() {
     let settings = Settings {
         tray_icon_mode: TrayIconMode::Stacked,
         menu_bar_shows_percent: true,
+        show_as_used: true,
         ..Settings::default()
     };
     let healthy = fake_snapshot("codex", "Codex", 30.0);
@@ -341,6 +347,7 @@ fn render_icon_delegates_to_resolved_stacked_renderer() {
         tray_icon_mode: TrayIconMode::Stacked,
         stacked_tray_top_provider: Some("claude".to_string()),
         stacked_tray_bottom_provider: Some("codex".to_string()),
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![
@@ -362,6 +369,13 @@ fn codex_headline_skips_informational_primary() {
 
     assert_eq!(codex_lane_headline_window(&snapshot).used_percent, 25.0);
 }
+fn used_view_settings() -> Settings {
+    Settings {
+        show_as_used: true,
+        ..Settings::default()
+    }
+}
+
 fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
     crate::commands::NamedRateWindowSnapshot {
         id: "additional_budget".to_string(),
@@ -380,6 +394,7 @@ fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
             reserve_description: None,
             reserve_will_last_to_reset: false,
             reserve_eta_seconds: None,
+            pace: None,
             monthly_limit_block: None,
             description_is_detail: false,
         },
@@ -388,7 +403,7 @@ fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
 
 #[test]
 fn selected_tray_percent_uses_cursor_extra_usage_cost() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Cursor, MetricPreference::ExtraUsage);
     let snapshot = fake_snapshot_with(
         "cursor",
@@ -407,7 +422,7 @@ fn selected_tray_percent_uses_cursor_extra_usage_cost() {
 
 #[test]
 fn selected_tray_percent_tracks_extra_rate_window() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Copilot, MetricPreference::ExtraUsage);
     let mut snapshot = fake_snapshot("copilot", "Copilot", 20.0);
     snapshot.extra_rate_windows.push(fake_extra_window(42.0));
@@ -420,7 +435,7 @@ fn selected_tray_percent_tracks_extra_rate_window() {
 
 #[test]
 fn copilot_automatic_tracks_highest_extra_rate_window() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot("copilot", "Copilot", 20.0);
     snapshot.extra_rate_windows.push(fake_extra_window(42.0));
 
@@ -523,7 +538,7 @@ fn missing_automatic_window_does_not_look_like_available_remaining_progress() {
 
 #[test]
 fn selected_tray_percent_falls_back_when_extra_usage_missing() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Cursor, MetricPreference::ExtraUsage);
     let snapshot = fake_snapshot_with("cursor", "Cursor", 10.0, Some(72.0), None, None);
 
@@ -534,7 +549,7 @@ fn selected_tray_percent_falls_back_when_extra_usage_missing() {
 
 #[test]
 fn single_meaningful_secondary_quota_uses_full_single_meter() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), None, None);
     snapshot.primary.is_informational = true;
 
@@ -546,7 +561,7 @@ fn single_meaningful_secondary_quota_uses_full_single_meter() {
 
 #[test]
 fn selected_secondary_quota_is_not_duplicated_when_tertiary_is_meaningful() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), Some(30.0), None);
     snapshot.primary.is_informational = true;
 
@@ -558,7 +573,7 @@ fn selected_secondary_quota_is_not_duplicated_when_tertiary_is_meaningful() {
 
 #[test]
 fn two_meaningful_quotas_keep_two_meter_layout() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Cursor, MetricPreference::Session);
     let snapshot = fake_snapshot_with("cursor", "Cursor", 15.0, Some(40.0), None, None);
 
@@ -570,7 +585,7 @@ fn two_meaningful_quotas_keep_two_meter_layout() {
 
 #[test]
 fn informational_primary_skips_session_and_automatic_phantom_zero() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Claude, MetricPreference::Session);
     let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), None, None);
     snapshot.primary.is_informational = true;
@@ -589,7 +604,7 @@ fn informational_primary_skips_session_and_automatic_phantom_zero() {
 
 #[test]
 fn claude_automatic_prefers_weekly_when_model_exhausted() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot_with("claude", "Claude", 40.0, Some(22.0), None, None);
     snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
         used_percent: 100.0,
@@ -603,6 +618,7 @@ fn claude_automatic_prefers_weekly_when_model_exhausted() {
         reserve_description: None,
         reserve_will_last_to_reset: false,
         reserve_eta_seconds: None,
+        pace: None,
         monthly_limit_block: None,
         description_is_detail: false,
     });
@@ -619,7 +635,7 @@ fn claude_automatic_prefers_weekly_when_model_exhausted() {
 
 #[test]
 fn automatic_prefers_exhausted_weekly_over_low_session() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let snapshot = fake_snapshot_with("codex", "Codex", 20.0, Some(100.0), None, None);
 
     let (primary, _) = selected_tray_percents(&snapshot, &settings);
@@ -634,7 +650,7 @@ fn automatic_prefers_exhausted_weekly_over_low_session() {
 
 #[test]
 fn automatic_picks_highest_among_model_and_extra_windows() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot_with("gemini", "Gemini", 10.0, Some(30.0), Some(40.0), None);
     snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
         used_percent: 55.0,
@@ -648,6 +664,7 @@ fn automatic_picks_highest_among_model_and_extra_windows() {
         reserve_description: None,
         reserve_will_last_to_reset: false,
         reserve_eta_seconds: None,
+        pace: None,
         monthly_limit_block: None,
         description_is_detail: false,
     });

@@ -3700,12 +3700,9 @@ html:has(.menu-surface--tray) {
 }
 .menu-surface--tray .menu-metric__pct,
 .menu-surface--tray .menu-metric__reset,
+.menu-surface--tray .menu-metric__meta,
 .menu-surface--tray .menu-metric__status,
 .menu-surface--tray .menu-metric__detail {
-  font-size: 10px;
-}
-.menu-surface--tray .menu-metric__reserve {
-  margin-top: 0;
   font-size: 10px;
 }
 /* Secondary charts and pace are available inside the Usage details disclosure. */
@@ -4152,14 +4149,26 @@ html:has(.menu-surface--tray) {
   color: var(--text-primary);
 }
 
-/* Header row — title left, "N% left" right. Mirrors the macOS compact menu
-   layout where the remaining-percent label sits on the same baseline as the
-   metric title with the progress bar directly underneath. */
 .menu-metric__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  column-gap: 24px;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.menu-metric__head .menu-metric__title {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-metric__head .menu-metric__reset {
+  margin-left: auto;
+  max-width: 100%;
 }
 
 /* UsageProgressBar — Capsule track + Capsule fill, .frame(height: 6) */
@@ -4177,9 +4186,47 @@ html:has(.menu-surface--tray) {
   transition: width 0.3s ease;
 }
 
-.menu-metric__bar-fill[data-level="high"] { background: var(--usage-bar-high); }
-.menu-metric__bar-fill[data-level="critical"] { background: var(--usage-bar-critical); }
-.menu-metric__bar-fill[data-level="exhausted"] { background: var(--usage-bar-exhausted); }
+.menu-metric__progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+}
+
+.menu-metric__progress-track {
+  fill: var(--usage-bar-track);
+}
+
+.menu-metric__progress-fill {
+  fill: var(--provider-accent, var(--usage-bar-normal));
+}
+
+.menu-metric__progress-warning {
+  fill: color-mix(in srgb, var(--text-primary) 68%, transparent);
+}
+
+.menu-metric__progress-workday {
+  fill: color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.menu-metric__progress-pace {
+  fill: var(--mac-pace-ok, #34c759);
+}
+
+.menu-metric__progress-pace[data-deficit="true"] {
+  fill: var(--mac-pace-bad, #ff3b30);
+}
+
+.menu-metric__meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 /* HStack(.firstTextBaseline) percent label — reset countdown */
 .menu-metric__row {
@@ -4252,10 +4299,6 @@ html:has(.menu-surface--tray) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.menu-metric__reserve {
-  opacity: 0.7;
-  font-size: 10px;
 }
 
 .menu-metric__budget {

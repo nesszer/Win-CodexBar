@@ -41,6 +41,8 @@ pub struct RateWindowSnapshot {
     pub reserve_will_last_to_reset: bool,
     #[serde(default)]
     pub reserve_eta_seconds: Option<f64>,
+    #[serde(default)]
+    pub pace: Option<pace::WindowPaceSnapshot>,
     /// Set while a longer exhausted pool (Kimi's monthly membership) blocks
     /// this window; presentation only, the raw percentages above stay as is.
     #[serde(default)]
@@ -67,6 +69,7 @@ impl RateWindowSnapshot {
             reserve_description: None,
             reserve_will_last_to_reset: false,
             reserve_eta_seconds: None,
+            pace: None,
             monthly_limit_block: None,
             description_is_detail: rw.description_is_detail,
         }
@@ -404,7 +407,8 @@ impl ProviderUsageSnapshot {
         });
         let primary_pace = primary_pace.flatten();
 
-        let blocked = BlockedWindows::evaluate(id, usage, chrono::Utc::now());
+        let now = chrono::Utc::now();
+        let blocked = BlockedWindows::evaluate(id, usage, now);
         let pace = primary_pace.as_ref().map(|p| PaceSnapshot {
             stage: pace::stage_str(p.stage).to_string(),
             delta_percent: p.delta_percent,
@@ -424,12 +428,22 @@ impl ProviderUsageSnapshot {
         });
         let secondary_pace = secondary_pace.flatten();
 
-        let primary_snap = RateWindowSnapshot::from_rate_window(&usage.primary)
-            .with_quota_block(blocked.primary, &blocked);
+        let lane =
+            |window: &RateWindow, is_blocked: bool, default_minutes: u32| RateWindowSnapshot {
+                pace: allows_pace
+                    .then(|| pace::WindowPaceSnapshot::for_window(window, default_minutes, now))
+                    .flatten(),
+                ..RateWindowSnapshot::from_rate_window(window)
+                    .with_quota_block(is_blocked, &blocked)
+            };
+        let primary_snap = lane(
+            &usage.primary,
+            blocked.primary,
+            pace::SESSION_FALLBACK_MINUTES,
+        );
 
         let secondary_snap = usage.secondary.as_ref().map(|sw| {
-            let mut s = RateWindowSnapshot::from_rate_window(sw)
-                .with_quota_block(blocked.secondary, &blocked);
+            let mut s = lane(sw, blocked.secondary, pace::WEEKLY_FALLBACK_MINUTES);
             if let Some(ref p) = secondary_pace {
                 s = s.with_pace_reserve(p);
             }
@@ -471,13 +485,14 @@ impl ProviderUsageSnapshot {
                     .clone()
                     .unwrap_or_else(|| metadata.weekly_label.to_string())
             }),
-            model_specific: usage.model_specific.as_ref().map(|w| {
-                RateWindowSnapshot::from_rate_window(w)
-                    .with_quota_block(blocked.model_specific, &blocked)
-            }),
-            tertiary: usage.tertiary.as_ref().map(|w| {
-                RateWindowSnapshot::from_rate_window(w).with_quota_block(blocked.tertiary, &blocked)
-            }),
+            model_specific: usage
+                .model_specific
+                .as_ref()
+                .map(|w| lane(w, blocked.model_specific, pace::WEEKLY_FALLBACK_MINUTES)),
+            tertiary: usage
+                .tertiary
+                .as_ref()
+                .map(|w| lane(w, blocked.tertiary, pace::WEEKLY_FALLBACK_MINUTES)),
             // F5 (upstream 0.48.0): label the tertiary lane by its duration cadence
             // so surfaces (MenuCard, CLI, tray) can show "Monthly" instead of the
             // generic "DetailWindowTertiary" slot key.
@@ -496,8 +511,7 @@ impl ProviderUsageSnapshot {
                 .map(|(extra, &is_blocked)| NamedRateWindowSnapshot {
                     id: extra.id.clone(),
                     title: extra.title.clone(),
-                    window: RateWindowSnapshot::from_rate_window(&extra.window)
-                        .with_quota_block(is_blocked, &blocked),
+                    window: lane(&extra.window, is_blocked, pace::WEEKLY_FALLBACK_MINUTES),
                     fallback_lane: extra.fallback_lane,
                     icon_fallback: extra.icon_fallback,
                 })
@@ -600,6 +614,7 @@ impl ProviderUsageSnapshot {
                 reserve_description: None,
                 reserve_will_last_to_reset: false,
                 reserve_eta_seconds: None,
+                pace: None,
                 monthly_limit_block: None,
                 description_is_detail: false,
             },
@@ -1157,6 +1172,7 @@ mod tests {
             reserve_description: None,
             reserve_will_last_to_reset: false,
             reserve_eta_seconds: None,
+            pace: None,
             monthly_limit_block: None,
             description_is_detail: false,
         }
