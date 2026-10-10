@@ -803,3 +803,114 @@ fn gpt54_and_gpt55_bill_the_whole_request_at_long_context_rates_above_272k() {
     assert!(CostUsagePricing::codex_fast_cost_usd("gpt-5.5-priority", 272_001, 0, 1).is_none());
     assert!(CostUsagePricing::codex_fast_cost_usd("gpt-5.4-fast", 272_000, 0, 1).is_some());
 }
+
+fn sorted_keys<P>(table: &HashMap<&'static str, P>) -> Vec<&'static str> {
+    let mut keys: Vec<_> = table.keys().copied().collect();
+    keys.sort_unstable();
+    keys
+}
+
+fn codex_pricing_rows() -> String {
+    sorted_keys(&CODEX_PRICING)
+        .into_iter()
+        .map(|key| {
+            let p = CODEX_PRICING[key];
+            let long = p.long_context.map(|l| {
+                (
+                    l.input_cost_per_token,
+                    l.output_cost_per_token,
+                    l.cache_read_input_cost_per_token,
+                    l.cache_write_input_cost_per_token,
+                )
+            });
+            format!(
+                "{key} {:?} {:?} {:?} {:?} {:?} {:?}\n",
+                p.input_cost_per_token,
+                p.output_cost_per_token,
+                p.cache_read_input_cost_per_token,
+                p.cache_write_input_cost_per_token,
+                p.display_label,
+                long,
+            )
+        })
+        .collect()
+}
+
+fn claude_pricing_rows() -> String {
+    sorted_keys(&CLAUDE_PRICING)
+        .into_iter()
+        .map(|key| {
+            let p = CLAUDE_PRICING[key];
+            format!(
+                "{key} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}\n",
+                p.input_cost_per_token,
+                p.output_cost_per_token,
+                p.cache_creation_input_cost_per_token,
+                p.cache_read_input_cost_per_token,
+                p.threshold_tokens,
+                p.input_cost_per_token_above_threshold,
+                p.output_cost_per_token_above_threshold,
+                p.cache_creation_input_cost_per_token_above_threshold,
+                p.cache_read_input_cost_per_token_above_threshold,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn bundled_pricing_tables_keep_every_model_and_rate() {
+    assert_eq!(
+        codex_pricing_rows(),
+        "\
+gpt-5 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5-codex 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5-mini 2.5e-7 2e-6 2.5e-8 None None None
+gpt-5-nano 5e-8 4e-7 5e-9 None None None
+gpt-5-pro 1.5e-5 0.00012 1.5e-5 None None None
+gpt-5.1 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5.1-codex 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5.1-codex-max 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5.1-codex-mini 2.5e-7 2e-6 2.5e-8 None None None
+gpt-5.2 1.75e-6 1.4e-5 1.75e-7 None None None
+gpt-5.2-codex 1.75e-6 1.4e-5 1.75e-7 None None None
+gpt-5.2-pro 2.1e-5 0.000168 2.1e-5 None None None
+gpt-5.3-codex 1.75e-6 1.4e-5 1.75e-7 None None None
+gpt-5.3-codex-spark 0.0 0.0 0.0 None Some(\"Research Preview\") None
+gpt-5.4 2.5e-6 1.5e-5 2.5e-7 None None Some((5e-6, 2.25e-5, 5e-7, None))
+gpt-5.4-codex 2.5e-6 1.5e-5 2.5e-7 None None Some((5e-6, 2.25e-5, 5e-7, None))
+gpt-5.4-mini 7.5e-7 4.5e-6 7.5e-8 None None None
+gpt-5.4-mini-codex 7.5e-7 4.5e-6 7.5e-8 None None None
+gpt-5.4-nano 2e-7 1.25e-6 2e-8 None None None
+gpt-5.4-nano-codex 2e-7 1.25e-6 2e-8 None None None
+gpt-5.4-pro 3e-5 0.00018 3e-5 None None None
+gpt-5.5 5e-6 3e-5 5e-7 None None Some((1e-5, 4.5e-5, 1e-6, None))
+gpt-5.5-cyber 1.25e-5 7.5e-5 1.25e-6 None None None
+gpt-5.5-pro 3e-5 0.00018 3e-5 None None None
+gpt-5.6-cyber 1.25e-5 7.5e-5 1.25e-6 Some(1.5625e-5) None None
+gpt-5.6-luna 2e-7 1.2e-6 2e-8 Some(2.5e-7) None Some((4e-7, 1.8e-6, 4e-8, Some(5e-7)))
+gpt-5.6-sol 4e-6 2e-5 4e-7 Some(5e-6) None Some((8e-6, 3e-5, 8e-7, Some(1e-5)))
+gpt-5.6-terra 2e-6 1.2e-5 2e-7 Some(2.5e-6) None Some((4e-6, 1.8e-5, 4e-7, Some(5e-6)))
+gpt-6-astra 1e-5 5e-5 1e-6 Some(1.25e-5) None Some((2e-5, 7.5e-5, 2e-6, Some(2.5e-5)))
+"
+    );
+    assert_eq!(
+        claude_pricing_rows(),
+        "\
+claude-fable-5 1e-5 5e-5 1.25e-5 1e-6 None None None None None
+claude-haiku-4-5 1e-6 5e-6 1.25e-6 1e-7 None None None None None
+claude-haiku-4-5-20251001 1e-6 5e-6 1.25e-6 1e-7 None None None None None
+claude-opus-4-1 1.5e-5 7.5e-5 1.875e-5 1.5e-6 None None None None None
+claude-opus-4-20250514 1.5e-5 7.5e-5 1.875e-5 1.5e-6 None None None None None
+claude-opus-4-5 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-5-20251101 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-6 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-6-20260205 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-7 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-8 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-sonnet-4-20250514 3e-6 1.5e-5 3.75e-6 3e-7 Some(200000) Some(6e-6) Some(2.25e-5) Some(7.5e-6) Some(6e-7)
+claude-sonnet-4-5 3e-6 1.5e-5 3.75e-6 3e-7 Some(200000) Some(6e-6) Some(2.25e-5) Some(7.5e-6) Some(6e-7)
+claude-sonnet-4-5-20250929 3e-6 1.5e-5 3.75e-6 3e-7 Some(200000) Some(6e-6) Some(2.25e-5) Some(7.5e-6) Some(6e-7)
+claude-sonnet-4-6 3e-6 1.5e-5 3.75e-6 3e-7 Some(200000) Some(6e-6) Some(2.25e-5) Some(7.5e-6) Some(6e-7)
+"
+    );
+}
