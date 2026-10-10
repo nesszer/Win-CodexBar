@@ -755,52 +755,6 @@ pub fn record_provider_windows(
     }
 }
 
-/// Best-effort persistence of one recorded observation pair for the burndown
-/// chart. Failures are logged at debug level and never surface.
-pub fn persist_recorded_windows(
-    provider_id: &str,
-    account_key: Option<&str>,
-    session: Option<&PlanUtilizationHistoryEntry>,
-    weekly: Option<&PlanUtilizationHistoryEntry>,
-    _now: DateTime<Utc>,
-) -> Result<(), quota_burndown::QuotaBurndownStoreError> {
-    let config_root = match crate::logging::config_root() {
-        Some(root) => root,
-        None => return Ok(()),
-    };
-    let mut session_series = quota_burndown::PersistedPlanSeries {
-        name: "session".to_string(),
-        window_minutes: SESSION_WINDOW_MINUTES,
-        entries: Vec::new(),
-    };
-    if let Some(entry) = session {
-        session_series
-            .entries
-            .push(quota_burndown::PersistedPlanEntry::from_history(entry));
-    }
-    let mut weekly_series = quota_burndown::PersistedPlanSeries {
-        name: "weekly".to_string(),
-        window_minutes: WEEKLY_WINDOW_MINUTES,
-        entries: Vec::new(),
-    };
-    if let Some(entry) = weekly {
-        weekly_series
-            .entries
-            .push(quota_burndown::PersistedPlanEntry::from_history(entry));
-    }
-    let key = quota_burndown::persisted_account_key(account_key);
-    if key.is_empty() {
-        return Ok(());
-    }
-    quota_burndown::merge_and_persist_series(
-        &config_root,
-        provider_id,
-        &key,
-        vec![session_series, weekly_series],
-    )
-    .map(|_| ())
-}
-
 /// Last learned full-session burn estimate retained across idle refreshes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RetainedFullSessionEstimate {
