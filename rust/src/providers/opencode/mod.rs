@@ -4,14 +4,6 @@
 //! Uses browser cookies for authentication
 
 pub mod billing;
-pub mod scraper;
-
-// Re-exports for advanced scraping
-#[allow(
-    unused_imports,
-    reason = "imports needed for future OpenCode provider wiring"
-)]
-pub use scraper::{OpenCodeError, OpenCodeUsageFetcher, OpenCodeUsageSnapshot};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
