@@ -20,8 +20,8 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 pub(super) const BASE_URL: &str = "https://opencode.ai";
@@ -33,26 +33,12 @@ const SUBSCRIPTION_SERVER_ID: &str =
     "7abeebee372f304e050aaaf92be863f4a86490e382f8c79db68fd94040d691b4";
 /// OpenCode provider
 pub struct OpenCodeProvider {
-    metadata: ProviderMetadata,
     pub(super) client: Client,
 }
 
 impl OpenCodeProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::OpenCode,
-                display_name: "OpenCode",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://opencode.ai"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
@@ -607,10 +593,6 @@ impl Default for OpenCodeProvider {
 impl Provider for OpenCodeProvider {
     fn id(&self) -> ProviderId {
         ProviderId::OpenCode
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -23,7 +23,7 @@ use reqwest::{Client, StatusCode};
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 use wire::{DevPlan, KeyData, Money, PlanFields};
@@ -37,26 +37,12 @@ const MAX_BODY_BYTES: usize = 1024 * 1024;
 const PREMIUM_WINDOW_MINUTES: u32 = 7 * 24 * 60;
 
 pub struct DevPassProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl DevPassProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::DevPass,
-                display_name: "DevPass",
-                session_label: "Plan credits",
-                weekly_label: "Premium weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://devpass.llmgateway.io/dashboard"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(REQUEST_TIMEOUT)
@@ -76,10 +62,6 @@ impl Default for DevPassProvider {
 impl Provider for DevPassProvider {
     fn id(&self) -> ProviderId {
         ProviderId::DevPass
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

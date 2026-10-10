@@ -8,7 +8,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use reqwest::Url;
 
-pub(super) const DEFAULT_BASE_URL: &str = "http://127.0.0.1:17434";
+pub(crate) const DEFAULT_BASE_URL: &str = "http://127.0.0.1:17434";
 const DEFAULT_PORT: u16 = 17434;
 
 const POLICY_MESSAGE: &str = "llmman base URL must use HTTPS, or HTTP for localhost and private-network hosts, without embedded credentials, query, or fragment.";

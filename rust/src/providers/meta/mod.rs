@@ -11,8 +11,8 @@ use reqwest::{Client, Url};
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 const META_API_BASE: &str = "https://api.meta.ai/v1";
@@ -33,26 +33,12 @@ struct ModelEntry {
 }
 
 pub struct MetaProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl MetaProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Meta,
-                display_name: "Meta",
-                session_label: "Status",
-                weekly_label: "Models",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://dev.meta.ai/docs"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -100,10 +86,6 @@ impl Default for MetaProvider {
 impl Provider for MetaProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Meta
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

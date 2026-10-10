@@ -39,8 +39,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 const AGY_NOT_FOUND_MESSAGE: &str =
@@ -72,9 +72,7 @@ impl From<ManagedProcessError> for ProviderError {
 }
 
 /// Antigravity provider
-pub struct AntigravityProvider {
-    metadata: ProviderMetadata,
-}
+pub struct AntigravityProvider {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AntigravityStrategyId {
@@ -142,21 +140,7 @@ fn is_agy_cli_command(command_line: &str) -> bool {
 
 impl AntigravityProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Antigravity,
-                display_name: "Antigravity",
-                session_label: "Claude",
-                weekly_label: "Gemini Pro",
-                supports_opus: true,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: None,
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     /// Detect running Antigravity language server and extract connection info
@@ -897,10 +881,6 @@ impl Provider for AntigravityProvider {
 
     fn id(&self) -> ProviderId {
         ProviderId::Antigravity
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

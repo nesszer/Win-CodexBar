@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use crate::core::{
     CostSnapshot, FetchContext, NamedRateWindow, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
 const CREDENTIAL_TARGET: &str = "codexbar-bifrost";
@@ -24,7 +24,6 @@ const QUOTA_PATH: &str = "/api/governance/virtual-keys/quota";
 mod model_labels;
 
 pub struct BifrostProvider {
-    metadata: ProviderMetadata,
     client: Option<Client>,
 }
 
@@ -57,19 +56,6 @@ struct ResetTiming {
 impl BifrostProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Bifrost,
-                display_name: "Bifrost",
-                session_label: "Budget",
-                weekly_label: "Spend",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: None,
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 // The virtual-key credential uses a custom header; never
@@ -165,10 +151,6 @@ impl Default for BifrostProvider {
 impl Provider for BifrostProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Bifrost
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -11,8 +11,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 const STATE_KEY: &str = "windsurf.settings.cachedPlanInfo";
@@ -49,27 +49,11 @@ struct QuotaUsage {
     weekly_reset_at_unix: Option<i64>,
 }
 
-pub struct WindsurfProvider {
-    metadata: ProviderMetadata,
-}
+pub struct WindsurfProvider {}
 
 impl WindsurfProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Windsurf,
-                display_name: "Windsurf",
-                session_label: "Daily",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://windsurf.com/subscription"),
-                status_page_url: Some("https://status.windsurf.com"),
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     fn default_db_path() -> Option<PathBuf> {
@@ -198,10 +182,6 @@ impl Default for WindsurfProvider {
 impl Provider for WindsurfProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Windsurf
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

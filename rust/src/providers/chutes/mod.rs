@@ -4,8 +4,8 @@ use reqwest::{Client, StatusCode, Url};
 use serde_json::{Map, Value, json};
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, SourceMode,
+    UsageSnapshot,
 };
 
 mod parse;
@@ -18,26 +18,12 @@ const CREDENTIAL_TARGET: &str = "codexbar-chutes";
 const DEFAULT_API_URL: &str = "https://api.chutes.ai";
 
 pub struct ChutesProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ChutesProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Chutes,
-                display_name: "Chutes",
-                session_label: "4-hour quota",
-                weekly_label: "Monthly quota",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://chutes.ai"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -56,10 +42,6 @@ impl Default for ChutesProvider {
 impl Provider for ChutesProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Chutes
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

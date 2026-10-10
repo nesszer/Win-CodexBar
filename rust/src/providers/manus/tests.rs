@@ -11,7 +11,6 @@ fn provider_for(server: &ServerGuard) -> ManusProvider {
             .build()
             .expect("the test client should build"),
         credits_url: format!("{}{CREDITS_PATH}", server.url()),
-        ..ManusProvider::new()
     }
 }
 

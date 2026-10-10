@@ -22,7 +22,7 @@ use std::os::windows::process::CommandExt;
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderInventoryItem,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 use self::accounts::{GrokAuthKind, ParsedGrokAuthFile};
@@ -38,7 +38,6 @@ const RESET_CREDITS_TIMEOUT: Duration = Duration::from_secs(2);
 const RESET_CREDITS_JOIN_GRACE: Duration = Duration::from_millis(250);
 
 pub struct GrokProvider {
-    metadata: ProviderMetadata,
     client: Client,
     billing_endpoint: String,
     credits_proxy_endpoint: String,
@@ -47,19 +46,6 @@ pub struct GrokProvider {
 impl GrokProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Grok,
-                display_name: "Grok",
-                session_label: "Credits",
-                weekly_label: "On-demand",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://grok.com/?_s=usage"),
-                status_page_url: Some("https://status.x.ai"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -563,10 +549,6 @@ impl Default for GrokProvider {
 impl Provider for GrokProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Grok
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

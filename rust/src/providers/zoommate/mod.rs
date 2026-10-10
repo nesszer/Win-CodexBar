@@ -20,8 +20,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::browser::cookies::Cookie;
 use crate::core::curl_capture;
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 use crate::providers::browser_cookies_for_domain;
 
@@ -170,26 +170,12 @@ fn cache_invalidate(key: &str) {
 // ── Provider ─────────────────────────────────────────────────────────────────
 
 pub struct ZoomMateProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ZoomMateProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::ZoomMate,
-                display_name: "ZoomMate",
-                session_label: "Credits",
-                weekly_label: "Credits",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://zoommate.zoom.us/#/?settings=credit-usage"),
-                status_page_url: Some("https://www.zoomstatus.com/"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(Duration::from_secs(15))
                 .build()
@@ -464,10 +450,6 @@ impl Default for ZoomMateProvider {
 impl Provider for ZoomMateProvider {
     fn id(&self) -> ProviderId {
         ProviderId::ZoomMate
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

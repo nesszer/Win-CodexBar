@@ -19,12 +19,12 @@ use std::time::Duration;
 use crate::browser::detection::BrowserType;
 use crate::core::{
     FetchContext, ManualEmptyCookiePolicy, Provider, ProviderError, ProviderFetchResult,
-    ProviderId, ProviderMetadata, ProviderStateKind, SourceMode,
+    ProviderId, ProviderStateKind, SourceMode,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
 const ORIGIN: &str = "https://www.raycast.com";
-const SETTINGS_URL: &str = "https://www.raycast.com/settings";
+pub(crate) const SETTINGS_URL: &str = "https://www.raycast.com/settings";
 const CREDITS_PATH: &str = "/frontend_api/current_user/ai_credits";
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
@@ -38,7 +38,6 @@ const COOKIES_DISABLED: &str =
     "Raycast cookies are disabled. Set the cookie source to Auto or Manual to read credits.";
 
 pub struct RaycastProvider {
-    metadata: ProviderMetadata,
     client: Client,
     origin: String,
 }
@@ -46,19 +45,6 @@ pub struct RaycastProvider {
 impl RaycastProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Raycast,
-                display_name: "Raycast",
-                session_label: "Credits",
-                weekly_label: "Plan",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(SETTINGS_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -74,7 +60,6 @@ impl RaycastProvider {
                 .build()
                 .expect("the test client should build"),
             origin: origin.to_string(),
-            ..Self::new()
         }
     }
 
@@ -183,10 +168,6 @@ fn check_status(status: StatusCode) -> Result<(), ProviderError> {
 impl Provider for RaycastProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Raycast
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

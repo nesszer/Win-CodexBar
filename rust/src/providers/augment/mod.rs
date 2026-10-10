@@ -21,32 +21,16 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Augment provider
-pub struct AugmentProvider {
-    metadata: ProviderMetadata,
-}
+pub struct AugmentProvider {}
 
 impl AugmentProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Augment,
-                display_name: "Augment",
-                session_label: "Session",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://app.augmentcode.com/account"),
-                status_page_url: Some("https://status.augmentcode.com"),
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     /// Get Augment config directory
@@ -286,10 +270,6 @@ impl Default for AugmentProvider {
 impl Provider for AugmentProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Augment
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

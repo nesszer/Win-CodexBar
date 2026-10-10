@@ -11,8 +11,8 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 const STEPFUN_RATE_LIMIT_URL: &str =
@@ -174,26 +174,12 @@ struct StepFunTokenPair {
 }
 
 pub struct StepFunProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl StepFunProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::StepFun,
-                display_name: "StepFun",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://platform.stepfun.com/dashboard"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -515,10 +501,6 @@ impl Default for StepFunProvider {
 impl Provider for StepFunProvider {
     fn id(&self) -> ProviderId {
         ProviderId::StepFun
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

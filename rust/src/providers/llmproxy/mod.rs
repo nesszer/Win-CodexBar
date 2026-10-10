@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const LLM_PROXY_CREDENTIAL_TARGET: &str = "codexbar-llmproxy";
@@ -96,26 +96,12 @@ struct LLMProxySummary {
 }
 
 pub struct LLMProxyProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl LLMProxyProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::LLMProxy,
-                display_name: "LLM Proxy",
-                session_label: "Quota",
-                weekly_label: "Requests",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: None,
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -170,10 +156,6 @@ impl Default for LLMProxyProvider {
 impl Provider for LLMProxyProvider {
     fn id(&self) -> ProviderId {
         ProviderId::LLMProxy
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

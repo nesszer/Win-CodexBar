@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const CODING_PLAN_PATH: &str = "/user-center/payment/coding-plan";
@@ -176,29 +176,11 @@ impl MiniMaxRegion {
 }
 
 /// MiniMax provider
-pub struct MiniMaxProvider {
-    metadata: ProviderMetadata,
-}
+pub struct MiniMaxProvider {}
 
 impl MiniMaxProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::MiniMax,
-                display_name: "MiniMax",
-                session_label: "Usage",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(
-                    "https://platform.minimax.io/user-center/payment/coding-plan?cycle_type=3",
-                ),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     pub fn region_from_settings(value: Option<&str>) -> MiniMaxRegion {
@@ -1024,10 +1006,6 @@ impl Provider for MiniMaxProvider {
 
     fn id(&self) -> ProviderId {
         ProviderId::MiniMax
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

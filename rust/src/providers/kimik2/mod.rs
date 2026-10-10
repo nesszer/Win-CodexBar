@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const KIMIK2_API_BASE_INTERNATIONAL: &str = "https://api.moonshot.ai";
@@ -141,27 +141,11 @@ fn api_key_for_region(env: &HashMap<String, String>, region: MoonshotRegion) -> 
 }
 
 /// Kimi K2 provider (API-based credits)
-pub struct KimiK2Provider {
-    metadata: ProviderMetadata,
-}
+pub struct KimiK2Provider {}
 
 impl KimiK2Provider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::KimiK2,
-                display_name: "Moonshot / Kimi Open Platform",
-                session_label: "Balance",
-                weekly_label: "Cash",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://platform.moonshot.ai/console/account"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     /// Region-bound API key resolution (upstream 0.48.0 #2621):
@@ -391,10 +375,6 @@ impl Default for KimiK2Provider {
 impl Provider for KimiK2Provider {
     fn id(&self) -> ProviderId {
         ProviderId::KimiK2
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

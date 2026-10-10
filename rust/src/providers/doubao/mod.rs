@@ -14,8 +14,7 @@ use std::time::Duration;
 
 use crate::core::{
     FetchContext, IconLane, NamedRateWindow, Provider, ProviderError, ProviderFetchResult,
-    ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot, hex, hmac_sha256,
-    sha256_hex,
+    ProviderId, RateWindow, SourceMode, UsageSnapshot, hex, hmac_sha256, sha256_hex,
 };
 
 const DOUBAO_API_URL: &str = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions";
@@ -29,28 +28,12 @@ const PROBE_MODELS: &[&str] = &[
 ];
 
 pub struct DoubaoProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl DoubaoProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Doubao,
-                display_name: "Doubao",
-                session_label: "Requests",
-                weekly_label: "Usage",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(
-                    "https://console.volcengine.com/ark/region:ark+cn-beijing/usage",
-                ),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -908,10 +891,6 @@ impl Default for DoubaoProvider {
 impl Provider for DoubaoProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Doubao
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

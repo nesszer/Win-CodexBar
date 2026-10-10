@@ -22,7 +22,7 @@ use transport::{HttpWebTransport, WebTransport};
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const BASE_URL: &str = "https://opencode.ai";
@@ -39,7 +39,6 @@ const ZEN_BALANCE_START_DELAY: Duration = Duration::from_millis(25);
 const ZEN_BALANCE_JOIN_GRACE: Duration = Duration::from_millis(250);
 
 pub struct OpenCodeGoProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
@@ -116,19 +115,6 @@ impl WebCookieSession {
 impl OpenCodeGoProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::OpenCodeGo,
-                display_name: "OpenCode Go",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: true,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://opencode.ai"),
-                status_page_url: None,
-                tertiary_label_key: Some("ProviderMonthly"),
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
@@ -469,10 +455,6 @@ impl Default for OpenCodeGoProvider {
 impl Provider for OpenCodeGoProvider {
     fn id(&self) -> ProviderId {
         ProviderId::OpenCodeGo
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

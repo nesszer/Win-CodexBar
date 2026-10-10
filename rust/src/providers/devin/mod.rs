@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const CREDENTIAL_TARGET: &str = "codexbar-devin";
@@ -15,26 +15,12 @@ const MISSING_ORGANIZATION_CONFIG_MESSAGE: &str = "Devin organization not found;
 const MISSING_TOKEN_MESSAGE: &str = "Devin Bearer token not found. In app.devin.ai open Developer Tools > Network, reload Usage & Limits, select a successful billing/quota/usage request and copy its Authorization value (a leading 'Bearer ' is accepted) into the Devin token field in Preferences, or set DEVIN_BEARER_TOKEN / DEVIN_AUTHORIZATION.";
 
 pub struct DevinProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl DevinProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Devin,
-                display_name: "Devin",
-                session_label: "Daily",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://app.devin.ai/settings/billing"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -53,10 +39,6 @@ impl Default for DevinProvider {
 impl Provider for DevinProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Devin
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

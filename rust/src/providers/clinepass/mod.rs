@@ -14,8 +14,8 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    ProviderStateKind, RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderStateKind,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use session::FileCredential;
 
@@ -76,26 +76,12 @@ struct LimitEntry {
 }
 
 pub struct ClinePassProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ClinePassProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::ClinePass,
-                display_name: "ClinePass",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: true,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://app.cline.bot/dashboard/subscription?personal=true"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -114,10 +100,6 @@ impl Default for ClinePassProvider {
 impl Provider for ClinePassProvider {
     fn id(&self) -> ProviderId {
         ProviderId::ClinePass
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

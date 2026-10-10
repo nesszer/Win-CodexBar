@@ -9,8 +9,8 @@ use regex_lite::Regex;
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 use crate::providers::browser_cookie_header;
 
@@ -20,9 +20,7 @@ const CUSTOMER_DATA_INPUT: &str =
     r#"{"0":{"json":{"sessionId":null},"meta":{"values":{"sessionId":["undefined"]}}}}"#;
 const COOKIE_DOMAINS: [&str; 2] = ["t3.chat", "www.t3.chat"];
 
-pub struct T3ChatProvider {
-    metadata: ProviderMetadata,
-}
+pub struct T3ChatProvider {}
 
 #[derive(Debug, Clone)]
 struct T3RequestContext {
@@ -52,21 +50,7 @@ struct T3Subscription {
 
 impl T3ChatProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::T3Chat,
-                display_name: "T3 Chat",
-                session_label: "Base",
-                weekly_label: "Overage",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://t3.chat/settings/customization"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
@@ -379,10 +363,6 @@ impl Default for T3ChatProvider {
 impl Provider for T3ChatProvider {
     fn id(&self) -> ProviderId {
         ProviderId::T3Chat
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

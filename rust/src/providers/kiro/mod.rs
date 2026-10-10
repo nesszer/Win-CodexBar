@@ -25,14 +25,12 @@ use std::process::Stdio;
 use tokio::process::Command;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Kiro provider (AWS AI assistant)
-pub struct KiroProvider {
-    metadata: ProviderMetadata,
-}
+pub struct KiroProvider {}
 struct KiroCliUsage {
     plan_name: String,
     matched_new_format: bool,
@@ -50,21 +48,7 @@ struct KiroCliUsage {
 
 impl KiroProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Kiro,
-                display_name: "Kiro",
-                session_label: "Session",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://kiro.dev/account"),
-                status_page_url: Some("https://health.aws.amazon.com"),
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     /// Get Kiro config directory
@@ -464,10 +448,6 @@ impl Default for KiroProvider {
 impl Provider for KiroProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Kiro
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

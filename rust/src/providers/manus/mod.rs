@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use crate::core::{
     FetchContext, ManualEmptyCookiePolicy, Provider, ProviderError, ProviderFetchResult,
-    ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
 const MANUS_CREDITS_URL: &str = "https://api.manus.im/user.v1.UserService/GetAvailableCredits";
@@ -117,7 +117,6 @@ struct Attempts {
 }
 
 pub struct ManusProvider {
-    metadata: ProviderMetadata,
     client: Client,
     credits_url: String,
 }
@@ -125,19 +124,6 @@ pub struct ManusProvider {
 impl ManusProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Manus,
-                display_name: "Manus",
-                session_label: "Credits",
-                weekly_label: "Refresh",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://manus.im"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -395,10 +381,6 @@ impl Default for ManusProvider {
 impl Provider for ManusProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Manus
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

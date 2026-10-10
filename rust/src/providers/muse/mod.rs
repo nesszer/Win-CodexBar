@@ -20,7 +20,7 @@ use tokio::time::{Duration, timeout};
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const MUSE_USAGE_URL: &str = "https://api.meta.ai/muse-code/key";
@@ -52,26 +52,12 @@ struct MuseMetaCredentials {
 }
 
 pub struct MuseProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl MuseProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Muse,
-                display_name: "Muse Code",
-                session_label: "5 hours",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://dev.meta.ai"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -145,10 +131,6 @@ impl Default for MuseProvider {
 impl Provider for MuseProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Muse
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -11,8 +11,7 @@ use serde::Deserialize;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode,
-    SubscriptionMetadata, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, SubscriptionMetadata, UsageSnapshot,
 };
 
 const MANAGEMENT_BASE: &str = "https://zenmux.ai/api/v1/management";
@@ -67,26 +66,12 @@ struct BalanceData {
 }
 
 pub struct ZenMuxProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ZenMuxProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::ZenMux,
-                display_name: "ZenMux",
-                session_label: "5-hour quota",
-                weekly_label: "Weekly quota",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://zenmux.ai/platform/management"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -132,10 +117,6 @@ impl Default for ZenMuxProvider {
 impl Provider for ZenMuxProvider {
     fn id(&self) -> ProviderId {
         ProviderId::ZenMux
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

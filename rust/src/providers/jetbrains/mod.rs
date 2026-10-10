@@ -12,32 +12,16 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// JetBrains AI provider
-pub struct JetBrainsProvider {
-    metadata: ProviderMetadata,
-}
+pub struct JetBrainsProvider {}
 
 impl JetBrainsProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::JetBrains,
-                display_name: "JetBrains AI",
-                session_label: "Credits",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://www.jetbrains.com/ai/"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     /// Get JetBrains config directory
@@ -230,10 +214,6 @@ impl Default for JetBrainsProvider {
 impl Provider for JetBrainsProvider {
     fn id(&self) -> ProviderId {
         ProviderId::JetBrains
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

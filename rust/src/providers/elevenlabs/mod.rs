@@ -8,8 +8,8 @@ use reqwest::{Client, Url};
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 const ELEVENLABS_API_BASE_URL: &str = "https://api.elevenlabs.io";
@@ -44,26 +44,12 @@ struct ElevenLabsApiErrorDetail {
 }
 
 pub struct ElevenLabsProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ElevenLabsProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::ElevenLabs,
-                display_name: "ElevenLabs",
-                session_label: "Credits",
-                weekly_label: "Voices",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://elevenlabs.io/app/settings/api-keys"),
-                status_page_url: Some("https://status.elevenlabs.io"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -165,10 +151,6 @@ impl Default for ElevenLabsProvider {
 impl Provider for ElevenLabsProvider {
     fn id(&self) -> ProviderId {
         ProviderId::ElevenLabs
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

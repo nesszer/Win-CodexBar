@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
@@ -53,7 +53,6 @@ struct ModelQuota {
 }
 
 pub struct HelmcodeProvider {
-    metadata: ProviderMetadata,
     client: Client,
     #[cfg(test)]
     api_base_override: Option<String>,
@@ -62,19 +61,6 @@ pub struct HelmcodeProvider {
 impl HelmcodeProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Helmcode,
-                display_name: "Helmcode",
-                session_label: "Quota",
-                weekly_label: "Quota",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://cloud.helmcode.com/dashboard"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(Duration::from_secs(10))
                 .redirect(reqwest::redirect::Policy::none())
@@ -261,9 +247,6 @@ impl Default for HelmcodeProvider {
 impl Provider for HelmcodeProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Helmcode
-    }
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {

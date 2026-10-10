@@ -18,8 +18,8 @@ use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 use cookies::request_cookies;
@@ -65,7 +65,6 @@ struct CreditGrant {
 }
 
 pub struct PerplexityProvider {
-    metadata: ProviderMetadata,
     client: Client,
     credits_url: String,
 }
@@ -73,19 +72,6 @@ pub struct PerplexityProvider {
 impl PerplexityProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Perplexity,
-                display_name: "Perplexity",
-                session_label: "Credits",
-                weekly_label: "Bonus credits",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://www.perplexity.ai/account/usage"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
@@ -358,10 +344,6 @@ impl Provider for PerplexityProvider {
 
     fn id(&self) -> ProviderId {
         ProviderId::Perplexity
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

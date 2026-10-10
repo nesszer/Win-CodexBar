@@ -13,7 +13,7 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use plan_cache::CommandCodePlanCache;
 
@@ -103,26 +103,12 @@ fn find_plan(plan_id: &str) -> Option<&'static CommandCodePlan> {
 }
 
 pub struct CommandCodeProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl CommandCodeProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::CommandCode,
-                display_name: "Command Code",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://commandcode.ai"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -613,10 +599,6 @@ impl Default for CommandCodeProvider {
 impl Provider for CommandCodeProvider {
     fn id(&self) -> ProviderId {
         ProviderId::CommandCode
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

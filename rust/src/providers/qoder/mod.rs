@@ -14,8 +14,8 @@ use serde_json::Value;
 use std::time::Duration;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 const BX_VERSION: &str = "2.5.35";
@@ -25,26 +25,12 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 use routing::QoderSite;
 
 pub struct QoderProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl QoderProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Qoder,
-                display_name: "Qoder",
-                session_label: "Credits",
-                weekly_label: "Shared credits",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://qoder.com/account/usage"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -507,10 +493,6 @@ fn parse_datetime(raw: String) -> Option<DateTime<Utc>> {
 impl Provider for QoderProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Qoder
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

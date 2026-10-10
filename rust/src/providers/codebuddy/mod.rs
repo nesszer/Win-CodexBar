@@ -30,8 +30,8 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 const CN_API: &str = "https://www.codebuddy.cn/billing/meter/get-user-resource";
@@ -64,7 +64,6 @@ const MAX_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_CACHE_BYTES: u64 = 1024 * 1024;
 
 pub struct CodeBuddyProvider {
-    metadata: ProviderMetadata,
     client: Client,
     /// Billing API endpoint; override via `CB_API_URL` (validated).
     api_url: String,
@@ -73,19 +72,6 @@ pub struct CodeBuddyProvider {
 impl CodeBuddyProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::CodeBuddy,
-                display_name: "CodeBuddy",
-                session_label: "Credits",
-                weekly_label: "Packages",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://www.codebuddy.cn/profile/plans-usage"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(20))
                 .build()
@@ -770,10 +756,6 @@ fn number_field(value: &Value, keys: &[&str]) -> Option<f64> {
 impl Provider for CodeBuddyProvider {
     fn id(&self) -> ProviderId {
         ProviderId::CodeBuddy
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

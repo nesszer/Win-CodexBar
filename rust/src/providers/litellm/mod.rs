@@ -4,8 +4,7 @@ use reqwest::{Client, Response, StatusCode, Url};
 use serde::de::DeserializeOwned;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    SourceMode,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, SourceMode,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
@@ -27,26 +26,12 @@ const CREDENTIAL_TARGET: &str = "codexbar-litellm";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 pub struct LiteLLMProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl LiteLLMProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::LiteLLM,
-                display_name: "LiteLLM",
-                session_label: "Personal budget",
-                weekly_label: "Team budget",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: None,
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -65,10 +50,6 @@ impl Default for LiteLLMProvider {
 impl Provider for LiteLLMProvider {
     fn id(&self) -> ProviderId {
         ProviderId::LiteLLM
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     /// Upstream's LiteLLM menu bar resolver: the team budget is enforced for

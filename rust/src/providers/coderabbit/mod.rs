@@ -14,7 +14,7 @@ use tokio::process::Command;
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const CLI_TIMEOUT: Duration = Duration::from_secs(15);
@@ -48,27 +48,11 @@ struct CliOutput {
     stderr: Vec<u8>,
 }
 
-pub struct CodeRabbitProvider {
-    metadata: ProviderMetadata,
-}
+pub struct CodeRabbitProvider {}
 
 impl CodeRabbitProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::CodeRabbit,
-                display_name: "CodeRabbit",
-                session_label: "Reviews",
-                weekly_label: "Billing",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://app.coderabbit.ai"),
-                status_page_url: Some("https://status.coderabbit.ai"),
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 }
 
@@ -82,10 +66,6 @@ impl Default for CodeRabbitProvider {
 impl Provider for CodeRabbitProvider {
     fn id(&self) -> ProviderId {
         ProviderId::CodeRabbit
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -17,12 +17,11 @@ use serde_json::{Map, Value};
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
 const USAGE_URL: &str = "https://api.xkiro.com/v1/usage";
-const DASHBOARD_URL: &str = "https://xkiro.com";
 const CREDENTIAL_TARGET: &str = "codexbar-xkiro";
 const ENV_KEYS: &[&str] = &["XKIRO_API_KEY"];
 const REQUEST_TIMEOUT_SECS: u64 = 15;
@@ -45,7 +44,6 @@ struct FreeTokenUsage {
 }
 
 pub struct XKiroProvider {
-    metadata: ProviderMetadata,
     client: Client,
     usage_url: String,
 }
@@ -53,19 +51,6 @@ pub struct XKiroProvider {
 impl XKiroProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::XKiro,
-                display_name: "xKiro",
-                session_label: "Daily free tokens",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DASHBOARD_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
                 .build()
@@ -120,10 +105,6 @@ impl Default for XKiroProvider {
 impl Provider for XKiroProvider {
     fn id(&self) -> ProviderId {
         ProviderId::XKiro
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const BILLING_SUMMARY_URL: &str = "https://api.fireworks.ai/v1/accounts";
@@ -181,26 +181,12 @@ fn format_money(value: f64) -> String {
 }
 
 pub struct FireworksProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl FireworksProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Fireworks,
-                display_name: "Fireworks",
-                session_label: "Spend",
-                weekly_label: "Spend",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://app.fireworks.ai"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -462,10 +448,6 @@ fn parse_summary_for_testing(body: &str) -> Result<FireworksSummary, ProviderErr
 impl Provider for FireworksProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Fireworks
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

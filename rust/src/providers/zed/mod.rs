@@ -7,7 +7,7 @@ use reqwest::{Client, StatusCode};
 
 use crate::core::{
     FetchContext, ManualEmptyCookiePolicy, Provider, ProviderError, ProviderFetchResult,
-    ProviderId, ProviderMetadata, ProviderStateKind, SourceMode,
+    ProviderId, ProviderStateKind, SourceMode,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
@@ -24,7 +24,6 @@ const COOKIES_DISABLED: &str =
     "Enable Zed browser cookies or paste a Cookie header to read token spend.";
 
 pub struct ZedProvider {
-    metadata: ProviderMetadata,
     client: Client,
     billing_url: String,
 }
@@ -42,19 +41,6 @@ impl ZedProvider {
 
     fn with_client(billing_url: impl Into<String>, client: Client) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Zed,
-                display_name: "Zed",
-                session_label: "Edits",
-                weekly_label: "Cycle",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://zed.dev/account"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client,
             billing_url: billing_url.into(),
         }
@@ -98,10 +84,6 @@ impl Default for ZedProvider {
 impl Provider for ZedProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Zed
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

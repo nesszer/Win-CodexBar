@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
@@ -25,7 +25,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const SECTION_LABEL: &str = "Team credits";
 
 pub struct VercelProvider {
-    metadata: ProviderMetadata,
     client: Client,
     credits_url: String,
 }
@@ -42,19 +41,6 @@ impl VercelProvider {
 
     fn with_client(credits_url: impl Into<String>, client: Client) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Vercel,
-                display_name: "Vercel AI Gateway",
-                session_label: "Balance",
-                weekly_label: "Balance",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client,
             credits_url: credits_url.into(),
         }
@@ -97,10 +83,6 @@ impl Default for VercelProvider {
 impl Provider for VercelProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Vercel
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

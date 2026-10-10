@@ -15,7 +15,7 @@ use std::time::Duration;
 use super::{BoundedBodyError, read_bounded_response};
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
 mod identity_cache;
@@ -136,26 +136,12 @@ impl TokenEnvironment {
 }
 
 pub struct HuggingFaceProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl HuggingFaceProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::HuggingFace,
-                display_name: "Hugging Face",
-                session_label: "Credits",
-                weekly_label: "ZeroGPU",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://huggingface.co/settings/billing"),
-                status_page_url: Some("https://status.huggingface.co"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(PRIMARY_TIMEOUT)
                 .build()
@@ -305,10 +291,6 @@ impl Default for HuggingFaceProvider {
 impl Provider for HuggingFaceProvider {
     fn id(&self) -> ProviderId {
         ProviderId::HuggingFace
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

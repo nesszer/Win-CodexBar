@@ -38,8 +38,8 @@ use serde::Deserialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Extra-window id of the monthly membership pool (`Total usage`).
@@ -243,27 +243,11 @@ struct KimiWindow {
 }
 
 /// Kimi AI provider
-pub struct KimiProvider {
-    metadata: ProviderMetadata,
-}
+pub struct KimiProvider {}
 
 impl KimiProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Kimi,
-                display_name: "Kimi",
-                session_label: "Weekly",
-                weekly_label: "Rate Limit",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://kimi.moonshot.cn"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     fn auth_token_from_cookie_headers(
@@ -345,10 +329,6 @@ impl Default for KimiProvider {
 impl Provider for KimiProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Kimi
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 use crate::core::{
     FetchContext, ManualEmptyCookiePolicy, Provider, ProviderError, ProviderFetchResult,
-    ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::settings::ApiKeys;
 
@@ -27,9 +27,7 @@ const OLLAMA_MONTHLY_WINDOW_MINUTES: u32 = 30 * 24 * 60;
 const OLLAMA_MONTHLY_USAGE_LABEL: &str = "Monthly usage";
 
 /// Ollama provider
-pub struct OllamaProvider {
-    metadata: ProviderMetadata,
-}
+pub struct OllamaProvider {}
 
 #[derive(Debug, Clone, PartialEq)]
 struct UsageBlock {
@@ -41,21 +39,7 @@ struct UsageBlock {
 
 impl OllamaProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Ollama,
-                display_name: "Ollama",
-                session_label: "Session",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://ollama.com/settings"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     /// Fetch usage by scraping ollama.com/settings
@@ -370,10 +354,6 @@ impl Default for OllamaProvider {
 impl Provider for OllamaProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Ollama
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -12,7 +12,7 @@ use std::future::Future;
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const VENICE_BALANCE_URL: &str = "https://api.venice.ai/api/v1/billing/balance";
@@ -71,7 +71,6 @@ fn session_token_from_body(body: &[u8]) -> Result<String, SessionTokenError> {
 }
 
 pub struct VeniceProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
@@ -103,19 +102,6 @@ impl VeniceWebFailure {
 impl VeniceProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Venice,
-                display_name: "Venice",
-                session_label: "Balance",
-                weekly_label: "DIEM",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://venice.ai/settings/api"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -293,10 +279,6 @@ impl Default for VeniceProvider {
 impl Provider for VeniceProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Venice
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

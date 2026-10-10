@@ -9,8 +9,8 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Warp GraphQL API endpoint
@@ -116,27 +116,11 @@ struct BonusGrantsInfo {
 }
 
 /// Warp provider
-pub struct WarpProvider {
-    metadata: ProviderMetadata,
-}
+pub struct WarpProvider {}
 
 impl WarpProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Warp,
-                display_name: "Warp",
-                session_label: "Credits",
-                weekly_label: "Add-on credits",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://docs.warp.dev/reference/cli/api-keys"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     /// Get API token from ctx, Windows Credential Manager, or env
@@ -404,10 +388,6 @@ impl Default for WarpProvider {
 impl Provider for WarpProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Warp
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

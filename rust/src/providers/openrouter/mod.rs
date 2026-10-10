@@ -17,7 +17,7 @@ use serde_json::Value;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 use activity::ActivityReport;
 use diagnostics::{Degraded, Observations};
@@ -140,9 +140,7 @@ impl KeyData {
 }
 
 /// OpenRouter provider
-pub struct OpenRouterProvider {
-    metadata: ProviderMetadata,
-}
+pub struct OpenRouterProvider {}
 
 /// Usage value for quota math when the server does not report remaining: the
 /// field matching the declared reset window when known, otherwise cumulative
@@ -164,21 +162,7 @@ fn quota_fallback_usage(key_data: &KeyData) -> Option<f64> {
 
 impl OpenRouterProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::OpenRouter,
-                display_name: "OpenRouter",
-                session_label: "Credits",
-                weekly_label: "API key limit",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://openrouter.ai/activity"),
-                status_page_url: Some("https://status.openrouter.ai"),
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     /// Get API token from ctx, Windows Credential Manager, or env
@@ -570,10 +554,6 @@ impl Default for OpenRouterProvider {
 impl Provider for OpenRouterProvider {
     fn id(&self) -> ProviderId {
         ProviderId::OpenRouter
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

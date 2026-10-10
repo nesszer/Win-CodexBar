@@ -7,16 +7,14 @@ use reqwest::Url;
 use serde::Deserialize;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 use crate::settings::ApiKeys;
 
 const DEFAULT_API_VERSION: &str = "2024-10-21";
 
-pub struct AzureOpenAIProvider {
-    metadata: ProviderMetadata,
-}
+pub struct AzureOpenAIProvider {}
 
 #[derive(Debug, Clone)]
 struct AzureOpenAIConfig {
@@ -33,21 +31,7 @@ struct ChatCompletionResponse {
 
 impl AzureOpenAIProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::AzureOpenAI,
-                display_name: "Azure OpenAI",
-                session_label: "Deployment",
-                weekly_label: "Status",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://ai.azure.com"),
-                status_page_url: Some("https://status.azure.com"),
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     async fn fetch_via_api(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
@@ -329,10 +313,6 @@ impl Default for AzureOpenAIProvider {
 impl Provider for AzureOpenAIProvider {
     fn id(&self) -> ProviderId {
         ProviderId::AzureOpenAI
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

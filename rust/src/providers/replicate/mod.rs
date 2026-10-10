@@ -18,11 +18,10 @@ use tokio::time::timeout;
 
 use crate::core::{
     CostSnapshot, FetchContext, ManualEmptyCookiePolicy, Provider, ProviderDisplayDetail,
-    ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode,
-    UsageSnapshot,
+    ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
-const BILLING_URL: &str = "https://replicate.com/account/billing";
+pub(crate) const BILLING_URL: &str = "https://replicate.com/account/billing";
 const REPLICATE_ORIGIN: &str = "https://replicate.com";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 const OPTIONAL_CREDIT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -56,26 +55,12 @@ struct InvoiceSpend {
 }
 
 pub struct ReplicateProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl ReplicateProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Replicate,
-                display_name: "Replicate",
-                session_label: "Spend",
-                weekly_label: "Spend",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(BILLING_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -217,10 +202,6 @@ impl Default for ReplicateProvider {
 impl Provider for ReplicateProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Replicate
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

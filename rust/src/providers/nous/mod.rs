@@ -14,7 +14,7 @@ use tokio::time::{Duration, timeout};
 
 use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, SubscriptionMetadata, UsageSnapshot,
+    RateWindow, SourceMode, SubscriptionMetadata, UsageSnapshot,
 };
 
 const PORTAL_ACCOUNT_PATH: &str = "api/oauth/account";
@@ -24,26 +24,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 mod credentials;
 
 pub struct NousProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl NousProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Nous,
-                display_name: "Nous Portal",
-                session_label: "Monthly credits",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://portal.nousresearch.com/usage"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -100,10 +86,6 @@ impl Default for NousProvider {
 impl Provider for NousProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Nous
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

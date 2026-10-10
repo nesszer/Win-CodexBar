@@ -12,16 +12,15 @@ use regex_lite::Regex;
 use reqwest::{Client, RequestBuilder, Url};
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
-const BILLING_URL: &str = "https://console.sakana.ai/billing";
+pub(crate) const BILLING_URL: &str = "https://console.sakana.ai/billing";
 const PAYG_QUERY: &str = "tab=payAsYouGo";
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 pub struct SakanaProvider {
-    metadata: ProviderMetadata,
     client: Client,
     billing_url: Url,
 }
@@ -29,19 +28,6 @@ pub struct SakanaProvider {
 impl SakanaProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Sakana,
-                display_name: "Sakana AI",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(BILLING_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -236,10 +222,6 @@ fn parse_reset_date_utc(raw: String) -> Option<DateTime<Utc>> {
 impl Provider for SakanaProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Sakana
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

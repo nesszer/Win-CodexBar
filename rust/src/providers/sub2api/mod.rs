@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const CREDENTIAL_TARGET: &str = "codexbar-sub2api";
@@ -18,7 +18,6 @@ const API_KEY_ENV: &str = "SUB2API_API_KEY";
 const BASE_URL_ENV: &str = "SUB2API_BASE_URL";
 
 pub struct Sub2ApiProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
@@ -148,19 +147,6 @@ struct TotalsResponse {
 impl Sub2ApiProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Sub2Api,
-                display_name: "sub2api",
-                session_label: "Quota",
-                weekly_label: "Weekly quota",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: None,
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -213,10 +199,6 @@ impl Default for Sub2ApiProvider {
 impl Provider for Sub2ApiProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Sub2Api
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

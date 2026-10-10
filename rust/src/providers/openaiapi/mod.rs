@@ -31,7 +31,7 @@ mod history;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const OPENAI_CREDIT_GRANTS_URL: &str = "https://api.openai.com/v1/dashboard/billing/credit_grants";
@@ -181,7 +181,6 @@ fn allows_legacy_balance_fallback(project_id: Option<&str>, is_admin: bool) -> b
 }
 
 pub struct OpenAIApiProvider {
-    metadata: ProviderMetadata,
     client: Client,
     endpoints: Endpoints,
     retry: RetryPolicy,
@@ -190,19 +189,6 @@ pub struct OpenAIApiProvider {
 impl OpenAIApiProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::OpenAIApi,
-                display_name: "OpenAI",
-                session_label: "Spend",
-                weekly_label: "Requests",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://platform.openai.com/usage"),
-                status_page_url: Some("https://status.openai.com"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -670,10 +656,6 @@ impl Default for OpenAIApiProvider {
 impl Provider for OpenAIApiProvider {
     fn id(&self) -> ProviderId {
         ProviderId::OpenAIApi
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

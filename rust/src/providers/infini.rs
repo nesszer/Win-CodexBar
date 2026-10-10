@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Infini AI Coding Plan 用量数据
@@ -285,7 +285,6 @@ mod tests {
 
 /// Infini AI Provider 实现
 pub struct InfiniProvider {
-    metadata: ProviderMetadata,
     client: InfiniClient,
 }
 
@@ -293,19 +292,6 @@ impl InfiniProvider {
     /// 创建新的 InfiniProvider
     pub fn new(api_key: String) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Infini,
-                display_name: "Infini",
-                session_label: "5-Hour",
-                weekly_label: "7-Day",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://cloud.infini-ai.com"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: InfiniClient::new(api_key),
         }
     }
@@ -332,10 +318,6 @@ impl Default for InfiniProvider {
 impl Provider for InfiniProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Infini
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

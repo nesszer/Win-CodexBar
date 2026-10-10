@@ -21,7 +21,7 @@ use serde::Deserialize;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 const CHECKLIST_URL: &str = "https://api.deepinfra.com/payment/checklist?compute_owed=true";
@@ -165,27 +165,12 @@ impl DeepInfraSnapshot {
 }
 
 pub struct DeepInfraProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl DeepInfraProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::DeepInfra,
-                display_name: "DeepInfra",
-                session_label: "Balance",
-                weekly_label: "Balance",
-                supports_opus: false,
-                // Upstream marks supportsCredits=false; balance is shown via primary window text.
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://deepinfra.com/dash"),
-                status_page_url: Some("https://status.deepinfra.com"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -363,10 +348,6 @@ impl Default for DeepInfraProvider {
 impl Provider for DeepInfraProvider {
     fn id(&self) -> ProviderId {
         ProviderId::DeepInfra
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

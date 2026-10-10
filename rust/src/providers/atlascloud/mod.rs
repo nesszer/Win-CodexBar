@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
@@ -20,7 +20,6 @@ const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct AtlasCloudProvider {
-    metadata: ProviderMetadata,
     client: Client,
     balance_url: String,
 }
@@ -37,19 +36,6 @@ impl AtlasCloudProvider {
 
     fn with_client(balance_url: impl Into<String>, client: Client) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::AtlasCloud,
-                display_name: "Atlas Cloud",
-                session_label: "Balance",
-                weekly_label: "Balance",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DASHBOARD_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client,
             balance_url: balance_url.into(),
         }
@@ -130,10 +116,6 @@ impl Default for AtlasCloudProvider {
 impl Provider for AtlasCloudProvider {
     fn id(&self) -> ProviderId {
         ProviderId::AtlasCloud
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -18,7 +18,7 @@ use subscription::{SubscriptionBudget, SubscriptionBudgets};
 
 use crate::core::{
     CostSnapshot, FetchContext, NamedRateWindow, Provider, ProviderError, ProviderFetchResult,
-    ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
 const BASE_URL: &str = "https://admin.mistral.ai";
@@ -120,7 +120,6 @@ struct MistralUsageSummary {
 }
 
 pub struct MistralProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
@@ -178,19 +177,6 @@ impl TokenCounts {
 impl MistralProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Mistral,
-                display_name: "Mistral",
-                session_label: "Monthly",
-                weekly_label: "",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://admin.mistral.ai/organization/usage"),
-                status_page_url: Some("https://status.mistral.ai"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(CLIENT_TIMEOUT)
                 .build()
@@ -526,10 +512,6 @@ impl Default for MistralProvider {
 impl Provider for MistralProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Mistral
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

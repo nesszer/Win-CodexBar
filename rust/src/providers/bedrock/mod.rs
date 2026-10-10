@@ -9,8 +9,7 @@ use serde_json::{Value, json};
 
 use crate::core::{
     CostDailyPoint, CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult,
-    ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot, hex, hmac_sha256,
-    sha256_hex,
+    ProviderId, RateWindow, SourceMode, UsageSnapshot, hex, hmac_sha256, sha256_hex,
 };
 
 mod daily;
@@ -104,26 +103,12 @@ fn parse_claude_activity(value: &Value) -> BedrockClaudeActivity {
 }
 
 pub struct BedrockProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl BedrockProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Bedrock,
-                display_name: "AWS Bedrock",
-                session_label: "Budget",
-                weekly_label: "Cost",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://console.aws.amazon.com/bedrock"),
-                status_page_url: Some("https://health.aws.amazon.com/health/status"),
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -556,10 +541,6 @@ impl Default for BedrockProvider {
 impl Provider for BedrockProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Bedrock
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

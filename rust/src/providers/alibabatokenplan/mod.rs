@@ -21,15 +21,13 @@ use regex_lite::Regex;
 use serde_json::Value;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 use crate::providers::browser_cookie_header;
 
 use region::AlibabaTokenPlanRegion as Region;
 
-const DEFAULT_DASHBOARD_URL: &str =
-    "https://bailian.console.aliyun.com/cn-beijing?tab=plan#/efm/subscription/token-plan";
 pub(super) const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 pub(super) const LANGUAGE: &str = "en-US";
 pub(super) const PERSONAL_CONSOLE_PRODUCT: &str = "sfm_bailian";
@@ -44,9 +42,7 @@ const WEEKLY_MINUTES: u32 = 7 * 24 * 60;
 const LEGACY_MINUTES: u32 = 30 * 24 * 60;
 const MONTHLY_MINUTES: u32 = 30 * 24 * 60;
 
-pub struct AlibabaTokenPlanProvider {
-    metadata: ProviderMetadata,
-}
+pub struct AlibabaTokenPlanProvider {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct TokenPlanSnapshot {
@@ -68,21 +64,7 @@ pub(super) struct TokenPlanSnapshot {
 
 impl AlibabaTokenPlanProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::AlibabaTokenPlan,
-                display_name: "Alibaba Token Plan",
-                session_label: "Credits",
-                weekly_label: "Usage",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DEFAULT_DASHBOARD_URL),
-                status_page_url: Some("https://status.aliyun.com"),
-                tertiary_label_key: None,
-            },
-        }
+        Self {}
     }
 
     fn resolve_region(ctx: &FetchContext) -> Region {
@@ -396,10 +378,6 @@ impl Default for AlibabaTokenPlanProvider {
 impl Provider for AlibabaTokenPlanProvider {
     fn id(&self) -> ProviderId {
         ProviderId::AlibabaTokenPlan
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {

@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use std::os::windows::process::CommandExt;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
     ResetCreditsObservation, SourceMode,
 };
 
@@ -21,26 +21,12 @@ pub use api::CodexApi;
 
 /// Codex provider for fetching AI usage limits
 pub struct CodexProvider {
-    metadata: ProviderMetadata,
     api: CodexApi,
 }
 
 impl CodexProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Codex,
-                display_name: "Codex",
-                session_label: "Session",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: true,
-                is_primary: true,
-                dashboard_url: Some("https://chatgpt.com/codex/cloud/settings/analytics#usage"),
-                status_page_url: Some("https://status.openai.com"),
-                tertiary_label_key: None,
-            },
             api: CodexApi::new(),
         }
     }
@@ -119,10 +105,6 @@ impl Provider for CodexProvider {
 
     fn id(&self) -> ProviderId {
         ProviderId::Codex
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     fn retains_last_good_on_transport_failure(&self) -> bool {
