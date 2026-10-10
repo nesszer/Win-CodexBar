@@ -220,31 +220,6 @@ fn system_time_to_unix_ms(modified: Option<SystemTime>) -> i64 {
     millis
 }
 
-/// JSONL event structures for Codex
-#[allow(
-    dead_code,
-    reason = "JSONL event fields are deserialized for parsing but not all are read"
-)]
-#[derive(Debug, Deserialize)]
-struct CodexEvent {
-    #[serde(rename = "type")]
-    event_type: Option<String>,
-    event_msg: Option<CodexEventMsg>,
-}
-
-#[allow(
-    dead_code,
-    reason = "event message fields are deserialized for parsing but not all are read"
-)]
-#[derive(Debug, Deserialize)]
-struct CodexEventMsg {
-    #[serde(rename = "type")]
-    msg_type: Option<String>,
-    input_tokens: Option<u64>,
-    cached_input_tokens: Option<u64>,
-    output_tokens: Option<u64>,
-}
-
 /// JSONL event structures for Claude transcripts.
 ///
 /// The flattened values retain otherwise-unknown metadata long enough to
