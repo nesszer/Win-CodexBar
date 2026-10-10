@@ -3467,7 +3467,7 @@ html:has(.menu-surface--tray) {
   --menu-popover-bg: var(--mac-panel-bg);
   --text-primary: var(--mac-text);
   --text-secondary: var(--mac-text-2);
-  --text-muted: var(--mac-text-3);
+  --text-muted: var(--mac-text-2);
   --panel-border: var(--mac-divider);
 
   --usage-bar-track: var(--mac-track);
