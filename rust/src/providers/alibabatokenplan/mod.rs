@@ -77,6 +77,19 @@ impl AlibabaTokenPlanProvider {
         Self::snapshot_to_usage(snapshot)
     }
 
+    async fn fetch_via(
+        &self,
+        source: &'static str,
+        ctx: &FetchContext,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        let usage = if source == "web" {
+            self.fetch_via_web(ctx).await?
+        } else {
+            self.fetch_via_cli(ctx).await?
+        };
+        Ok(ProviderFetchResult::new(usage, source))
+    }
+
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
         let region = Self::resolve_region(ctx);
         let cookie_header = Self::resolve_cookie_header(ctx, region)?;
@@ -334,30 +347,16 @@ impl Provider for AlibabaTokenPlanProvider {
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
-        match ctx.source_mode {
-            SourceMode::Auto if ctx.auto_prefer_web => match self.fetch_via_web(ctx).await {
-                Ok(usage) => Ok(ProviderFetchResult::new(usage, "web")),
-                Err(_) => {
-                    let usage = self.fetch_via_cli(ctx).await?;
-                    Ok(ProviderFetchResult::new(usage, "cli"))
-                }
-            },
-            SourceMode::Auto => match self.fetch_via_cli(ctx).await {
-                Ok(usage) => Ok(ProviderFetchResult::new(usage, "cli")),
-                Err(_) => {
-                    let usage = self.fetch_via_web(ctx).await?;
-                    Ok(ProviderFetchResult::new(usage, "web"))
-                }
-            },
-            SourceMode::Cli => {
-                let usage = self.fetch_via_cli(ctx).await?;
-                Ok(ProviderFetchResult::new(usage, "cli"))
-            }
-            SourceMode::Web => {
-                let usage = self.fetch_via_web(ctx).await?;
-                Ok(ProviderFetchResult::new(usage, "web"))
-            }
-            SourceMode::OAuth => Err(ProviderError::UnsupportedSource(ctx.source_mode)),
+        let (first, fallback) = match ctx.source_mode {
+            SourceMode::Auto if ctx.auto_prefer_web => ("web", Some("cli")),
+            SourceMode::Auto => ("cli", Some("web")),
+            SourceMode::Cli => ("cli", None),
+            SourceMode::Web => ("web", None),
+            SourceMode::OAuth => return Err(ProviderError::UnsupportedSource(ctx.source_mode)),
+        };
+        match (self.fetch_via(first, ctx).await, fallback) {
+            (Err(_), Some(fallback)) => self.fetch_via(fallback, ctx).await,
+            (result, _) => result,
         }
     }
 
