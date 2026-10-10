@@ -371,10 +371,6 @@ pub(super) fn event_payload_type(obj: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-pub(super) fn codex_timestamp_day_key(timestamp: &str) -> Option<String> {
-    parse_codex_timestamp(timestamp).map(|parsed| parsed.day_key())
-}
-
 #[derive(Debug, Clone)]
 pub(super) struct ParsedCodexTimestamp {
     pub(super) parsed: Option<DateTime<FixedOffset>>,
@@ -669,14 +665,4 @@ fn optional_token_i64(value: &Value, key: &str) -> Option<i64> {
 
 pub(super) fn clamp_reasoning(reasoning: Option<i64>, output: i64) -> Option<i64> {
     reasoning.map(|tokens| tokens.max(0).min(output.max(0)))
-}
-
-pub(super) fn last_usage_delta(last: &Value) -> (i64, i64, i64, Option<i64>) {
-    let totals = read_token_totals(last);
-    (
-        totals.input.max(0),
-        totals.cached.max(0),
-        totals.output.max(0),
-        totals.reasoning,
-    )
 }

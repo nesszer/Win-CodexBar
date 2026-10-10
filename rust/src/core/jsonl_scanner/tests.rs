@@ -2,6 +2,36 @@ use super::*;
 use chrono::TimeZone;
 use std::io::Write;
 
+impl CodexParserState {
+    fn new(initial_model: Option<String>, initial_totals: Option<CodexTotals>) -> Self {
+        Self::from_mode(CodexParseMode::Standard {
+            start_offset: 0,
+            initial_model,
+            initial_totals,
+            previous_token_timestamp: None,
+            token_timestamps_monotonic: None,
+        })
+    }
+
+    fn process_line(&mut self, line: &str, range: &CostUsageDayRange) {
+        self.process_line_with_source_offset(line, range, 0);
+    }
+}
+
+fn codex_timestamp_day_key(timestamp: &str) -> Option<String> {
+    parse_codex_timestamp(timestamp).map(|parsed| parsed.day_key())
+}
+
+fn last_usage_delta(last: &Value) -> (i64, i64, i64, Option<i64>) {
+    let totals = read_token_totals(last);
+    (
+        totals.input.max(0),
+        totals.cached.max(0),
+        totals.output.max(0),
+        totals.reasoning,
+    )
+}
+
 #[test]
 fn test_day_range() {
     let since = NaiveDate::from_ymd_opt(2026, 1, 15).unwrap();

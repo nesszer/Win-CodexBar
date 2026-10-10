@@ -89,9 +89,8 @@ pub(crate) fn codex_cache_stamp_schema_version(cache: &mut CostUsageCache) {
 
 #[cfg(test)]
 use helpers::{
-    CodexFastPayload, CodexFastTotals, bare_usage_totals, codex_timestamp_day_key,
-    codex_totals_from_fast, fast_totals_from_payload, is_candidate_codex_line, last_usage_delta,
-    parse_codex_timestamp, read_token_totals,
+    CodexFastPayload, CodexFastTotals, bare_usage_totals, codex_totals_from_fast,
+    fast_totals_from_payload, is_candidate_codex_line, parse_codex_timestamp, read_token_totals,
 };
 
 impl JsonlScanner {

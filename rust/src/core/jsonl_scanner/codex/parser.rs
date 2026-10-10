@@ -224,16 +224,6 @@ fn totals_delta(last: &CodexTotals, total: &CodexTotals) -> CodexTotals {
 }
 
 impl CodexParserState {
-    pub(super) fn new(initial_model: Option<String>, initial_totals: Option<CodexTotals>) -> Self {
-        Self::from_mode(CodexParseMode::Standard {
-            start_offset: 0,
-            initial_model,
-            initial_totals,
-            previous_token_timestamp: None,
-            token_timestamps_monotonic: None,
-        })
-    }
-
     pub(super) fn from_mode(mode: CodexParseMode) -> Self {
         let fork_parse_baseline = match &mode {
             CodexParseMode::ParentBaseline { baseline, .. } => Some(baseline.clone()),
@@ -370,10 +360,6 @@ impl CodexParserState {
         self.fork_baseline_inference
             .as_ref()
             .is_some_and(|inference| inference.locally_confirmed)
-    }
-
-    pub(super) fn process_line(&mut self, line: &str, range: &CostUsageDayRange) {
-        self.process_line_with_source_offset(line, range, 0);
     }
 
     pub(super) fn process_line_with_source_offset(
