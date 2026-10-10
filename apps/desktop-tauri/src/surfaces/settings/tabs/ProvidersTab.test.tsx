@@ -22,7 +22,7 @@ vi.mock("../providers/ProviderDetailPane", () => ({
 }));
 
 import ProvidersTab from "./ProvidersTab";
-import { makeRateWindow } from "../../../test/fixtures";
+import { makeRateWindow, makeUsageSnapshot } from "../../../test/fixtures";
 
 const provider: ProviderCatalogEntry = {
   id: "codex",
@@ -38,26 +38,13 @@ const settings = {
 
 describe("ProvidersTab", () => {
   it("shows the real secondary percentage when the primary is informational", () => {
-    const snapshot: ProviderUsageSnapshot = {
-      providerId: provider.id,
+    const snapshot: ProviderUsageSnapshot = makeUsageSnapshot(provider.id, {
       displayName: provider.displayName,
       primary: makeRateWindow(0, { isInformational: true }),
       selectedMetric: makeRateWindow(42),
       secondary: makeRateWindow(42),
-      modelSpecific: null,
-      tertiary: null,
-      extraRateWindows: [],
-      cost: null,
-      planName: null,
-      accountEmail: null,
-      sourceLabel: "auto",
       updatedAt: new Date().toISOString(),
-      error: null,
-      errorState: "ready",
-      pace: null,
-      accountOrganization: null,
-      trayStatusLabel: null,
-    };
+    });
     hookMocks.useProviders.mockReturnValue({ providers: [snapshot] });
 
     render(

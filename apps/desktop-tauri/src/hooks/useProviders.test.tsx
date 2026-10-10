@@ -17,49 +17,18 @@ vi.mock("../lib/tauri", () => tauriMocks);
 vi.mock("@tauri-apps/api/event", () => eventMocks);
 
 import { useProviders } from "./useProviders";
+import { makeRateWindow, makeUsageSnapshot } from "../test/fixtures";
 import type { ProviderUsageSnapshot } from "../types/bridge";
 
 function provider(id: string, usedPercent = 20): ProviderUsageSnapshot {
-  return {
-    providerId: id,
-    displayName: id,
-    primary: {
-      usedPercent,
-      remainingPercent: 100 - usedPercent,
-      windowMinutes: null,
-      resetsAt: null,
-      resetDescription: null,
-      isExhausted: false,
-      reservePercent: null,
-      reserveDescription: null,
-    },
-    selectedMetric: {
-      usedPercent,
-      remainingPercent: 100 - usedPercent,
-      windowMinutes: null,
-      resetsAt: null,
-      resetDescription: null,
-      isExhausted: false,
-      reservePercent: null,
-      reserveDescription: null,
-    },
+  return makeUsageSnapshot(id, {
+    primary: makeRateWindow(usedPercent),
+    selectedMetric: makeRateWindow(usedPercent),
     primaryLabel: "Session",
-    secondary: null,
-    modelSpecific: null,
-    tertiary: null,
-    extraRateWindows: [],
-    cost: null,
-    planName: null,
-    accountEmail: null,
     sourceLabel: "CLI",
     updatedAt: new Date().toISOString(),
-    error: null,
-    errorState: "ready",
-    pace: null,
-    accountOrganization: null,
-    trayStatusLabel: null,
     fetchDurationMs: null,
-  };
+  });
 }
 
 function providerResettingAt(id: string, resetsAt: string): ProviderUsageSnapshot {

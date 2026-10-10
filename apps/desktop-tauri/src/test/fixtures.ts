@@ -1,4 +1,8 @@
-import type { RateWindowSnapshot, SettingsSnapshot } from "../types/bridge";
+import type {
+  ProviderUsageSnapshot,
+  RateWindowSnapshot,
+  SettingsSnapshot,
+} from "../types/bridge";
 
 /** A complete SettingsSnapshot with stable defaults; tests pass only the fields they assert on. */
 export function makeSettings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
@@ -91,6 +95,34 @@ export function makeRateWindow(
     isExhausted: false,
     reservePercent: null,
     reserveDescription: null,
+    ...overrides,
+  };
+}
+
+/** A ready snapshot for `providerId` with 0% primary and selected windows and no optional data. */
+export function makeUsageSnapshot(
+  providerId: string,
+  overrides: Partial<ProviderUsageSnapshot> = {},
+): ProviderUsageSnapshot {
+  return {
+    providerId,
+    displayName: providerId,
+    primary: makeRateWindow(),
+    selectedMetric: makeRateWindow(),
+    secondary: null,
+    modelSpecific: null,
+    tertiary: null,
+    extraRateWindows: [],
+    cost: null,
+    planName: null,
+    accountEmail: null,
+    sourceLabel: "auto",
+    updatedAt: "2026-05-24T00:00:00Z",
+    error: null,
+    errorState: "ready",
+    pace: null,
+    accountOrganization: null,
+    trayStatusLabel: null,
     ...overrides,
   };
 }

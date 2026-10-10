@@ -25,7 +25,7 @@ import { buildBundle } from "../test/localeHarness";
 import { loadStyles, ruleBlock } from "../test/styles";
 import type { ProviderUsageSnapshot, RateWindowSnapshot } from "../types/bridge";
 import MenuCard from "./MenuCard";
-import { makeRateWindow } from "../test/fixtures";
+import { makeRateWindow, makeUsageSnapshot } from "../test/fixtures";
 
 function rateWindow(
   usedPercent = 0,
@@ -39,28 +39,16 @@ function provider(
   usedPercent = 0,
   opts: { exhausted?: boolean; resetDescription?: string | null; resetsAt?: string | null } = {},
 ): ProviderUsageSnapshot {
-  return {
-    providerId: "claude",
+  return makeUsageSnapshot("claude", {
     displayName: "Claude",
     primary: rateWindow(usedPercent, opts),
     selectedMetric: rateWindow(usedPercent, opts),
     primaryLabel: "Session",
-    secondary: null,
-    modelSpecific: null,
-    tertiary: null,
-    extraRateWindows: [],
-    cost: null,
-    planName: null,
-    accountEmail: null,
     sourceLabel: "oauth",
-    updatedAt: "2026-05-24T00:00:00Z",
     error,
     errorState: "unknown",
-    pace: null,
-    accountOrganization: null,
-    trayStatusLabel: null,
     fetchDurationMs: null,
-  };
+  });
 }
 
 function renderCard(

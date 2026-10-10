@@ -41,7 +41,7 @@ import type {
   RateWindowSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
-import { makeRateWindow, makeSettings } from "../test/fixtures";
+import { makeRateWindow, makeSettings, makeUsageSnapshot } from "../test/fixtures";
 
 type RateWindowOptions = {
   exhausted?: boolean;
@@ -99,26 +99,15 @@ function snapshot(
       ? secondary
       : primary;
 
-  return {
-    providerId: id,
+  return makeUsageSnapshot(id, {
     displayName: display,
     primary,
     selectedMetric,
     secondary,
-    modelSpecific: null,
-    tertiary: null,
-    extraRateWindows: [],
-    cost: null,
-    planName: null,
-    accountEmail: null,
-    sourceLabel: "auto",
     updatedAt: "2026-05-15T00:00:00Z",
     error: opts.error ?? null,
     errorState: opts.errorState ?? "ready",
-    pace: null,
-    accountOrganization: null,
-    trayStatusLabel: null,
-  };
+  });
 }
 
 function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {

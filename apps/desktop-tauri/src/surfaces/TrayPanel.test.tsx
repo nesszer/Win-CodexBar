@@ -73,31 +73,16 @@ import type {
   ProviderUsageSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
-import { makeRateWindow, makeSettings } from "../test/fixtures";
+import { makeRateWindow, makeSettings, makeUsageSnapshot } from "../test/fixtures";
 
 function provider(id: string, displayName: string, used = 20): ProviderUsageSnapshot {
-  return {
-    providerId: id,
+  return makeUsageSnapshot(id, {
     displayName,
     primary: makeRateWindow(used),
     selectedMetric: makeRateWindow(used),
     primaryLabel: "Monthly",
-    secondary: null,
-    modelSpecific: null,
-    tertiary: null,
-    extraRateWindows: [],
-    cost: null,
-    planName: null,
-    accountEmail: null,
-    sourceLabel: "auto",
-    updatedAt: "2026-05-24T00:00:00Z",
-    error: null,
-    errorState: "ready",
-    pace: null,
-    accountOrganization: null,
-    trayStatusLabel: null,
     fetchDurationMs: null,
-  };
+  });
 }
 
 function providerWithThreeQuotaWindows(

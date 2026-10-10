@@ -1,55 +1,20 @@
 import { describe, expect, it } from "vitest";
 
+import { makeRateWindow, makeUsageSnapshot } from "../test/fixtures";
 import type { ProviderUsageSnapshot } from "../types/bridge";
 
 import { prioritizeProviders } from "./providerGridUtils";
 
 function provider(id: string): ProviderUsageSnapshot {
-  return {
-    providerId: id,
-    displayName: id,
-    primary: {
-      usedPercent: 0,
-      remainingPercent: 100,
-      windowMinutes: null,
-      resetsAt: null,
-      resetDescription: null,
-      isExhausted: false,
-      reservePercent: null,
-      reserveDescription: null,
-      reserveWillLastToReset: false,
-      reserveEtaSeconds: null,
-    },
-    selectedMetric: {
-      usedPercent: 0,
-      remainingPercent: 100,
-      windowMinutes: null,
-      resetsAt: null,
-      resetDescription: null,
-      isExhausted: false,
-      reservePercent: null,
-      reserveDescription: null,
-      reserveWillLastToReset: false,
-      reserveEtaSeconds: null,
-    },
+  return makeUsageSnapshot(id, {
+    primary: makeRateWindow(0, { reserveWillLastToReset: false, reserveEtaSeconds: null }),
+    selectedMetric: makeRateWindow(0, { reserveWillLastToReset: false, reserveEtaSeconds: null }),
     primaryLabel: undefined,
-    secondary: null,
     secondaryLabel: undefined,
-    modelSpecific: null,
-    tertiary: null,
-    extraRateWindows: [],
-    cost: null,
-    planName: null,
-    accountEmail: null,
     sourceLabel: "oauth",
     updatedAt: "2026-07-31T00:00:00Z",
-    error: null,
-    errorState: "ready",
-    pace: null,
-    accountOrganization: null,
-    trayStatusLabel: null,
     fetchDurationMs: null,
-  };
+  });
 }
 
 function ids(list: ProviderUsageSnapshot[]): string[] {
