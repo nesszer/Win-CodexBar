@@ -623,7 +623,21 @@ fn format_usage_amount(value: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{Value, json};
+
+    fn web_snapshot(usage: Value, subscription: Value) -> UsageSnapshot {
+        let usage: KimiWebUsageResponse = serde_json::from_value(usage).unwrap();
+        let subscription: KimiSubscriptionStatsResponse =
+            serde_json::from_value(subscription).unwrap();
+        web::snapshot_from_web_usage_response(usage, Some(subscription)).unwrap()
+    }
+
+    fn has_extra(snapshot: &UsageSnapshot, id: &str) -> bool {
+        snapshot
+            .extra_rate_windows
+            .iter()
+            .any(|window| window.id == id)
+    }
 
     #[test]
     fn auth_token_search_skips_unrelated_cookie_headers() {
@@ -720,31 +734,29 @@ mod tests {
 
     #[test]
     fn parses_web_usage_with_subscription_windows() {
-        let usage: KimiWebUsageResponse = serde_json::from_value(json!({
-            "usages": [{
-                "scope": "FEATURE_CODING",
-                "detail": { "limit": "2048", "used": "375", "resetTime": "2026-01-09T15:23:13Z" },
-                "limits": [{
-                    "window": { "duration": 300, "timeUnit": "TIME_UNIT_MINUTE" },
-                    "detail": { "limit": "100", "used": "25" }
+        let snapshot = web_snapshot(
+            json!({
+                "usages": [{
+                    "scope": "FEATURE_CODING",
+                    "detail": { "limit": "2048", "used": "375", "resetTime": "2026-01-09T15:23:13Z" },
+                    "limits": [{
+                        "window": { "duration": 300, "timeUnit": "TIME_UNIT_MINUTE" },
+                        "detail": { "limit": "100", "used": "25" }
+                    }]
                 }]
-            }]
-        }))
-        .unwrap();
-        let subscription: KimiSubscriptionStatsResponse = serde_json::from_value(json!({
-            "subscriptionBalance": {
-                "amountUsedRatio": 0.7716,
-                "expireTime": "2026-07-23T00:00:00Z"
-            },
-            "ratelimitCode7d": {
-                "ratio": 0.0946,
-                "enabled": true,
-                "resetTime": "2026-07-13T15:28:00Z"
-            }
-        }))
-        .unwrap();
-
-        let snapshot = web::snapshot_from_web_usage_response(usage, Some(subscription)).unwrap();
+            }),
+            json!({
+                "subscriptionBalance": {
+                    "amountUsedRatio": 0.7716,
+                    "expireTime": "2026-07-23T00:00:00Z"
+                },
+                "ratelimitCode7d": {
+                    "ratio": 0.0946,
+                    "enabled": true,
+                    "resetTime": "2026-07-13T15:28:00Z"
+                }
+            }),
+        );
 
         assert!((snapshot.primary.used_percent - 18.310546875).abs() < f64::EPSILON);
         assert_eq!(
@@ -774,29 +786,22 @@ mod tests {
     fn feature_scoped_balance_is_not_the_total_usage_lane() {
         // Upstream 0.49.0 #2741: only the omni/subscription pool maps to the
         // "Total usage" lane; feature-scoped balances must not.
-        let usage: KimiWebUsageResponse = serde_json::from_value(json!({
-            "usages": [{
-                "scope": "FEATURE_CODING",
-                "detail": { "limit": "2048", "used": "375" }
-            }]
-        }))
-        .unwrap();
-        let subscription: KimiSubscriptionStatsResponse = serde_json::from_value(json!({
-            "subscriptionBalance": {
-                "amountUsedRatio": 0.5,
-                "feature": "FEATURE_CODING",
-                "type": "SUBSCRIPTION"
-            }
-        }))
-        .unwrap();
-
-        let snapshot = web::snapshot_from_web_usage_response(usage, Some(subscription)).unwrap();
-        assert!(
-            snapshot
-                .extra_rate_windows
-                .iter()
-                .all(|window| window.id != "kimi-monthly")
+        let snapshot = web_snapshot(
+            json!({
+                "usages": [{
+                    "scope": "FEATURE_CODING",
+                    "detail": { "limit": "2048", "used": "375" }
+                }]
+            }),
+            json!({
+                "subscriptionBalance": {
+                    "amountUsedRatio": 0.5,
+                    "feature": "FEATURE_CODING",
+                    "type": "SUBSCRIPTION"
+                }
+            }),
         );
+        assert!(!has_extra(&snapshot, "kimi-monthly"));
     }
 
     #[test]
@@ -804,7 +809,7 @@ mod tests {
         // Upstream 0.49.0 #2741: when the membership Code 7-day ratio and the
         // primary weekly window agree (percent within 1 point, resets within
         // 5 minutes, weekly counter reliable), the extra row is suppressed.
-        let usage: KimiWebUsageResponse = serde_json::from_value(json!({
+        let usage = json!({
             "usages": [{
                 "scope": "FEATURE_CODING",
                 "detail": {
@@ -813,58 +818,27 @@ mod tests {
                     "resetTime": "2026-08-13T15:28:00Z"
                 }
             }]
-        }))
-        .unwrap();
-        let subscription_matching: KimiSubscriptionStatsResponse = serde_json::from_value(json!({
-            "ratelimitCode7d": {
-                "ratio": 0.421,
-                "enabled": true,
-                "resetTime": "2026-08-13T15:30:00Z"
-            }
-        }))
-        .unwrap();
+        });
+        let code_7d = |ratio: f64| {
+            json!({
+                "ratelimitCode7d": {
+                    "ratio": ratio,
+                    "enabled": true,
+                    "resetTime": "2026-08-13T15:30:00Z"
+                }
+            })
+        };
 
-        let snapshot =
-            web::snapshot_from_web_usage_response(usage, Some(subscription_matching)).unwrap();
-
+        let snapshot = web_snapshot(usage.clone(), code_7d(0.421));
         assert!((snapshot.primary.used_percent - 42.0).abs() < f64::EPSILON);
         assert!(
-            snapshot
-                .extra_rate_windows
-                .iter()
-                .all(|window| window.id != "kimi-code-7d"),
+            !has_extra(&snapshot, "kimi-code-7d"),
             "matching Code 7-day row should be suppressed"
         );
 
         // Diverging ratio (or missing reset evidence) keeps the row.
-        let subscription_diverging: KimiSubscriptionStatsResponse = serde_json::from_value(json!({
-            "ratelimitCode7d": {
-                "ratio": 0.9,
-                "enabled": true,
-                "resetTime": "2026-08-13T15:30:00Z"
-            }
-        }))
-        .unwrap();
-        let usage_diverging: KimiWebUsageResponse = serde_json::from_value(json!({
-            "usages": [{
-                "scope": "FEATURE_CODING",
-                "detail": {
-                    "limit": "1000",
-                    "used": "420",
-                    "resetTime": "2026-08-13T15:28:00Z"
-                }
-            }]
-        }))
-        .unwrap();
-        let snapshot =
-            web::snapshot_from_web_usage_response(usage_diverging, Some(subscription_diverging))
-                .unwrap();
-        assert!(
-            snapshot
-                .extra_rate_windows
-                .iter()
-                .any(|window| window.id == "kimi-code-7d")
-        );
+        let snapshot = web_snapshot(usage, code_7d(0.9));
+        assert!(has_extra(&snapshot, "kimi-code-7d"));
     }
 
     #[test]
@@ -881,6 +855,7 @@ mod tests {
             (-0.0, "0"),
             (1.5, "1.50"),
             (-2_f64.powi(63), "-9223372036854775808"),
+            // Not saturated to i64::MAX.
             (2_f64.powi(63), "9223372036854775808"),
             (1e20, "100000000000000000000"),
             (f64::NAN, "NaN"),
@@ -889,15 +864,6 @@ mod tests {
         for (value, expected) in cases {
             assert_eq!(format_usage_amount(value), expected, "{value}");
         }
-    }
-
-    #[test]
-    fn oversized_integral_usage_amount_is_not_saturated_to_i64_max() {
-        let value = 2_f64.powi(63);
-        let formatted = format_usage_amount(value);
-
-        assert!(formatted.starts_with("9223372036854775808"));
-        assert_ne!(formatted, i64::MAX.to_string());
     }
 
     #[test]
