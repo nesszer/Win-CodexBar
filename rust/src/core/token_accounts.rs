@@ -669,12 +669,6 @@ impl ProviderAccountData {
         self.accounts.get(self.clamped_active_index())
     }
 
-    /// Get the active account mutably
-    pub fn active_account_mut(&mut self) -> Option<&mut TokenAccount> {
-        let idx = self.clamped_active_index();
-        self.accounts.get_mut(idx)
-    }
-
     /// Add a new account
     pub fn add_account(&mut self, account: TokenAccount) {
         self.accounts.push(account);
@@ -805,15 +799,6 @@ impl TokenAccountStore {
         Ok(())
     }
 
-    /// Ensure the accounts file exists
-    pub fn ensure_exists(&self) -> Result<PathBuf, TokenAccountError> {
-        if self.file_path.exists() {
-            return Ok(self.file_path.clone());
-        }
-        self.save(&HashMap::new())?;
-        Ok(self.file_path.clone())
-    }
-
     /// Load accounts for a specific provider
     pub fn load_provider(
         &self,
@@ -892,9 +877,6 @@ impl TokenAccountOverride {
         }
     }
 }
-
-/// Maximum number of accounts to fetch per provider
-pub const MAX_ACCOUNTS_PER_FETCH: usize = 6;
 
 #[cfg(test)]
 mod tests {

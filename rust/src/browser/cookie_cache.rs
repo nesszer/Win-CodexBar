@@ -154,14 +154,6 @@ impl CookieHeaderCache {
             .collect::<Vec<_>>()
             .join("; ")
     }
-
-    /// Check if a cached entry exists and is fresh
-    pub fn has_fresh_cache(provider: ProviderId, max_age_secs: i64) -> bool {
-        match Self::load(provider) {
-            Some(entry) => !entry.is_stale(max_age_secs),
-            None => false,
-        }
-    }
 }
 
 /// Cookie header cache errors

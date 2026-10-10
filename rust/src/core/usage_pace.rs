@@ -56,14 +56,6 @@ impl PaceStage {
             PaceStage::SlightlyAhead | PaceStage::Ahead | PaceStage::FarAhead
         )
     }
-
-    /// Whether the user is consuming slower than expected
-    pub fn is_behind(&self) -> bool {
-        matches!(
-            self,
-            PaceStage::SlightlyBehind | PaceStage::Behind | PaceStage::FarBehind
-        )
-    }
 }
 
 /// Usage pace prediction result

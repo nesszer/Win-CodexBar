@@ -55,14 +55,7 @@ pub enum PlanUtilizationSeriesName {
     Weekly,
 }
 
-impl PlanUtilizationSeriesName {
-    pub fn canonical_window_minutes(self) -> u32 {
-        match self {
-            Self::Session => SESSION_WINDOW_MINUTES,
-            Self::Weekly => WEEKLY_WINDOW_MINUTES,
-        }
-    }
-}
+impl PlanUtilizationSeriesName {}
 
 /// Chronological history for one series.
 #[derive(Debug, Clone, PartialEq)]

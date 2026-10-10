@@ -7,7 +7,7 @@
 //! as upstream: the desktop app pins the machine zone on first launch.
 
 use super::Settings;
-use crate::cost_reporting_period::{CostTimeZone, set_cost_bucket_zone};
+use crate::cost_reporting_period::CostTimeZone;
 
 /// Trim a saved bucket zone; anything but an IANA zone name reads as unpinned
 /// (`""`).
@@ -42,11 +42,6 @@ impl Settings {
             }
             None => false,
         }
-    }
-
-    /// Bucket this process's local cost history in the saved zone.
-    pub fn apply_cost_usage_bucket_zone(&self) -> CostTimeZone {
-        set_cost_bucket_zone(&self.cost_usage_bucket_time_zone)
     }
 }
 

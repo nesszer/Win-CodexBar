@@ -1,27 +1,7 @@
 //! Shared host-session helpers reusable across the egui shell and Tauri shell.
 //!
-//! Keeps detection logic for SSH / RDP / remote sessions and primary-monitor
+//! Keeps the SSH / RDP launch-block messages and primary-monitor
 //! work-area queries in the shared crate so shells don't duplicate the logic.
-
-/// Whether the current process is running inside an SSH session.
-pub fn is_ssh_session() -> bool {
-    std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_CLIENT").is_some()
-}
-
-/// Whether the current process is running inside a Windows Remote Desktop session.
-#[cfg(windows)]
-pub fn is_remote_session() -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_REMOTESESSION};
-    // SAFETY: GetSystemMetrics is a query-only Win32 call taking a constant
-    // metric index; it reads no caller memory and returns a small int.
-    unsafe { GetSystemMetrics(SM_REMOTESESSION) != 0 }
-}
-
-/// Non-Windows platforms cannot be in a Windows remote-desktop session.
-#[cfg(not(windows))]
-pub fn is_remote_session() -> bool {
-    false
-}
 
 /// User-facing message explaining why launch is blocked under SSH.
 pub fn ssh_session_error_message() -> &'static str {
@@ -42,11 +22,6 @@ pub fn launch_block_reason(is_ssh: bool, is_remote: bool) -> Option<&'static str
     } else {
         None
     }
-}
-
-/// Detect current launch-block reason by probing environment + OS APIs directly.
-pub fn current_launch_block_reason() -> Option<&'static str> {
-    launch_block_reason(is_ssh_session(), is_remote_session())
 }
 
 /// Primary-monitor work area in physical pixels (excludes the taskbar on Windows).
@@ -108,14 +83,6 @@ pub fn gemini_cli_credentials_path() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|home| home.join(".gemini").join("oauth_creds.json"))
 }
 
-/// `true` when the Gemini CLI's credentials file exists (i.e. the user has
-/// signed in via `gemini auth login` locally).
-pub fn gemini_cli_signed_in() -> bool {
-    gemini_cli_credentials_path()
-        .map(|p| p.exists())
-        .unwrap_or(false)
-}
-
 /// Filesystem path to VertexAI application-default credentials. Respects the
 /// `GOOGLE_APPLICATION_CREDENTIALS` env var when set, otherwise falls back to
 /// the gcloud well-known location under the OS config dir.
@@ -130,13 +97,6 @@ pub fn vertexai_credentials_path() -> Option<std::path::PathBuf> {
             .join("gcloud")
             .join("application_default_credentials.json")
     })
-}
-
-/// `true` when VertexAI application-default credentials exist on disk.
-pub fn vertexai_signed_in() -> bool {
-    vertexai_credentials_path()
-        .map(|p| p.exists())
-        .unwrap_or(false)
 }
 
 /// Detect JetBrains / Google-IDE configuration directories under the user's

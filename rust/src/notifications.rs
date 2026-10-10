@@ -99,17 +99,6 @@ impl NotificationType {
         )
     }
 
-    pub fn icon(&self) -> &'static str {
-        match self {
-            NotificationType::HighUsage => "⚠️",
-            NotificationType::CriticalUsage => "🔴",
-            NotificationType::Exhausted => "🚫",
-            NotificationType::StatusIssue => "⚡",
-            NotificationType::SessionDepleted => "🔴",
-            NotificationType::SessionRestored => "✅",
-        }
-    }
-
     fn is_threshold_toast(self) -> bool {
         matches!(
             self,
@@ -353,35 +342,6 @@ impl NotificationManager {
         true
     }
 
-    /// Send a notification for a status issue
-    pub fn notify_status_issue(
-        &mut self,
-        provider: ProviderId,
-        description: &str,
-        settings: &Settings,
-    ) {
-        let key = (
-            provider,
-            String::new(),
-            String::new(),
-            NotificationType::StatusIssue,
-        );
-        if !self.sent_notifications.contains(&key) {
-            self.send_status_notification(provider, description, settings);
-            self.sent_notifications.insert(key);
-        }
-    }
-
-    /// Clear status issue notification (when resolved)
-    pub fn clear_status_issue(&mut self, provider: ProviderId) {
-        self.sent_notifications.remove(&(
-            provider,
-            String::new(),
-            String::new(),
-            NotificationType::StatusIssue,
-        ));
-    }
-
     /// Check session quota transitions (depleted/restored)
     /// Call this with each usage update to detect transitions.
     ///
@@ -528,18 +488,6 @@ impl NotificationManager {
         if let Err(error) = play_alert(event, settings) {
             tracing::warn!(?event, %error, "notification sound failed to play");
         }
-    }
-
-    fn send_status_notification(
-        &self,
-        provider: ProviderId,
-        description: &str,
-        settings: &Settings,
-    ) {
-        let title = NotificationType::StatusIssue.title(settings.ui_language);
-        let body = format!("{}: {}", provider.display_name(), description);
-        self.show_toast(&title, &body);
-        Self::play_notification_sound(NotificationSoundEvent::StatusIssue, settings);
     }
 
     /// Tests record the toast and report it as handed to the OS.
@@ -691,12 +639,6 @@ fn ensure_aumid_registered() {
         Ok(()) => tracing::debug!("CodexBar AUMID registered for Windows toast notifications"),
         Err(e) => tracing::warn!("Failed to register CodexBar AUMID: {}", e),
     }
-}
-
-/// Simple notification function for one-off notifications
-pub fn show_notification(title: &str, body: &str) {
-    let manager = NotificationManager::new();
-    manager.show_toast(title, body);
 }
 
 #[cfg(test)]

@@ -225,14 +225,6 @@ impl HookTransitionDetector {
         }
     }
 
-    pub fn with_thresholds(reached_threshold: f64, reset_drop_threshold: f64) -> Self {
-        Self {
-            reached_threshold,
-            reset_drop_threshold,
-            ..Self::default()
-        }
-    }
-
     /// Drops every baseline when the hook configuration changed.
     pub fn reset_if_configuration_changed(&mut self, revision: i64) {
         if self.config_revision == Some(revision) {

@@ -127,12 +127,6 @@ impl CodexWorkspacesIndex {
         Ok(sidecar.load_latest_snapshot(scope.scope_signature(), self.history_days)?)
     }
 
-    pub fn clear_cached_snapshot(&self) -> Result<(), IndexError> {
-        let sidecar = self.sidecar()?;
-        sidecar.clear_snapshots()?;
-        Ok(())
-    }
-
     pub(super) fn load_snapshot_at<F>(
         &self,
         force_refresh: bool,

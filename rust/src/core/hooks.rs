@@ -101,13 +101,6 @@ impl HookEvent {
         }
     }
 
-    pub fn with_remaining_percent(mut self, remaining: f64) -> Self {
-        let remaining = remaining.clamp(0.0, 100.0);
-        self.remaining_percent = Some(remaining);
-        self.usage_percent = Some(((100.0 - remaining) / 100.0).clamp(0.0, 1.0));
-        self
-    }
-
     pub fn with_used_percent(mut self, used: f64) -> Self {
         let used = used.clamp(0.0, 100.0);
         self.usage_percent = Some(used / 100.0);
@@ -343,17 +336,6 @@ impl HooksConfig {
 
     pub fn matching_rules(&self, event: &HookEvent) -> Vec<&HookRule> {
         if !self.enabled || self.events.len() > Self::MAX_RULES {
-            return Vec::new();
-        }
-        self.events
-            .iter()
-            .filter(|rule| rule.matches(event))
-            .collect()
-    }
-
-    /// Rules that match the event ignoring the top-level `enabled` flag (for `hooks test`).
-    pub fn matching_rules_ignoring_master_switch(&self, event: &HookEvent) -> Vec<&HookRule> {
-        if self.events.len() > Self::MAX_RULES {
             return Vec::new();
         }
         self.events

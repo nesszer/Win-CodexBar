@@ -1,9 +1,8 @@
 //! Usage command implementation
 
 use clap::Args;
-use serde::Serialize;
 
-use crate::core::{FetchContext, ProviderFetchResult, ProviderId, SourceMode};
+use crate::core::{FetchContext, ProviderId, SourceMode};
 use crate::settings::Settings;
 
 mod claude_swap;
@@ -190,24 +189,6 @@ impl ProviderSelection {
             ProviderSelection::Custom(ids) => ids.clone(),
         }
     }
-}
-
-/// JSON output payload
-#[derive(Debug, Serialize)]
-pub struct ProviderPayload {
-    pub provider: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    pub source: String,
-    #[serde(flatten)]
-    pub result: ProviderFetchResult,
-}
-
-/// Error payload for JSON output
-#[derive(Debug, Serialize)]
-struct ErrorPayload {
-    provider: String,
-    error: String,
 }
 
 /// Run the usage command

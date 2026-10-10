@@ -165,12 +165,6 @@ impl ManagedProcess {
             })
     }
 
-    /// Candidate IPv4 loopback ports the owned child is currently listening on.
-    /// Providers use this to decide when the child's local service is ready.
-    pub fn listening_ports(&self) -> ManagedProcessResult<Vec<u16>> {
-        listening_ports_for_pid(self.pid)
-    }
-
     /// Terminate and reap the owned child, bounded by `cleanup_reserve`.
     pub async fn shutdown(mut self, cleanup_reserve: Duration) {
         let Some(resources) = self.take_resources() else {

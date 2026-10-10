@@ -121,18 +121,6 @@ impl LoadingPattern {
         }
     }
 
-    /// Get secondary bar offset (to make it animate differently)
-    pub fn secondary_offset(&self) -> f64 {
-        match self {
-            LoadingPattern::KnightRider => 0.25,
-            LoadingPattern::Cylon => 0.15,
-            LoadingPattern::OutsideIn => 0.5,
-            LoadingPattern::Race => 0.2,
-            LoadingPattern::Pulse => 0.3,
-            LoadingPattern::Unbraid => 0.1,
-        }
-    }
-
     /// Get all available patterns
     pub fn all() -> &'static [LoadingPattern] {
         &[

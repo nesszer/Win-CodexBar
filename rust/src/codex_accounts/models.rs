@@ -46,11 +46,6 @@ fn contains_offset(text: &str) -> bool {
     digits && tail.contains(':')
 }
 
-/// Format a UTC instant the same way CodexControl does (`...Z`).
-pub fn format_datetime(value: Option<DateTime<Utc>>) -> Option<String> {
-    value.map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true))
-}
-
 pub fn utc_now() -> DateTime<Utc> {
     Utc::now()
 }
@@ -503,10 +498,6 @@ impl AccountUsageSnapshot {
         self.limit_reached == Some(true) || self.allowed == Some(false)
     }
 
-    pub fn has_quota_windows(&self) -> bool {
-        self.primary_window.is_some() || self.secondary_window.is_some()
-    }
-
     pub fn has_usable_quota_now(&self) -> bool {
         if self.is_quota_blocked() {
             return false;
@@ -536,17 +527,6 @@ impl AccountUsageSnapshot {
             .flatten()
             .filter_map(|w| w.reset_at)
             .min()
-    }
-}
-
-/// Sort weight used to order accounts by practical usefulness.
-pub fn account_sort_priority(snapshot: &AccountUsageSnapshot) -> u8 {
-    if snapshot.has_usable_quota_now() {
-        0
-    } else if snapshot.next_reset_at().is_some() {
-        1
-    } else {
-        2
     }
 }
 
