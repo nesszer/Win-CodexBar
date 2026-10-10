@@ -15,7 +15,7 @@ use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
     ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
-use crate::providers::{BoundedBodyError, read_bounded_response};
+use crate::providers::{BoundedBodyError, format, read_bounded_response};
 
 const CREDITS_URL: &str = "https://ai-gateway.vercel.sh/v1/credits";
 const CREDENTIAL_TARGET: &str = "codexbar-vercel";
@@ -166,16 +166,6 @@ fn parse_amount(value: &str) -> Option<f64> {
         .filter(|amount| amount.is_finite())
 }
 
-/// `$95.50`, `-$1.25`, `$0.00`; a negative that rounds to zero carries no sign.
-fn format_usd(value: f64) -> String {
-    let cents = format!("{:.2}", value.abs());
-    if value < 0.0 && cents != "0.00" {
-        format!("-${cents}")
-    } else {
-        format!("${cents}")
-    }
-}
-
 fn build_result(credits: Credits) -> ProviderFetchResult {
     let usage =
         UsageSnapshot::new(RateWindow::informational(SECTION_LABEL)).with_login_method("API");
@@ -190,12 +180,12 @@ fn build_result(credits: Credits) -> ProviderFetchResult {
         .with_display_detail(ProviderDisplayDetail::new(
             "vercel-balance",
             "Available balance",
-            format_usd(credits.balance),
+            format::usd_signed(credits.balance),
         ))
         .with_display_detail(ProviderDisplayDetail::new(
             "vercel-lifetime-spend",
             "Lifetime spend",
-            format_usd(credits.total_used),
+            format::usd_signed(credits.total_used),
         ))
 }
 

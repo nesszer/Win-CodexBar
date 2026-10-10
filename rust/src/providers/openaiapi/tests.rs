@@ -206,8 +206,11 @@ fn openai_admin_usage_sums_costs_and_ranks_line_items() {
 
 #[test]
 fn openai_admin_usage_rejects_nonfinite_cost_amounts() {
-    assert_eq!(number_value(&serde_json::json!("NaN")), None);
-    assert_eq!(number_value(&serde_json::json!("Infinity")), None);
+    assert_eq!(json::lenient_finite_f64(&serde_json::json!("NaN")), None);
+    assert_eq!(
+        json::lenient_finite_f64(&serde_json::json!("Infinity")),
+        None
+    );
     for value in ["NaN", "Infinity", "-Infinity", "1e309", "-1e309"] {
         let costs = [cost_bucket(serde_json::json!(value))];
         let error = result_from_admin_usage(&costs, &[], fixed_now(0), None)

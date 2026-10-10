@@ -11,7 +11,8 @@ use serde_json::Value;
 
 use crate::core::ProviderError;
 
-use super::{scalar_string, value_f64, value_i64};
+use super::{scalar_string, value_i64};
+use crate::providers::json;
 
 /// Parsed result of a coding-plan fetch (page JSON, remains API, or HTML scrape).
 #[derive(Debug, Clone)]
@@ -407,7 +408,7 @@ fn parse_multi_service(json: &Value) -> Option<Vec<ServiceRow>> {
         if limit <= 0 {
             continue;
         }
-        let percent = match value_f64(item.get("percent")) {
+        let percent = match json::lenient_f64(item.get("percent")) {
             Some(p) => p,
             None => (usage as f64 / limit as f64) * 100.0,
         };
@@ -524,7 +525,7 @@ fn parse_plan_name_from_data(data: &Value) -> Option<String> {
                         "current_interval_usage_count",
                         "currentIntervalUsageCount",
                     )),
-                    value_f64(get_field(
+                    json::lenient_f64(get_field(
                         e,
                         "current_interval_remaining_percent",
                         "currentIntervalRemainingPercent",
@@ -611,7 +612,7 @@ fn parse_remains(
                 "current_interval_usage_count",
                 "currentIntervalUsageCount",
             )),
-            value_f64(get_field(
+            json::lenient_f64(get_field(
                 entry,
                 "current_interval_remaining_percent",
                 "currentIntervalRemainingPercent",
@@ -646,7 +647,7 @@ fn parse_remains(
                     "current_weekly_usage_count",
                     "currentWeeklyUsageCount",
                 )),
-                value_f64(get_field(
+                json::lenient_f64(get_field(
                     entry,
                     "current_weekly_remaining_percent",
                     "currentWeeklyRemainingPercent",

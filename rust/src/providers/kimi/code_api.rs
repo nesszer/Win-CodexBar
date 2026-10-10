@@ -13,6 +13,7 @@ use super::{
     kimi_window_minutes,
 };
 use super::{ratio_pool, web};
+use crate::providers::json;
 
 const KIMI_CODE_API_KEY_ENV: &str = "KIMI_CODE_API_KEY";
 const KIMI_CODE_BASE_URL_ENV: &str = "KIMI_CODE_BASE_URL";
@@ -332,7 +333,7 @@ fn read_kimi_code_device_id(home: &Path) -> Option<String> {
 }
 
 fn is_kimi_code_credential_fresh(expires_at: Option<serde_json::Value>, now_unix: f64) -> bool {
-    let Some(expires) = super::value_as_f64(expires_at.as_ref()) else {
+    let Some(expires) = json::lenient_f64(expires_at.as_ref()) else {
         return false;
     };
     if !expires.is_finite() {

@@ -17,6 +17,7 @@ use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::format;
 
 const BILLING_SUMMARY_URL: &str = "https://api.fireworks.ai/v1/accounts";
 const CREDENTIAL_TARGET: &str = "codexbar-fireworks";
@@ -159,7 +160,7 @@ impl FireworksSummary {
         let spend_text = self
             .last_30_days_spend
             .zip(self.currency_code.as_deref())
-            .map(|(spend, _)| format_money(spend));
+            .map(|(spend, _)| format::usd_plain(spend));
         let mut primary = RateWindow::new(0.0);
         primary.reset_description = spend_text.clone();
         let mut snapshot = UsageSnapshot::new(primary);
@@ -174,10 +175,6 @@ impl FireworksSummary {
         let currency = self.currency_code.as_deref().unwrap_or("USD");
         Some(CostSnapshot::new(spend, currency, "Last 30 days").always_visible())
     }
-}
-
-fn format_money(value: f64) -> String {
-    format!("${value:.2}")
 }
 
 pub struct FireworksProvider {

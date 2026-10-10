@@ -9,7 +9,7 @@ use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
     ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
-use crate::providers::{BoundedBodyError, read_bounded_response};
+use crate::providers::{BoundedBodyError, format, read_bounded_response};
 
 const BALANCE_URL: &str = "https://api.atlascloud.ai/public/v1/balance";
 const CREDENTIAL_TARGET: &str = "codexbar-atlascloud";
@@ -89,21 +89,11 @@ fn balance_result(balance: f64) -> ProviderFetchResult {
     let detail = ProviderDisplayDetail::new(
         "atlascloud-available",
         "Available balance",
-        format_usd(balance),
+        format::usd_signed(balance),
     );
     ProviderFetchResult::new(usage, "api")
         .with_cost(cost)
         .with_display_detail(detail)
-}
-
-/// `$95.50` / `-$1.25`; a negative that rounds to zero shows no sign.
-fn format_usd(amount: f64) -> String {
-    let magnitude = format!("{:.2}", amount.abs());
-    if amount < 0.0 && magnitude != "0.00" {
-        format!("-${magnitude}")
-    } else {
-        format!("${magnitude}")
-    }
 }
 
 impl Default for AtlasCloudProvider {

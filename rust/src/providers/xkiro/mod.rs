@@ -19,7 +19,7 @@ use crate::core::{
     FetchContext, Provider, ProviderDisplayDetail, ProviderError, ProviderFetchResult, ProviderId,
     RateWindow, SourceMode, UsageSnapshot,
 };
-use crate::providers::{BoundedBodyError, read_bounded_response};
+use crate::providers::{BoundedBodyError, format, read_bounded_response};
 
 const USAGE_URL: &str = "https://api.xkiro.com/v1/usage";
 const CREDENTIAL_TARGET: &str = "codexbar-xkiro";
@@ -241,18 +241,6 @@ fn next_utc_midnight(now: DateTime<Utc>) -> DateTime<Utc> {
         + Duration::days(1)
 }
 
-fn format_count(value: u64) -> String {
-    let raw = value.to_string();
-    let mut out = String::with_capacity(raw.len() + raw.len() / 3);
-    for (index, digit) in raw.chars().rev().enumerate() {
-        if index > 0 && index % 3 == 0 {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out.chars().rev().collect()
-}
-
 /// Percent of the daily allowance used. A zero allowance is exhausted.
 fn used_percent(used: u64, limit: u64) -> f64 {
     if limit == 0 {
@@ -272,7 +260,7 @@ fn primary_window(usage: &FreeTokenUsage, now: DateTime<Utc>) -> RateWindow {
         ),
         // Missing counters stay unknown: no percentage is invented.
         _ => RateWindow::informational(if let Some(remaining) = usage.remaining {
-            format!("{} tokens remaining", format_count(remaining))
+            format!("{} tokens remaining", format::count(remaining))
         } else if usage.uncapped {
             "No daily cap reported".to_string()
         } else {
@@ -291,7 +279,7 @@ fn result_from_usage(usage: &FreeTokenUsage, now: DateTime<Utc>) -> ProviderFetc
     }
 
     let allowance = match usage.limit_per_day {
-        Some(limit) => Some(format_count(limit)),
+        Some(limit) => Some(format::count(limit)),
         None if usage.uncapped => Some("No cap reported".to_string()),
         None => None,
     };
@@ -299,13 +287,13 @@ fn result_from_usage(usage: &FreeTokenUsage, now: DateTime<Utc>) -> ProviderFetc
         (
             "tokens-used-today",
             "Tokens used today",
-            usage.used_today.map(format_count),
+            usage.used_today.map(format::count),
         ),
         ("daily-allowance", "Daily allowance", allowance),
         (
             "tokens-remaining",
             "Tokens remaining",
-            usage.remaining.map(format_count),
+            usage.remaining.map(format::count),
         ),
         ("daily-reset", "Daily reset", Some("00:00 UTC".to_string())),
     ];

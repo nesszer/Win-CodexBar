@@ -13,6 +13,7 @@ use crate::core::{
     CostSnapshot, FetchContext, NamedRateWindow, Provider, ProviderDisplayDetail, ProviderError,
     ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::format;
 
 const CREDENTIAL_TARGET: &str = "codexbar-bifrost";
 const API_KEY_ENV: &str = "BIFROST_API_KEY";
@@ -475,9 +476,13 @@ fn result_from_usage(usage: ParsedUsage) -> ProviderFetchResult {
                 .join(" · "),
             );
             let value = if budget.limit > 0.0 {
-                format!("{} / {}", usd(budget.used), usd(budget.limit))
+                format!(
+                    "{} / {}",
+                    format::usd_plain(budget.used),
+                    format::usd_plain(budget.limit)
+                )
             } else {
-                usd(budget.used)
+                format::usd_plain(budget.used)
             };
             let mut detail =
                 ProviderDisplayDetail::new(format!("bifrost-budget-detail-{index}"), title, value);
@@ -639,7 +644,10 @@ fn model_details(models: &[Value]) -> Vec<Option<ProviderDisplayDetail>> {
                 .collect::<Vec<_>>()
                 .join(" · "),
             );
-            let value = row.cost.map(usd).unwrap_or_else(|| "—".into());
+            let value = row
+                .cost
+                .map(format::usd_plain)
+                .unwrap_or_else(|| "—".into());
             let detail = ProviderDisplayDetail::new(format!("bifrost-model-{index}"), label, value);
             match row.tokens {
                 Some(tokens) => detail.and_then(|detail| {
@@ -670,7 +678,11 @@ fn budget_description(budget: &Budget) -> String {
     if let Some(label) = budget.reset.label {
         parts.push(label.into());
     }
-    parts.push(format!("{} / {}", usd(budget.used), usd(budget.limit)));
+    parts.push(format!(
+        "{} / {}",
+        format::usd_plain(budget.used),
+        format::usd_plain(budget.limit)
+    ));
     bounded(&parts.join(" · "))
 }
 
@@ -834,10 +846,6 @@ fn percent(used: f64, limit: f64) -> f64 {
     } else {
         0.0
     }
-}
-
-fn usd(value: f64) -> String {
-    format!("${value:.2}")
 }
 fn bounded(value: &str) -> String {
     value.chars().take(120).collect()

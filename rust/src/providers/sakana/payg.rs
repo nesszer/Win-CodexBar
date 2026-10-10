@@ -14,7 +14,7 @@ use reqwest::{Client, Url};
 use tokio::task::JoinHandle;
 
 use crate::core::{ProviderDisplayDetail, is_same_origin};
-use crate::providers::read_bounded_response;
+use crate::providers::{format, read_bounded_response};
 
 /// Per-request bound for the optional GET (the primary keeps the client's 15 s).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -57,10 +57,10 @@ impl PaygBalance {
         rows.extend(ProviderDisplayDetail::new(
             "payg-balance",
             "Balance",
-            format_usd(self.balance),
+            format::usd_plain(self.balance),
         ));
         if let Some(total) = self.usage_total {
-            let row = ProviderDisplayDetail::new("payg-usage", "Usage", format_usd(total));
+            let row = ProviderDisplayDetail::new("payg-usage", "Usage", format::usd_plain(total));
             rows.extend(match self.period.as_deref() {
                 Some(period) => row.and_then(|row| row.with_secondary_value(period)),
                 None => row,
@@ -98,10 +98,6 @@ fn capture_period(html: &str) -> Option<String> {
     let text = HTML_COMMENT_RE.replace_all(raw, "");
     let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
     (!collapsed.is_empty()).then(|| collapsed.chars().take(MAX_PERIOD_CHARS).collect())
-}
-
-fn format_usd(value: f64) -> String {
-    format!("${value:.2}")
 }
 
 /// One optional GET: never errors, never retries. The final URL must stay on

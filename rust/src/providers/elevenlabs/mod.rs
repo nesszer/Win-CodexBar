@@ -11,6 +11,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
     UsageSnapshot,
 };
+use crate::providers::format;
 
 const ELEVENLABS_API_BASE_URL: &str = "https://api.elevenlabs.io";
 const ELEVENLABS_API_URL_ENV: &str = "ELEVENLABS_API_URL";
@@ -187,8 +188,8 @@ fn snapshot_from_subscription(subscription: &ElevenLabsSubscriptionResponse) -> 
     let mut primary = RateWindow::new(used_percent);
     primary.reset_description = Some(format!(
         "{} / {} credits",
-        format_count(subscription.character_count),
-        format_count(subscription.character_limit)
+        format::count(subscription.character_count),
+        format::count(subscription.character_limit)
     ));
     primary.resets_at = subscription
         .next_character_count_reset_unix
@@ -273,18 +274,6 @@ fn title_case_tier(tier: &str) -> String {
         previous_is_word = is_word;
     }
     title
-}
-
-fn format_count(value: u64) -> String {
-    let raw = value.to_string();
-    let mut out = String::with_capacity(raw.len() + raw.len() / 3);
-    for (idx, ch) in raw.chars().rev().enumerate() {
-        if idx > 0 && idx % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out.chars().rev().collect()
 }
 
 fn resolve_api_key(

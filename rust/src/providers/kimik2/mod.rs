@@ -10,6 +10,7 @@ use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::json;
 
 const KIMIK2_API_BASE_INTERNATIONAL: &str = "https://api.moonshot.ai";
 const KIMIK2_API_BASE_CHINA: &str = "https://api.moonshot.cn";
@@ -292,21 +293,21 @@ impl KimiK2Provider {
         let available_balance = data
             .get("available_balance")
             .or_else(|| data.get("balance"))
-            .and_then(finite_json_f64)
+            .and_then(json::lenient_finite_f64)
             .unwrap_or(0.0);
 
         // Total credits (used + available)
         let total_credits = data
             .get("total_balance")
             .or_else(|| data.get("total"))
-            .and_then(finite_json_f64)
+            .and_then(json::lenient_finite_f64)
             .unwrap_or(available_balance.max(0.0));
 
         // Used credits
         let used_credits = data
             .get("used_balance")
             .or_else(|| data.get("used"))
-            .and_then(finite_json_f64)
+            .and_then(json::lenient_finite_f64)
             .unwrap_or(total_credits - available_balance);
 
         // Calculate percentage used
@@ -317,8 +318,10 @@ impl KimiK2Provider {
         };
 
         // Cash balance (if any)
-        let voucher_balance = data.get("voucher_balance").and_then(finite_json_f64);
-        let cash_balance = data.get("cash_balance").and_then(finite_json_f64);
+        let voucher_balance = data
+            .get("voucher_balance")
+            .and_then(json::lenient_finite_f64);
+        let cash_balance = data.get("cash_balance").and_then(json::lenient_finite_f64);
 
         // Create primary rate window (credits used)
         let mut primary = RateWindow::new(used_percent);
@@ -335,15 +338,6 @@ impl KimiK2Provider {
                 " · {} in deficit",
                 region.format_balance(cash.abs())
             ));
-        }
-
-        fn finite_json_f64(value: &serde_json::Value) -> Option<f64> {
-            match value {
-                serde_json::Value::Number(number) => number.as_f64(),
-                serde_json::Value::String(text) => text.trim().replace(',', "").parse().ok(),
-                _ => None,
-            }
-            .filter(|value: &f64| value.is_finite())
         }
 
         let mut usage = UsageSnapshot::new(primary).with_login_method(login_method);

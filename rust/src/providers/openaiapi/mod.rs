@@ -33,6 +33,7 @@ use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::json;
 
 const OPENAI_CREDIT_GRANTS_URL: &str = "https://api.openai.com/v1/dashboard/billing/credit_grants";
 const OPENAI_ORG_COSTS_URL: &str = "https://api.openai.com/v1/organization/costs";
@@ -553,7 +554,7 @@ fn cost_amount(result: &CostResult) -> Result<f64, ProviderError> {
     match &amount.value {
         serde_json::Value::Null => Ok(0.0),
         serde_json::Value::String(text) if text.trim().is_empty() => Ok(0.0),
-        value => number_value(value).ok_or_else(|| {
+        value => json::lenient_finite_f64(value).ok_or_else(|| {
             ProviderError::Parse("OpenAI API costs amount must be numeric".to_string())
         }),
     }
@@ -635,15 +636,6 @@ fn response_error_detail(body: &str) -> String {
     }
 
     trimmed.chars().take(500).collect()
-}
-
-fn number_value(value: &serde_json::Value) -> Option<f64> {
-    let value = match value {
-        serde_json::Value::Number(number) => number.as_f64(),
-        serde_json::Value::String(text) => text.trim().replace(',', "").parse().ok(),
-        _ => None,
-    }?;
-    value.is_finite().then_some(value)
 }
 
 impl Default for OpenAIApiProvider {

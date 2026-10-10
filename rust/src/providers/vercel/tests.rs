@@ -77,11 +77,11 @@ fn ignores_unknown_fields_without_inventing_them() {
 
 #[test]
 fn formats_usd_with_sign_before_the_symbol() {
-    assert_eq!(format_usd(95.5), "$95.50");
-    assert_eq!(format_usd(-1.25), "-$1.25");
-    assert_eq!(format_usd(0.0), "$0.00");
-    assert_eq!(format_usd(-0.001), "$0.00");
-    assert_eq!(format_usd(4.5), "$4.50");
+    assert_eq!(format::usd_signed(95.5), "$95.50");
+    assert_eq!(format::usd_signed(-1.25), "-$1.25");
+    assert_eq!(format::usd_signed(0.0), "$0.00");
+    assert_eq!(format::usd_signed(-0.001), "$0.00");
+    assert_eq!(format::usd_signed(4.5), "$4.50");
 }
 
 #[test]

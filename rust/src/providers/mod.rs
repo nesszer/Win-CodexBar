@@ -50,6 +50,7 @@ pub mod huggingface;
 pub mod hyper;
 pub mod infini;
 pub mod jetbrains;
+pub(crate) mod json;
 pub mod kilo;
 pub mod kimi;
 pub mod kimik2;

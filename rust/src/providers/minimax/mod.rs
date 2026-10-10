@@ -26,6 +26,7 @@ use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::json;
 
 const CODING_PLAN_PATH: &str = "/user-center/payment/coding-plan";
 const CODING_PLAN_QUERY: &str = "cycle_type=3";
@@ -923,8 +924,8 @@ fn record_token_count(record: &MiniMaxBillingRecord) -> i64 {
 }
 
 fn record_cash(record: &MiniMaxBillingRecord) -> Option<f64> {
-    value_f64(record.consume_cash_after_voucher.as_ref())
-        .or_else(|| value_f64(record.consume_cash.as_ref()))
+    json::lenient_f64(record.consume_cash_after_voucher.as_ref())
+        .or_else(|| json::lenient_f64(record.consume_cash.as_ref()))
 }
 
 fn record_date(record: &MiniMaxBillingRecord) -> Option<DateTime<Utc>> {
@@ -959,14 +960,6 @@ fn record_date(record: &MiniMaxBillingRecord) -> Option<DateTime<Utc>> {
 fn value_i64(value: Option<&serde_json::Value>) -> Option<i64> {
     match value? {
         serde_json::Value::Number(number) => number.as_i64(),
-        serde_json::Value::String(text) => text.trim().replace(',', "").parse().ok(),
-        _ => None,
-    }
-}
-
-fn value_f64(value: Option<&serde_json::Value>) -> Option<f64> {
-    match value? {
-        serde_json::Value::Number(number) => number.as_f64(),
         serde_json::Value::String(text) => text.trim().replace(',', "").parse().ok(),
         _ => None,
     }

@@ -2,7 +2,8 @@
 //!
 //! These mirror the helpers in the upstream provider plugin prelude
 //! (`ctx.format.number`, `ctx.format.usd`) and JavaScript's
-//! `Number.prototype.toFixed`, so ported rows render the same strings.
+//! `Number.prototype.toFixed`, so ported rows render the same strings, plus
+//! the small dollar and count formats several native providers share.
 
 /// `ctx.format.number(value, { maximumFractionDigits })`: fixed to
 /// `max_fraction_digits`, trailing fractional zeros trimmed, and the integer
@@ -16,6 +17,37 @@ pub(crate) fn number(value: f64, max_fraction_digits: usize) -> String {
 pub(crate) fn usd(value: f64) -> String {
     let sign = if value < 0.0 { "-$" } else { "$" };
     format!("{sign}{}", format_number(value.abs(), 2, 2))
+}
+
+/// A dollar amount with two fractional digits and no grouping, as
+/// `format!("${value:.2}")` prints it (`$1234.50`).
+pub(crate) fn usd_plain(value: f64) -> String {
+    format!("${value:.2}")
+}
+
+/// `$95.50` / `-$1.25` with no grouping; a negative that rounds to zero
+/// shows no sign.
+pub(crate) fn usd_signed(value: f64) -> String {
+    let magnitude = format!("{:.2}", value.abs());
+    if value < 0.0 && magnitude != "0.00" {
+        format!("-${magnitude}")
+    } else {
+        format!("${magnitude}")
+    }
+}
+
+/// An integer count with comma digit groups (`1,234,567`).
+pub(crate) fn count(value: u64) -> String {
+    group_thousands(&value.to_string())
+}
+
+/// Whole values without decimals, anything else with two (`6182`, `57.20`).
+pub(crate) fn whole_or_two_decimals(value: f64) -> String {
+    if (value - value.round()).abs() < f64::EPSILON {
+        format!("{:.0}", value)
+    } else {
+        format!("{:.2}", value)
+    }
 }
 
 /// JavaScript `Number.prototype.toFixed(digits)`.
@@ -103,7 +135,7 @@ fn js_string(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{number, to_fixed, usd};
+    use super::{count, number, to_fixed, usd, usd_plain, usd_signed, whole_or_two_decimals};
 
     #[test]
     fn to_fixed_rounds_exact_ties_away_from_zero_like_javascript() {
@@ -171,5 +203,29 @@ mod tests {
         assert_eq!(usd(12.345), "$12.35");
         assert_eq!(usd(-1.0), "-$1.00");
         assert_eq!(usd(1_000_000.0), "$1,000,000.00");
+    }
+
+    #[test]
+    fn usd_plain_and_signed_keep_two_digits_without_grouping() {
+        assert_eq!(usd_plain(1_234.5), "$1234.50");
+        assert_eq!(usd_plain(-1.0), "$-1.00");
+        assert_eq!(usd_signed(1_234.5), "$1234.50");
+        assert_eq!(usd_signed(-1.25), "-$1.25");
+        assert_eq!(usd_signed(-0.001), "$0.00");
+    }
+
+    #[test]
+    fn count_groups_digits_by_three() {
+        assert_eq!(count(0), "0");
+        assert_eq!(count(999), "999");
+        assert_eq!(count(1_000), "1,000");
+        assert_eq!(count(1_234_567), "1,234,567");
+        assert_eq!(count(u64::MAX), "18,446,744,073,709,551,615");
+    }
+
+    #[test]
+    fn whole_or_two_decimals_drops_zero_cents_only() {
+        assert_eq!(whole_or_two_decimals(6182.0), "6182");
+        assert_eq!(whole_or_two_decimals(57.2), "57.20");
     }
 }
