@@ -197,18 +197,14 @@ impl BedrockProvider {
     }
 
     fn credentials_from_env() -> Result<AwsCredentials, ProviderError> {
-        let access_key_id = cleaned_env("AWS_ACCESS_KEY_ID").ok_or_else(|| {
+        let missing = || {
             ProviderError::NotInstalled(
                 "AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
                     .to_string(),
             )
-        })?;
-        let secret_access_key = cleaned_env("AWS_SECRET_ACCESS_KEY").ok_or_else(|| {
-            ProviderError::NotInstalled(
-                "AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
-                    .to_string(),
-            )
-        })?;
+        };
+        let access_key_id = cleaned_env("AWS_ACCESS_KEY_ID").ok_or_else(missing)?;
+        let secret_access_key = cleaned_env("AWS_SECRET_ACCESS_KEY").ok_or_else(missing)?;
 
         Ok(AwsCredentials {
             access_key_id,
