@@ -2045,7 +2045,8 @@ mod tests {
         let w = |used| win(10_080, used);
         let u = |used| win(999, used);
         let m = |used| win(43_200, used);
-        let rows: Vec<(Option<RateWindow>, Option<RateWindow>, f64, Option<f64>)> = vec![
+        type Row = (Option<RateWindow>, Option<RateWindow>, f64, Option<f64>);
+        let rows: Vec<Row> = vec![
             (None, None, -1.0, None),
             (Some(w(1.0)), None, -1.0, Some(1.0)),
             (Some(s(1.0)), None, 1.0, None),
