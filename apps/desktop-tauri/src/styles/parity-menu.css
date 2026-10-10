@@ -1,0 +1,498 @@
+/* ════════════════════════════════════════════════════════════════════
+ * macOS PARITY OVERLAY  (last cascade — wins over earlier rules)
+ *
+ * This block tightens the visual treatment so the Tauri shell mirrors
+ * the upstream SwiftUI `MenuContent` (NSMenu w/ NSHostingView items)
+ * and the SwiftUI `Settings` scene.  All earlier selectors continue
+ * to provide structure; this overlay adjusts colors, sizing, density,
+ * and adds a few NSMenu-style native rows.
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* ── Thin overlay scrollbars (replace Windows default fat bars) ───── */
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+  background-clip: padding-box;
+}
+[data-theme="light"] *::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.22);
+  background-clip: padding-box;
+}
+[data-theme="light"] *::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.36);
+  background-clip: padding-box;
+}
+
+/* ── Menu surface: rounded NSMenu-style panel matching macOS popover ── */
+.menu-surface {
+  width: 100%;
+  min-width: 260px;
+  background: var(--menu-popover-bg);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.3);
+  font-size: var(--font-body);
+  line-height: var(--line-tight);
+}
+/* Re-assert tray overrides after the second .menu-surface rule (cascade order) */
+.menu-surface--tray {
+  /* #265: TrayPanel applies CSS `zoom` on this surface, so it lays out in
+     windowWidth/zoom local px; the 260px `min-width` floor from .menu-surface
+     would be multiplied by the zoom on render (→ 390px at 150%) and force a
+     horizontal scrollbar in the 328px tray window. The window's own 300px
+     minimum already covers the floor — let the zoomed surface wrap instead. */
+  min-width: 0;
+}
+.menu-surface--tray {
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+[data-theme="light"] .menu-surface {
+  background: var(--menu-popover-bg);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 0 1px rgba(0, 0, 0, 0.12);
+}
+[data-theme="light"] .menu-surface--tray {
+  border: none;
+  box-shadow: none;
+}
+
+/* Footer of native-style menu rows (Settings… / About / Quit).
+   Sits flush with the surface's 10/6 padding and reads like an NSMenu
+   item: full-width row, 18px icon column, subtle hover highlight. */
+.menu-surface__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 0 4px;
+  margin-top: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+.menu-surface__footer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-body);
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.08s ease;
+}
+/* Footer rows without an SF Symbol icon (Settings / About / Quit on
+   macOS): indent by the same 18px the icon column would occupy so the
+   text aligns with iconified rows above. */
+.menu-surface__footer-row--no-icon {
+  padding-left: calc(6px + 18px + 8px);
+}
+.menu-surface__footer-row:hover,
+.menu-surface__footer-row:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-primary);
+  outline: none;
+}
+[data-theme="light"] .menu-surface__footer-row:hover,
+[data-theme="light"] .menu-surface__footer-row:focus-visible {
+  background: rgba(0, 0, 0, 0.06);
+}
+.menu-surface__footer-row .menu-surface__footer-icon {
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.menu-surface__footer-row:hover .menu-surface__footer-icon,
+.menu-surface__footer-row:focus-visible .menu-surface__footer-icon {
+  color: var(--text-primary);
+}
+.menu-surface__footer-shortcut {
+  margin-left: auto;
+  font-size: var(--font-caption2);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.menu-surface__footer-row:hover .menu-surface__footer-shortcut,
+.menu-surface__footer-row:focus-visible .menu-surface__footer-shortcut {
+  color: var(--text-secondary);
+}
+
+/* Tray flyout zoom row — sits above Refresh in the footer. A plain `div`
+   (not a nav button), so it opts out of the button hover highlight and
+   instead hosts a Win11-volume-style slider with a fixed-width % readout
+   on the right (tabular nums + fixed width = no jitter while dragging). */
+.menu-surface__footer-zoom {
+  cursor: default;
+}
+.menu-surface__footer-zoom:hover,
+.menu-surface__footer-zoom:focus-visible {
+  background: transparent;
+}
+.menu-surface__footer-zoom-value {
+  width: 34px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: var(--font-caption2);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Win11-style range input: thin rounded 4px track, accent fill left of the
+   thumb (painted via the `--zoom-fill` custom property set inline from
+   React — WebKit has no ::fill pseudo), round accent thumb. WebView2 is
+   Chromium-only, so ::-webkit-* pseudos are sufficient. */
+.menu-surface__footer-zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 16px;
+  margin: 0 2px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.menu-surface__footer-zoom-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent, #0a84ff) 0%,
+    var(--accent, #0a84ff) var(--zoom-fill, 0%),
+    rgba(255, 255, 255, 0.2) var(--zoom-fill, 0%)
+  );
+}
+.menu-surface__footer-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px; /* centres the 12px thumb on the 4px track */
+  border-radius: 50%;
+  background: var(--accent, #0a84ff);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.menu-surface__footer-zoom-slider:focus-visible {
+  outline: none;
+}
+.menu-surface__footer-zoom-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 2px var(--accent-muted, rgba(10, 132, 255, 0.25)),
+    0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+[data-theme="light"]
+  .menu-surface__footer-zoom-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--accent, #007aff) 0%,
+    var(--accent, #007aff) var(--zoom-fill, 0%),
+    rgba(0, 0, 0, 0.15) var(--zoom-fill, 0%)
+  );
+}
+[data-theme="light"] .menu-surface__footer-zoom-slider::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.15),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* ── Provider icon grid ──────────────────────────────────────────────
+   Mirrors the upstream macOS ProviderSwitcherView. Each cell is a
+   stacked icon+label tile with a 4px weekly indicator pinned to the
+   bottom edge. macOS uses rowHeight 36-40, rowSpacing 2-4 and a uniform
+   button width — use the same dense icon grid as upstream. */
+.provider-grid {
+  display: grid;
+  margin: 0 0 2px;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .provider-grid {
+  background: none;
+  border: none;
+}
+
+.provider-grid__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  min-width: 0;
+}
+
+.provider-grid--no-icons .provider-grid__item {
+  justify-content: center;
+  gap: 3px;
+}
+
+.provider-grid--no-icons .provider-grid__label {
+  max-width: 30px;
+}
+
+.provider-grid__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.provider-grid__item--active {
+  background: rgba(10, 132, 255, 0.25);
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.35);
+}
+
+.provider-grid__item--active:hover {
+  background: rgba(10, 132, 255, 0.32);
+  filter: none;
+}
+
+/* Drag-to-reorder: grab cursor on draggable items, dim the one being dragged,
+   ring the drop target. The provider cards below follow the same order. */
+.provider-grid__item[draggable="true"] {
+  cursor: grab;
+}
+.provider-grid__item--dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+.provider-grid__item--drop-target {
+  background: rgba(10, 132, 255, 0.14);
+  box-shadow: inset 0 0 0 2px rgba(10, 132, 255, 0.65);
+}
+
+.provider-grid__label {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.provider-grid__item--active .provider-grid__label {
+  color: #fff;
+}
+
+/* Provider icon inside grid — template-style like macOS (white silhouettes) */
+.provider-grid__icon-overview {
+  font-size: 16px;
+  line-height: 17px;
+  opacity: 0.7;
+}
+.provider-grid__item--active .provider-grid__icon-overview {
+  opacity: 1;
+}
+
+.provider-grid__item .provider-icon {
+  width: 17px !important;
+  height: 17px !important;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  filter: brightness(0) invert(1);
+  opacity: 0.7;
+}
+.provider-grid__item--active .provider-icon {
+  opacity: 1;
+}
+.provider-grid__item:hover .provider-icon {
+  opacity: 0.9;
+}
+
+/* Weekly indicator bar — macOS ProviderSwitcherView addWeeklyIndicator()
+   4px track at bottom of each grid button, fill = remainingPercent */
+.provider-grid__weekly-track {
+  display: block;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+.provider-grid__weekly-track::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--weekly-pct, 0%);
+  border-radius: 2px;
+  background: var(--weekly-color, var(--accent, #0a84ff));
+}
+/* Hide weekly bar when selected — matches macOS updateWeeklyIndicatorVisibility */
+.provider-grid__item--active .provider-grid__weekly-track {
+  display: none;
+}
+
+[data-theme="light"] .provider-grid__weekly-track {
+  background: rgba(0, 0, 0, 0.10);
+}
+
+[data-theme="light"] .provider-grid__item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+[data-theme="light"] .provider-grid__item--active {
+  background: rgba(0, 122, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.30);
+}
+[data-theme="light"] .provider-grid__label {
+  color: var(--text-secondary);
+}
+[data-theme="light"] .provider-grid__item--active .provider-grid__label {
+  color: var(--text-primary);
+}
+
+/* ── Menu card / metric row tightening ────────────────────────────── */
+.menu-card__name {
+  letter-spacing: -0.005em;
+}
+.menu-card__email,
+.menu-card__plan,
+.menu-card__subtitle {
+  font-size: var(--font-caption);
+  font-weight: 400;
+}
+.menu-card__group-title,
+.menu-metric__title {
+  font-size: var(--font-body);
+  /* upstream uses .fontWeight(.medium) — 500 matches */
+  font-weight: 500;
+}
+.quota-window-history__rows {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+}
+.quota-window-history__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.quota-window-history__row--header {
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: var(--font-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.quota-window-history__row--header span:last-child,
+.quota-window-history__row > span:last-child {
+  text-align: right;
+}
+.quota-window-history__range,
+.quota-window-history__value {
+  display: block;
+}
+.quota-window-history__value {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Recorded quota burndown (upstream 0.70.0 #4085) ─────────────── */
+.quota-burndown-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 2px;
+}
+.quota-burndown-chart svg {
+  width: 100%;
+  height: 76px;
+  overflow: visible;
+}
+.quota-burndown-chart__grid {
+  stroke: var(--usage-bar-track);
+  stroke-width: 1;
+}
+.quota-burndown-chart__ideal {
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+.quota-burndown-chart__observed {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.quota-burndown-chart__point {
+  fill: var(--accent);
+  vector-effect: non-scaling-stroke;
+}
+.quota-burndown-chart__axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+.quota-burndown-chart__caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+}
+.menu-metric__bar,
+.menu-card__pace-track {
+  height: var(--bar-height);
+  border-radius: var(--bar-radius);
+  background: var(--usage-bar-track);
+  overflow: hidden;
+}
+.menu-metric__bar-fill,
+.menu-card__pace-fill {
+  height: 100%;
+  border-radius: var(--bar-radius);
+  transition: width 0.3s ease;
+}
+
+/* Upstream UsageProgressBar uses the provider brand color (which the
+   chart palette covers) but the menu defaults to a green-when-healthy
+   gradient based on usage threshold — green → yellow → orange → red. */
+:root {
+  --usage-bar-normal: #0a84ff;     /* macOS systemBlue — healthy */
+  --usage-bar-high: #ffd60a;       /* macOS systemYellow */
+  --usage-bar-critical: #ff9f0a;   /* macOS systemOrange */
+  --usage-bar-exhausted: #ff453a;  /* macOS systemRed    */
+}
+[data-theme="light"] {
+  --usage-bar-normal: #007aff;
+  --usage-bar-high: #ffcc00;
+  --usage-bar-critical: #ff9500;
+  --usage-bar-exhausted: #ff3b30;
+}
+
+.menu-card__cost-line,
+.menu-card__pace-label,
+.menu-card__pace-eta,
+.menu-card__pace-ok {
+  font-size: var(--font-caption);
+}
+

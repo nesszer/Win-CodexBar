@@ -1,0 +1,650 @@
+/* ── Phase 6f — Provider detail charts ────────────────────────────── */
+
+.provider-detail-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--provider-icon-ring);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.provider-detail-charts__tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--provider-icon-ring);
+  padding-bottom: 6px;
+}
+
+.provider-detail-charts__tab {
+  background: transparent;
+  color: var(--provider-row-text-secondary);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.provider-detail-charts__tab:hover {
+  background: var(--provider-row-bg);
+  color: var(--provider-row-text-primary);
+}
+
+.provider-detail-charts__tab[data-active="true"] {
+  background: var(--provider-row-bg);
+  color: var(--provider-row-text-primary);
+  border-color: var(--provider-icon-ring);
+}
+
+.provider-detail-charts__body {
+  min-height: 64px;
+}
+
+.provider-detail-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.provider-detail-chart__title {
+  font-size: 0.78rem;
+  color: var(--provider-row-text-secondary);
+}
+
+/* Tokens chart "Refreshing" marker while local history backfill is
+   incomplete (upstream 0.50.0 #2930). */
+.provider-detail-chart__refreshing {
+  margin-left: 8px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chart__svg {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.chart--scrollable {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.chart--scrollable .chart__svg {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+}
+
+.chart--scrollable .chart__axis {
+  flex: 0 0 auto;
+}
+
+.chart__axis {
+  position: relative;
+  font-size: 0.7rem;
+  color: var(--provider-row-text-secondary);
+}
+
+.chart__axis > span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.chart__axis-max {
+  font-variant-numeric: tabular-nums;
+}
+
+.chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chart__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* ── Phase 6d — credential detection UIs ────────────────────────── */
+
+.provider-detail-helper {
+  font-size: 0.78rem;
+  color: var(--provider-row-text-secondary);
+  margin: 4px 0 8px;
+  line-height: 1.4;
+}
+
+.provider-detail-grid__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  word-break: break-all;
+}
+
+.provider-detail-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.provider-detail-list__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--provider-icon-ring);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.provider-detail-list__main {
+  min-width: 0;
+}
+
+.provider-detail-list__meta {
+  font-size: 0.72rem;
+  color: var(--provider-row-text-secondary);
+}
+
+.provider-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+
+.provider-detail-field__label {
+  font-size: 0.78rem;
+  color: var(--provider-row-text-secondary);
+}
+
+.provider-detail-field__input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--provider-icon-ring);
+  background: var(--provider-row-bg);
+  color: var(--provider-row-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.provider-detail-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 4px 0 8px;
+  cursor: pointer;
+}
+
+.provider-detail-toggle input[type="checkbox"] {
+  margin-top: 2px;
+}
+
+.provider-detail-toggle__label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--provider-row-text-primary);
+}
+
+.provider-detail-toggle__helper {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--provider-row-text-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+
+/* ── Phase 6e: Token accounts (inline + standalone) ─────────────────── */
+
+.token-accounts-inline {
+  margin-bottom: 16px;
+}
+
+.token-accounts-inline__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--provider-row-text-primary);
+  user-select: none;
+}
+
+.token-accounts-inline__summary::-webkit-details-marker {
+  display: none;
+}
+
+.token-accounts-inline__summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 0.9em;
+  color: var(--provider-row-text-secondary);
+  transition: transform 0.12s;
+}
+
+.token-accounts-inline[open] > .token-accounts-inline__summary::before {
+  transform: rotate(90deg);
+}
+
+.token-accounts-inline__count {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--provider-row-text-secondary);
+}
+
+.token-accounts-inline__body {
+  padding: 8px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.token-accounts-inline .token-accounts-list {
+  gap: 4px;
+}
+
+.token-accounts-inline .token-accounts-card {
+  padding: 8px 10px;
+}
+
+.token-accounts-inline .token-accounts-add {
+  gap: 6px;
+}
+
+.token-accounts-standalone .token-accounts-list {
+  margin-bottom: 12px;
+}
+
+/* ── Phase 7 — shortcut capture & test-sound row ───────────────────── */
+.shortcut-capture {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.shortcut-capture__chip {
+  min-width: 160px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--provider-row-bg);
+  border: 1px solid var(--provider-icon-ring);
+  color: var(--provider-row-text-primary);
+  font-size: 0.85rem;
+  font-family: ui-monospace, "JetBrains Mono", "Consolas", monospace;
+  text-align: center;
+  outline: none;
+}
+
+.shortcut-capture__chip--empty {
+  color: var(--provider-row-text-secondary);
+  font-style: italic;
+  font-family: inherit;
+}
+
+.shortcut-capture__chip--recording {
+  border-color: var(--provider-row-border-selected);
+  background: var(--provider-row-bg-selected);
+  color: var(--provider-row-text-primary);
+  outline: 2px solid var(--provider-row-accent-selected);
+  outline-offset: 1px;
+  animation: shortcut-capture-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes shortcut-capture-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--provider-row-drop-outline);
+  }
+  50% {
+    box-shadow: 0 0 0 3px var(--provider-row-drop-outline);
+  }
+}
+
+.shortcut-capture__actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.shortcut-capture__button {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--provider-icon-ring);
+  background: var(--provider-row-bg);
+  color: var(--provider-row-text-primary);
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.shortcut-capture__button:hover:not(:disabled) {
+  background: var(--provider-row-bg-hover);
+  border-color: var(--provider-row-border-selected);
+}
+
+.shortcut-capture__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.shortcut-capture__button--ghost {
+  background: var(--provider-row-bg);
+  border-color: var(--provider-icon-ring);
+  color: var(--provider-row-text-primary);
+  padding: 5px 10px;
+  font-weight: 600;
+}
+
+.shortcut-capture__button--ghost:hover:not(:disabled) {
+  background: var(--provider-row-bg-hover);
+  border-color: var(--provider-row-border-selected);
+  color: var(--accent);
+}
+
+.notification-sound-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  max-width: 320px;
+  flex-wrap: wrap;
+}
+
+.notification-sound-file {
+  width: 150px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .settings-field:has(.notification-sound-row) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 6px;
+  }
+
+  .settings-field:has(.notification-sound-row) .settings-field__control {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .notification-sound-row {
+    display: flex;
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+
+  .notification-sound-file {
+    width: auto;
+    flex: 1 1 140px;
+  }
+}
+
+.settings-section__error {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--provider-status-error);
+}
+
+/* ── Phase 10 — chart animation, hover tooltip, empty state ──────── */
+
+.chart {
+  position: relative;
+}
+
+.chart__empty {
+  padding: 10px 6px;
+  font-size: 0.78rem;
+  color: var(--provider-row-text-secondary);
+  font-style: italic;
+}
+
+.chart__bar,
+.chart__line,
+.chart__area,
+.chart__point,
+.chart__stack-rect {
+  transition:
+    opacity 0.15s ease,
+    filter 0.15s ease;
+}
+
+.chart__bar:hover,
+.chart__stack-rect:hover,
+.chart__point:hover {
+  filter: brightness(1.2);
+  cursor: crosshair;
+}
+
+.chart__tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+  background: var(--chart-tooltip-bg);
+  color: var(--chart-tooltip-text);
+  border: 1px solid var(--chart-tooltip-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transform: translate(-50%, calc(-100% - 8px));
+}
+
+.chart__tooltip-label {
+  color: var(--provider-row-text-secondary);
+  margin-right: 6px;
+}
+
+/* Selectable bars (OpenAI daily usage): keyboard focus ring on the active bar. */
+.chart__bar[role="option"] {
+  cursor: pointer;
+}
+
+.chart__bar[role="option"]:focus {
+  outline: none;
+}
+
+.chart__bar[role="option"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chart__bar[data-selected="true"] {
+  stroke: var(--text-primary);
+  stroke-width: 1;
+}
+
+/* ── OpenAI Admin API daily usage (tray card + Settings charts) ───── */
+
+.openai-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.openai-usage__tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.openai-usage__tab {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.openai-usage__tab:hover {
+  color: var(--text-primary);
+}
+
+.openai-usage__tab[data-active="true"] {
+  color: var(--text-primary);
+  border-color: var(--panel-border);
+  background: var(--provider-row-bg);
+}
+
+.openai-usage__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.openai-usage__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.openai-usage__hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.openai-usage__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.openai-usage__day {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.openai-usage__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.openai-usage__stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.openai-usage__stats dt {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.openai-usage__stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.openai-usage__list-title {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.openai-usage__list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.openai-usage__list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.openai-usage__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.openai-usage__amount {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.openai-usage__list li.openai-usage__more {
+  color: var(--text-muted);
+}
+
+.openai-usage__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--panel-border);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.openai-usage__footer strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart__bar,
+  .chart__line,
+  .chart__area,
+  .chart__point,
+  .chart__stack-rect {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+
