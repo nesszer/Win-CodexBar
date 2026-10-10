@@ -132,12 +132,7 @@ pub async fn run(args: DiagnoseArgs) -> anyhow::Result<()> {
         diagnostics,
     };
 
-    let json = if args.pretty {
-        serde_json::to_string_pretty(&export)
-    } else {
-        serde_json::to_string(&export)
-    }
-    .context("failed to serialize diagnostics")?;
+    let json = super::to_json(&export, args.pretty).context("failed to serialize diagnostics")?;
 
     println!("{json}");
     Ok(())

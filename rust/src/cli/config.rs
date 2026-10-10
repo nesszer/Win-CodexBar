@@ -134,13 +134,7 @@ impl ConfigOutputArgs {
     }
 
     fn print_json<T: Serialize>(self, value: &T) -> anyhow::Result<()> {
-        let json = if self.pretty {
-            serde_json::to_string_pretty(value)?
-        } else {
-            serde_json::to_string(value)?
-        };
-        println!("{json}");
-        Ok(())
+        super::print_json(value, self.pretty)
     }
 }
 

@@ -354,12 +354,7 @@ fn emit_guard_result(
                 .unavailable_reason
                 .map(|r| r.as_str().to_string()),
         };
-        let rendered = if pretty {
-            serde_json::to_string_pretty(&payload)
-        } else {
-            serde_json::to_string(&payload)
-        };
-        match rendered {
+        match super::to_json(&payload, pretty) {
             Ok(s) => println!("{}", s),
             Err(e) => eprintln!("Error: failed to encode JSON: {}", e),
         }

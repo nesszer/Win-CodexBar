@@ -111,6 +111,27 @@ pub enum Commands {
     Workspaces(workspaces::WorkspacesArgs),
 }
 
+/// Serialize `value` as pretty or compact JSON.
+pub(crate) fn to_json<T: serde::Serialize + ?Sized>(
+    value: &T,
+    pretty: bool,
+) -> serde_json::Result<String> {
+    if pretty {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+}
+
+/// Print `value` as pretty or compact JSON on stdout.
+pub(crate) fn print_json<T: serde::Serialize + ?Sized>(
+    value: &T,
+    pretty: bool,
+) -> anyhow::Result<()> {
+    println!("{}", to_json(value, pretty)?);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

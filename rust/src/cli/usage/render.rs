@@ -121,12 +121,7 @@ pub(super) fn print_usage_output(output: UsageOutput) -> anyhow::Result<()> {
             println!("{}", sections.join("\n\n"));
         }
         UsageOutput::Json { results, pretty } => {
-            let output = if pretty {
-                serde_json::to_string_pretty(&results)?
-            } else {
-                serde_json::to_string(&results)?
-            };
-            println!("{}", output);
+            crate::cli::print_json(&results, pretty)?;
         }
         UsageOutput::Toon(results) => {
             println!(

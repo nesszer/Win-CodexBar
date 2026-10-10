@@ -548,14 +548,7 @@ fn print_json_output(
 ) -> anyhow::Result<()> {
     let payloads = build_json_payloads(results, period, days, settings);
 
-    let output = if pretty {
-        serde_json::to_string_pretty(&payloads)?
-    } else {
-        serde_json::to_string(&payloads)?
-    };
-    println!("{}", output);
-
-    Ok(())
+    super::print_json(&payloads, pretty)
 }
 
 /// Format a number with commas

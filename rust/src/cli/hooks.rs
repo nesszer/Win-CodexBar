@@ -1,5 +1,6 @@
 //! `codexbar hooks` — list / enable / disable / test / watch external hook rules.
 
+use super::print_json;
 use clap::{Args, Subcommand};
 use serde::Serialize;
 use std::sync::Arc;
@@ -639,15 +640,6 @@ fn parse_event(raw: &str) -> anyhow::Result<HookEventType> {
             "Unknown event '{other}'. Use one of: quota_low, quota_reached, quota_reset, usage_updated, provider_unavailable, provider_recovered, refresh_failed."
         ),
     }
-}
-
-fn print_json<T: Serialize>(value: &T, pretty: bool) -> anyhow::Result<()> {
-    if pretty {
-        println!("{}", serde_json::to_string_pretty(value)?);
-    } else {
-        println!("{}", serde_json::to_string(value)?);
-    }
-    Ok(())
 }
 
 #[cfg(test)]
