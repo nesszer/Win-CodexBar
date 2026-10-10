@@ -50,335 +50,252 @@ pub struct TokenAccountSupport {
 }
 
 impl TokenAccountSupport {
+    fn cookie(subtitle: &'static str, placeholder: &'static str) -> Self {
+        Self {
+            title: "Session tokens",
+            subtitle,
+            placeholder,
+            injection: TokenInjection::CookieHeader,
+            requires_manual_cookie_source: true,
+            cookie_name: None,
+        }
+    }
+
+    fn api_key(
+        title: &'static str,
+        env_key: &str,
+        subtitle: &'static str,
+        placeholder: &'static str,
+    ) -> Self {
+        Self {
+            title,
+            subtitle,
+            placeholder,
+            injection: TokenInjection::Environment {
+                key: env_key.to_string(),
+            },
+            requires_manual_cookie_source: false,
+            cookie_name: None,
+        }
+    }
+
+    fn with_cookie_name(mut self, cookie_name: &'static str) -> Self {
+        self.cookie_name = Some(cookie_name);
+        self
+    }
+
     /// Get token account support for a provider
     pub fn for_provider(provider: ProviderId) -> Option<Self> {
         match provider {
-            ProviderId::Claude => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store Claude sessionKey cookies for settings-page usage. OAuth tokens are kept as a legacy fallback.",
-                placeholder: "Paste sessionKey value or Cookie: sessionKey=...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: Some("sessionKey"),
-            }),
-            ProviderId::Zai => Some(TokenAccountSupport {
-                title: "API tokens",
-                subtitle: "Stored locally in token-accounts.json. Team usage can use workspace_id as organization|project.",
-                placeholder: "Paste token...",
-                injection: TokenInjection::Environment {
-                    key: "Z_AI_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::Cursor => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Cursor Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::OpenCode => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple OpenCode Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Factory => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Factory Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Alibaba => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Alibaba Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::AlibabaTokenPlan => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Alibaba Token Plan Cookie headers.",
-                placeholder: "Cookie: cna=...; login_aliyunid_csrf=...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::MiniMax => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple MiniMax Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Augment => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Augment Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Amp => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Amp Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Ollama => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Ollama Cookie headers or __Secure-session values.",
-                placeholder: "__Secure-session value or Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: Some("__Secure-session"),
-            }),
-            ProviderId::T3Chat => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple T3 Chat Cookie headers or full browser cURL captures.",
-                placeholder: "Cookie: ... or curl ... -H 'Cookie: ...'",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::ZoomMate => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple ZoomMate Cookie headers or credits/status cURL captures.",
-                placeholder: "Cookie: ... or curl 'https://ai.zoom.us/.../credits/status' -H 'Authorization: Bearer ...'",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Mistral => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Mistral Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Manus => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Manus session_id values.",
-                placeholder: "session_id value or Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: Some("session_id"),
-            }),
-            ProviderId::MiMo => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Xiaomi MiMo Cookie headers.",
-                placeholder: "Cookie: api-platform_serviceToken=...; userId=...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::CommandCode => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Command Code Cookie headers or Better Auth values.",
-                placeholder: "Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: Some("__Secure-better-auth.session_token"),
-            }),
-            ProviderId::Qoder => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Qoder Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::CodeBuddy => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store CodeBuddy CN Cookie headers (from plans-usage DevTools cURL).",
-                placeholder: "Cookie: session=...; ... (or paste full Cookie header)",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Sakana => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Sakana Console Cookie headers.",
-                placeholder: "Cookie: ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: None,
-            }),
-            ProviderId::Notion => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Notion Cookie headers or token_v2 values.",
-                placeholder: "Cookie: token_v2=... or paste the token_v2 value",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: Some("token_v2"),
-            }),
-            ProviderId::Replicate => Some(TokenAccountSupport {
-                title: "Session tokens",
-                subtitle: "Store multiple Replicate Cookie headers from the billing page.",
-                placeholder: "Cookie: sessionid=...; ...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: Some("sessionid"),
-            }),
-            ProviderId::Sub2Api => Some(TokenAccountSupport {
-                title: "Group API keys",
-                subtitle: "Store multiple sub2api group API keys with labels such as Claude, Codex, or Gemini.",
-                placeholder: "sk-...",
-                injection: TokenInjection::Environment {
-                    key: "SUB2API_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::DeepInfra => Some(TokenAccountSupport {
-                title: "API keys",
-                subtitle: "Store multiple DeepInfra API keys.",
-                placeholder: "API key from deepinfra.com/dash",
-                injection: TokenInjection::Environment {
-                    key: "DEEPINFRA_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::HuggingFace => Some(TokenAccountSupport {
-                title: "API tokens",
-                subtitle: "Store multiple Hugging Face access tokens.",
-                placeholder: "Paste a Hugging Face access token",
-                injection: TokenInjection::Environment {
-                    key: "CODEXBAR_HUGGINGFACE_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::AiAnd => Some(TokenAccountSupport {
-                title: "API keys",
-                subtitle: "Store multiple ai& API keys.",
-                placeholder: "API key from console.aiand.com",
-                injection: TokenInjection::Environment {
-                    key: "AIAND_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::ZenMux => Some(TokenAccountSupport {
-                title: "API keys",
-                subtitle: "Store multiple ZenMux Management API keys.",
-                placeholder: "Management API key",
-                injection: TokenInjection::Environment {
-                    key: "ZENMUX_MANAGEMENT_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::ClinePass => Some(TokenAccountSupport {
-                title: "API keys",
-                subtitle: "Store multiple ClinePass API keys. Without one, CodexBar reads your existing Cline session (run cline auth) without copying it.",
-                placeholder: "API key",
-                injection: TokenInjection::Environment {
-                    key: "CLINE_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::Neuralwatt => Some(TokenAccountSupport {
-                title: "API keys",
-                subtitle: "Store multiple Neuralwatt API keys.",
-                placeholder: "API key",
-                injection: TokenInjection::Environment {
-                    key: "NEURALWATT_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::Grok => Some(TokenAccountSupport {
+            ProviderId::Claude => Some(
+                Self::cookie(
+                    "Store Claude sessionKey cookies for settings-page usage. OAuth tokens are kept as a legacy fallback.",
+                    "Paste sessionKey value or Cookie: sessionKey=...",
+                )
+                .with_cookie_name("sessionKey"),
+            ),
+            ProviderId::Zai => Some(Self::api_key(
+                "API tokens",
+                "Z_AI_API_KEY",
+                "Stored locally in token-accounts.json. Team usage can use workspace_id as organization|project.",
+                "Paste token...",
+            )),
+            ProviderId::Cursor => Some(Self::cookie(
+                "Store multiple Cursor Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::OpenCode => Some(Self::cookie(
+                "Store multiple OpenCode Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::Factory => Some(Self::cookie(
+                "Store multiple Factory Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::Alibaba => Some(Self::cookie(
+                "Store multiple Alibaba Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::AlibabaTokenPlan => Some(Self::cookie(
+                "Store multiple Alibaba Token Plan Cookie headers.",
+                "Cookie: cna=...; login_aliyunid_csrf=...",
+            )),
+            ProviderId::MiniMax => Some(Self::cookie(
+                "Store multiple MiniMax Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::Augment => Some(Self::cookie(
+                "Store multiple Augment Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::Amp => Some(Self::cookie(
+                "Store multiple Amp Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::Ollama => Some(
+                Self::cookie(
+                    "Store multiple Ollama Cookie headers or __Secure-session values.",
+                    "__Secure-session value or Cookie: ...",
+                )
+                .with_cookie_name("__Secure-session"),
+            ),
+            ProviderId::T3Chat => Some(Self::cookie(
+                "Store multiple T3 Chat Cookie headers or full browser cURL captures.",
+                "Cookie: ... or curl ... -H 'Cookie: ...'",
+            )),
+            ProviderId::ZoomMate => Some(Self::cookie(
+                "Store multiple ZoomMate Cookie headers or credits/status cURL captures.",
+                "Cookie: ... or curl 'https://ai.zoom.us/.../credits/status' -H 'Authorization: Bearer ...'",
+            )),
+            ProviderId::Mistral => Some(Self::cookie(
+                "Store multiple Mistral Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::Manus => Some(
+                Self::cookie(
+                    "Store multiple Manus session_id values.",
+                    "session_id value or Cookie: ...",
+                )
+                .with_cookie_name("session_id"),
+            ),
+            ProviderId::MiMo => Some(Self::cookie(
+                "Store multiple Xiaomi MiMo Cookie headers.",
+                "Cookie: api-platform_serviceToken=...; userId=...",
+            )),
+            ProviderId::CommandCode => Some(
+                Self::cookie(
+                    "Store multiple Command Code Cookie headers or Better Auth values.",
+                    "Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value",
+                )
+                .with_cookie_name("__Secure-better-auth.session_token"),
+            ),
+            ProviderId::Qoder => Some(Self::cookie(
+                "Store multiple Qoder Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::CodeBuddy => Some(Self::cookie(
+                "Store CodeBuddy CN Cookie headers (from plans-usage DevTools cURL).",
+                "Cookie: session=...; ... (or paste full Cookie header)",
+            )),
+            ProviderId::Sakana => Some(Self::cookie(
+                "Store multiple Sakana Console Cookie headers.",
+                "Cookie: ...",
+            )),
+            ProviderId::Notion => Some(
+                Self::cookie(
+                    "Store multiple Notion Cookie headers or token_v2 values.",
+                    "Cookie: token_v2=... or paste the token_v2 value",
+                )
+                .with_cookie_name("token_v2"),
+            ),
+            ProviderId::Replicate => Some(
+                Self::cookie(
+                    "Store multiple Replicate Cookie headers from the billing page.",
+                    "Cookie: sessionid=...; ...",
+                )
+                .with_cookie_name("sessionid"),
+            ),
+            ProviderId::Sub2Api => Some(Self::api_key(
+                "Group API keys",
+                "SUB2API_API_KEY",
+                "Store multiple sub2api group API keys with labels such as Claude, Codex, or Gemini.",
+                "sk-...",
+            )),
+            ProviderId::DeepInfra => Some(Self::api_key(
+                "API keys",
+                "DEEPINFRA_API_KEY",
+                "Store multiple DeepInfra API keys.",
+                "API key from deepinfra.com/dash",
+            )),
+            ProviderId::HuggingFace => Some(Self::api_key(
+                "API tokens",
+                "CODEXBAR_HUGGINGFACE_API_KEY",
+                "Store multiple Hugging Face access tokens.",
+                "Paste a Hugging Face access token",
+            )),
+            ProviderId::AiAnd => Some(Self::api_key(
+                "API keys",
+                "AIAND_API_KEY",
+                "Store multiple ai& API keys.",
+                "API key from console.aiand.com",
+            )),
+            ProviderId::ZenMux => Some(Self::api_key(
+                "API keys",
+                "ZENMUX_MANAGEMENT_API_KEY",
+                "Store multiple ZenMux Management API keys.",
+                "Management API key",
+            )),
+            ProviderId::ClinePass => Some(Self::api_key(
+                "API keys",
+                "CLINE_API_KEY",
+                "Store multiple ClinePass API keys. Without one, CodexBar reads your existing Cline session (run cline auth) without copying it.",
+                "API key",
+            )),
+            ProviderId::Neuralwatt => Some(Self::api_key(
+                "API keys",
+                "NEURALWATT_API_KEY",
+                "Store multiple Neuralwatt API keys.",
+                "API key",
+            )),
+            ProviderId::Grok => Some(Self {
                 title: "Grok credentials",
-                subtitle: "Store SuperGrok bearer tokens or grok.com Cookie headers.",
-                placeholder: "Bearer token or Cookie: ...",
-                injection: TokenInjection::CookieHeader,
                 requires_manual_cookie_source: false,
-                cookie_name: None,
+                ..Self::cookie(
+                    "Store SuperGrok bearer tokens or grok.com Cookie headers.",
+                    "Bearer token or Cookie: ...",
+                )
             }),
-            ProviderId::Xai => Some(TokenAccountSupport {
-                title: "Management API keys",
-                subtitle: "Store multiple xAI Management API keys. Team ID is set separately under provider settings.",
-                placeholder: "xai-... Management API key from console.x.ai",
-                injection: TokenInjection::Environment {
-                    key: "XAI_MANAGEMENT_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
+            ProviderId::Xai => Some(Self::api_key(
+                "Management API keys",
+                "XAI_MANAGEMENT_API_KEY",
+                "Store multiple xAI Management API keys. Team ID is set separately under provider settings.",
+                "xai-... Management API key from console.x.ai",
+            )),
             // Upstream 0.45 #2271: labeled OpenRouter API keys via token accounts.
-            ProviderId::OpenRouter => Some(TokenAccountSupport {
-                title: "API keys",
-                subtitle: "Store multiple OpenRouter API keys.",
-                placeholder: "sk-or-v1-...",
-                injection: TokenInjection::Environment {
-                    key: "OPENROUTER_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::Copilot => Some(TokenAccountSupport {
-                title: "GitHub accounts",
-                subtitle: "Store GitHub OAuth tokens for Copilot plan usage.",
-                placeholder: "Sign in with GitHub or paste a GitHub OAuth token...",
-                injection: TokenInjection::Environment {
-                    key: "GITHUB_TOKEN".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::Kimi => Some(TokenAccountSupport {
+            ProviderId::OpenRouter => Some(Self::api_key(
+                "API keys",
+                "OPENROUTER_API_KEY",
+                "Store multiple OpenRouter API keys.",
+                "sk-or-v1-...",
+            )),
+            ProviderId::Copilot => Some(Self::api_key(
+                "GitHub accounts",
+                "GITHUB_TOKEN",
+                "Store GitHub OAuth tokens for Copilot plan usage.",
+                "Sign in with GitHub or paste a GitHub OAuth token...",
+            )),
+            ProviderId::Kimi => Some(Self {
                 title: "Web sessions",
-                subtitle: "Store labeled Kimi kimi-auth web sessions.",
-                placeholder: "kimi-auth value or Cookie: kimi-auth=...",
-                injection: TokenInjection::CookieHeader,
-                requires_manual_cookie_source: true,
-                cookie_name: Some("kimi-auth"),
+                ..Self::cookie(
+                    "Store labeled Kimi kimi-auth web sessions.",
+                    "kimi-auth value or Cookie: kimi-auth=...",
+                )
+                .with_cookie_name("kimi-auth")
             }),
-            ProviderId::Doubao => Some(TokenAccountSupport {
-                title: "Ark API keys",
-                subtitle: "Store labeled Volcengine Ark API keys.",
-                placeholder: "Ark API key",
-                injection: TokenInjection::Environment {
-                    key: "ARK_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
-            ProviderId::OpenCodeGo => Some(TokenAccountSupport {
-                title: "API keys or sessions",
-                subtitle: "Store labeled OpenCode Go API keys or Cookie headers.",
-                placeholder: "API key or Cookie: ...",
+            ProviderId::Doubao => Some(Self::api_key(
+                "Ark API keys",
+                "ARK_API_KEY",
+                "Store labeled Volcengine Ark API keys.",
+                "Ark API key",
+            )),
+            ProviderId::OpenCodeGo => Some(Self {
                 injection: TokenInjection::EnvironmentOrCookie {
                     key: "OPENCODE_API_KEY".to_string(),
                 },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
+                ..Self::api_key(
+                    "API keys or sessions",
+                    "OPENCODE_API_KEY",
+                    "Store labeled OpenCode Go API keys or Cookie headers.",
+                    "API key or Cookie: ...",
+                )
             }),
             // Upstream 0.67: labeled Aixy API keys via token accounts.
-            ProviderId::Aixy => Some(TokenAccountSupport {
-                title: "API keys",
-                subtitle: "Store multiple Aixy API keys.",
-                placeholder: "Paste Aixy API key…",
-                injection: TokenInjection::Environment {
-                    key: "AIXY_API_KEY".to_string(),
-                },
-                requires_manual_cookie_source: false,
-                cookie_name: None,
-            }),
+            ProviderId::Aixy => Some(Self::api_key(
+                "API keys",
+                "AIXY_API_KEY",
+                "Store multiple Aixy API keys.",
+                "Paste Aixy API key…",
+            )),
             // These providers don't support token accounts
             ProviderId::Codex
             | ProviderId::Pi
