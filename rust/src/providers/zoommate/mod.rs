@@ -491,25 +491,14 @@ fn date_from_millis(raw: Option<i64>) -> Option<DateTime<Utc>> {
 }
 
 fn hosts_preferred(preferred: Option<&str>) -> Vec<&'static str> {
-    let preferred = preferred.map(|h| h.to_ascii_lowercase());
-    match preferred.as_deref() {
-        Some(h) if API_HOSTS.iter().any(|x| x.eq_ignore_ascii_case(h)) => {
-            let mut out = vec![
-                API_HOSTS
-                    .iter()
-                    .copied()
-                    .find(|x| x.eq_ignore_ascii_case(h))
-                    .unwrap_or(API_HOSTS[0]),
-            ];
-            for host in API_HOSTS {
-                if !host.eq_ignore_ascii_case(h) {
-                    out.push(*host);
-                }
-            }
-            out
-        }
-        _ => API_HOSTS.to_vec(),
+    let mut hosts = API_HOSTS.to_vec();
+    if let Some(index) =
+        preferred.and_then(|h| hosts.iter().position(|x| x.eq_ignore_ascii_case(h)))
+    {
+        let host = hosts.remove(index);
+        hosts.insert(0, host);
     }
+    hosts
 }
 
 /// Runs `operation` per host. Auth (401/403 → AuthRequired) and parse errors do
