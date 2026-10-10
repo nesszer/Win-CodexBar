@@ -180,20 +180,7 @@ impl CursorApi {
         let (percent_used, secondary, model_specific, cost_snapshot) =
             if let Some(team_budget) = team_budget {
                 let percent = clamp_percent(team_budget.used_usd / team_budget.limit_usd * 100.0);
-                let cost = Self::on_demand_cost(
-                    summary
-                        .individual_usage
-                        .as_ref()
-                        .and_then(|individual| individual.on_demand.as_ref()),
-                    billing_end,
-                )
-                .or_else(|| {
-                    summary
-                        .team_usage
-                        .as_ref()
-                        .and_then(|team| Self::on_demand_cost(team.on_demand.as_ref(), billing_end))
-                })
-                .or_else(|| {
+                let cost = Self::summary_on_demand_cost(&summary, billing_end).or_else(|| {
                     Some(Self::plan_cost(
                         team_budget.used_usd,
                         team_budget.limit_usd,
@@ -228,13 +215,8 @@ impl CursorApi {
                         RateWindow::with_details(clamp_percent(v), None, billing_end, None)
                     });
 
-                    let cost = Self::on_demand_cost(individual.on_demand.as_ref(), billing_end)
-                        .or_else(|| {
-                            summary.team_usage.as_ref().and_then(|team| {
-                                Self::on_demand_cost(team.on_demand.as_ref(), billing_end)
-                            })
-                        })
-                        .unwrap_or_else(|| {
+                    let cost =
+                        Self::summary_on_demand_cost(&summary, billing_end).unwrap_or_else(|| {
                             // Plan-included spend (cents → USD) when on-demand is off.
                             Self::plan_cost(
                                 used_cents / 100.0,
@@ -306,6 +288,23 @@ impl CursorApi {
         cost
     }
 
+    /// Individual on-demand spend, else the team's.
+    fn summary_on_demand_cost(
+        summary: &UsageSummary,
+        billing_end: Option<DateTime<Utc>>,
+    ) -> Option<CostSnapshot> {
+        let individual = summary
+            .individual_usage
+            .as_ref()
+            .and_then(|individual| individual.on_demand.as_ref());
+        Self::on_demand_cost(individual, billing_end).or_else(|| {
+            summary
+                .team_usage
+                .as_ref()
+                .and_then(|team| Self::on_demand_cost(team.on_demand.as_ref(), billing_end))
+        })
+    }
+
     fn on_demand_cost(
         on_demand: Option<&OnDemandUsage>,
         billing_end: Option<DateTime<Utc>>,
@@ -315,15 +314,7 @@ impl CursorApi {
             return None;
         }
 
-        let used_cents = usage.used.unwrap_or(0) as f64;
-        let limit_cents = usage
-            .limit
-            .or_else(|| {
-                usage
-                    .remaining
-                    .map(|remaining| remaining + usage.used.unwrap_or(0))
-            })
-            .unwrap_or(0) as f64;
+        let (used_cents, limit_cents) = usage.used_and_limit_cents();
 
         if used_cents <= 0.0 && limit_cents <= 0.0 {
             return None;
@@ -342,15 +333,7 @@ impl CursorApi {
     }
 
     fn usage_percent(usage: &OnDemandUsage) -> Option<f64> {
-        let used = usage.used.unwrap_or(0) as f64;
-        let limit = usage
-            .limit
-            .or_else(|| {
-                usage
-                    .remaining
-                    .map(|remaining| remaining + usage.used.unwrap_or(0))
-            })
-            .unwrap_or(0) as f64;
+        let (used, limit) = usage.used_and_limit_cents();
         (limit > 0.0).then_some(clamp_percent(used / limit * 100.0))
     }
 }
@@ -442,6 +425,18 @@ struct OnDemandUsage {
     used: Option<i64>,
     limit: Option<i64>,
     remaining: Option<i64>,
+}
+
+impl OnDemandUsage {
+    /// (used, limit) in cents; a missing limit falls back to remaining + used.
+    fn used_and_limit_cents(&self) -> (f64, f64) {
+        let used = self.used.unwrap_or(0);
+        let limit = self
+            .limit
+            .or_else(|| self.remaining.map(|remaining| remaining + used))
+            .unwrap_or(0);
+        (used as f64, limit as f64)
+    }
 }
 
 #[derive(Debug, Deserialize)]
