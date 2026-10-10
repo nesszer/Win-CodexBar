@@ -8,9 +8,7 @@ use super::cost_period::{
     cost_totals_json, resolve_period, rolling_window_days, stamp_period, window_days,
 };
 use super::usage::{OutputFormat, ProviderSelection};
-use crate::codex_costs::{
-    CodexHostCostReport, CodexHostCostsArgs, CodexHostOutcome, run_codex_host_costs,
-};
+use crate::codex_costs::{CodexHostCostsArgs, run_codex_host_costs};
 use crate::codex_workspaces::short_session_id;
 use crate::core::{CostScanOptions, ProviderId};
 use crate::cost_reporting_period::CostReportingPeriod;
@@ -245,60 +243,6 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn render_codex_host_report(report: &CodexHostCostReport) -> String {
-    let title = if report.source == "local" {
-        "This machine".to_string()
-    } else {
-        report.host.clone()
-    };
-    let summary = match &report.outcome {
-        CodexHostOutcome::Success(summary) => summary,
-        CodexHostOutcome::Failed(error) => {
-            return format!("{title}: {error}");
-        }
-    };
-
-    let window_line = |label: &str, window: &crate::codex_costs::CodexHostCostWindow| {
-        let cost = window
-            .cost_usd
-            .map(|value| format!("${value:.2}"))
-            .unwrap_or_else(|| "—".to_string());
-        let tokens = window
-            .total_tokens
-            .map(format_number)
-            .unwrap_or_else(|| "—".to_string());
-        let mut line = format!("{label}: {cost} · {tokens} tokens");
-        if window.coverage.unpriced > 0 || window.coverage.unmetered > 0 {
-            line.push_str(" (some usage has no known price)");
-        }
-        line
-    };
-
-    let history = if summary.history_days == 1 {
-        String::new()
-    } else {
-        format!(
-            "\n{}",
-            window_line(
-                &format!("Last {} days", summary.history_days),
-                &summary.history
-            )
-        )
-    };
-    let coverage = if summary.history_coverage_is_established {
-        String::new()
-    } else {
-        "\nPartial history; scan is incomplete.".to_string()
-    };
-    format!(
-        "{title} — Codex API-equivalent estimate (not billed)\n{}{}\nDay boundaries: {}{}",
-        window_line("Today", &summary.today),
-        history,
-        summary.bucket_time_zone,
-        coverage
-    )
 }
 
 /// Cost result for a provider
@@ -637,7 +581,7 @@ fn is_terminal() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codex_costs::CodexCostSummary;
+    use crate::codex_costs::{CodexCostSummary, CodexHostCostReport, CodexHostOutcome};
 
     #[test]
     fn json_output_emits_a16_and_f18_fields() {
@@ -1020,22 +964,5 @@ mod tests {
             reports[1].outcome,
             CodexHostOutcome::Failed(crate::codex_costs::REMOTE_CODEX_COST_UNAVAILABLE.to_string())
         );
-    }
-
-    #[test]
-    fn host_text_preserves_unknown_values_and_separate_boundaries() {
-        let partial = CodexCostSummary::from_summaries_at(
-            &CostSummary::default(),
-            &CostSummary::default(),
-            30,
-            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-            "UTC",
-        );
-        let text =
-            render_codex_host_report(&CodexHostCostReport::success("local", "local", partial));
-        assert!(text.contains("Today: — · — tokens"));
-        assert!(text.contains("Last 30 days: — · — tokens"));
-        assert!(text.contains("Partial history"));
-        assert!(text.contains("Day boundaries: UTC"));
     }
 }
