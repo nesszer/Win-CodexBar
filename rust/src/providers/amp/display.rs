@@ -263,7 +263,7 @@ fn looks_signed_out(text: &str) -> bool {
 }
 
 fn strip_ansi(text: &str) -> String {
-    match Regex::new(r"\x1B\[[0-9;?]*[ -/]*[@-~]") {
+    match Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]") {
         Ok(re) => re.replace_all(text, "").into_owned(),
         Err(_) => text.to_string(),
     }
@@ -356,6 +356,27 @@ Workspace meow: $10.22 remaining (set up automatic top-up to avoid running out) 
         assert_eq!(parsed.usage.account_organization.as_deref(), Some("echo"));
         assert_eq!(detail_value(&parsed, "Individual"), Some("$25.64"));
         assert_eq!(detail_value(&parsed, "Workspace meow"), Some("$10.22"));
+    }
+
+    #[test]
+    fn strips_csi_sequences_with_colon_and_private_parameters() {
+        // Upstream strips the full CSI parameter range 0x30-0x3F, which
+        // includes the `:` of 24-bit SGR and the `>` of private modes.
+        let text = "\u{1B}[>4;2m\u{1B}[38:2::255:0:0mSigned in as user@example.com (team)\u{1B}[0m\n\
+\u{1B}[38:5:2mAmp Free: $6/$10 remaining (replenishes +$0.5/hour)\u{1B}[0m\n";
+        assert_eq!(
+            strip_ansi(text),
+            "Signed in as user@example.com (team)\n\
+Amp Free: $6/$10 remaining (replenishes +$0.5/hour)\n"
+        );
+
+        let parsed = parse(text, at(1_700_000_000));
+        assert_eq!(parsed.usage.primary.used_percent, 40.0);
+        assert_eq!(
+            parsed.usage.account_email.as_deref(),
+            Some("user@example.com")
+        );
+        assert_eq!(parsed.usage.account_organization.as_deref(), Some("team"));
     }
 
     #[test]
