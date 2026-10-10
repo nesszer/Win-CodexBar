@@ -368,7 +368,7 @@ mod tests {
         );
 
         let json = serde_json::to_value(&snapshot).unwrap();
-        let keys: Vec<&str> = json
+        let mut actual: Vec<&str> = json
             .as_object()
             .unwrap()
             .keys()
@@ -393,7 +393,6 @@ mod tests {
             "priced",
             "routes",
         ];
-        let mut actual = keys.clone();
         actual.sort_unstable();
         expected.sort_unstable();
         assert_eq!(actual, expected);
