@@ -560,6 +560,39 @@ fn malformed_claude_history_stays_unknown_while_valid_empty_history_is_known_zer
     assert!(!malformed_summary.known_zero);
 }
 
+/// One file's daily token scan, counting each record that cannot be
+/// aggregated as the token history path does.
+fn scan_claude_file_for_daily_tokens(
+    path: &Path,
+    cutoff: &DateTime<Utc>,
+    seen: &mut HashSet<ClaudeUsageDedupKey>,
+    pricing: &mut ClaudeScanPricingResolver,
+    daily_tokens: &mut HashMap<String, u64>,
+) -> ClaudeFileScanResult {
+    let mut aggregation_failures = 0u32;
+    // Token history ignores incomplete-request markers.
+    let mut incomplete = ClaudeIncompleteTracker::default();
+    let mut result = scan_claude_file_with_pricing(
+        path,
+        cutoff,
+        seen,
+        None,
+        pricing,
+        &mut incomplete,
+        |record| {
+            if record.timestamp.is_none()
+                || !add_claude_record_to_daily_tokens(daily_tokens, record)
+            {
+                aggregation_failures = aggregation_failures.saturating_add(1);
+            }
+        },
+    );
+    result.aggregation_failures = result
+        .aggregation_failures
+        .saturating_add(aggregation_failures);
+    result
+}
+
 #[test]
 fn claude_daily_token_coverage_requires_a_complete_valid_scan() {
     let root = tempfile::tempdir().unwrap();
