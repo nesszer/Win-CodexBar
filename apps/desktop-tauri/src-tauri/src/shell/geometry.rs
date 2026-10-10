@@ -81,19 +81,6 @@ pub(super) fn monitor_placement(monitor: &tauri::Monitor) -> MonitorPlacement {
     }
 }
 
-pub(super) fn popout_position(
-    anchor_rect: Option<&Rect>,
-    monitor: &MonitorPlacement,
-    panel_size: &PanelSize,
-) -> (i32, i32) {
-    window_positioner::calculate_popout_position(
-        anchor_rect,
-        &monitor.work_area,
-        panel_size,
-        monitor.scale_factor,
-    )
-}
-
 /// Center a panel on the monitor's work area (used for Settings windows).
 pub(super) fn centered_position(monitor: &MonitorPlacement, panel_size: &PanelSize) -> (i32, i32) {
     let scale = monitor.scale_factor;
@@ -184,36 +171,6 @@ pub(super) fn tray_anchor_rect(anchor: crate::state::TrayAnchor) -> Rect {
         width: anchor.width,
         height: anchor.height,
     }
-}
-
-pub(super) fn monitor_placement_for_anchor(
-    monitors: &[MonitorPlacement],
-    anchor: crate::state::TrayAnchor,
-) -> Option<MonitorPlacement> {
-    // Tray icon dimensions are small pixel counts, far below i32::MAX.
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "tray icon pixel dimensions fit in i32"
-    )]
-    let anchor_cx = anchor.x + anchor.width as i32 / 2;
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "tray icon pixel dimensions fit in i32"
-    )]
-    let anchor_cy = anchor.y + anchor.height as i32 / 2;
-
-    monitor_placement_containing_point(monitors, anchor_cx, anchor_cy)
-}
-
-pub(super) fn monitor_placement_containing_point(
-    monitors: &[MonitorPlacement],
-    x: i32,
-    y: i32,
-) -> Option<MonitorPlacement> {
-    monitors
-        .iter()
-        .find(|monitor| point_in_rect(&monitor.bounds, x, y))
-        .copied()
 }
 
 pub(super) fn monitor_for_anchor(
