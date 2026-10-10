@@ -10,12 +10,10 @@ const WORKDAY_TICK = 1;
 const PACE_CUT = 6;
 const PACE_STRIPE = 2;
 
-/** A rect `width` px wide, centred on a percentage of the track. */
 function centered(percent: number, width: number) {
   return { x: `${percent}%`, width, transform: `translate(${-width / 2} 0)` };
 }
 
-/** White keeps, each black cut keeps a tenth, like a 0.9 destination-out on macOS. */
 function CutMask({ id, cuts, width }: { id: string; cuts: number[]; width: number }) {
   return (
     <mask
@@ -42,7 +40,6 @@ function CutMask({ id, cuts, width }: { id: string; cuts: number[]; width: numbe
   );
 }
 
-/** The 6px usage bar of a metric row, after the macOS `UsageProgressBar`. */
 export default function UsageProgressBar({ bar, label }: { bar: UsageBarModel; label: string }) {
   const id = useId().replace(/:/g, "");
   const warnings = bar.markers.filter((marker) => marker.kind === "warning").map((marker) => marker.percent);
@@ -97,7 +94,7 @@ export default function UsageProgressBar({ bar, label }: { bar: UsageBarModel; l
       {pace != null && (
         <rect
           className="menu-metric__progress-pace"
-          data-deficit={String(!bar.paceOnTop)}
+          data-deficit={String(bar.paceDeficit)}
           {...centered(pace, PACE_STRIPE)}
           height={HEIGHT}
           shapeRendering="crispEdges"

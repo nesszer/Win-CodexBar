@@ -61,7 +61,6 @@ export interface MenuCardDisplayOptions {
    */
   compactOverview?: boolean;
   costSummaryDisplayStyle?: CostSummaryDisplayStyle;
-  /** Notification thresholds, drawn as quota warning markers on the bars. */
   usageThresholds?: UsageThresholdSettings | null;
   weeklyProgressWorkDays?: number | null;
 }

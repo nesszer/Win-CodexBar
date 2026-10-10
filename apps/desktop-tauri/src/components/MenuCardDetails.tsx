@@ -294,7 +294,6 @@ export interface MetricEntry {
   sessionEquivalentForecast?: SessionEquivalentForecastSnapshot | null;
 }
 
-/** On-pace budget of a weekly window that still has quota left. */
 function metricPaceBudget(snap: RateWindowSnapshot): PaceBudget | null {
   if (snap.isExhausted) return null;
   const isWeeklyWindow =
@@ -310,12 +309,10 @@ type MetricRowDisplay = {
   compactOverview?: boolean;
   costSummaryDisplayStyle?: CostSummaryDisplayStyle;
   monthlyLimitBlockNow?: number;
-  /** Notification thresholds, drawn as quota warning markers on the bars. */
   usageThresholds?: UsageThresholdSettings | null;
   weeklyProgressWorkDays?: number | null;
 };
 
-/** The current time, re-read every 30 s while a reset countdown is shown. */
 function useCountdownNow(ticking: boolean): number {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -326,12 +323,6 @@ function useCountdownNow(ticking: boolean): number {
   return Date.now();
 }
 
-/**
- * Single metric row inside the card, after upstream `MetricRow`:
- *   • title and percent, with the reset on the same baseline or under it
- *   • UsageProgressBar (6pt) with quota warning, work day and pace markers
- *   • pace line (footnote, secondary)
- */
 function MetricRow({
   title,
   snap,

@@ -10,7 +10,7 @@ function bar(overrides: Partial<UsageBarModel> = {}): UsageBarModel {
     valuePercent: 63,
     valueText: "63%",
     pacePercent: null,
-    paceOnTop: true,
+    paceDeficit: false,
     markers: [],
     ...overrides,
   };
@@ -20,8 +20,7 @@ function attrs(container: HTMLElement, selector: string, name: string): Array<st
   return Array.from(container.querySelectorAll(selector), (node) => node.getAttribute(name));
 }
 
-/** The cut-out rects of the mask a group references through `mask="url(#id)"`. */
-function cuts(container: HTMLElement, group: Element | null) {
+function maskCutsOf(container: HTMLElement, group: Element | null) {
   const id = group?.getAttribute("mask")?.match(/^url\(#(.+)\)$/)?.[1];
   const mask = id ? container.querySelector(`mask[id="${id}"]`) : null;
   return Array.from(mask?.querySelectorAll("rect[fill='black']") ?? [], (rect) => ({
@@ -78,7 +77,7 @@ describe("UsageProgressBar", () => {
       "translate(-0.5 0)",
     ]);
     const fillGroup = container.querySelector(".menu-metric__progress-fill")?.parentElement ?? null;
-    expect(cuts(container, fillGroup)).toEqual([
+    expect(maskCutsOf(container, fillGroup)).toEqual([
       { x: "10%", width: "5", opacity: "0.9" },
       { x: "30%", width: "5", opacity: "0.9" },
     ]);
@@ -103,13 +102,13 @@ describe("UsageProgressBar", () => {
   });
 
   it.each([
-    [true, "false"],
-    [false, "true"],
-  ])("cuts a 6px gap for the pace stripe and marks paceOnTop %s as deficit %s", (paceOnTop, deficit) => {
+    [false, "false"],
+    [true, "true"],
+  ])("cuts a 6px gap for the pace stripe and marks paceDeficit %s as deficit %s", (paceDeficit, deficit) => {
     const { container } = render(
       <UsageProgressBar
         label="Weekly"
-        bar={bar({ pacePercent: 40, paceOnTop, markers: [{ percent: 20, kind: "workday" }] })}
+        bar={bar({ pacePercent: 40, paceDeficit, markers: [{ percent: 20, kind: "workday" }] })}
       />,
     );
     const stripe = container.querySelector(".menu-metric__progress-pace");
@@ -121,7 +120,7 @@ describe("UsageProgressBar", () => {
     const pacedGroup = tick?.parentElement ?? null;
     expect(pacedGroup?.contains(container.querySelector(".menu-metric__progress-track"))).toBe(true);
     expect(pacedGroup?.contains(stripe ?? null)).toBe(false);
-    expect(cuts(container, pacedGroup)).toEqual([{ x: "40%", width: "6", opacity: "0.9" }]);
+    expect(maskCutsOf(container, pacedGroup)).toEqual([{ x: "40%", width: "6", opacity: "0.9" }]);
   });
 
   it("colors the bar from the panel tokens and the pace stripe by direction", () => {

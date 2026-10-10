@@ -439,11 +439,11 @@ impl ProviderUsageSnapshot {
         let primary_snap = lane(
             &usage.primary,
             blocked.primary,
-            pace::SESSION_PACE_WINDOW_MINUTES,
+            pace::SESSION_FALLBACK_MINUTES,
         );
 
         let secondary_snap = usage.secondary.as_ref().map(|sw| {
-            let mut s = lane(sw, blocked.secondary, pace::WEEKLY_PACE_WINDOW_MINUTES);
+            let mut s = lane(sw, blocked.secondary, pace::WEEKLY_FALLBACK_MINUTES);
             if let Some(ref p) = secondary_pace {
                 s = s.with_pace_reserve(p);
             }
@@ -488,11 +488,11 @@ impl ProviderUsageSnapshot {
             model_specific: usage
                 .model_specific
                 .as_ref()
-                .map(|w| lane(w, blocked.model_specific, pace::WEEKLY_PACE_WINDOW_MINUTES)),
+                .map(|w| lane(w, blocked.model_specific, pace::WEEKLY_FALLBACK_MINUTES)),
             tertiary: usage
                 .tertiary
                 .as_ref()
-                .map(|w| lane(w, blocked.tertiary, pace::WEEKLY_PACE_WINDOW_MINUTES)),
+                .map(|w| lane(w, blocked.tertiary, pace::WEEKLY_FALLBACK_MINUTES)),
             // F5 (upstream 0.48.0): label the tertiary lane by its duration cadence
             // so surfaces (MenuCard, CLI, tray) can show "Monthly" instead of the
             // generic "DetailWindowTertiary" slot key.
@@ -511,7 +511,7 @@ impl ProviderUsageSnapshot {
                 .map(|(extra, &is_blocked)| NamedRateWindowSnapshot {
                     id: extra.id.clone(),
                     title: extra.title.clone(),
-                    window: lane(&extra.window, is_blocked, pace::WEEKLY_PACE_WINDOW_MINUTES),
+                    window: lane(&extra.window, is_blocked, pace::WEEKLY_FALLBACK_MINUTES),
                     fallback_lane: extra.fallback_lane,
                     icon_fallback: extra.icon_fallback,
                 })

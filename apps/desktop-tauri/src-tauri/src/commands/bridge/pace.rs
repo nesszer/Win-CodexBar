@@ -1,10 +1,8 @@
 use super::*;
 use chrono::{DateTime, Utc};
 
-/// Default length of a session lane without `window_minutes` (Mac `UsagePaceText`).
-pub(crate) const SESSION_PACE_WINDOW_MINUTES: u32 = 300;
-/// Default length of every other lane without `window_minutes`.
-pub(crate) const WEEKLY_PACE_WINDOW_MINUTES: u32 = 10_080;
+pub(crate) const SESSION_FALLBACK_MINUTES: u32 = 300;
+pub(crate) const WEEKLY_FALLBACK_MINUTES: u32 = 10_080;
 
 pub(crate) fn stage_str(stage: codexbar::core::PaceStage) -> &'static str {
     use codexbar::core::PaceStage;
@@ -97,7 +95,7 @@ mod tests {
         let window = resetting_in(fixed_now(), 30.0, Some(10_080), 5_040);
 
         assert_eq!(
-            WindowPaceSnapshot::for_window(&window, WEEKLY_PACE_WINDOW_MINUTES, fixed_now()),
+            WindowPaceSnapshot::for_window(&window, WEEKLY_FALLBACK_MINUTES, fixed_now()),
             Some(WindowPaceSnapshot {
                 stage: "far_behind".to_string(),
                 delta_percent: -20.0,
@@ -113,7 +111,7 @@ mod tests {
     fn deficit_is_a_positive_delta_with_an_eta() {
         let window = resetting_in(fixed_now(), 55.0, Some(10_080), 5_040);
 
-        let pace = WindowPaceSnapshot::for_window(&window, WEEKLY_PACE_WINDOW_MINUTES, fixed_now())
+        let pace = WindowPaceSnapshot::for_window(&window, WEEKLY_FALLBACK_MINUTES, fixed_now())
             .expect("pace");
 
         assert_eq!(pace.stage, "slightly_ahead");
@@ -128,7 +126,7 @@ mod tests {
         window.is_informational = true;
 
         assert_eq!(
-            WindowPaceSnapshot::for_window(&window, WEEKLY_PACE_WINDOW_MINUTES, fixed_now()),
+            WindowPaceSnapshot::for_window(&window, WEEKLY_FALLBACK_MINUTES, fixed_now()),
             None
         );
     }
@@ -188,7 +186,7 @@ mod tests {
     #[test]
     fn window_pace_serializes_in_camel_case() {
         let window = resetting_in(fixed_now(), 30.0, Some(10_080), 5_040);
-        let pace = WindowPaceSnapshot::for_window(&window, WEEKLY_PACE_WINDOW_MINUTES, fixed_now());
+        let pace = WindowPaceSnapshot::for_window(&window, WEEKLY_FALLBACK_MINUTES, fixed_now());
 
         assert_eq!(
             serde_json::to_string(&pace).unwrap(),

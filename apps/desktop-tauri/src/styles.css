@@ -4285,9 +4285,6 @@ html:has(.menu-surface--tray) {
   color: var(--text-primary);
 }
 
-/* macOS MetricRowHeader: the reset shares the title's baseline at least 24px
-   away. When both do not fit it drops under the title, right aligned, in up to
-   two lines (ViewThatFits horizontal, then vertical). */
 .menu-metric__head {
   display: flex;
   flex-wrap: wrap;
@@ -4325,8 +4322,6 @@ html:has(.menu-surface--tray) {
   transition: width 0.3s ease;
 }
 
-/* macOS UsageProgressBar: 6px track and fill, punched quota warning and pace
-   markers, work day ticks in the lower half. */
 .menu-metric__progress {
   display: block;
   width: 100%;
@@ -4358,7 +4353,6 @@ html:has(.menu-surface--tray) {
   fill: var(--mac-pace-bad, #ff3b30);
 }
 
-/* Pace line under the bar: footnote, secondary, at most two lines. */
 .menu-metric__meta {
   font-size: 11px;
   color: var(--text-secondary);

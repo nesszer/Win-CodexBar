@@ -105,14 +105,6 @@ describe("metricResetText", () => {
       ),
     ).toBeNull();
     expect(metricResetText(rateWindow({ resetsAt: "not a date" }), true, NOW, en)).toBeNull();
-    expect(
-      metricResetText(
-        rateWindow({ isInformational: true, resetDescription: "No active 5h session" }),
-        true,
-        NOW,
-        en,
-      ),
-    ).toBeNull();
   });
 });
 
@@ -177,7 +169,7 @@ describe("metricRowPresentation pace", () => {
     const row = metricRowPresentation(input({ lane: "secondary", snap: weekly() }), en);
     expect(row.metaText).toBe("23% in reserve · Lasts until reset");
     expect(row.bar.pacePercent).toBe(40);
-    expect(row.bar.paceOnTop).toBe(true);
+    expect(row.bar.paceDeficit).toBe(false);
   });
 
   it("shows a weekly deficit with its run-out countdown", () => {
@@ -196,7 +188,7 @@ describe("metricRowPresentation pace", () => {
     const row = metricRowPresentation(input({ lane: "secondary", snap, showAsUsed: true }), en);
     expect(row.metaText).toBe("13% in deficit · Runs out in 2d 5h");
     expect(row.bar.pacePercent).toBe(40);
-    expect(row.bar.paceOnTop).toBe(false);
+    expect(row.bar.paceDeficit).toBe(true);
   });
 
   it("projects a session window empty instead of running out", () => {
@@ -258,7 +250,6 @@ describe("metricRowPresentation pace", () => {
     ["the lane is tertiary", { lane: "tertiary", snap: weekly() }],
     ["an extra lane is not 5h or 7d", { lane: "extra", snap: weekly({ windowMinutes: 1440 }) }],
     ["the primary window length is unknown", { snap: rateWindow({ windowMinutes: null, pace: pace() }) }],
-    ["the window is informational", { lane: "secondary", snap: weekly({ isInformational: true }) }],
     ["the window has no pace", { lane: "secondary", snap: weekly({ pace: null }) }],
   ])("hides pace when %s", (_, overrides) => {
     const row = metricRowPresentation(input(overrides), en);

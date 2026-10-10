@@ -10,20 +10,17 @@ import { resetDescriptionFallback } from "./usageWindows";
 
 type Translate = (key: LocaleKey) => string;
 
-/** The card slot a metric row fills. The slot decides its markers and pace. */
 export type MetricLane = "primary" | "secondary" | "tertiary" | "extra";
 
 type PaceKind = "session" | "weekly";
 
-/** The notification settings whose usage thresholds become quota warning markers. */
 export type UsageThresholdSettings = Pick<
   SettingsSnapshot,
   "highUsageThreshold" | "criticalUsageThreshold" | "providerUsageThresholds"
 >;
 
 interface LanePolicy {
-  /** Notification window whose usage thresholds become quota warning markers. */
-  thresholds: "session" | "weekly" | null;
+  thresholdWindow: "session" | "weekly" | null;
   workdayTicks: boolean;
   pace: "byWindowLength" | "exactWindow" | "never";
 }
@@ -32,10 +29,10 @@ const SESSION_MINUTES = 300;
 const WEEK_MINUTES = 7 * 24 * 60;
 
 const LANE_POLICY: Record<MetricLane, LanePolicy> = {
-  primary: { thresholds: "session", workdayTicks: false, pace: "byWindowLength" },
-  secondary: { thresholds: "weekly", workdayTicks: true, pace: "byWindowLength" },
-  tertiary: { thresholds: "weekly", workdayTicks: false, pace: "never" },
-  extra: { thresholds: null, workdayTicks: false, pace: "exactWindow" },
+  primary: { thresholdWindow: "session", workdayTicks: false, pace: "byWindowLength" },
+  secondary: { thresholdWindow: "weekly", workdayTicks: true, pace: "byWindowLength" },
+  tertiary: { thresholdWindow: "weekly", workdayTicks: false, pace: "never" },
+  extra: { thresholdWindow: null, workdayTicks: false, pace: "exactWindow" },
 };
 
 const PACE_DIRECTION: Record<PaceStage, "onPace" | "deficit" | "reserve"> = {
@@ -78,15 +75,12 @@ const DURATION_KEYS: CountdownKeys = {
 export interface MetricRowInput {
   snap: RateWindowSnapshot;
   lane: MetricLane;
-  /** Provider CLI name, the key of the per-provider usage threshold overrides. */
   providerId: string;
-  /** Reset line for the row's wording mode, usually from `metricResetText`. */
   resetText: string | null;
   compact: boolean;
   showAsUsed: boolean;
   showResetWhenExhausted: boolean;
   paceEnabled: boolean;
-  /** Without thresholds the bar draws no quota warning markers. */
   usageThresholds: UsageThresholdSettings | null;
   weeklyProgressWorkDays: number | null;
   now: number;
@@ -102,13 +96,11 @@ export interface UsageBarModel {
   valuePercent: number;
   valueText: string;
   pacePercent: number | null;
-  /** The pace stripe is green when usage is at or under the expected pace. */
-  paceOnTop: boolean;
+  paceDeficit: boolean;
   markers: UsageBarMarker[];
 }
 
 export interface MetricRowPresentation {
-  /** Follows the title, unless an exhausted row shows its reset in its place. */
   percentText: string | null;
   resetText: string | null;
   metaText: string | null;
@@ -134,7 +126,6 @@ function percentLabel(percent: number, suffix: string): string {
   return `${roundHalfEven(percent)}% ${suffix}`;
 }
 
-/** Partial minutes round up; under one second left is "now" (null). */
 function countdownParts(seconds: number) {
   if (seconds < 1) return null;
   const total = Math.max(1, Math.ceil(seconds / 60));
@@ -181,11 +172,6 @@ function absoluteResetDescription(target: Date, now: Date, t: Translate): string
   }).format(target);
 }
 
-/**
- * The reset line of a metric row. A countdown or the absolute reset time when
- * the window has a timestamp, else the provider's own reset wording.
- * Informational windows show their description as content, never as a reset.
- */
 export function metricResetText(
   snap: RateWindowSnapshot,
   relative: boolean,
@@ -194,7 +180,7 @@ export function metricResetText(
 ): string | null {
   const target = snap.resetsAt ? Date.parse(snap.resetsAt) : Number.NaN;
   if (!Number.isFinite(target)) {
-    return snap.isInformational ? null : normalizeResetDescription(resetDescriptionFallback(snap), t);
+    return normalizeResetDescription(resetDescriptionFallback(snap), t);
   }
   if (!relative) {
     return fill(t("ResetsAtLabel"), absoluteResetDescription(new Date(target), new Date(now), t));
@@ -215,7 +201,7 @@ function paceKind(lane: MetricLane, windowMinutes: number | null): PaceKind | nu
 function visiblePace(input: MetricRowInput): { pace: WindowPaceSnapshot; kind: PaceKind } | null {
   const { snap } = input;
   const pace = snap.pace;
-  if (!input.paceEnabled || !pace || snap.isInformational || !(snap.usedPercent < 100)) return null;
+  if (!input.paceEnabled || !pace || !(snap.usedPercent < 100)) return null;
   if (!Number.isFinite(pace.expectedUsedPercent) || !Number.isFinite(pace.actualUsedPercent)) return null;
   const kind = paceKind(input.lane, snap.windowMinutes);
   if (!kind) return null;
@@ -269,17 +255,16 @@ function normalizedMarkerPercents(values: number[]): number[] {
   return kept;
 }
 
-/** Usage thresholds are used-percents; markers sit where the bar reaches them. */
 function barMarkers(input: MetricRowInput): UsageBarMarker[] {
   const policy = LANE_POLICY[input.lane];
-  const window = policy.thresholds;
+  const window = policy.thresholdWindow;
   const settings = input.usageThresholds;
   const warnings =
     window && settings
       ? normalizedMarkerPercents(
           (["high", "critical"] as const).map((field) => {
-            const used = threshold(settings, input.providerId, window, field);
-            return input.showAsUsed ? used : 100 - used;
+            const usedThreshold = threshold(settings, input.providerId, window, field);
+            return input.showAsUsed ? usedThreshold : 100 - usedThreshold;
           }),
         )
       : [];
@@ -314,7 +299,6 @@ function barValueText(valuePercent: number, markers: UsageBarMarker[], t: Transl
   return parts.join(". ");
 }
 
-/** A sliver under half a percent stays empty and 99.5% and up fills the track. */
 function renderedFillPercent(percent: number): number {
   const shown = Math.round(percent);
   if (shown <= 0) return 0;
@@ -322,7 +306,6 @@ function renderedFillPercent(percent: number): number {
   return percent;
 }
 
-/** Percent, reset, pace line and bar of one metric row, after the macOS menu card. */
 export function metricRowPresentation(input: MetricRowInput, t: Translate): MetricRowPresentation {
   const { snap, showAsUsed } = input;
   const used = Number.isFinite(snap.usedPercent) ? Math.max(0, snap.usedPercent) : 0;
@@ -348,7 +331,7 @@ export function metricRowPresentation(input: MetricRowInput, t: Translate): Metr
       valuePercent,
       valueText: barValueText(valuePercent, markers, t),
       pacePercent,
-      paceOnTop: visible ? visible.pace.actualUsedPercent <= visible.pace.expectedUsedPercent : true,
+      paceDeficit: visible ? visible.pace.actualUsedPercent > visible.pace.expectedUsedPercent : false,
       markers,
     },
   };
