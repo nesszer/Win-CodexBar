@@ -407,14 +407,7 @@ pub(super) fn scan_codex_detailed_with_cache(
         pending_next.retain(|pending| pending != &key);
         let observed_size = fs::metadata(&candidate.path)
             .ok()
-            .map(|metadata| {
-                #[allow(
-                    clippy::cast_possible_wrap,
-                    reason = "file sizes are clamped to i64::MAX"
-                )]
-                let size = metadata.len().min(i64::MAX as u64) as i64;
-                size
-            })
+            .map(|metadata| file_len_i64(&metadata))
             .unwrap_or(0);
         let has_unconsumed_tail = cache
             .files

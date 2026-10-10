@@ -437,11 +437,7 @@ impl CostScanner {
             Ok(metadata) => metadata,
             Err(_) => return CodexFileScanOutcome::default(),
         };
-        #[allow(
-            clippy::cast_possible_wrap,
-            reason = "file sizes are clamped to i64::MAX"
-        )]
-        let size = metadata.len().min(i64::MAX as u64) as i64;
+        let size = file_len_i64(&metadata);
         let mtime_ms = system_time_to_unix_ms(metadata.modified().ok());
         let path_key = path.to_string_lossy().to_string();
         let file_identity = JsonlScanner::codex_file_identity(path, &metadata);

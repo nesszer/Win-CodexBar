@@ -195,29 +195,20 @@ fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
 }
 
 fn unix_now_ms() -> i64 {
-    // Duration is clamped to i64::MAX before casting, so the value fits i64.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "clamped to i64::MAX before casting"
-    )]
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis().min(i64::MAX as u128) as i64)
-        .unwrap_or(0);
-    millis
+    system_time_to_unix_ms(Some(SystemTime::now()))
 }
 
+/// Milliseconds since the Unix epoch, clamped to `i64::MAX`; 0 when unknown.
 fn system_time_to_unix_ms(modified: Option<SystemTime>) -> i64 {
-    // Duration is clamped to i64::MAX before casting, so the value fits i64.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "clamped to i64::MAX before casting"
-    )]
-    let millis = modified
+    modified
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis().min(i64::MAX as u128) as i64)
-        .unwrap_or(0);
-    millis
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
+/// File length as the cache stores it, clamped to `i64::MAX`.
+fn file_len_i64(metadata: &fs::Metadata) -> i64 {
+    i64::try_from(metadata.len()).unwrap_or(i64::MAX)
 }
 
 /// JSONL event structures for Claude transcripts.

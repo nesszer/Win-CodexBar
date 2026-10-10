@@ -502,8 +502,7 @@ impl CodexLineagePlanner {
         if expected_identity != &actual_identity {
             return None;
         }
-        #[allow(clippy::cast_possible_wrap, reason = "session file sizes fit i64")]
-        let size = metadata.len().min(i64::MAX as u64) as i64;
+        let size = file_len_i64(&metadata);
         if usage.mtime_unix_ms != system_time_to_unix_ms(metadata.modified().ok())
             || usage.size != size
             || usage.parsed_bytes.unwrap_or(0) < size
@@ -617,8 +616,7 @@ pub(super) fn cached_codex_file_is_complete_for_range(
                 usage.codex_file_identity.as_deref(),
                 JsonlScanner::codex_file_identity(Path::new(path_key), &metadata).as_deref(),
             );
-            #[allow(clippy::cast_possible_wrap, reason = "session file sizes fit i64")]
-            let size = metadata.len().min(i64::MAX as u64) as i64;
+            let size = file_len_i64(&metadata);
             identity_matches
                 && usage.mtime_unix_ms == system_time_to_unix_ms(metadata.modified().ok())
                 && usage.size == size
