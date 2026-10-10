@@ -449,71 +449,55 @@ mod tests {
     }
 
     #[test]
-    fn nested_workspace_error_surfaces_real_code_without_auth_eviction() {
-        let payload = json!({
-            "code": "200",
-            "successResponse": true,
-            "data": {
-                "success": false,
-                "httpStatus": 200,
-                "errorCode": "BailianGateway.Workspace.NotAuthorised"
-            }
-        });
-
-        let error =
-            crate::providers::alibabatokenplan::throw_if_error_payload(&payload).unwrap_err();
-        assert!(matches!(
-            error,
-            ProviderError::Other(message)
-                if message.contains("BailianGateway.Workspace.NotAuthorised")
-        ));
+    fn nested_gateway_errors_surface_without_auth_eviction() {
+        // (data frame, expected message fragment): the message wins over the code.
+        for (data, expected) in [
+            (
+                json!({
+                    "success": false,
+                    "httpStatus": 200,
+                    "errorCode": "BailianGateway.Workspace.NotAuthorised"
+                }),
+                "BailianGateway.Workspace.NotAuthorised",
+            ),
+            (
+                json!({
+                    "success": false,
+                    "httpStatus": 200,
+                    "errorCode": "BailianGateway.Quota.ServiceUnavailable",
+                    "errorMsg": "quota service unavailable"
+                }),
+                "quota service unavailable",
+            ),
+        ] {
+            let payload = json!({"code": "200", "successResponse": true, "data": data});
+            let error =
+                crate::providers::alibabatokenplan::throw_if_error_payload(&payload).unwrap_err();
+            assert!(
+                matches!(&error, ProviderError::Other(message) if message.contains(expected)),
+                "{error:?}"
+            );
+        }
     }
 
     #[test]
-    fn nested_gateway_error_prefers_error_message() {
-        let payload = json!({
-            "code": "200",
-            "successResponse": true,
-            "data": {
-                "success": false,
-                "httpStatus": 200,
-                "errorCode": "BailianGateway.Quota.ServiceUnavailable",
-                "errorMsg": "quota service unavailable"
-            }
-        });
-
-        let error =
-            crate::providers::alibabatokenplan::throw_if_error_payload(&payload).unwrap_err();
-        assert!(matches!(
-            error,
-            ProviderError::Other(message) if message.contains("quota service unavailable")
-        ));
-    }
-
-    #[test]
-    fn success_envelope_without_windows_is_transient() {
-        let payload = json!({
-            "code": "SUCCESS",
-            "successResponse": true,
-            "errorCode": "",
-            "data": {"success": true, "httpStatus": 200}
-        });
-        assert!(personal_usage_success_without_windows(
-            payload.to_string().as_bytes()
-        ));
-    }
-
-    #[test]
-    fn success_envelope_with_windows_is_not_transient() {
-        let payload = json!({
-            "code": "SUCCESS",
-            "successResponse": true,
-            "errorCode": "",
-            "data": {"per5HourPercentage": 0.5}
-        });
-        assert!(!personal_usage_success_without_windows(
-            payload.to_string().as_bytes()
-        ));
+    fn success_envelope_is_transient_only_without_windows() {
+        for (data, transient) in [
+            (json!({"success": true, "httpStatus": 200}), true),
+            (json!({"per5HourPercentage": 0.5}), false),
+        ] {
+            let payload = json!({
+                "code": "SUCCESS",
+                "successResponse": true,
+                "errorCode": "",
+                "data": data
+            });
+            assert_eq!(
+                personal_usage_success_without_windows(payload.to_string().as_bytes()),
+                transient,
+                "{payload}"
+            );
+        }
     }
 
     #[test]
