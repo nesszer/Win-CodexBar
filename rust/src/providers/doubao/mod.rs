@@ -662,34 +662,6 @@ fn decode_arkcli_usage(bytes: &[u8]) -> Result<CodingPlanResult, ProviderError> 
         return Err(ProviderError::AuthRequired);
     }
 
-    let supported = [
-        "agent-plan",
-        "coding-plan",
-        "agent-plan-team",
-        "coding-plan-team",
-    ];
-    for item in &response.items {
-        let product = item.product.to_ascii_lowercase();
-        if !supported.iter().any(|p| *p == product) {
-            continue;
-        }
-        if item.subscribed == Some(false) {
-            continue;
-        }
-        let periods_empty = item.periods.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-        if periods_empty {
-            let message = item
-                .error
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| format!("{product} has no usage periods"));
-            // Incomplete but keep scanning other products.
-            let _ = message;
-        }
-    }
-
     let mut quotas = Vec::new();
     let mut update_ts: Option<f64> = None;
     let mut status = response
