@@ -109,32 +109,18 @@ mod tests {
 
     #[test]
     fn settings_aliases_map_to_regions() {
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("cn")),
-            ZaiRegion::BigModelCn
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some(" bigmodel ")),
-            ZaiRegion::BigModelCn
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("bigmodel-cn")),
-            ZaiRegion::BigModelCn
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("bigmodel_cn")),
-            ZaiRegion::BigModelCn
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("global")),
-            ZaiRegion::Global
-        );
-        assert_eq!(
-            ZaiRegion::from_settings_value(Some("intl")),
-            ZaiRegion::Global
-        );
-        assert_eq!(ZaiRegion::from_settings_value(Some("")), ZaiRegion::Global);
-        assert_eq!(ZaiRegion::from_settings_value(None), ZaiRegion::Global);
+        for (raw, region) in [
+            (Some("cn"), ZaiRegion::BigModelCn),
+            (Some(" bigmodel "), ZaiRegion::BigModelCn),
+            (Some("bigmodel-cn"), ZaiRegion::BigModelCn),
+            (Some("bigmodel_cn"), ZaiRegion::BigModelCn),
+            (Some("global"), ZaiRegion::Global),
+            (Some("intl"), ZaiRegion::Global),
+            (Some(""), ZaiRegion::Global),
+            (None, ZaiRegion::Global),
+        ] {
+            assert_eq!(ZaiRegion::from_settings_value(raw), region, "{raw:?}");
+        }
     }
 
     #[test]
