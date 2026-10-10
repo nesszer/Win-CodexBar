@@ -392,17 +392,9 @@ fn derived_window(used_percent: f64, resets_at: Option<String>) -> RateWindowSna
     RateWindowSnapshot {
         used_percent,
         remaining_percent: 100.0 - used_percent,
-        window_minutes: None,
         resets_at,
-        reset_description: None,
         is_exhausted: used_percent >= 100.0,
-        is_informational: false,
-        reserve_percent: None,
-        reserve_description: None,
-        reserve_will_last_to_reset: false,
-        reserve_eta_seconds: None,
-        monthly_limit_block: None,
-        description_is_detail: false,
+        ..Default::default()
     }
 }
 
@@ -465,32 +457,10 @@ mod tests {
             provider_id: "codex".to_string(),
             display_name: "Codex".to_string(),
             primary: window(20.0),
-            primary_label: None,
             secondary: Some(window(60.0)),
-            secondary_label: None,
-            model_specific: None,
-            tertiary: None,
-            tertiary_label: None,
-            extra_rate_windows: Vec::new(),
-            inventory: Vec::new(),
-            display_details: Vec::new(),
-            cost: None,
-            plan_name: None,
-            account_email: None,
-            subscription: None,
             source_label: "test".to_string(),
-            has_successful_claude_cli_quota: false,
             updated_at: "2026-08-16T00:00:00Z".to_string(),
-            error: None,
-            error_state: codexbar::core::ProviderStateKind::Ready,
-            pace: None,
-            account_organization: None,
-            tray_status_label: None,
-            fetch_duration_ms: None,
-            wayfinder_usage: None,
-            quota_burndown: None,
-            open_ai_api_usage: None,
-            session_equivalent_forecast: None,
+            ..Default::default()
         }
     }
 

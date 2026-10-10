@@ -53,6 +53,12 @@ fn default_full_remaining() -> f64 {
     100.0
 }
 
+impl Default for RateWindowSnapshot {
+    fn default() -> Self {
+        Self::from_rate_window(&RateWindow::new(0.0))
+    }
+}
+
 impl RateWindowSnapshot {
     pub(super) fn from_rate_window(rw: &RateWindow) -> Self {
         Self {
@@ -273,7 +279,7 @@ pub struct ProviderDisplayDetailSnapshot {
 }
 
 /// A frontend-friendly snapshot of one provider's usage data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderUsageSnapshot {
     #[serde(default)]
@@ -588,47 +594,11 @@ impl ProviderUsageSnapshot {
         Self {
             provider_id: id.cli_name().to_string(),
             display_name: id.display_name().to_string(),
-            primary: RateWindowSnapshot {
-                used_percent: 0.0,
-                remaining_percent: 100.0,
-                window_minutes: None,
-                resets_at: None,
-                reset_description: None,
-                is_exhausted: false,
-                is_informational: false,
-                reserve_percent: None,
-                reserve_description: None,
-                reserve_will_last_to_reset: false,
-                reserve_eta_seconds: None,
-                monthly_limit_block: None,
-                description_is_detail: false,
-            },
             primary_label: Some(metadata.session_label.to_string()),
-            secondary: None,
-            secondary_label: None,
-            model_specific: None,
-            tertiary: None,
-            tertiary_label: None,
-            extra_rate_windows: Vec::new(),
-            inventory: Vec::new(),
-            display_details: Vec::new(),
-            cost: None,
-            plan_name: None,
-            account_email: None,
-            subscription: None,
-            source_label: String::new(),
-            has_successful_claude_cli_quota: false,
             updated_at: chrono::Utc::now().to_rfc3339(),
             error: Some(error),
             error_state: state_kind,
-            pace: None,
-            account_organization: None,
-            tray_status_label: None,
-            fetch_duration_ms: None,
-            wayfinder_usage: None,
-            open_ai_api_usage: None,
-            session_equivalent_forecast: None,
-            quota_burndown: None,
+            ..Default::default()
         }
     }
 }
@@ -1151,14 +1121,7 @@ mod tests {
             window_minutes,
             resets_at: resets_at.map(|dt| dt.to_rfc3339()),
             reset_description,
-            is_exhausted: false,
-            is_informational: false,
-            reserve_percent: None,
-            reserve_description: None,
-            reserve_will_last_to_reset: false,
-            reserve_eta_seconds: None,
-            monthly_limit_block: None,
-            description_is_detail: false,
+            ..Default::default()
         }
     }
 

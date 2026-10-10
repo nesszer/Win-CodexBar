@@ -687,55 +687,18 @@ mod tests {
             primary: crate::commands::RateWindowSnapshot {
                 used_percent,
                 remaining_percent: 100.0 - used_percent,
-                window_minutes: None,
-                resets_at: None,
-                reset_description: None,
-                is_exhausted: false,
-                is_informational: false,
-                reserve_percent: None,
-                reserve_description: None,
-                reserve_will_last_to_reset: false,
-                reserve_eta_seconds: None,
-                monthly_limit_block: None,
-                description_is_detail: false,
+                ..Default::default()
             },
-            primary_label: None,
             secondary: secondary_percent.map(|pct| crate::commands::RateWindowSnapshot {
                 used_percent: pct,
                 remaining_percent: 100.0 - pct,
-                window_minutes: None,
-                resets_at: None,
-                reset_description: None,
-                is_exhausted: false,
-                is_informational: false,
-                reserve_percent: None,
-                reserve_description: None,
-                reserve_will_last_to_reset: false,
-                reserve_eta_seconds: None,
-                monthly_limit_block: None,
-                description_is_detail: false,
+                ..Default::default()
             }),
-            secondary_label: None,
-            model_specific: None,
             tertiary: tertiary_percent.map(|pct| crate::commands::RateWindowSnapshot {
                 used_percent: pct,
                 remaining_percent: 100.0 - pct,
-                window_minutes: None,
-                resets_at: None,
-                reset_description: None,
-                is_exhausted: false,
-                is_informational: false,
-                reserve_percent: None,
-                reserve_description: None,
-                reserve_will_last_to_reset: false,
-                reserve_eta_seconds: None,
-                monthly_limit_block: None,
-                description_is_detail: false,
+                ..Default::default()
             }),
-            tertiary_label: None,
-            extra_rate_windows: Vec::new(),
-            inventory: Vec::new(),
-            display_details: Vec::new(),
             cost: cost.map(|(used, limit)| crate::commands::CostSnapshotBridge {
                 used,
                 limit: Some(limit),
@@ -753,22 +716,8 @@ mod tests {
                 daily: Vec::new(),
                 always_visible: false,
             }),
-            plan_name: None,
-            account_email: None,
-            subscription: None,
-            source_label: String::new(),
-            has_successful_claude_cli_quota: false,
             updated_at: "2025-01-01T00:00:00Z".into(),
-            error: None,
-            error_state: codexbar::core::ProviderStateKind::Ready,
-            pace: None,
-            account_organization: None,
-            tray_status_label: None,
-            fetch_duration_ms: None,
-            wayfinder_usage: None,
-            quota_burndown: None,
-            open_ai_api_usage: None,
-            session_equivalent_forecast: None,
+            ..Default::default()
         }
     }
 
@@ -789,17 +738,7 @@ mod tests {
             window: crate::commands::RateWindowSnapshot {
                 used_percent: percent,
                 remaining_percent: 100.0 - percent,
-                window_minutes: None,
-                resets_at: None,
-                reset_description: None,
-                is_exhausted: false,
-                is_informational: false,
-                reserve_percent: None,
-                reserve_description: None,
-                reserve_will_last_to_reset: false,
-                reserve_eta_seconds: None,
-                description_is_detail: false,
-                monthly_limit_block: None,
+                ..Default::default()
             },
         }
     }
@@ -1091,16 +1030,8 @@ mod tests {
             used_percent: 100.0,
             remaining_percent: 0.0,
             window_minutes: Some(10080),
-            resets_at: None,
-            reset_description: None,
             is_exhausted: true,
-            is_informational: false,
-            reserve_percent: None,
-            reserve_description: None,
-            reserve_will_last_to_reset: false,
-            reserve_eta_seconds: None,
-            description_is_detail: false,
-            monthly_limit_block: None,
+            ..Default::default()
         });
         let (primary, _) = selected_tray_percents(&snapshot, &settings);
         assert_eq!(primary, 22.0);
@@ -1130,17 +1061,7 @@ mod tests {
         snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
             used_percent: 55.0,
             remaining_percent: 45.0,
-            window_minutes: None,
-            resets_at: None,
-            reset_description: None,
-            is_exhausted: false,
-            is_informational: false,
-            reserve_percent: None,
-            reserve_description: None,
-            reserve_will_last_to_reset: false,
-            reserve_eta_seconds: None,
-            description_is_detail: false,
-            monthly_limit_block: None,
+            ..Default::default()
         });
         snapshot.extra_rate_windows.push(fake_extra_window(90.0));
         let (primary, _) = selected_tray_percents(&snapshot, &settings);

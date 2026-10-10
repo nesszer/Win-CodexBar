@@ -1,5 +1,5 @@
 use super::*;
-use codexbar::core::{ProviderId, ProviderStateKind};
+use codexbar::core::ProviderId;
 
 fn fake_snapshot(id: &str, display_name: &str, used_percent: f64) -> ProviderUsageSnapshot {
     fake_snapshot_with(id, display_name, used_percent, None, None, None)
@@ -16,32 +16,15 @@ fn fake_snapshot_with(
     let window = |percent: f64| RateWindowSnapshot {
         used_percent: percent,
         remaining_percent: 100.0 - percent,
-        window_minutes: None,
-        resets_at: None,
-        reset_description: None,
-        is_exhausted: false,
-        is_informational: false,
-        reserve_percent: None,
-        reserve_description: None,
-        reserve_will_last_to_reset: false,
-        reserve_eta_seconds: None,
-        monthly_limit_block: None,
-        description_is_detail: false,
+        ..Default::default()
     };
 
     ProviderUsageSnapshot {
         provider_id: id.into(),
         display_name: display_name.into(),
         primary: window(used_percent),
-        primary_label: None,
         secondary: secondary_percent.map(window),
-        secondary_label: None,
-        model_specific: None,
         tertiary: tertiary_percent.map(window),
-        tertiary_label: None,
-        extra_rate_windows: Vec::new(),
-        inventory: Vec::new(),
-        display_details: Vec::new(),
         cost: cost.map(|(used, limit)| crate::commands::CostSnapshotBridge {
             used,
             limit: Some(limit),
@@ -59,22 +42,8 @@ fn fake_snapshot_with(
             daily: Vec::new(),
             always_visible: false,
         }),
-        plan_name: None,
-        account_email: None,
-        subscription: None,
-        source_label: String::new(),
-        has_successful_claude_cli_quota: false,
         updated_at: "2025-01-01T00:00:00Z".into(),
-        error: None,
-        error_state: ProviderStateKind::Ready,
-        pace: None,
-        account_organization: None,
-        open_ai_api_usage: None,
-        tray_status_label: None,
-        fetch_duration_ms: None,
-        wayfinder_usage: None,
-        session_equivalent_forecast: None,
-        quota_burndown: None,
+        ..Default::default()
     }
 }
 
@@ -371,17 +340,7 @@ fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
         window: crate::commands::RateWindowSnapshot {
             used_percent: percent,
             remaining_percent: 100.0 - percent,
-            window_minutes: None,
-            resets_at: None,
-            reset_description: None,
-            is_exhausted: false,
-            is_informational: false,
-            reserve_percent: None,
-            reserve_description: None,
-            reserve_will_last_to_reset: false,
-            reserve_eta_seconds: None,
-            monthly_limit_block: None,
-            description_is_detail: false,
+            ..Default::default()
         },
     }
 }
@@ -595,16 +554,8 @@ fn claude_automatic_prefers_weekly_when_model_exhausted() {
         used_percent: 100.0,
         remaining_percent: 0.0,
         window_minutes: Some(10080),
-        resets_at: None,
-        reset_description: None,
         is_exhausted: true,
-        is_informational: false,
-        reserve_percent: None,
-        reserve_description: None,
-        reserve_will_last_to_reset: false,
-        reserve_eta_seconds: None,
-        monthly_limit_block: None,
-        description_is_detail: false,
+        ..Default::default()
     });
 
     let (primary, _) = selected_tray_percents(&snapshot, &settings);
@@ -639,17 +590,7 @@ fn automatic_picks_highest_among_model_and_extra_windows() {
     snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
         used_percent: 55.0,
         remaining_percent: 45.0,
-        window_minutes: None,
-        resets_at: None,
-        reset_description: None,
-        is_exhausted: false,
-        is_informational: false,
-        reserve_percent: None,
-        reserve_description: None,
-        reserve_will_last_to_reset: false,
-        reserve_eta_seconds: None,
-        monthly_limit_block: None,
-        description_is_detail: false,
+        ..Default::default()
     });
     snapshot.extra_rate_windows.push(fake_extra_window(90.0));
 
