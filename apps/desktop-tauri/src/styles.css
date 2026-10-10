@@ -291,8 +291,6 @@ html {
 /* Preferences window container — compact, native-feeling, no hero framing. */
 .settings-surface {
   margin: 0 auto;
-  max-width: 720px;
-  padding: 14px 18px 20px;
   animation: surfaceFadeIn 80ms ease-out;
 }
 
@@ -363,58 +361,16 @@ html {
 /* ── Settings ──────────────────────────────────────────────────────── */
 
 .settings {
-  display: flex;
-  flex-direction: column;
   gap: 0;
 }
 
 /* tab bar */
 .settings-tabs {
-  display: flex;
-  gap: 1px;
-  padding: 2px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.06);
   margin-bottom: 16px;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
 .settings-tabs::-webkit-scrollbar {
   display: none;
-}
-
-.settings-tab {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 5px 12px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.settings-tab:hover {
-  color: var(--text-primary);
-}
-
-.settings-tab--active {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.settings-tab__icon {
-  font-size: 1rem;
 }
 
 /* status strip */
@@ -437,66 +393,29 @@ html {
 .settings-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
 }
 
 /* Section titles mirror upstream SwiftUI PreferencesView grouped form headers:
    `.font(.caption)` `.foregroundStyle(.secondary)` `.textCase(.uppercase)`. */
 .settings-section__title {
-  margin: 18px 0 6px;
   padding: 0;
   border-bottom: none;
-  color: var(--text-secondary);
-  font-size: var(--font-caption);
-  font-weight: 400;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .settings-section__title:first-child {
   margin-top: 0;
 }
 
-.settings-section__hint {
-  margin: 0 0 8px;
-  color: var(--text-muted);
-  font-size: 0.84rem;
-  line-height: 1.5;
-}
-
 /* field row */
 .settings-field {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.07);
-  transition: background 0.12s;
-}
-
-.settings-field:hover {
-  background: rgba(255, 255, 255, 0.09);
 }
 
 .settings-field__text {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
-}
-
-.settings-field__label {
-  font-size: 0.82rem;
-  font-weight: 400;
-  color: var(--text-primary);
-}
-
-.settings-field__desc {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  line-height: 1.4;
 }
 
 .settings-field__control {
@@ -579,23 +498,8 @@ html {
 
 /* select dropdown */
 .select {
-  padding: 6px 28px 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  font-size: 0.85rem;
   font-family: inherit;
   cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238e8e93'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-}
-
-.select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 .select:disabled {
@@ -605,22 +509,7 @@ html {
 
 /* number input */
 .number-input {
-  width: 52px;
-  height: 24px;
-  padding: 2px 6px;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  font-size: var(--font-body);
   font-family: inherit;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.number-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 .number-input:disabled {
@@ -631,18 +520,7 @@ html {
 /* text input */
 .text-input {
   width: 160px;
-  padding: 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  font-size: 0.85rem;
   font-family: inherit;
-}
-
-.text-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 .text-input:disabled {
@@ -854,54 +732,15 @@ html {
 
 /* ── About tab ───────────────────────────────────────────────────── */
 
-.about-section {
-  align-items: center;
-  text-align: center;
-  padding: 24px 0 0;
-}
-
 .about-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
   margin-bottom: 12px;
 }
 
-.about-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 14px;
-  object-fit: contain;
-}
-
-.about-title-block {
-  text-align: left;
-}
-
 .about-title {
-  margin: 0;
-  font-size: 1.6rem;
-  font-weight: 700;
   color: var(--text-primary);
 }
 
-.about-version {
-  margin: 2px 0 0;
-  font-size: 0.88rem;
-  color: var(--text-eyebrow);
-}
-
-.about-tagline {
-  margin: 0 0 16px;
-  color: var(--text-secondary);
-  font-size: 0.88rem;
-  font-style: italic;
-}
-
 .about-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -911,25 +750,12 @@ html {
 }
 
 .about-links {
-  display: flex;
   align-items: center;
-  gap: 8px;
   margin-bottom: 12px;
 }
 
 .about-link {
-  font-size: 0.84rem;
-  color: var(--text-eyebrow);
-  text-decoration: none;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
   font: inherit;
-  appearance: none;
-}
-
-.about-link:hover {
-  text-decoration: underline;
 }
 
 .about-copyright {
@@ -940,7 +766,6 @@ html {
 
 .about-link--inline {
   font-size: inherit;
-  color: var(--text-eyebrow);
 }
 
 /* ── Tray Panel ───────────────────────────────────────────────────── */
@@ -1263,14 +1088,8 @@ body:has(.tray-panel-reveal) {
 }
 
 .provider-detail {
-  flex: 1;
   min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
   overscroll-behavior-y: contain;
-  background: var(--surface-elevated);
-  border-radius: 8px;
-  padding: 12px;
 }
 
 .provider-detail-empty {
@@ -1292,8 +1111,6 @@ body:has(.tray-panel-reveal) {
 
 .provider-detail-title {
   flex: 1;
-  font-size: 0.95rem;
-  font-weight: 700;
   color: var(--text-primary);
 }
 
@@ -1362,9 +1179,6 @@ body:has(.tray-panel-reveal) {
     gap: 10px;
   }
 
-  .provider-detail {
-    padding: 10px;
-  }
 }
 
 .provider-usage-bar {
@@ -1529,10 +1343,8 @@ body:has(.tray-panel-reveal) {
 .providers-sidebar__row {
   position: relative;
   display: grid;
-  grid-template-columns: 8px 24px 1fr auto auto auto;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px 8px 10px;
   border-radius: 8px;
   cursor: pointer;
   user-select: none;
@@ -1639,8 +1451,6 @@ body:has(.tray-panel-reveal) {
    second line instead of ellipsizing in the narrow sidebar; the row's
    title attribute carries the full text if even two lines are not enough. */
 .providers-sidebar__name {
-  font-size: 0.88rem;
-  font-weight: 600;
   color: var(--provider-row-text-primary);
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -1663,7 +1473,6 @@ body:has(.tray-panel-reveal) {
   display: flex;
   flex-direction: column;
   gap: 0;
-  font-size: 0.72rem;
   color: var(--provider-row-text-secondary);
   line-height: 1.25;
 }
@@ -1754,9 +1563,7 @@ body:has(.tray-panel-reveal) {
 }
 
 .provider-detail-error {
-  background: rgba(239, 68, 68, 0.08);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  color: var(--provider-status-error);
   border-radius: 8px;
   padding: 8px 10px;
   margin-bottom: 12px;
@@ -1896,12 +1703,6 @@ body:has(.tray-panel-reveal) {
 .provider-detail-segmented__option:disabled {
   opacity: 0.55;
   cursor: default;
-}
-
-.provider-detail-helper {
-  margin: 6px 0 0;
-  font-size: 0.76rem;
-  color: var(--provider-row-text-secondary);
 }
 
 .provider-detail-cookie-source__missing .credential-btn {
@@ -2363,12 +2164,6 @@ body:has(.tray-panel-reveal) {
   }
 }
 
-.settings-section__hint {
-  margin: 4px 0 0;
-  font-size: 0.78rem;
-  color: var(--provider-row-text-secondary);
-}
-
 .settings-section__error {
   margin: 4px 0 0;
   font-size: 0.8rem;
@@ -2626,12 +2421,7 @@ body:has(.tray-panel-reveal) {
   gap: 8px;
   /* upstream .padding(.horizontal, 10) .padding(.vertical, 6) */
   padding: 6px 10px;
-  width: 100%;
-  min-width: 260px;
-  font-size: 13px;
-  line-height: 1.30;
   color: var(--text-primary);
-  background: var(--menu-popover-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -2728,10 +2518,6 @@ html:has(.menu-surface--tray) {
 /* Tray variant — auto-sized by JS, no forced min-height. */
 .menu-surface--tray {
   min-height: 0;
-  border-radius: 10px;
-  overflow: clip;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   padding: 4px 0;
   display: flex;
   flex-direction: column;
@@ -2805,15 +2591,7 @@ html:has(.menu-surface--tray) {
   border: none;
   border-radius: 0;
   padding: 8px 12px 6px;
-  grid-template-columns: repeat(10, 24px);
   justify-content: start;
-  gap: 8px 6px;
-}
-
-.menu-surface--tray .provider-grid--sparse {
-  grid-template-columns: repeat(auto-fit, 26px);
-  justify-content: start;
-  gap: 8px 7px;
 }
 
 .menu-surface--tray .provider-grid--sparse .provider-grid__item {
@@ -3217,7 +2995,6 @@ html:has(.menu-surface--tray) {
   min-width: 0;
   font-size: 0.66rem;
   color: var(--provider-row-text-secondary);
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -3296,13 +3073,6 @@ html:has(.menu-surface--tray) {
   overflow: hidden;
 }
 
-.menu-card__title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--menu-card-header-column-gap);
-}
-
 .menu-card__refresh-btn {
   flex-shrink: 0;
   white-space: nowrap;
@@ -3311,17 +3081,11 @@ html:has(.menu-surface--tray) {
 /* Provider brand badge + display name cluster. Tauri-only addition that
    gives each card a recognizable provider mark before the name. */
 .menu-card__name-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
   flex: 1 1 auto;
 }
 
 /* providerName: Font.headline + .semibold — use 500 on Windows for parity */
 .menu-card__name {
-  font-size: 13px;
-  font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -3330,8 +3094,6 @@ html:has(.menu-surface--tray) {
 
 /* email: Font.subheadline secondary ≈ 12px */
 .menu-card__email {
-  font-size: 12px;
-  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3377,16 +3139,10 @@ html:has(.menu-surface--tray) {
 .menu-card__subtitle {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* SwiftUI Divider() — single hairline using the system separator. */
-.menu-card__divider {
-  margin: 4px 0;
 }
 
 .menu-card__pricing-status {
@@ -3430,25 +3186,11 @@ html:has(.menu-surface--tray) {
 }
 
 .menu-metric__title {
-  /* upstream: .font(.body).fontWeight(.medium) — 400 on Windows for visual parity */
-  font-size: 13px;
-  font-weight: 400;
   color: var(--text-primary);
 }
 
-/* UsageProgressBar — Capsule track + Capsule fill, .frame(height: 6) */
-.menu-metric__bar {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--usage-bar-track);
-  overflow: hidden;
-}
-
 .menu-metric__bar-fill {
-  height: 100%;
-  border-radius: 3px;
   background: var(--provider-accent, var(--usage-bar-normal));
-  transition: width 0.3s ease;
 }
 
 .menu-metric__bar-fill[data-level="high"] { background: var(--usage-bar-high); }
@@ -3465,8 +3207,6 @@ html:has(.menu-surface--tray) {
 }
 
 .menu-metric__pct {
-  /* upstream: .font(.footnote) ≈ 11px primary */
-  font-size: 11px;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   flex: 0 0 auto;
@@ -3486,14 +3226,12 @@ html:has(.menu-surface--tray) {
 /* Detail-backed window description (for example spend amounts): its own
    secondary line under the metric row, never reset wording. */
 .menu-metric__detail {
-  font-size: 11px;
   color: var(--text-secondary);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .menu-metric__reset {
-  font-size: 11px;
   color: var(--text-secondary);
   /* Upstream 0.49.0 #2742 (refs #2182): long metric reset and pace details
      wrap to a second line instead of truncating, so non-English locales keep
@@ -3520,7 +3258,6 @@ html:has(.menu-surface--tray) {
 /* Upstream 0.69.0 #4091 status row: a window blocked by a longer exhausted
    pool shows its title and one secondary footnote line instead of a bar. */
 .menu-metric__status {
-  font-size: 11px;
   color: var(--text-secondary);
   min-width: 0;
   overflow: hidden;
@@ -3668,7 +3405,6 @@ html:has(.menu-surface--tray) {
 }
 
 .menu-card__pace-label {
-  font-size: 11px;
   font-weight: 600;
 }
 
@@ -3683,18 +3419,8 @@ html:has(.menu-surface--tray) {
   gap: 3px;
 }
 
-.menu-card__pace-track {
-  height: 5px;
-  border-radius: 3px;
-  background: var(--usage-bar-track);
-  overflow: hidden;
-}
-
 .menu-card__pace-fill {
-  height: 100%;
-  border-radius: 3px;
   background: var(--usage-bar-normal);
-  transition: width 0.3s ease;
 }
 
 .menu-card__pace-fill[data-pace="slow"] { background: var(--pace-slow-fg); }
@@ -3707,13 +3433,11 @@ html:has(.menu-surface--tray) {
 }
 
 .menu-card__pace-eta {
-  font-size: 11px;
   font-weight: 500;
   color: var(--pace-racing-fg);
 }
 
 .menu-card__pace-ok {
-  font-size: 11px;
   font-weight: 500;
   color: var(--pace-steady-fg);
 }
@@ -3777,9 +3501,6 @@ html:has(.menu-surface--tray) {
 }
 /* Re-assert tray overrides after the second .menu-surface rule (cascade order) */
 .menu-surface--tray {
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
   /* #265: TrayPanel applies CSS `zoom` on this surface, so it lays out in
      windowWidth/zoom local px; the 260px `min-width` floor from .menu-surface
      would be multiplied by the zoom on render (→ 390px at 150%) and force a
@@ -3954,8 +3675,6 @@ html:has(.menu-surface--tray) {
    button width — use the same dense icon grid as upstream. */
 .provider-grid {
   display: grid;
-  grid-template-columns: repeat(13, minmax(0, 1fr));
-  gap: 9px 3px;
   margin: 0 0 2px;
   padding: 8px 10px 6px;
   flex-shrink: 0;
@@ -3975,8 +3694,6 @@ html:has(.menu-surface--tray) {
   align-items: center;
   justify-content: flex-start;
   gap: 2px;
-  min-height: 44px;
-  padding: 2px 1px 3px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -4029,7 +3746,6 @@ html:has(.menu-surface--tray) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 22px;
   line-height: 1.15;
   text-align: center;
 }
@@ -4347,10 +4063,7 @@ html:has(.menu-surface--tray) {
 }
 .settings-tabs {
   display: flex;
-  gap: 2px;
-  padding: 6px 12px;
   margin: 0 0 4px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 0;
   /* `safe`: when long translations overflow, start-align instead of pushing the
@@ -4372,7 +4085,6 @@ html:has(.menu-surface--tray) {
   /* Shrink before overflowing: multi-word labels wrap to two lines. */
   flex: 0 1 auto;
   min-width: 56px;
-  padding: 6px 12px;
   border-radius: 6px;
   white-space: normal;
   background: transparent;
@@ -4383,7 +4095,6 @@ html:has(.menu-surface--tray) {
   letter-spacing: 0;
   text-transform: none;
   transition: background 0.12s ease, color 0.12s ease;
-  border: none;
   cursor: pointer;
 }
 .settings-tab__icon {
@@ -4415,10 +4126,7 @@ html:has(.menu-surface--tray) {
   background: rgba(0, 0, 0, 0.05);
 }
 .settings-tab--active {
-  background: rgba(10, 132, 255, 0.12);
-  color: var(--accent);
   font-weight: 500;
-  box-shadow: none;
 }
 [data-theme="light"] .settings-tab--active {
   background: rgba(10, 132, 255, 0.12);
