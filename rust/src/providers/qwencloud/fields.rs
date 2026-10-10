@@ -35,10 +35,7 @@ pub(super) fn date_field(value: &Value, key: &str) -> Option<DateTime<Utc>> {
 
 /// Depth-first search: `probe` runs on each node before its children, and
 /// the first `Some` wins. Probes return `None` for arrays and scalars.
-fn deep_find<'a, T>(
-    value: &'a Value,
-    probe: &impl Fn(&'a Value) -> Option<T>,
-) -> Option<T> {
+fn deep_find<'a, T>(value: &'a Value, probe: &impl Fn(&'a Value) -> Option<T>) -> Option<T> {
     if let Some(found) = probe(value) {
         return Some(found);
     }

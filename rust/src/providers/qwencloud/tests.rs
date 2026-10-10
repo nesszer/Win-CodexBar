@@ -229,3 +229,41 @@ fn weekly_only_shape_promotes_weekly_to_primary() {
     assert_eq!(usage.primary_label.as_deref(), Some("Weekly"));
     assert!(usage.secondary.is_none());
 }
+
+/// Pins the console `params` payload: the cornerstone fields, the optional
+/// `cna` anonymous id, and the caller's data parameters.
+#[test]
+fn params_json_wraps_data_with_cornerstone_fields() {
+    for (cookie, anonymous_id) in [("cna=anon-1; other=x", Some("anon-1")), ("other=x", None)] {
+        let mut data = Map::new();
+        data.insert("commodityCode".into(), json!("sfm_tokenplan_public_cn"));
+        let params = build_params_json("zeldaEasy.test.api", data, cookie);
+        let value: Value = serde_json::from_str(&params).unwrap();
+        let trace = value["Data"]["cornerstoneParam"]["feTraceId"]
+            .as_str()
+            .unwrap();
+        assert_eq!(trace.len(), 36);
+        assert_eq!(trace, trace.to_lowercase());
+        let mut cornerstone = json!({
+            "feTraceId": trace,
+            "feURL": DASHBOARD_URL,
+            "protocol": "V2",
+            "console": "ONE_CONSOLE",
+            "productCode": "p_efm",
+            "domain": "home.qwencloud.com",
+            "consoleSite": "QWENCLOUD",
+            "userNickName": "",
+            "userPrincipalName": "",
+            "xsp_lang": "en-US",
+        });
+        if let Some(id) = anonymous_id {
+            cornerstone["X-Anonymous-Id"] = json!(id);
+        }
+        let expected = json!({
+            "Api": "zeldaEasy.test.api",
+            "V": "1.0",
+            "Data": {"commodityCode": "sfm_tokenplan_public_cn", "cornerstoneParam": cornerstone},
+        });
+        assert_eq!(params, expected.to_string());
+    }
+}

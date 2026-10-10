@@ -448,6 +448,60 @@ mod tests {
         assert_eq!(cornerstone.get("switchUserType"), Some(&json!(3)));
     }
 
+    /// Pins the whole personal `params` payload, including the console domain
+    /// taken from the region's dashboard URL and the optional `cna` id.
+    #[test]
+    fn personal_params_json_wraps_data_with_cornerstone_fields() {
+        for (region, cookie, domain, site, anonymous_id) in [
+            (
+                AlibabaTokenPlanRegion::CnPersonal,
+                "cna=anon-1; other=x",
+                "bailian.console.aliyun.com",
+                "BAILIAN_ALIYUN",
+                Some("anon-1"),
+            ),
+            (
+                AlibabaTokenPlanRegion::IntlPersonal,
+                "other=x",
+                "modelstudio.console.alibabacloud.com",
+                "MODELSTUDIO_ALBABACLOUD",
+                None,
+            ),
+        ] {
+            let mut data = Map::new();
+            data.insert("commodityCode".into(), json!("test-code"));
+            let params = build_personal_params_json(PERSONAL_USAGE_API, data, cookie, region);
+            let value: Value = serde_json::from_str(&params).unwrap();
+            let trace = value["Data"]["cornerstoneParam"]["feTraceId"]
+                .as_str()
+                .unwrap();
+            assert_eq!(trace.len(), 36);
+            assert_eq!(trace, trace.to_lowercase());
+            let mut cornerstone = json!({
+                "feTraceId": trace,
+                "feURL": region.dashboard_url(),
+                "protocol": "V2",
+                "console": "ONE_CONSOLE",
+                "productCode": "p_efm",
+                "switchUserType": 3,
+                "domain": domain,
+                "consoleSite": site,
+                "userNickName": "",
+                "userPrincipalName": "",
+                "xsp_lang": "en-US",
+            });
+            if let Some(id) = anonymous_id {
+                cornerstone["X-Anonymous-Id"] = json!(id);
+            }
+            let expected = json!({
+                "Api": PERSONAL_USAGE_API,
+                "V": "1.0",
+                "Data": {"commodityCode": "test-code", "cornerstoneParam": cornerstone},
+            });
+            assert_eq!(params, expected.to_string());
+        }
+    }
+
     #[test]
     fn nested_gateway_errors_surface_without_auth_eviction() {
         // (data frame, expected message fragment): the message wins over the code.
