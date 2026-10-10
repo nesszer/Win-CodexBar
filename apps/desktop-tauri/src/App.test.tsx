@@ -60,88 +60,14 @@ vi.mock("./hooks/useSurfaceSnapshot", () => ({
 import App from "./App";
 import { buildBundle } from "./test/localeHarness";
 import type { BootstrapState, SettingsSnapshot } from "./types/bridge";
+import { makeSettings } from "./test/fixtures";
 
-function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
-  return {
-    enabledProviders: ["codex", "claude"],
-    refreshIntervalSecs: 300,
-    adaptiveRefresh: false,
-    refreshAllProvidersOnMenuOpen: false,
-  lowPowerMode: false,
-    startAtLogin: false,
-    startMinimized: false,
-    showNotifications: true,
-    soundEnabled: true,
-    notificationSoundTheme: "windows",
-    notificationSoundPaths: {
-      predictiveWarning: null,
-      highUsage: null,
-      criticalUsage: null,
-      exhausted: null,
-      statusIssue: null,
-      sessionDepleted: null,
-      sessionRestored: null,
-    },
-    highUsageThreshold: 70,
-    criticalUsageThreshold: 90,
-    predictivePaceWarningEnabled: false,
-    credentialExpiryNotificationsEnabled: false,
-    trayIconMode: "single",
-    switcherShowsIcons: true,
-    menuBarShowsHighestUsage: false,
-    menuBarShowsPercent: false,
-    menuBarColorPace: false,
-    showAsUsed: true,
-    showAllTokenAccountsInMenu: false,
-    enableAnimations: true,
-    resetTimeRelative: true,
-    showResetWhenExhausted: false,
-    menuBarDisplayMode: "detailed",
-    overviewLayout: "detailed",
-    hidePersonalInfo: false,
-    updateChannel: "stable",
-    autoDownloadUpdates: false,
-    installUpdatesOnQuit: false,
-    globalShortcut: "Ctrl+Shift+U",
-    switcherShortcuts: {},
-    codexCustomSessionsDirs: [],
-    uiLanguage: "english",
-    // "dark" (not "auto") so useTheme's effect short-circuits before ever
-    // touching window.matchMedia, which jsdom doesn't implement here.
-    theme: "dark",
-    windowScalePercent: 125,
-    trayScalePercent: 100,
-    trayPanelAlwaysOnTop: false,
-    powertoysStatusPipeEnabled: false,
-    claudeAvoidKeychainPrompts: false,
-    codexSparkUsageVisible: true,
-    disableKeychainAccess: false,
-    providerMetrics: {},
-    floatBarEnabled: false,
-    floatBarOpacity: 80,
-    floatBarScale: 100,
-    floatBarOrientation: "horizontal",
-    floatBarStyle: "floating",
-    floatBarClickThrough: false,
-    floatBarProviderIds: [],
-    floatBarDarkText: false,
-    floatBarShowResetInline: false,
-    floatBarShowCost: false,
-    claudeDailyRoutinesUsageVisible: true,
-    claudeAllowReadingClaudeCodeCredentials: false,
-    alibabaTokenPlanRegion: "cn",
-    weeklyProgressWorkDays: null,
-    costSummaryDisplayStyle: "compact",
-    providerAccentColors: {},
-    ...overrides,
-  };
-}
 
 function bootstrap(): BootstrapState {
   return {
     contractVersion: "v1",
     providers: [],
-    settings: settings(),
+    settings: makeSettings(),
   };
 }
 
@@ -151,7 +77,7 @@ describe("App window-label routing", () => {
     webviewWindowMocks.label = "main";
     surfaceMocks.snapshot = { mode: "hidden", target: { kind: "summary" } };
     tauriMocks.getBootstrapState.mockResolvedValue(bootstrap());
-    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(makeSettings());
     tauriMocks.checkForUpdates.mockResolvedValue({
       status: "idle",
       version: null,

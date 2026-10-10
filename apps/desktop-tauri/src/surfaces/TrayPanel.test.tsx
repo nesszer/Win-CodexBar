@@ -73,6 +73,7 @@ import type {
   ProviderUsageSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
+import { makeSettings } from "../test/fixtures";
 
 function rateWindow(used: number) {
   return {
@@ -124,79 +125,6 @@ function providerWithThreeQuotaWindows(
   return snapshot;
 }
 
-function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
-  return {
-    enabledProviders: ["codex", "claude"],
-    refreshIntervalSecs: 300,
-    adaptiveRefresh: false,
-    refreshAllProvidersOnMenuOpen: false,
-  lowPowerMode: false,
-    startAtLogin: false,
-    startMinimized: false,
-    showNotifications: true,
-    soundEnabled: true,
-    notificationSoundTheme: "windows",
-    notificationSoundPaths: {
-      predictiveWarning: null,
-      highUsage: null,
-      criticalUsage: null,
-      exhausted: null,
-      statusIssue: null,
-      sessionDepleted: null,
-      sessionRestored: null,
-    },
-    highUsageThreshold: 70,
-    criticalUsageThreshold: 90,
-    predictivePaceWarningEnabled: false,
-    credentialExpiryNotificationsEnabled: false,
-    trayIconMode: "single",
-    switcherShowsIcons: true,
-    menuBarShowsHighestUsage: false,
-    menuBarShowsPercent: false,
-    menuBarColorPace: false,
-    showAsUsed: true,
-    showAllTokenAccountsInMenu: false,
-    enableAnimations: true,
-    resetTimeRelative: true,
-    showResetWhenExhausted: false,
-    menuBarDisplayMode: "detailed",
-    overviewLayout: "detailed",
-    hidePersonalInfo: false,
-    updateChannel: "stable",
-    autoDownloadUpdates: false,
-    installUpdatesOnQuit: false,
-    globalShortcut: "Ctrl+Shift+U",
-    switcherShortcuts: {},
-    codexCustomSessionsDirs: [],
-    uiLanguage: "english",
-    theme: "dark",
-    windowScalePercent: 125,
-    trayScalePercent: 100,
-    trayPanelAlwaysOnTop: false,
-    powertoysStatusPipeEnabled: false,
-    claudeAvoidKeychainPrompts: false,
-    codexSparkUsageVisible: true,
-    disableKeychainAccess: false,
-    providerMetrics: {},
-    floatBarEnabled: false,
-    floatBarOpacity: 80,
-    floatBarScale: 100,
-    floatBarOrientation: "horizontal",
-    floatBarStyle: "floating",
-    floatBarClickThrough: false,
-    floatBarProviderIds: [],
-    floatBarDarkText: false,
-    floatBarShowResetInline: false,
-    floatBarShowCost: false,
-    claudeDailyRoutinesUsageVisible: true,
-    claudeAllowReadingClaudeCodeCredentials: false,
-    alibabaTokenPlanRegion: "cn",
-    weeklyProgressWorkDays: null,
-    costSummaryDisplayStyle: "compact",
-    providerAccentColors: {},
-    ...overrides,
-  };
-}
 
 function bootstrap(
   settingsOverrides: Partial<SettingsSnapshot> = {},
@@ -205,7 +133,7 @@ function bootstrap(
   return {
     contractVersion: "v1",
     providers: catalog,
-    settings: settings(settingsOverrides),
+    settings: makeSettings(settingsOverrides),
   };
 }
 
@@ -215,7 +143,7 @@ function renderTrayPanel(
   catalog: ProviderCatalogEntry[] = [],
 ) {
   tauriMocks.getCachedProviders.mockResolvedValue(providers);
-  const snapshot = settings(settingsOverrides);
+  const snapshot = makeSettings(settingsOverrides);
   tauriMocks.getSettingsSnapshot.mockResolvedValue(snapshot);
   return render(
     <LocaleProvider>
@@ -261,8 +189,8 @@ describe("TrayPanel provider grid", () => {
       mode: "trayPanel",
       target: { kind: "summary" },
     });
-    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
-    tauriMocks.updateSettings.mockResolvedValue(settings());
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(makeSettings());
+    tauriMocks.updateSettings.mockResolvedValue(makeSettings());
     tauriMocks.getUpdateState.mockResolvedValue({
       status: "idle",
       version: null,
@@ -813,7 +741,7 @@ describe("TrayPanel provider grid", () => {
     tauriMocks.getCachedProviders.mockResolvedValue([
       provider("claude", "Claude", 35),
     ]);
-    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ showAsUsed: false }));
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(makeSettings({ showAsUsed: false }));
     rerender(
       <LocaleProvider>
         <TrayPanel state={bootstrap({ showAsUsed: false })} />

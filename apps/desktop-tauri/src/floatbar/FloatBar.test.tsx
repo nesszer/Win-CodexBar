@@ -41,6 +41,7 @@ import type {
   RateWindowSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
+import { makeSettings } from "../test/fixtures";
 
 type RateWindowOptions = {
   exhausted?: boolean;
@@ -129,77 +130,7 @@ function snapshot(
 }
 
 function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
-  return {
-    enabledProviders: ["claude", "codex"],
-    refreshIntervalSecs: 300,
-    adaptiveRefresh: false,
-    refreshAllProvidersOnMenuOpen: false,
-    lowPowerMode: false,
-    startAtLogin: false,
-    startMinimized: false,
-    showNotifications: true,
-    soundEnabled: true,
-    notificationSoundTheme: "windows",
-    notificationSoundPaths: {
-      predictiveWarning: null,
-      highUsage: null,
-      criticalUsage: null,
-      exhausted: null,
-      statusIssue: null,
-      sessionDepleted: null,
-      sessionRestored: null,
-    },
-    highUsageThreshold: 70,
-    criticalUsageThreshold: 90,
-    predictivePaceWarningEnabled: false,
-    credentialExpiryNotificationsEnabled: false,
-    trayIconMode: "single",
-    switcherShowsIcons: true,
-    menuBarShowsHighestUsage: false,
-    menuBarShowsPercent: false,
-    menuBarColorPace: false,
-    showAsUsed: true,
-    showAllTokenAccountsInMenu: false,
-    enableAnimations: true,
-    resetTimeRelative: true,
-    showResetWhenExhausted: false,
-    menuBarDisplayMode: "detailed",
-    overviewLayout: "detailed",
-    hidePersonalInfo: false,
-    updateChannel: "stable",
-    autoDownloadUpdates: false,
-    installUpdatesOnQuit: false,
-    globalShortcut: "Ctrl+Shift+U",
-    switcherShortcuts: {},
-    codexCustomSessionsDirs: [],
-    uiLanguage: "english",
-    theme: "dark",
-    windowScalePercent: 125,
-    trayScalePercent: 100,
-    trayPanelAlwaysOnTop: false,
-    powertoysStatusPipeEnabled: false,
-    claudeAvoidKeychainPrompts: false,
-    codexSparkUsageVisible: true,
-    disableKeychainAccess: false,
-    providerMetrics: {},
-    floatBarEnabled: true,
-    floatBarOpacity: 80,
-    floatBarScale: 100,
-    floatBarOrientation: "horizontal",
-    floatBarStyle: "floating",
-    floatBarClickThrough: false,
-    floatBarProviderIds: [],
-    floatBarDarkText: false,
-    floatBarShowResetInline: false,
-    floatBarShowCost: false,
-    claudeDailyRoutinesUsageVisible: true,
-    claudeAllowReadingClaudeCodeCredentials: false,
-    alibabaTokenPlanRegion: "cn",
-    weeklyProgressWorkDays: null,
-    costSummaryDisplayStyle: "compact",
-    providerAccentColors: {},
-    ...overrides,
-  };
+  return makeSettings({ enabledProviders: ["claude", "codex"], floatBarEnabled: true, ...overrides });
 }
 
 function bootstrap(settingsOverrides: Partial<SettingsSnapshot> = {}): BootstrapState {
