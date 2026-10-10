@@ -212,9 +212,6 @@ fn main() {
             commands::open_settings_window,
             commands::open_flyout_window,
             commands::close_settings_window,
-            commands::set_flyout_size,
-            commands::flyout_stored_size,
-            commands::reset_flyout_position,
             commands::get_current_surface_state,
             commands::refresh_providers,
             commands::refresh_providers_if_stale,
@@ -304,6 +301,7 @@ fn main() {
             commands::register_global_shortcut,
             commands::unregister_global_shortcut,
             commands::get_work_area_rect,
+            commands::get_system_accent_color,
             commands::play_notification_sound,
             commands::open_external_url,
             commands::reanchor_tray_panel,
@@ -401,8 +399,8 @@ fn main() {
                     {
                         return;
                     }
-                    // Gesture guard: ignore blur while a resize-grip drag or
-                    // HTML5 drag-reorder is running its Win32/OLE modal loop.
+                    // Gesture guard: ignore blur while an HTML5 drag-reorder
+                    // is running its OLE modal loop.
                     // Windows produces a spurious Focused(false) the instant
                     // such a loop starts even though the user never left the
                     // window; see AppState::begin_gesture_blur_guard.

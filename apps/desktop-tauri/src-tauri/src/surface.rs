@@ -50,14 +50,16 @@ impl SurfaceMode {
             // tray icon, auto-hides on click-outside (blur), and never shows in
             // the taskbar. Its optional always-on-top setting is applied by the
             // dedicated flyout window, which can read persisted settings.
+            // Fixed 310px wide like the Mac menu; the frontend sizes the
+            // height to its content and scales both by "Panel scale".
             Self::TrayPanel => WindowProperties {
                 visible: true,
                 decorations: false,
-                resizable: true,
-                width: 328.0,
+                resizable: false,
+                width: 310.0,
                 height: 776.0,
-                min_width: Some(300.0),
-                min_height: Some(360.0),
+                min_width: None,
+                min_height: None,
                 always_on_top: false,
                 blur_dismiss: true,
                 skip_taskbar: true,
@@ -268,21 +270,21 @@ mod tests {
     #[test]
     fn tray_panel_properties() {
         let props = SurfaceMode::TrayPanel.window_properties();
-        assert_eq!(props.width, 328.0);
+        assert_eq!(props.width, 310.0);
         assert_eq!(props.height, 776.0);
     }
 
     #[test]
-    fn tray_panel_is_resizable_blur_dismiss_flyout() {
+    fn tray_panel_is_fixed_size_blur_dismiss_flyout() {
         let props = SurfaceMode::TrayPanel.window_properties();
-        // "Pop Out Dashboard" flyout: resizable, anchored, auto-hide, no taskbar.
-        assert!(props.resizable);
+        // "Pop Out Dashboard" flyout: fixed size, anchored, auto-hide, no taskbar.
+        assert!(!props.resizable);
         assert!(props.blur_dismiss);
         assert!(!props.always_on_top);
         assert!(props.skip_taskbar);
         assert!(!props.decorations);
-        assert_eq!(props.min_width, Some(300.0));
-        assert_eq!(props.min_height, Some(360.0));
+        assert_eq!(props.min_width, None);
+        assert_eq!(props.min_height, None);
     }
 
     #[test]

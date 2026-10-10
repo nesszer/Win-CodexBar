@@ -601,9 +601,9 @@ mod tests {
 
         // SurfaceMode::TrayPanel is retained purely as a data key (geometry
         // key / window_properties source / panel-size reference) for the
-        // flyout window's builder — the properties themselves are unchanged.
+        // flyout window's builder. The panel is a fixed-width menu.
         let props = SurfaceMode::TrayPanel.window_properties();
-        assert!(props.resizable && props.blur_dismiss && props.skip_taskbar);
+        assert!(!props.resizable && props.blur_dismiss && props.skip_taskbar);
     }
 
     #[test]

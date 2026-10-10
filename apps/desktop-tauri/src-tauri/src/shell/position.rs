@@ -232,13 +232,7 @@ pub fn remember_current_geometry_if_eligible(window: &tauri::Window) {
         let guard = st.lock().unwrap();
         guard.surface_machine.current()
     };
-    // The TrayPanel flyout persists its size explicitly from the frontend (only
-    // on genuine user drag-resizes, never on its own auto-fit resizes), so skip
-    // the automatic capture here — otherwise an auto-fit resize would be saved
-    // and freeze the panel at that size.
-    if current_mode == SurfaceMode::TrayPanel
-        || !crate::geometry_store::should_remember(current_mode)
-    {
+    if !crate::geometry_store::should_remember(current_mode) {
         return;
     }
 

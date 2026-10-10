@@ -66,8 +66,7 @@ pub fn apply_window_layout(
 
     if props.visible {
         // The flyout ("Pop Out Dashboard") window is sized entirely by the
-        // frontend (content auto-fit, or the user's remembered size applied
-        // on open via `flyout_window::open_or_focus` + `set_flyout_size`) —
+        // frontend (content auto-fit at a fixed width) —
         // it is its own dedicated window now, never `main`, so this function
         // (which only ever runs against `main`'s window; see callers in
         // `shell/transition.rs`) needs no special-case for it. `main`'s
