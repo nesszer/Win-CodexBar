@@ -35,7 +35,9 @@ pub fn load_app_auth_access_token() -> Option<String> {
             // WAL database can retain WAL mode in its header after the
             // sidecars disappear, and immutable mode reads the main file
             // without recreating them.
-            let wal_missing = !wal_sidecar(&db_path).exists() && !shm_sidecar(&db_path).exists();
+            let wal_missing = ["-wal", "-shm"]
+                .into_iter()
+                .all(|suffix| !sidecar(&db_path, suffix).exists());
             if !wal_missing {
                 tracing::debug!("Cursor app auth read failed: {err}");
                 return None;
@@ -51,15 +53,9 @@ pub fn load_app_auth_access_token() -> Option<String> {
     }
 }
 
-fn wal_sidecar(db_path: &std::path::Path) -> std::path::PathBuf {
+fn sidecar(db_path: &std::path::Path, suffix: &str) -> std::path::PathBuf {
     let mut name = db_path.as_os_str().to_os_string();
-    name.push("-wal");
-    std::path::PathBuf::from(name)
-}
-
-fn shm_sidecar(db_path: &std::path::Path) -> std::path::PathBuf {
-    let mut name = db_path.as_os_str().to_os_string();
-    name.push("-shm");
+    name.push(suffix);
     std::path::PathBuf::from(name)
 }
 
