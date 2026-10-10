@@ -198,20 +198,7 @@ impl AlibabaTokenPlanProvider {
     }
 
     fn parse_usage_snapshot(data: &[u8]) -> Result<TokenPlanSnapshot, ProviderError> {
-        if data.is_empty() {
-            return Err(ProviderError::Parse(
-                "Empty Alibaba Token Plan response".into(),
-            ));
-        }
-        let value: Value = serde_json::from_slice(data).map_err(|_| {
-            if is_likely_login_html(data) {
-                ProviderError::AuthRequired
-            } else {
-                ProviderError::Parse("Invalid Alibaba Token Plan JSON response".into())
-            }
-        })?;
-        let expanded = expand_json_strings(value);
-        throw_if_error_payload(&expanded)?;
+        let expanded = decode_console_payload(data, "Alibaba Token Plan")?;
 
         let instance = find_token_plan_instance(&expanded);
         let plan_name = instance
@@ -434,6 +421,24 @@ pub(super) async fn send_console_form(
         )));
     }
     Ok(body.to_vec())
+}
+
+/// Decode a console response body: reject empty bodies and login HTML,
+/// expand JSON-in-string fields, then surface gateway error payloads.
+pub(super) fn decode_console_payload(data: &[u8], scope: &str) -> Result<Value, ProviderError> {
+    if data.is_empty() {
+        return Err(ProviderError::Parse(format!("Empty {scope} response")));
+    }
+    let value: Value = serde_json::from_slice(data).map_err(|_| {
+        if is_likely_login_html(data) {
+            ProviderError::AuthRequired
+        } else {
+            ProviderError::Parse(format!("Invalid {scope} JSON response"))
+        }
+    })?;
+    let expanded = expand_json_strings(value);
+    throw_if_error_payload(&expanded)?;
+    Ok(expanded)
 }
 
 pub(super) fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError> {

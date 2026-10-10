@@ -7,9 +7,9 @@ use uuid::Uuid;
 use super::region::AlibabaTokenPlanRegion;
 use super::{
     LANGUAGE, PERSONAL_CONSOLE_PRODUCT, PERSONAL_QUOTA_CONFIG_API, PERSONAL_SUBSCRIPTION_API,
-    PERSONAL_USAGE_API, TokenPlanSnapshot, cookie_value, date_field, deep_find,
-    expand_json_strings, find_object_containing_any_of, is_likely_login_html, number_field,
-    percentage_points, push_sec_token, send_console_form, throw_if_error_payload,
+    PERSONAL_USAGE_API, TokenPlanSnapshot, cookie_value, date_field, decode_console_payload,
+    deep_find, expand_json_strings, find_object_containing_any_of, number_field, percentage_points,
+    push_sec_token, send_console_form,
 };
 use crate::core::{FetchContext, ProviderError};
 
@@ -250,22 +250,7 @@ pub(super) fn parse_personal_usage(
     subscription_data: Option<&[u8]>,
     quota_config_data: Option<&[u8]>,
 ) -> Result<TokenPlanSnapshot, ProviderError> {
-    if usage_data.is_empty() {
-        return Err(ProviderError::Parse(
-            "Empty Alibaba Token Plan Personal response".into(),
-        ));
-    }
-
-    let value: Value = serde_json::from_slice(usage_data).map_err(|_| {
-        if is_likely_login_html(usage_data) {
-            ProviderError::AuthRequired
-        } else {
-            ProviderError::Parse("Invalid Alibaba Token Plan Personal JSON response".into())
-        }
-    })?;
-    let expanded = expand_json_strings(value);
-    throw_if_error_payload(&expanded)?;
-
+    let expanded = decode_console_payload(usage_data, "Alibaba Token Plan Personal")?;
     personal_usage_snapshot(
         &expanded,
         subscription_data,
