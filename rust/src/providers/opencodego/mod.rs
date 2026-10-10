@@ -328,20 +328,8 @@ impl OpenCodeGoProvider {
             }
             Err(console_error) if cookies.can_recover_with_legacy(&console_error) => {
                 zen_task.abort();
-                let session = match transport.resolve_legacy_session(&cookies).await {
-                    Ok(session) => session,
-                    Err(error) => {
-                        return cookies.select_legacy_result(console_error, Err(error));
-                    }
-                };
-                return Self::fetch_legacy_with_session(
-                    ctx,
-                    &cookies,
-                    console_error,
-                    transport,
-                    session,
-                )
-                .await;
+                return Self::fetch_legacy_with_cookies(ctx, &cookies, console_error, transport)
+                    .await;
             }
             Err(error) => {
                 zen_task.abort();
@@ -443,6 +431,30 @@ impl OpenCodeGoProvider {
             "Zen balance",
         ))
     }
+}
+
+/// `(used percent, reset time)` of one OpenCode Go window.
+type GoWindow = (f64, chrono::DateTime<Utc>);
+
+/// Rolling 5h, weekly and calendar-month windows in the shared Go snapshot shape.
+fn go_snapshot(
+    rolling: GoWindow,
+    weekly: Option<GoWindow>,
+    monthly: Option<GoWindow>,
+) -> UsageSnapshot {
+    let window = |(percent, resets_at): GoWindow, minutes| {
+        RateWindow::with_details(percent, minutes, Some(resets_at), None)
+    };
+    let mut snapshot =
+        UsageSnapshot::new(window(rolling, Some(300))).with_login_method("OpenCode Go");
+    if let Some(weekly) = weekly {
+        snapshot = snapshot.with_secondary(window(weekly, Some(10080)));
+    }
+    if let Some(monthly) = monthly {
+        let minutes = RateWindow::monthly_window_minutes(Some(monthly.1)).or(Some(43200));
+        snapshot = snapshot.with_tertiary(window(monthly, minutes));
+    }
+    snapshot
 }
 
 impl Default for OpenCodeGoProvider {

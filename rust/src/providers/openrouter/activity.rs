@@ -71,35 +71,21 @@ pub(super) fn parse_activity_cost(
             ));
         }
         for (index, row) in rows.iter().enumerate() {
-            let object = row.as_object().ok_or_else(|| {
-                ProviderError::Parse(format!(
-                    "OpenRouter activity.data[{index}] must be an object"
-                ))
-            })?;
+            let object = row
+                .as_object()
+                .ok_or_else(|| row_err(index, " must be an object"))?;
             let raw_day = object
                 .get("date")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .ok_or_else(|| {
-                    ProviderError::Parse(format!(
-                        "OpenRouter activity.data[{index}].date is missing"
-                    ))
-                })?;
-            let day = normalize_activity_day(raw_day).ok_or_else(|| {
-                ProviderError::Parse(format!(
-                    "OpenRouter activity.data[{index}].date must be YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
-                ))
-            })?;
-            let parsed_day = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| {
-                ProviderError::Parse(format!(
-                    "OpenRouter activity.data[{index}].date must be a real calendar date"
-                ))
-            })?;
+                .ok_or_else(|| row_err(index, ".date is missing"))?;
+            let day = normalize_activity_day(raw_day)
+                .ok_or_else(|| row_err(index, ".date must be YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"))?;
+            let parsed_day = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+                .map_err(|_| row_err(index, ".date must be a real calendar date"))?;
             if parsed_day > latest_completed {
-                return Err(ProviderError::Parse(format!(
-                    "OpenRouter activity.data[{index}].date must be a completed UTC day"
-                )));
+                return Err(row_err(index, ".date must be a completed UTC day"));
             }
             if parsed_day < cutoff {
                 continue;
@@ -111,9 +97,7 @@ pub(super) fn parse_activity_cost(
                 .map(str::trim)
                 .unwrap_or("");
             if model.len() > 64 {
-                return Err(ProviderError::Parse(format!(
-                    "OpenRouter activity.data[{index}].model exceeds 64 characters"
-                )));
+                return Err(row_err(index, ".model exceeds 64 characters"));
             }
             let prompt = nonnegative_integer(object.get("prompt_tokens"), index, "prompt_tokens")?;
             let completion =
@@ -126,9 +110,7 @@ pub(super) fn parse_activity_cost(
                 .checked_add(completion)
                 .is_none_or(|total| total > MAX_SAFE_INTEGER)
             {
-                return Err(ProviderError::Parse(format!(
-                    "OpenRouter activity.data[{index}] token total overflowed"
-                )));
+                return Err(row_err(index, " token total overflowed"));
             }
             let requests = nonnegative_integer(object.get("requests"), index, "requests")?;
             let metered = nonnegative_number(object.get("usage"), index, "usage")?;
@@ -249,25 +231,24 @@ fn normalize_activity_day(raw: &str) -> Option<&str> {
     Some(&raw[..10])
 }
 
+fn row_err(index: usize, detail: &str) -> ProviderError {
+    ProviderError::Parse(format!("OpenRouter activity.data[{index}]{detail}"))
+}
+
 fn nonnegative_integer(
     value: Option<&Value>,
     index: usize,
     field: &str,
 ) -> Result<u64, ProviderError> {
-    let value = value.ok_or_else(|| {
-        ProviderError::Parse(format!(
-            "OpenRouter activity.data[{index}].{field} is missing"
-        ))
-    })?;
-    let value = value.as_u64().ok_or_else(|| {
-        ProviderError::Parse(format!(
-            "OpenRouter activity.data[{index}].{field} must be a nonnegative integer"
-        ))
-    })?;
+    let value = value.ok_or_else(|| row_err(index, &format!(".{field} is missing")))?;
+    let value = value
+        .as_u64()
+        .ok_or_else(|| row_err(index, &format!(".{field} must be a nonnegative integer")))?;
     if value > MAX_SAFE_INTEGER {
-        return Err(ProviderError::Parse(format!(
-            "OpenRouter activity.data[{index}].{field} must be a nonnegative safe integer"
-        )));
+        return Err(row_err(
+            index,
+            &format!(".{field} must be a nonnegative safe integer"),
+        ));
     }
     Ok(value)
 }
@@ -280,11 +261,7 @@ fn nonnegative_number(
     value
         .and_then(Value::as_f64)
         .filter(|value| value.is_finite() && *value >= 0.0)
-        .ok_or_else(|| {
-            ProviderError::Parse(format!(
-                "OpenRouter activity.data[{index}].{field} must be finite and nonnegative"
-            ))
-        })
+        .ok_or_else(|| row_err(index, &format!(".{field} must be finite and nonnegative")))
 }
 
 #[cfg(test)]
@@ -295,6 +272,64 @@ mod tests {
         DateTime::parse_from_rfc3339("2026-08-22T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn activity_row_errors_name_the_row_index_and_field() {
+        let long_model = "m".repeat(65);
+        let cases = [
+            (serde_json::json!(5), " must be an object"),
+            (serde_json::json!({}), ".date is missing"),
+            (
+                serde_json::json!({"date":"2026/08/21"}),
+                ".date must be YYYY-MM-DD or YYYY-MM-DD HH:MM:SS",
+            ),
+            (
+                serde_json::json!({"date":"2026-02-31"}),
+                ".date must be a real calendar date",
+            ),
+            (
+                serde_json::json!({"date":"2026-08-22"}),
+                ".date must be a completed UTC day",
+            ),
+            (
+                serde_json::json!({"date":"2026-08-21","model":long_model}),
+                ".model exceeds 64 characters",
+            ),
+            (
+                serde_json::json!({"date":"2026-08-21"}),
+                ".prompt_tokens is missing",
+            ),
+            (
+                serde_json::json!({"date":"2026-08-21","prompt_tokens":-1}),
+                ".prompt_tokens must be a nonnegative integer",
+            ),
+            (
+                serde_json::json!({"date":"2026-08-21","prompt_tokens":MAX_SAFE_INTEGER + 1}),
+                ".prompt_tokens must be a nonnegative safe integer",
+            ),
+            (
+                serde_json::json!({"date":"2026-08-21","prompt_tokens":MAX_SAFE_INTEGER,
+                    "completion_tokens":1}),
+                " token total overflowed",
+            ),
+            (
+                serde_json::json!({"date":"2026-08-21","prompt_tokens":1,"completion_tokens":1,
+                    "requests":1,"usage":-1.0}),
+                ".usage must be finite and nonnegative",
+            ),
+        ];
+        for (row, detail) in cases {
+            let valid = serde_json::json!({"date":"2026-08-21","model":"m","prompt_tokens":1,
+                "completion_tokens":1,"requests":1,"usage":0.1});
+            let payload = serde_json::json!({ "data": [valid, row] });
+            let error = parse_activity_cost(&[payload], now()).unwrap_err();
+            assert!(
+                matches!(&error, ProviderError::Parse(message)
+                    if *message == format!("OpenRouter activity.data[1]{detail}")),
+                "{detail}: {error:?}"
+            );
+        }
     }
 
     #[test]

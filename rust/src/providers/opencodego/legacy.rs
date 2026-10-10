@@ -200,30 +200,8 @@ fn parse_usage_text(text: &str) -> Result<UsageSnapshot, ProviderError> {
     let weekly = extract_window(text, &["weeklyUsage", "weekly_usage", "weekly"]);
     let monthly = extract_window(text, &["monthlyUsage", "monthly_usage", "monthly"]);
 
-    let primary = RateWindow::with_details(
-        rolling.0,
-        Some(300),
-        Some(now + chrono::Duration::seconds(rolling.1)),
-        None,
-    );
-    let mut snapshot = UsageSnapshot::new(primary).with_login_method("OpenCode Go");
-    if let Some((percent, reset)) = weekly {
-        snapshot = snapshot.with_secondary(RateWindow::with_details(
-            percent,
-            Some(10080),
-            Some(now + chrono::Duration::seconds(reset)),
-            None,
-        ));
-    }
-    if let Some((percent, reset)) = monthly {
-        let resets_at = now + chrono::Duration::seconds(reset);
-        snapshot = snapshot.with_tertiary(RateWindow::with_details(
-            percent,
-            RateWindow::monthly_window_minutes(Some(resets_at)).or(Some(43200)),
-            Some(resets_at),
-            None,
-        ));
-    }
+    let at = |(percent, reset): (f64, i64)| (percent, now + chrono::Duration::seconds(reset));
+    let mut snapshot = super::go_snapshot(at(rolling), weekly.map(at), monthly.map(at));
     if let Some(renews_at) = super::super::extract_renewal(text) {
         snapshot = snapshot.with_extra_rate_window(
             "renewal",
@@ -410,10 +388,27 @@ mod tests {
             weeklyUsage: { usagePercent: 13, resetInSec: 86400 }
             monthlyUsage: { usagePercent: 7, resetInSec: 2592000 }
         "#;
+        let before = Utc::now();
         let snapshot = parse_usage_text(text).unwrap();
+        let after = Utc::now();
         assert!((snapshot.primary.used_percent - 42.5).abs() < 0.001);
-        assert!((snapshot.secondary.unwrap().used_percent - 13.0).abs() < 0.001);
-        assert!((snapshot.tertiary.unwrap().used_percent - 7.0).abs() < 0.001);
+        assert!((snapshot.secondary.as_ref().unwrap().used_percent - 13.0).abs() < 0.001);
+        assert!((snapshot.tertiary.as_ref().unwrap().used_percent - 7.0).abs() < 0.001);
+        assert_eq!(snapshot.login_method.as_deref(), Some("OpenCode Go"));
+        let windows = [
+            (&snapshot.primary, 3600, Some(300)),
+            (snapshot.secondary.as_ref().unwrap(), 86400, Some(10080)),
+            (snapshot.tertiary.as_ref().unwrap(), 2592000, None),
+        ];
+        for (window, reset_in, minutes) in windows {
+            let resets_at = window.resets_at.unwrap();
+            assert!(resets_at >= before + chrono::Duration::seconds(reset_in));
+            assert!(resets_at <= after + chrono::Duration::seconds(reset_in));
+            let expected = minutes.or(RateWindow::monthly_window_minutes(Some(resets_at)));
+            assert_eq!(window.window_minutes, expected);
+            assert!(window.reset_description.is_none());
+        }
+        assert!(snapshot.extra_rate_windows.is_empty());
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! Fetches usage data from MiniMax AI API
 //! MiniMax stores API keys locally or in environment
 
+mod billing;
 mod coding_plan;
 mod coding_plan_html;
 mod local_storage;
@@ -17,65 +18,78 @@ mod token_plan;
 pub use local_storage::{ImportError, MiniMaxLocalStorageImporter, MiniMaxSession};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, TimeZone, Utc};
-use serde::Deserialize;
-use std::collections::HashMap;
+use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
 use crate::core::{
-    CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
-use crate::providers::json;
+use billing::{MiniMaxBillingSummary, attach_billing_summary, parse_billing_summary};
 
 const CODING_PLAN_PATH: &str = "/user-center/payment/coding-plan";
 const CODING_PLAN_QUERY: &str = "cycle_type=3";
+const JSON_ACCEPT: &str = "application/json, text/plain, */*";
+const HTML_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
-#[derive(Debug, Deserialize)]
-struct MiniMaxBillingHistoryPayload {
-    #[serde(default)]
-    base_resp: Option<MiniMaxBaseResponse>,
-    #[serde(default)]
-    charge_records: Vec<MiniMaxBillingRecord>,
+fn http_client() -> Result<reqwest::Client, ProviderError> {
+    crate::core::credentialed_http_client_builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| ProviderError::Other(e.to_string()))
 }
 
-#[derive(Debug, Deserialize)]
-struct MiniMaxBaseResponse {
-    status_code: Option<i64>,
-    status_msg: Option<String>,
+fn is_auth_status(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN
 }
 
-#[derive(Debug, Deserialize)]
-struct MiniMaxBillingRecord {
-    consume_token: Option<serde_json::Value>,
-    consume_input_token: Option<serde_json::Value>,
-    consume_output_token: Option<serde_json::Value>,
-    consume_cash: Option<serde_json::Value>,
-    consume_cash_after_voucher: Option<serde_json::Value>,
-    created_at: Option<serde_json::Value>,
-    ymd: Option<String>,
-    consume_time: Option<String>,
-    method: Option<String>,
-    model: Option<String>,
-    result: Option<serde_json::Value>,
-    status: Option<serde_json::Value>,
+/// 401/403 read as AuthRequired and other failures as
+/// "MiniMax {what} returned status {status}". With `not_found_is_parse`,
+/// 404/405 read as Parse so the caller tries its next URL.
+fn check_status(
+    status: reqwest::StatusCode,
+    what: &str,
+    not_found_is_parse: bool,
+) -> Result<(), ProviderError> {
+    if is_auth_status(status) {
+        return Err(ProviderError::AuthRequired);
+    }
+    if status.is_success() {
+        return Ok(());
+    }
+    let message = format!("MiniMax {what} returned status {status}");
+    if not_found_is_parse
+        && (status == reqwest::StatusCode::NOT_FOUND
+            || status == reqwest::StatusCode::METHOD_NOT_ALLOWED)
+    {
+        return Err(ProviderError::Parse(message));
+    }
+    Err(ProviderError::Other(message))
 }
 
-#[derive(Debug, Clone)]
-struct MiniMaxBillingSummary {
-    today_tokens: i64,
-    last_30_days_tokens: i64,
-    today_cash: Option<f64>,
-    last_30_days_cash: Option<f64>,
-    top_methods: Vec<MiniMaxBillingBreakdown>,
-    top_models: Vec<MiniMaxBillingBreakdown>,
-}
-
-#[derive(Debug, Clone)]
-struct MiniMaxBillingBreakdown {
-    name: String,
-    tokens: i64,
-    cash: Option<f64>,
+/// Browser-shaped console GET: cookie, `accept`, the optional XHR marker,
+/// then the Chrome UA, language, origin and coding-plan referer.
+fn console_get(
+    client: &reqwest::Client,
+    url: &str,
+    cookie_header: &str,
+    region: MiniMaxRegion,
+    accept: &str,
+    xhr: bool,
+) -> reqwest::RequestBuilder {
+    let base = region.base_url();
+    let mut request = client
+        .get(url)
+        .header("Cookie", cookie_header)
+        .header("Accept", accept);
+    if xhr {
+        request = request.header("X-Requested-With", "XMLHttpRequest");
+    }
+    request
+        .header("User-Agent", MiniMaxProvider::WEB_USER_AGENT)
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .header("Origin", base)
+        .header("Referer", format!("{base}/user-center/payment/coding-plan"))
 }
 
 /// MiniMax API region
@@ -299,10 +313,7 @@ impl MiniMaxProvider {
         api_key: &str,
         region: MiniMaxRegion,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let client = crate::core::credentialed_http_client_builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = http_client()?;
 
         let base_url = region.api_base_url();
         let resp = client
@@ -314,19 +325,7 @@ impl MiniMaxProvider {
             .header("MM-API-Source", "CodexBar")
             .send()
             .await?;
-
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
-            || resp.status() == reqwest::StatusCode::FORBIDDEN
-        {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !resp.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "MiniMax API returned status {}",
-                resp.status()
-            )));
-        }
+        check_status(resp.status(), "API", false)?;
 
         let json: serde_json::Value = resp
             .json()
@@ -398,31 +397,17 @@ impl MiniMaxProvider {
         cookie_header: &str,
         region: MiniMaxRegion,
     ) -> Result<MiniMaxBillingSummary, ProviderError> {
-        let client = crate::core::credentialed_http_client_builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = http_client()?;
 
         let response = client
             .get(region.billing_history_url())
             .query(&[("page", "1"), ("limit", "100"), ("aggregate", "false")])
             .header("Cookie", cookie_header)
-            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept", JSON_ACCEPT)
             .header("X-Requested-With", "XMLHttpRequest")
             .send()
             .await?;
-
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED
-            || response.status() == reqwest::StatusCode::FORBIDDEN
-        {
-            return Err(ProviderError::AuthRequired);
-        }
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "MiniMax billing returned status {}",
-                response.status()
-            )));
-        }
+        check_status(response.status(), "billing", false)?;
 
         let json: serde_json::Value = response
             .json()
@@ -442,39 +427,19 @@ impl MiniMaxProvider {
         cookie_header: &str,
         region: MiniMaxRegion,
     ) -> Result<UsageSnapshot, ProviderError> {
-        let client = crate::core::credentialed_http_client_builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = http_client()?;
 
-        let coding_url = region.coding_plan_url();
-        let base = region.base_url();
-        let response = client
-            .get(&coding_url)
-            .header("Cookie", cookie_header)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-            .header("User-Agent", Self::WEB_USER_AGENT)
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Origin", base)
-            .header(
-                "Referer",
-                &format!("{base}/user-center/payment/coding-plan"),
-            )
-            .send()
-            .await?;
-
-        let status = response.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-            return Err(ProviderError::AuthRequired);
-        }
-        if !status.is_success() {
-            return Err(ProviderError::Other(format!(
-                "MiniMax coding plan returned status {status}"
-            )));
-        }
+        let response = console_get(
+            &client,
+            &region.coding_plan_url(),
+            cookie_header,
+            region,
+            HTML_ACCEPT,
+            false,
+        )
+        .send()
+        .await?;
+        check_status(response.status(), "coding plan", false)?;
 
         let content_type = response
             .headers()
@@ -563,41 +528,12 @@ impl MiniMaxProvider {
         region: MiniMaxRegion,
         now: DateTime<Utc>,
     ) -> Result<coding_plan::MiniMaxCodingPlanSnapshot, ProviderError> {
-        let client = crate::core::credentialed_http_client_builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let client = http_client()?;
 
-        let base = region.base_url();
-        let response = client
-            .get(url)
-            .header("Cookie", cookie_header)
-            .header("Accept", "application/json, text/plain, */*")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("User-Agent", Self::WEB_USER_AGENT)
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Origin", base)
-            .header(
-                "Referer",
-                &format!("{base}/user-center/payment/coding-plan"),
-            )
+        let response = console_get(&client, url, cookie_header, region, JSON_ACCEPT, true)
             .send()
             .await?;
-
-        let status = response.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-            return Err(ProviderError::AuthRequired);
-        }
-        if !status.is_success() {
-            let msg = format!("MiniMax remains returned status {status}");
-            // 404/405 → try next URL; other → stop
-            if status == reqwest::StatusCode::NOT_FOUND
-                || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
-            {
-                return Err(ProviderError::Parse(msg));
-            }
-            return Err(ProviderError::Other(msg));
-        }
+        check_status(response.status(), "remains", true)?;
 
         let content_type = response
             .headers()
@@ -713,250 +649,6 @@ impl MiniMaxProvider {
     }
 }
 
-fn parse_billing_summary(json: &serde_json::Value) -> Result<MiniMaxBillingSummary, ProviderError> {
-    let payload: MiniMaxBillingHistoryPayload = serde_json::from_value(json.clone())
-        .map_err(|e| ProviderError::Parse(format!("Failed to parse MiniMax billing: {e}")))?;
-    if let Some(base) = payload.base_resp
-        && let Some(status) = base.status_code
-        && status != 0
-    {
-        return Err(ProviderError::Other(
-            base.status_msg
-                .unwrap_or_else(|| format!("MiniMax billing status {status}")),
-        ));
-    }
-    if payload.charge_records.is_empty() {
-        return Err(ProviderError::Parse(
-            "MiniMax billing records not present".to_string(),
-        ));
-    }
-    Ok(aggregate_billing(&payload.charge_records, Utc::now()))
-}
-
-fn aggregate_billing(
-    records: &[MiniMaxBillingRecord],
-    now: DateTime<Utc>,
-) -> MiniMaxBillingSummary {
-    let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
-    let window_start = today_start - Duration::days(29);
-    let mut today_tokens = 0;
-    let mut last_30_days_tokens = 0;
-    let mut today_cash = 0.0;
-    let mut today_has_cash = false;
-    let mut last_30_days_cash = 0.0;
-    let mut last_30_has_cash = false;
-    let mut method_totals: HashMap<String, (i64, f64, bool)> = HashMap::new();
-    let mut model_totals: HashMap<String, (i64, f64, bool)> = HashMap::new();
-
-    for record in records {
-        if !billing_record_succeeded(record) {
-            continue;
-        }
-        let Some(date) = record_date(record) else {
-            continue;
-        };
-        if date < window_start || date > now {
-            continue;
-        }
-        let tokens = record_token_count(record);
-        let cash = record_cash(record);
-        last_30_days_tokens += tokens;
-        if let Some(cash) = cash {
-            last_30_days_cash += cash;
-            last_30_has_cash = true;
-        }
-        if date >= today_start {
-            today_tokens += tokens;
-            if let Some(cash) = cash {
-                today_cash += cash;
-                today_has_cash = true;
-            }
-        }
-        add_breakdown(&mut method_totals, record.method.as_deref(), tokens, cash);
-        add_breakdown(&mut model_totals, record.model.as_deref(), tokens, cash);
-    }
-
-    MiniMaxBillingSummary {
-        today_tokens,
-        last_30_days_tokens,
-        today_cash: today_has_cash.then_some(today_cash),
-        last_30_days_cash: last_30_has_cash.then_some(last_30_days_cash),
-        top_methods: top_breakdowns(method_totals),
-        top_models: top_breakdowns(model_totals),
-    }
-}
-
-fn billing_record_succeeded(record: &MiniMaxBillingRecord) -> bool {
-    let status =
-        scalar_string(record.result.as_ref()).or_else(|| scalar_string(record.status.as_ref()));
-    match status
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        None => true,
-        Some(value) => value.eq_ignore_ascii_case("success"),
-    }
-}
-
-fn result_from_billing_summary(
-    summary: MiniMaxBillingSummary,
-    source_label: &str,
-) -> ProviderFetchResult {
-    let usage = UsageSnapshot::new(RateWindow::with_details(
-        0.0,
-        None,
-        None,
-        Some(format!(
-            "{} tokens today",
-            format_count(summary.today_tokens)
-        )),
-    ))
-    .with_secondary(RateWindow::with_details(
-        0.0,
-        None,
-        None,
-        Some(format!(
-            "{} tokens over last 30 days",
-            format_count(summary.last_30_days_tokens)
-        )),
-    ))
-    .with_login_method("MiniMax billing");
-    attach_billing_summary(ProviderFetchResult::new(usage, source_label), summary)
-}
-
-fn attach_billing_summary(
-    mut result: ProviderFetchResult,
-    summary: MiniMaxBillingSummary,
-) -> ProviderFetchResult {
-    result.usage = result.usage.with_extra_rate_window(
-        "billing-tokens-today",
-        "Tokens today",
-        RateWindow::with_details(0.0, None, None, Some(format_count(summary.today_tokens))),
-    );
-    result.usage = result.usage.with_extra_rate_window(
-        "billing-tokens-30d",
-        "Tokens (30 days)",
-        RateWindow::with_details(
-            0.0,
-            None,
-            None,
-            Some(format_count(summary.last_30_days_tokens)),
-        ),
-    );
-    if let Some(cash) = summary.today_cash {
-        result.usage = result.usage.with_extra_rate_window(
-            "billing-cash-today",
-            "Spend today",
-            RateWindow::with_details(0.0, None, None, Some(format!("${cash:.2}"))),
-        );
-    }
-    if let Some(cash) = summary.last_30_days_cash {
-        result.usage = result.usage.with_extra_rate_window(
-            "billing-cash-30d",
-            "Spend (30 days)",
-            RateWindow::with_details(0.0, None, None, Some(format!("${cash:.2}"))),
-        );
-        result.cost = Some(CostSnapshot::new(cash, "USD", "Last 30 days"));
-    }
-    for (idx, item) in summary.top_methods.iter().enumerate() {
-        result.usage = result.usage.with_extra_rate_window(
-            format!("billing-method-{idx}"),
-            format!("Method: {}", item.name),
-            RateWindow::with_details(0.0, None, None, Some(breakdown_description(item))),
-        );
-    }
-    for (idx, item) in summary.top_models.iter().enumerate() {
-        result.usage = result.usage.with_extra_rate_window(
-            format!("billing-model-{idx}"),
-            format!("Model: {}", item.name),
-            RateWindow::with_details(0.0, None, None, Some(breakdown_description(item))),
-        );
-    }
-    result
-}
-
-fn add_breakdown(
-    totals: &mut HashMap<String, (i64, f64, bool)>,
-    raw_name: Option<&str>,
-    tokens: i64,
-    cash: Option<f64>,
-) {
-    let Some(name) = raw_name.map(str::trim).filter(|s| !s.is_empty()) else {
-        return;
-    };
-    let total = totals.entry(name.to_string()).or_default();
-    total.0 += tokens;
-    if let Some(cash) = cash {
-        total.1 += cash;
-        total.2 = true;
-    }
-}
-
-fn top_breakdowns(totals: HashMap<String, (i64, f64, bool)>) -> Vec<MiniMaxBillingBreakdown> {
-    let mut items: Vec<_> = totals
-        .into_iter()
-        .map(|(name, (tokens, cash, has_cash))| MiniMaxBillingBreakdown {
-            name,
-            tokens,
-            cash: has_cash.then_some(cash),
-        })
-        .collect();
-    items.sort_by(|a, b| b.tokens.cmp(&a.tokens).then_with(|| a.name.cmp(&b.name)));
-    items.truncate(3);
-    items
-}
-
-fn breakdown_description(item: &MiniMaxBillingBreakdown) -> String {
-    match item.cash {
-        Some(cash) => format!("{} tokens / ${cash:.2}", format_count(item.tokens)),
-        None => format!("{} tokens", format_count(item.tokens)),
-    }
-}
-
-fn record_token_count(record: &MiniMaxBillingRecord) -> i64 {
-    let direct = value_i64(record.consume_token.as_ref()).unwrap_or(0);
-    if direct > 0 {
-        return direct;
-    }
-    value_i64(record.consume_input_token.as_ref()).unwrap_or(0)
-        + value_i64(record.consume_output_token.as_ref()).unwrap_or(0)
-}
-
-fn record_cash(record: &MiniMaxBillingRecord) -> Option<f64> {
-    json::lenient_f64(record.consume_cash_after_voucher.as_ref())
-        .or_else(|| json::lenient_f64(record.consume_cash.as_ref()))
-}
-
-fn record_date(record: &MiniMaxBillingRecord) -> Option<DateTime<Utc>> {
-    if let Some(created_at) = value_i64(record.created_at.as_ref()) {
-        let seconds = if created_at > 1_000_000_000_000 {
-            created_at / 1000
-        } else {
-            created_at
-        };
-        return Utc.timestamp_opt(seconds, 0).single();
-    }
-    if let Some(ymd) = record.ymd.as_deref() {
-        for format in ["%Y-%m-%d", "%Y%m%d", "%Y/%m/%d"] {
-            if let Ok(date) = chrono::NaiveDate::parse_from_str(ymd.trim(), format) {
-                return Some(date.and_hms_opt(0, 0, 0)?.and_utc());
-            }
-        }
-    }
-    if let Some(text) = record.consume_time.as_deref() {
-        for format in ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"] {
-            if let Ok(date) = chrono::NaiveDateTime::parse_from_str(text.trim(), format) {
-                return Some(date.and_utc());
-            }
-        }
-        if let Ok(date) = DateTime::parse_from_rfc3339(text.trim()) {
-            return Some(date.with_timezone(&Utc));
-        }
-    }
-    None
-}
-
 fn value_i64(value: Option<&serde_json::Value>) -> Option<i64> {
     match value? {
         serde_json::Value::Number(number) => number.as_i64(),
@@ -1040,229 +732,7 @@ impl Provider for MiniMaxProvider {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod http_tests;
 
-    #[test]
-    fn minimax_region_defaults_to_global_io_urls() {
-        let region = MiniMaxRegion::from_settings_value(None);
-        assert_eq!(region, MiniMaxRegion::Global);
-        assert_eq!(region.settings_value(), "global");
-        assert_eq!(region.cookie_domain(), "platform.minimax.io");
-        assert_eq!(
-            region.coding_plan_url(),
-            "https://platform.minimax.io/user-center/payment/coding-plan?cycle_type=3"
-        );
-        assert_eq!(
-            MiniMaxProvider::dashboard_url_for_region(None),
-            "https://platform.minimax.io/user-center/payment/coding-plan?cycle_type=3"
-        );
-    }
-
-    #[test]
-    fn minimax_region_accepts_legacy_china_value() {
-        for value in ["cn", "china", "china-mainland", "china_mainland"] {
-            let region = MiniMaxRegion::from_settings_value(Some(value));
-            assert_eq!(region, MiniMaxRegion::ChinaMainland);
-            assert_eq!(region.settings_value(), "cn");
-            assert_eq!(region.cookie_domain(), "platform.minimaxi.com");
-            assert_eq!(
-                region.coding_plan_url(),
-                "https://platform.minimaxi.com/user-center/payment/coding-plan?cycle_type=3"
-            );
-        }
-    }
-
-    #[test]
-    fn minimax_region_cookie_search_domains_and_www_base_url() {
-        let global = MiniMaxRegion::Global;
-        assert_eq!(global.www_base_url(), "https://www.minimax.io");
-        assert_eq!(global.cookie_search_domains(), ["minimax.io"]);
-        assert_eq!(
-            global.coding_plan_remains_url(),
-            "https://platform.minimax.io/v1/api/openplatform/coding_plan/remains"
-        );
-        assert_eq!(
-            global.www_remains_url(),
-            "https://www.minimax.io/v1/api/openplatform/coding_plan/remains"
-        );
-
-        let cn = MiniMaxRegion::ChinaMainland;
-        assert_eq!(cn.www_base_url(), "https://www.minimaxi.com");
-        assert_eq!(cn.cookie_search_domains(), ["minimaxi.com"]);
-        assert_eq!(
-            cn.coding_plan_remains_url(),
-            "https://platform.minimaxi.com/v1/api/openplatform/coding_plan/remains"
-        );
-        assert_eq!(
-            cn.www_remains_url(),
-            "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"
-        );
-    }
-
-    #[test]
-    fn aggregates_billing_history_records() {
-        let records = vec![
-            MiniMaxBillingRecord {
-                consume_token: Some(serde_json::json!(1200)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: Some(serde_json::json!("0.42")),
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-12-16".to_string()),
-                consume_time: None,
-                method: Some("chat".to_string()),
-                model: Some("abab6.5".to_string()),
-                result: Some(serde_json::json!("SUCCESS")),
-                status: None,
-            },
-            MiniMaxBillingRecord {
-                consume_token: None,
-                consume_input_token: Some(serde_json::json!(300)),
-                consume_output_token: Some(serde_json::json!(500)),
-                consume_cash: None,
-                consume_cash_after_voucher: Some(serde_json::json!(0.21)),
-                created_at: None,
-                ymd: Some("2026-12-15".to_string()),
-                consume_time: None,
-                method: Some("completion".to_string()),
-                model: Some("abab6.5".to_string()),
-                result: None,
-                status: None,
-            },
-        ];
-        let now = Utc.with_ymd_and_hms(2026, 12, 16, 12, 0, 0).unwrap();
-        let summary = aggregate_billing(&records, now);
-        assert_eq!(summary.last_30_days_tokens, 2000);
-        assert!((summary.last_30_days_cash.unwrap() - 0.63).abs() < 0.001);
-        assert_eq!(summary.top_models[0].name, "abab6.5");
-        assert_eq!(summary.top_models[0].tokens, 2000);
-    }
-
-    #[test]
-    fn parses_billing_payload_into_result_extras() {
-        let json = serde_json::json!({
-            "base_resp": { "status_code": 0 },
-            "charge_records": [{
-                "consume_token": "2500",
-                "consume_cash_after_voucher": "1.25",
-                "ymd": Utc::now().format("%Y-%m-%d").to_string(),
-                "method": "chat",
-                "model": "abab6.5"
-            }]
-        });
-        let summary = parse_billing_summary(&json).unwrap();
-        let result = result_from_billing_summary(summary, "web-billing");
-        assert!(result.cost.is_some());
-        assert!(
-            result
-                .usage
-                .extra_rate_windows
-                .iter()
-                .any(|window| window.id == "billing-tokens-30d")
-        );
-    }
-
-    #[test]
-    fn parses_plan_title_from_coding_plan_fields() {
-        let provider = MiniMaxProvider::new();
-        for (field, expected) in [
-            ("plan_name", "MiniMax Star"),
-            ("current_plan_title", "Coding Plan Pro"),
-            ("current_subscribe_title", "Max"),
-            ("combo_title", "Combo Star"),
-        ] {
-            let snapshot = provider
-                .parse_usage_response(&serde_json::json!({
-                    "base_resp": { "status_code": 0 },
-                    field: expected,
-                    "used_amount": 0,
-                    "total_quota": 100
-                }))
-                .unwrap();
-            assert_eq!(snapshot.login_method.as_deref(), Some(expected));
-        }
-
-        let snapshot = provider
-            .parse_usage_response(&serde_json::json!({
-                "base_resp": { "status_code": 0 },
-                "current_combo_card": { "title": "Card Title" },
-                "used_amount": 0,
-                "total_quota": 100
-            }))
-            .unwrap();
-        assert_eq!(snapshot.login_method.as_deref(), Some("Card Title"));
-    }
-
-    #[test]
-    fn filters_failed_billing_records() {
-        let records = vec![
-            MiniMaxBillingRecord {
-                consume_token: Some(serde_json::json!(1000)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: None,
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-05-17".to_string()),
-                consume_time: None,
-                method: Some("chat".to_string()),
-                model: Some("MiniMax-M1".to_string()),
-                result: Some(serde_json::json!("SUCCESS")),
-                status: None,
-            },
-            MiniMaxBillingRecord {
-                consume_token: Some(serde_json::json!(2000)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: None,
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-05-17".to_string()),
-                consume_time: None,
-                method: Some("chat".to_string()),
-                model: Some("MiniMax-M1".to_string()),
-                result: Some(serde_json::json!("FAILED")),
-                status: None,
-            },
-            MiniMaxBillingRecord {
-                consume_token: Some(serde_json::json!(3000)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: None,
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-05-17".to_string()),
-                consume_time: None,
-                method: Some("audio".to_string()),
-                model: Some("speech".to_string()),
-                result: None,
-                status: None,
-            },
-            MiniMaxBillingRecord {
-                consume_token: Some(serde_json::json!(4000)),
-                consume_input_token: None,
-                consume_output_token: None,
-                consume_cash: None,
-                consume_cash_after_voucher: None,
-                created_at: None,
-                ymd: Some("2026-05-17".to_string()),
-                consume_time: None,
-                method: Some("video".to_string()),
-                model: Some("video".to_string()),
-                result: None,
-                status: Some(serde_json::json!(0)),
-            },
-        ];
-        let now = Utc.with_ymd_and_hms(2026, 5, 17, 12, 0, 0).unwrap();
-        let summary = aggregate_billing(&records, now);
-        assert_eq!(summary.today_tokens, 4000);
-        assert_eq!(summary.last_30_days_tokens, 4000);
-        assert_eq!(summary.top_methods.len(), 2);
-        assert_eq!(summary.top_methods[0].name, "audio");
-        assert_eq!(summary.top_methods[0].tokens, 3000);
-        assert_eq!(summary.top_methods[1].name, "chat");
-        assert_eq!(summary.top_methods[1].tokens, 1000);
-    }
-}
+#[cfg(test)]
+mod tests;

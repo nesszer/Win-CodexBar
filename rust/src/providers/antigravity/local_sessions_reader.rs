@@ -37,7 +37,7 @@ pub(super) fn configured_tokscale_sessions(home: &Path) -> PathBuf {
     tokscale_sessions_from_values(home, tokscale.as_deref())
 }
 
-fn clean_env_path(value: Option<&str>) -> Option<PathBuf> {
+pub(super) fn clean_env_path(value: Option<&str>) -> Option<PathBuf> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -413,6 +413,18 @@ fn has_valid_token_fields(value: &Value) -> bool {
 mod tests {
     use super::*;
 
+    fn now() -> DateTime<Utc> {
+        Utc.timestamp_millis_opt(1787576400000).single().unwrap()
+    }
+
+    /// Summarize one session file holding `text` over the last 7 days.
+    fn summarize_lines(text: impl AsRef<[u8]>) -> LocalTokenHistorySummary {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session-a.jsonl");
+        fs::write(&path, text).unwrap();
+        summarize_paths(&[path], now(), 7, false)
+    }
+
     #[test]
     fn tokscale_discovery_bounds_entries_and_retained_paths() {
         let dir = tempfile::tempdir().unwrap();
@@ -452,9 +464,8 @@ mod tests {
             ),
         )
         .unwrap();
-        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
 
-        let summary = summarize_paths(&[known, unknown], now, 7, false);
+        let summary = summarize_paths(&[known, unknown], now(), 7, false);
 
         assert_eq!(summary.cost_estimate.coverage.estimated, 1);
         assert_eq!(summary.cost_estimate.coverage.unpriced, 1);
@@ -463,15 +474,11 @@ mod tests {
     }
     #[test]
     fn summarizes_tokscale_jsonl_and_deduplicates_response_ids() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session-a.jsonl");
-        fs::write(&path, concat!(
+        let summary = summarize_lines(concat!(
             "{\"type\":\"session_meta\",\"modelId\":\"test-model-antigravity-a\"}\n",
             "{\"type\":\"usage\",\"responseId\":\"r1\",\"timestamp\":1787572800000,\"input\":100,\"output\":20,\"cacheRead\":10,\"cacheWrite\":5}\n",
             "{\"type\":\"usage\",\"response_id\":\"r1\",\"timestamp\":1787572800000,\"input\":100,\"output\":20}\n"
-        )).unwrap();
-        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
-        let summary = summarize_paths(&[path], now, 7, false);
+        ));
         assert_eq!(summary.total_tokens, 135);
         assert_eq!(summary.session_count, 1);
         assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
@@ -486,35 +493,24 @@ mod tests {
             b"{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":10}\n",
         )
         .unwrap();
-        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
-        let truncated = summarize_paths(std::slice::from_ref(&path), now, 7, true);
+        let truncated = summarize_paths(std::slice::from_ref(&path), now(), 7, true);
         assert_eq!(truncated.coverage, LocalHistoryCoverage::Partial);
 
-        let missing = summarize_paths(&[dir.path().join("missing.jsonl")], now, 7, false);
+        let missing = summarize_paths(&[dir.path().join("missing.jsonl")], now(), 7, false);
         assert_eq!(missing.coverage, LocalHistoryCoverage::Partial);
     }
     #[test]
     fn excludes_usage_outside_requested_window() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session-a.jsonl");
-        fs::write(
-            &path,
-            concat!(
-                "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":10,\"output\":5}\n",
-                "{\"type\":\"usage\",\"timestamp\":1784894400000,\"input\":99,\"output\":99}\n"
-            ),
-        )
-        .unwrap();
-        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
-        let summary = summarize_paths(&[path], now, 7, false);
+        let summary = summarize_lines(concat!(
+            "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":10,\"output\":5}\n",
+            "{\"type\":\"usage\",\"timestamp\":1784894400000,\"input\":99,\"output\":99}\n"
+        ));
         assert_eq!(summary.total_tokens, 15);
         assert_eq!(summary.session_count, 1);
     }
 
     #[test]
     fn oversized_jsonl_line_marks_coverage_partial_and_next_row_is_counted() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session-a.jsonl");
         let mut text = format!(
             r#"{{"type":"usage","padding":"{}"}}"#,
             "x".repeat(MAX_JSONL_LINE_BYTES + 32)
@@ -522,9 +518,7 @@ mod tests {
         text.push('\n');
         text.push_str(r#"{"type":"usage","timestamp":1787572800000,"input":10,"output":5}"#);
         text.push('\n');
-        fs::write(&path, text).unwrap();
-        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
-        let summary = summarize_paths(&[path], now, 7, false);
+        let summary = summarize_lines(text);
         assert_eq!(summary.total_tokens, 15);
         assert_eq!(summary.session_count, 1);
         assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
@@ -532,21 +526,12 @@ mod tests {
 
     #[test]
     fn malformed_jsonl_record_marks_coverage_partial_and_next_row_is_counted() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session-a.jsonl");
-        fs::write(
-            &path,
-            concat!(
-                "{malformed json}\n",
-                "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":\"invalid\"}\n",
-                "{\"type\":\"usage\",\"input\":10}\n",
-                "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":10,\"output\":5}\n"
-            ),
-        )
-        .unwrap();
-        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
-
-        let summary = summarize_paths(&[path], now, 7, false);
+        let summary = summarize_lines(concat!(
+            "{malformed json}\n",
+            "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":\"invalid\"}\n",
+            "{\"type\":\"usage\",\"input\":10}\n",
+            "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":10,\"output\":5}\n"
+        ));
 
         assert_eq!(summary.total_tokens, 15);
         assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
@@ -567,10 +552,9 @@ mod tests {
             "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":20}\n",
         )
         .unwrap();
-        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
 
         let summary =
-            summarize_paths_with_budget(&[first_path, second_path], now, 7, false, first.len());
+            summarize_paths_with_budget(&[first_path, second_path], now(), 7, false, first.len());
 
         // A hard budget stop is withheld: no total is published from it.
         assert_eq!(summary.total_tokens, 0);
@@ -581,20 +565,11 @@ mod tests {
 
     #[test]
     fn token_sum_overflow_marks_coverage_partial_without_saturation() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session-a.jsonl");
-        fs::write(
-            &path,
-            concat!(
-                "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":18446744073709551615,\"output\":1}\n",
-                "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":18446744073709551615}\n",
-                "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":1}\n"
-            ),
-        )
-        .unwrap();
-        let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
-
-        let summary = summarize_paths(&[path], now, 7, false);
+        let summary = summarize_lines(concat!(
+            "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":18446744073709551615,\"output\":1}\n",
+            "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":18446744073709551615}\n",
+            "{\"type\":\"usage\",\"timestamp\":1787572800000,\"input\":1}\n"
+        ));
 
         assert_eq!(summary.total_tokens, u64::MAX);
         assert_eq!(summary.session_count, 1);

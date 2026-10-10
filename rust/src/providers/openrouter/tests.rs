@@ -73,9 +73,11 @@ fn key_data(
     }
 }
 
+const KEY_CAP_SUFFIX: &str = "Spending cap, not balance";
+
 fn key_quota_percent(key_data: KeyData) -> Option<f64> {
     let mut usage = UsageSnapshot::new(RateWindow::new(0.0));
-    OpenRouterProvider::add_key_quota(&mut usage, &key_data);
+    OpenRouterProvider::add_key_quota_with_suffix(&mut usage, &key_data, KEY_CAP_SUFFIX);
     usage.secondary.map(|window| window.used_percent)
 }
 
@@ -89,7 +91,7 @@ fn key_limit_copy_stays_distinct_from_account_balance() {
         total_usage: 3.1,
     };
     let mut usage = OpenRouterProvider::build_credits_usage(&credits);
-    OpenRouterProvider::add_key_quota(
+    OpenRouterProvider::add_key_quota_with_suffix(
         &mut usage,
         &key_data(
             Some(30.0),
@@ -100,6 +102,7 @@ fn key_limit_copy_stays_distinct_from_account_balance() {
             None,
             Some(0.0),
         ),
+        KEY_CAP_SUFFIX,
     );
     assert_eq!(usage.login_method.as_deref(), Some("$1.90 balance"));
     let key = usage.secondary.expect("key spending cap");
@@ -267,114 +270,82 @@ fn activity_cost_wins_while_uncapped_key_spend_windows_remain() {
 }
 
 #[test]
-fn server_remaining_replaces_lifetime_usage_for_meter() {
-    // limit 50, server says 12.50 left this period → 75% used, even though
-    // cumulative lifetime usage would imply a different ratio.
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        Some(12.5),
-        None,
-        Some(40.0),
-        None,
-        None,
-        None,
-    ));
-    assert_eq!(pct, Some(75.0));
-}
-
-#[test]
-fn negative_server_remaining_reads_exhausted() {
-    // Upstream: "treat negative remaining as exhausted quota".
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        Some(-3.0),
-        None,
-        Some(10.0),
-        None,
-        None,
-        None,
-    ));
-    assert_eq!(pct, Some(100.0));
-}
-
-#[test]
-fn above_limit_server_remaining_reads_zero() {
-    // Inclusive [0, keyLimit] clamp: a server remaining above the
-    // configured limit renders 0% used, not a suppressed meter.
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        Some(75.0),
-        None,
-        Some(10.0),
-        None,
-        None,
-        None,
-    ));
-    assert_eq!(pct, Some(0.0));
-}
-
-#[test]
-fn reset_window_usage_is_the_preferred_fallback() {
-    // No remaining: `limit_reset: "monthly"` picks usage_monthly (25/50).
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        None,
-        Some("monthly"),
-        Some(40.0),
-        Some(1.0),
-        Some(2.0),
-        Some(25.0),
-    ));
-    assert_eq!(pct, Some(50.0));
-    // Case-insensitive reset label.
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        None,
-        Some("WEEKLY"),
-        Some(40.0),
-        Some(1.0),
-        Some(2.0),
-        Some(25.0),
-    ));
-    assert_eq!(pct, Some(4.0));
-}
-
-#[test]
-fn cumulative_usage_is_the_last_fallback() {
-    let pct = key_quota_percent(key_data(
-        Some(50.0),
-        None,
-        None,
-        Some(20.0),
-        Some(1.0),
-        None,
-        None,
-    ));
-    assert_eq!(pct, Some(40.0));
-}
-
-#[test]
-fn no_usable_quota_source_hides_the_meter() {
-    assert_eq!(
-        key_quota_percent(key_data(Some(50.0), None, None, None, None, None, None)),
-        None
+fn key_meter_prefers_server_remaining_then_reset_window_then_cumulative_usage() {
+    type Case = (
+        &'static str,
+        (Option<f64>, Option<f64>, Option<&'static str>, Option<f64>),
+        (Option<f64>, Option<f64>, Option<f64>),
+        Option<f64>,
     );
-    assert_eq!(
-        key_quota_percent(key_data(
+    let cases: [Case; 9] = [
+        // limit 50, server says 12.50 left this period: 75% used, even though
+        // cumulative lifetime usage would imply a different ratio.
+        (
+            "server remaining replaces lifetime usage",
+            (Some(50.0), Some(12.5), None, Some(40.0)),
+            (None, None, None),
+            Some(75.0),
+        ),
+        // Upstream: "treat negative remaining as exhausted quota".
+        (
+            "negative server remaining reads exhausted",
+            (Some(50.0), Some(-3.0), None, Some(10.0)),
+            (None, None, None),
+            Some(100.0),
+        ),
+        // Inclusive [0, keyLimit] clamp: a server remaining above the
+        // configured limit renders 0% used, not a suppressed meter.
+        (
+            "above-limit server remaining reads zero",
+            (Some(50.0), Some(75.0), None, Some(10.0)),
+            (None, None, None),
             Some(0.0),
-            Some(5.0),
+        ),
+        // No remaining: `limit_reset: "monthly"` picks usage_monthly (25/50).
+        (
+            "reset window usage is the preferred fallback",
+            (Some(50.0), None, Some("monthly"), Some(40.0)),
+            (Some(1.0), Some(2.0), Some(25.0)),
+            Some(50.0),
+        ),
+        // Case-insensitive reset label.
+        (
+            "reset window label is case-insensitive",
+            (Some(50.0), None, Some("WEEKLY"), Some(40.0)),
+            (Some(1.0), Some(2.0), Some(25.0)),
+            Some(4.0),
+        ),
+        (
+            "cumulative usage is the last fallback",
+            (Some(50.0), None, None, Some(20.0)),
+            (Some(1.0), None, None),
+            Some(40.0),
+        ),
+        (
+            "no usable quota source hides the meter",
+            (Some(50.0), None, None, None),
+            (None, None, None),
             None,
-            Some(1.0),
+        ),
+        (
+            "zero limit hides the meter",
+            (Some(0.0), Some(5.0), None, Some(1.0)),
+            (None, None, None),
             None,
+        ),
+        (
+            "missing limit hides the meter",
+            (None, Some(5.0), None, Some(1.0)),
+            (None, None, None),
             None,
-            None
-        )),
-        None
-    );
-    assert_eq!(
-        key_quota_percent(key_data(None, Some(5.0), None, Some(1.0), None, None, None)),
-        None
-    );
+        ),
+    ];
+    for (name, (limit, remaining, reset, usage), (daily, weekly, monthly), expected) in cases {
+        let pct = key_quota_percent(key_data(
+            limit, remaining, reset, usage, daily, weekly, monthly,
+        ));
+        assert_eq!(pct, expected, "{name}");
+    }
 }
 
 #[test]
@@ -559,4 +530,117 @@ fn missing_key_message_explains_primary_and_management_fields() {
         MISSING_API_KEY_MESSAGE,
         "Enter a regular API key or a Management API key in the API key field, or set OPENROUTER_API_KEY. In Settings, the optional Management API key field does not replace it."
     );
+}
+
+// ── Shared JSON GET: status typing and safe reasons per call site ──
+
+#[tokio::test]
+async fn get_json_keeps_each_call_sites_auth_set_and_reason() {
+    use reqwest::StatusCode;
+
+    let mut server = mockito::Server::new_async().await;
+    let client = reqwest::Client::new();
+    let credits_auth = &[StatusCode::UNAUTHORIZED][..];
+    // (label, auth statuses, forbidden reason, HTTP status, body,
+    //  expected error, expected reason)
+    type Case<'a> = (
+        &'a str,
+        &'a [StatusCode],
+        Option<&'a str>,
+        usize,
+        &'a str,
+        &'a str,
+        &'a str,
+    );
+    let cases: [Case<'_>; 7] = [
+        ("credits", credits_auth, None, 200, r#"{"ok":1}"#, "", ""),
+        (
+            "credits",
+            credits_auth,
+            None,
+            401,
+            "",
+            "auth",
+            "Request returned HTTP 401",
+        ),
+        (
+            "credits",
+            credits_auth,
+            None,
+            403,
+            "",
+            "OpenRouter credits request returned HTTP 403 Forbidden",
+            "Request returned HTTP 403",
+        ),
+        (
+            "key",
+            AUTH_REJECTED,
+            None,
+            403,
+            "",
+            "auth",
+            "Request returned HTTP 403",
+        ),
+        (
+            "key",
+            AUTH_REJECTED,
+            None,
+            200,
+            "not json",
+            "OpenRouter key response was invalid:",
+            "Response was invalid",
+        ),
+        (
+            "Activity",
+            AUTH_REJECTED,
+            Some(ACTIVITY_KEY_REQUIRED),
+            403,
+            "",
+            "auth",
+            ACTIVITY_KEY_REQUIRED,
+        ),
+        (
+            "Activity",
+            AUTH_REJECTED,
+            Some(ACTIVITY_KEY_REQUIRED),
+            500,
+            "",
+            "OpenRouter Activity request returned HTTP 500 Internal Server Error",
+            "Request returned HTTP 500",
+        ),
+    ];
+    for (index, (label, auth, forbidden, status, body, error, reason)) in
+        cases.into_iter().enumerate()
+    {
+        let path = format!("/case-{index}");
+        let mock = server
+            .mock("GET", path.as_str())
+            .match_header("authorization", "Bearer sk-or-synthetic")
+            .match_header("accept", "application/json")
+            .with_status(status)
+            .with_body(body)
+            .create_async()
+            .await;
+        let request = client.get(format!("{}{path}", server.url()));
+        let result: Result<Value, Degraded> =
+            OpenRouterProvider::get_json(request, "sk-or-synthetic", label, auth, forbidden).await;
+        mock.assert_async().await;
+        match result {
+            Ok(value) => {
+                assert_eq!(error, "", "{label} {status}");
+                assert_eq!(value, serde_json::json!({ "ok": 1 }));
+            }
+            Err(degraded) => {
+                assert_eq!(degraded.reason, reason, "{label} {status}");
+                match degraded.error {
+                    ProviderError::AuthRequired => assert_eq!(error, "auth", "{label} {status}"),
+                    ProviderError::Other(message) => assert_eq!(message, error),
+                    ProviderError::Parse(message) => {
+                        assert!(message.starts_with(error), "{message}")
+                    }
+                    other => panic!("{label} {status}: unexpected {other:?}"),
+                }
+            }
+        }
+    }
 }

@@ -10,8 +10,9 @@ use chrono::{DateTime, Utc};
 use crate::core::{ProviderError, ProviderFetchResult, RateWindow, UsageSnapshot};
 
 use super::{
-    MiniMaxProvider, MiniMaxRegion, attach_billing_summary, coding_plan, coding_plan_html,
-    format_count, scalar_string, value_i64,
+    JSON_ACCEPT, MiniMaxProvider, MiniMaxRegion, attach_billing_summary, coding_plan,
+    coding_plan_html, console_get, format_count, http_client, is_auth_status, scalar_string,
+    value_i64,
 };
 
 /// Token Plan console endpoints (www host; issue #254): the charge-API
@@ -82,33 +83,23 @@ pub(crate) async fn fetch_token_plan_with_cookie(
     Ok(result)
 }
 
-/// Shared GET envelope for the token-plan console endpoints — copied from
-/// fetch_remains_once. Network errors propagate; callers map statuses.
+/// Shared GET envelope for the token-plan console endpoints (the remains
+/// request shape). Network errors propagate; callers map statuses.
 async fn token_plan_get(
     cookie_header: &str,
     url: &str,
     region: MiniMaxRegion,
 ) -> Result<reqwest::Response, ProviderError> {
-    let client = crate::core::credentialed_http_client_builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| ProviderError::Other(e.to_string()))?;
-
-    let base = region.base_url();
-    Ok(client
-        .get(url)
-        .header("Cookie", cookie_header)
-        .header("Accept", "application/json, text/plain, */*")
-        .header("X-Requested-With", "XMLHttpRequest")
-        .header("User-Agent", MiniMaxProvider::WEB_USER_AGENT)
-        .header("Accept-Language", "en-US,en;q=0.9")
-        .header("Origin", base)
-        .header(
-            "Referer",
-            &format!("{base}/user-center/payment/coding-plan"),
-        )
-        .send()
-        .await?)
+    Ok(console_get(
+        &http_client()?,
+        url,
+        cookie_header,
+        region,
+        JSON_ACCEPT,
+        true,
+    )
+    .send()
+    .await?)
 }
 
 /// (a) `charge/token_plan/usage`. 401/403 → AuthRequired; any other
@@ -123,7 +114,7 @@ async fn fetch_token_plan_usage_once(
     let response = token_plan_get(cookie_header, &url, region).await?;
 
     let status = response.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+    if is_auth_status(status) {
         return Err(ProviderError::AuthRequired);
     }
     if !status.is_success() {
@@ -289,8 +280,40 @@ fn assemble_token_plan_result(
 
 #[cfg(test)]
 mod tests {
+    use super::super::http_tests::console_mock;
     use super::*;
     use chrono::TimeZone;
+
+    #[tokio::test]
+    async fn token_plan_backend_request_sends_console_headers() {
+        let mut server = mockito::Server::new_async().await;
+        let ok = console_mock(&mut server, "/summary")
+            .with_body(r#"{"ok":true}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let failed = console_mock(&mut server, "/credit")
+            .with_status(500)
+            .expect(1)
+            .create_async()
+            .await;
+        let summary = fetch_token_plan_backend_json(
+            "session=fixture",
+            &format!("{}/summary", server.url()),
+            MiniMaxRegion::Global,
+        )
+        .await;
+        let credit = fetch_token_plan_backend_json(
+            "session=fixture",
+            &format!("{}/credit", server.url()),
+            MiniMaxRegion::Global,
+        )
+        .await;
+        ok.assert_async().await;
+        failed.assert_async().await;
+        assert_eq!(summary, Some(serde_json::json!({ "ok": true })));
+        assert_eq!(credit, None);
+    }
 
     fn fixed_now() -> DateTime<Utc> {
         // 2026-08-03T12:00:00Z = 1,785,758,400 unix seconds.

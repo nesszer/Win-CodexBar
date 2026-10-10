@@ -57,18 +57,9 @@ fn usage_counts(detail: &KimiUsageDetail) -> Option<UsageCounts> {
 /// strings do not.
 fn integer_counter(value: Option<&serde_json::Value>) -> Option<i64> {
     match value? {
-        serde_json::Value::Number(number) => number.as_i64().or_else(|| {
-            let value = number.as_f64()?;
-            let integral = value.is_finite()
-                && value.fract() == 0.0
-                && value >= i64::MIN as f64
-                && value < i64::MAX as f64;
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "finite integral value is bounded to the i64 range above"
-            )]
-            integral.then_some(value as i64)
-        }),
+        serde_json::Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_f64().and_then(super::exact_i64)),
         serde_json::Value::String(text) => text.parse().ok(),
         _ => None,
     }
@@ -158,10 +149,30 @@ mod tests {
     use super::super::code_api::{MISSING_WEEKLY_DESCRIPTION, snapshot_from_code_api_response};
     use super::super::{
         KimiCodeApiUsageResponse, KimiSubscriptionStatsResponse, MONTHLY_WINDOW_ID, ProviderError,
-        UsageSnapshot, apply_subscription_windows,
+        RateWindow, UsageSnapshot, apply_subscription_windows,
     };
     use chrono::{DateTime, Utc};
     use serde_json::{Value, json};
+
+    #[test]
+    fn integer_counter_accepts_exact_integers_only() {
+        let cases = [
+            (json!(3), Some(3)),
+            (json!(3.0), Some(3)),
+            (json!(3.5), None),
+            (json!(i64::MIN as f64), Some(i64::MIN)),
+            (json!(-(i64::MIN as f64)), None),
+            (json!(u64::MAX), None),
+            (json!("12"), Some(12)),
+            (json!(" 12"), None),
+            (json!("1,000"), None),
+            (json!(null), None),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(super::integer_counter(Some(&value)), expected, "{value}");
+        }
+        assert_eq!(super::integer_counter(None), None);
+    }
 
     fn try_parse(value: Value) -> Result<UsageSnapshot, ProviderError> {
         let response: KimiCodeApiUsageResponse =
@@ -195,6 +206,14 @@ mod tests {
             weekly.reset_description.as_deref(),
             Some(MISSING_WEEKLY_DESCRIPTION)
         );
+    }
+
+    /// The 5-hour rate-limit lane, asserting its percent and duration.
+    fn assert_rate_limit(snapshot: &UsageSnapshot, percent: f64) -> &RateWindow {
+        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
+        assert_eq!(rate_limit.used_percent, percent);
+        assert_eq!(rate_limit.window_minutes, Some(300));
+        rate_limit
     }
 
     fn rate_limit_percent(snapshot: &UsageSnapshot) -> f64 {
@@ -256,9 +275,7 @@ mod tests {
             }
         }));
         assert_weekly_absent(&snapshot);
-        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-        assert_eq!(rate_limit.used_percent, 0.0);
-        assert_eq!(rate_limit.window_minutes, Some(300));
+        let rate_limit = assert_rate_limit(&snapshot, 0.0);
         assert_eq!(rate_limit.resets_at, at("2026-09-16T20:15:44Z"));
         assert_eq!(rate_limit.reset_description, None);
         assert!(snapshot.tertiary.is_none());
@@ -287,9 +304,7 @@ mod tests {
         assert_eq!(snapshot.primary.used_percent, 12.5);
         assert_eq!(snapshot.primary.window_minutes, Some(10_080));
         assert_eq!(snapshot.primary.resets_at, at("2026-09-20T00:00:00Z"));
-        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-        assert_eq!(rate_limit.used_percent, 62.5);
-        assert_eq!(rate_limit.window_minutes, Some(300));
+        assert_rate_limit(&snapshot, 62.5);
         assert!(snapshot.extra_rate_windows.is_empty());
     }
 
@@ -315,9 +330,7 @@ mod tests {
             }]
         }));
         assert_weekly_absent(&snapshot);
-        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-        assert_eq!(rate_limit.used_percent, 25.0);
-        assert_eq!(rate_limit.window_minutes, Some(300));
+        let rate_limit = assert_rate_limit(&snapshot, 25.0);
         assert_eq!(
             rate_limit.reset_description.as_deref(),
             Some("25/100 credits")
@@ -496,9 +509,7 @@ mod tests {
             snapshot.primary.resets_at,
             at("2026-09-19T16:45:59.449979Z")
         );
-        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-        assert_eq!(rate_limit.used_percent, 1.0);
-        assert_eq!(rate_limit.window_minutes, Some(300));
+        let rate_limit = assert_rate_limit(&snapshot, 1.0);
         assert_eq!(rate_limit.resets_at, at("2026-09-19T14:45:59.449979Z"));
         assert!(snapshot.tertiary.is_none());
         assert!(snapshot.extra_rate_windows.is_empty());
@@ -564,9 +575,7 @@ mod tests {
         response["limits"][0]["window"]["duration"] = json!(120);
         let snapshot = parse(response);
         assert_eq!(snapshot.primary.used_percent, 19.0);
-        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-        assert_eq!(rate_limit.used_percent, 0.0);
-        assert_eq!(rate_limit.window_minutes, Some(300));
+        assert_rate_limit(&snapshot, 0.0);
     }
 
     // Upstream `usageCounts`: an invalid `used` falls back to a valid
@@ -607,9 +616,7 @@ mod tests {
             let snapshot = parse(response);
             assert_eq!(snapshot.primary.used_percent, 0.0);
             assert_eq!(snapshot.primary.window_minutes, Some(10_080));
-            let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-            assert_eq!(rate_limit.used_percent, 0.0);
-            assert_eq!(rate_limit.window_minutes, Some(300));
+            assert_rate_limit(&snapshot, 0.0);
         }
     }
 
@@ -650,9 +657,7 @@ mod tests {
     #[test]
     fn missing_legacy_window_does_not_override_zero_session_ratio() {
         let snapshot = zero_session_ratio_with_legacy_window(None);
-        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-        assert_eq!(rate_limit.window_minutes, Some(300));
-        assert_eq!(rate_limit.used_percent, 0.0);
+        assert_rate_limit(&snapshot, 0.0);
     }
 
     #[test]
@@ -661,8 +666,6 @@ mod tests {
             "duration": 300,
             "timeUnit": "TIME_UNIT_FORTNIGHT"
         })));
-        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-        assert_eq!(rate_limit.window_minutes, Some(300));
-        assert_eq!(rate_limit.used_percent, 0.0);
+        assert_rate_limit(&snapshot, 0.0);
     }
 }

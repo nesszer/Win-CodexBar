@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use reqwest::Client;
 
-use crate::core::{FetchContext, ProviderError, ProviderFetchResult, RateWindow, UsageSnapshot};
+use crate::core::{FetchContext, ProviderError, ProviderFetchResult, UsageSnapshot};
 
 const USAGE_API_URL: &str = "https://opencode.ai/zen/go/v1/usage";
 
@@ -71,30 +71,11 @@ fn parse_usage_text(text: &str, now: DateTime<Utc>) -> Result<UsageSnapshot, Pro
     let usage = value.get("usage").unwrap_or(&value);
     let rolling = api_window(usage, &["rolling", "rollingUsage", "rolling_usage"], now)
         .ok_or_else(|| ProviderError::Parse("Missing rolling usage window".to_string()))?;
-    let mut snapshot = UsageSnapshot::new(RateWindow::with_details(
-        rolling.0,
-        Some(300),
-        Some(rolling.1),
-        None,
+    Ok(super::go_snapshot(
+        rolling,
+        api_window(usage, &["weekly", "weeklyUsage", "weekly_usage"], now),
+        api_window(usage, &["monthly", "monthlyUsage", "monthly_usage"], now),
     ))
-    .with_login_method("OpenCode Go");
-    if let Some(weekly) = api_window(usage, &["weekly", "weeklyUsage", "weekly_usage"], now) {
-        snapshot = snapshot.with_secondary(RateWindow::with_details(
-            weekly.0,
-            Some(10080),
-            Some(weekly.1),
-            None,
-        ));
-    }
-    if let Some(monthly) = api_window(usage, &["monthly", "monthlyUsage", "monthly_usage"], now) {
-        snapshot = snapshot.with_tertiary(RateWindow::with_details(
-            monthly.0,
-            RateWindow::monthly_window_minutes(Some(monthly.1)).or(Some(43200)),
-            Some(monthly.1),
-            None,
-        ));
-    }
-    Ok(snapshot)
 }
 
 fn api_window(
@@ -193,6 +174,27 @@ mod tests {
         assert!((snapshot.primary.used_percent - 12.0).abs() < 0.001);
         assert!((snapshot.secondary.as_ref().unwrap().used_percent - 8.0).abs() < 0.001);
         assert!((snapshot.tertiary.as_ref().unwrap().used_percent - 35.0).abs() < 0.001);
+        assert_eq!(snapshot.login_method.as_deref(), Some("OpenCode Go"));
+        let windows = [
+            &snapshot.primary,
+            snapshot.secondary.as_ref().unwrap(),
+            snapshot.tertiary.as_ref().unwrap(),
+        ];
+        let shape: Vec<_> = windows
+            .iter()
+            .map(|w| (w.window_minutes, w.resets_at.map(|r| r.to_rfc3339())))
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                (Some(300), Some("2026-08-12T02:00:00+00:00".to_string())),
+                (Some(10080), Some("2026-08-18T00:00:00+00:00".to_string())),
+                // Aug 1 to Sep 1 is a 31-day calendar month.
+                (Some(44640), Some("2026-09-01T00:00:00+00:00".to_string())),
+            ]
+        );
+        assert!(windows.iter().all(|w| w.reset_description.is_none()));
+        assert!(snapshot.extra_rate_windows.is_empty());
     }
 
     #[test]

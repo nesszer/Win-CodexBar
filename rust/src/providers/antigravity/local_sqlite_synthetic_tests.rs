@@ -6,6 +6,7 @@ use rusqlite::{Connection, params};
 use tempfile::TempDir;
 
 use super::*;
+use crate::providers::antigravity::local_proto::test_fixtures::{field_bytes, field_varint};
 
 const NOW_SECONDS: u64 = 1_800_000_000;
 
@@ -13,34 +14,6 @@ fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(i64::try_from(NOW_SECONDS).unwrap(), 0)
         .single()
         .unwrap()
-}
-
-fn varint(mut value: u64) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    loop {
-        let mut byte = (value & 0x7f) as u8;
-        value >>= 7;
-        if value != 0 {
-            byte |= 0x80;
-        }
-        bytes.push(byte);
-        if value == 0 {
-            return bytes;
-        }
-    }
-}
-
-fn field_varint(number: u64, value: u64) -> Vec<u8> {
-    let mut bytes = varint(number << 3);
-    bytes.extend(varint(value));
-    bytes
-}
-
-fn field_bytes(number: u64, value: &[u8]) -> Vec<u8> {
-    let mut bytes = varint((number << 3) | 2);
-    bytes.extend(varint(value.len() as u64));
-    bytes.extend(value);
-    bytes
 }
 
 fn turn_blob(step_uuid: Option<&str>, input: u64, timestamp: Option<u64>) -> Vec<u8> {
@@ -145,60 +118,60 @@ fn database(
     path
 }
 
-fn summary(dir: &TempDir) -> LocalSessionSummary {
+/// Build one session database in a fresh directory, scan it, and check the
+/// coverage and token total.
+fn expect_summary(
+    session: &str,
+    generation_rows: &[(i64, Vec<u8>)],
+    step_rows: Option<SyntheticStepRows<'_>>,
+    coverage: LocalHistoryCoverage,
+    total_tokens: u64,
+) -> LocalSessionSummary {
+    let dir = tempfile::tempdir().unwrap();
+    database(&dir, session, generation_rows, step_rows);
     let root = dir.path().join("conversations");
     let SQLiteScan::Summary(summary) = summarize(&[root], now(), 30) else {
         panic!("database should be attempted");
     };
+    assert_eq!(summary.coverage, coverage, "{session}");
+    assert_eq!(summary.total_tokens, total_tokens, "{session}");
     summary
 }
 
 #[test]
 fn newer_step_timestamp_recovery_preserves_legacy_and_new_totals() {
-    let dir = tempfile::tempdir().unwrap();
     let uuid = "new-step";
-    database(
-        &dir,
+    let summary = expect_summary(
         "mixed",
         &[
             (0, turn_blob(None, 100, Some(NOW_SECONDS - 120))),
             (1, turn_blob(Some(uuid), 200, None)),
         ],
         Some(&[(10, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 60))))]),
+        LocalHistoryCoverage::Complete,
+        496,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
-    assert_eq!(summary.total_tokens, 496);
     assert_eq!(summary.session_count, 1);
 }
 
 #[test]
 fn absent_steps_table_withholds_newer_rows_but_keeps_embedded_totals() {
-    let dir = tempfile::tempdir().unwrap();
-    database(
-        &dir,
+    expect_summary(
         "missing-table",
         &[
             (0, turn_blob(None, 100, Some(NOW_SECONDS - 120))),
             (1, turn_blob(Some("missing-table"), 200, None)),
         ],
         None,
+        LocalHistoryCoverage::Partial,
+        198,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-    assert_eq!(summary.total_tokens, 198);
 }
 
 #[test]
 fn reused_step_uuid_follows_stored_idx_order() {
-    let dir = tempfile::tempdir().unwrap();
     let uuid = "reused-step";
-    database(
-        &dir,
+    expect_summary(
         "ordered",
         &[
             (0, turn_blob(Some(uuid), 100, None)),
@@ -208,32 +181,24 @@ fn reused_step_uuid_follows_stored_idx_order() {
             (20, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 60)))),
             (10, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 120)))),
         ]),
+        LocalHistoryCoverage::Complete,
+        496,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
-    assert_eq!(summary.total_tokens, 496);
 }
 
 #[test]
 fn missing_lowest_step_timestamp_withholds_pending_tokens() {
-    let dir = tempfile::tempdir().unwrap();
     let uuid = "missing-lowest";
-    database(
-        &dir,
+    expect_summary(
         "missing",
         &[(0, turn_blob(Some(uuid), 100, None))],
         Some(&[
             (10, Some(step_metadata(Some(uuid), None))),
             (20, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 60)))),
         ]),
+        LocalHistoryCoverage::Partial,
+        0,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-    assert_eq!(summary.total_tokens, 0);
 }
 
 #[test]
@@ -257,35 +222,25 @@ fn duplicate_or_malformed_step_rows_fail_closed() {
             vec![(10, Some(malformed_step_metadata("malformed")))],
         ),
     ] {
-        let dir = tempfile::tempdir().unwrap();
-        database(
-            &dir,
+        expect_summary(
             session,
             &[(0, turn_blob(Some(session), 100, None))],
             Some(&step_rows),
+            LocalHistoryCoverage::Partial,
+            0,
         );
-
-        let summary = summary(&dir);
-
-        assert_eq!(summary.coverage, LocalHistoryCoverage::Partial, "{session}");
-        assert_eq!(summary.total_tokens, 0, "{session}");
     }
 }
 
 #[test]
 fn null_step_rows_fail_closed() {
-    let dir = tempfile::tempdir().unwrap();
-    database(
-        &dir,
+    expect_summary(
         "null-step",
         &[(0, turn_blob(Some("null-step"), 100, None))],
         Some(&[(10, None)]),
+        LocalHistoryCoverage::Partial,
+        0,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-    assert_eq!(summary.total_tokens, 0);
 }
 
 #[test]
@@ -307,22 +262,13 @@ fn unidentified_step_rows_do_not_invalidate_timestamp_recovery() {
             ],
         ),
     ] {
-        let dir = tempfile::tempdir().unwrap();
-        database(
-            &dir,
+        expect_summary(
             session,
             &[(0, turn_blob(Some(uuid), 100, None))],
             Some(&step_rows),
-        );
-
-        let summary = summary(&dir);
-
-        assert_eq!(
-            summary.coverage,
             LocalHistoryCoverage::Complete,
-            "{session}"
+            198,
         );
-        assert_eq!(summary.total_tokens, 198, "{session}");
     }
 }
 
@@ -331,7 +277,6 @@ fn exact_bot_id_recovery_survives_an_unidentified_step_row() {
     let uuid = "exact-with-unidentified";
     let bot_id = "exact-bot";
     for unidentified_first in [false, true] {
-        let dir = tempfile::tempdir().unwrap();
         let identified = (
             20,
             Some(step_metadata_with_bot_id(
@@ -346,29 +291,23 @@ fn exact_bot_id_recovery_survives_an_unidentified_step_row() {
         } else {
             vec![identified, unidentified]
         };
-        database(
-            &dir,
+        expect_summary(
             "exact-with-unidentified",
             &[(
                 0,
                 turn_blob_with_bot_id(Some(uuid), 100, None, Some(bot_id)),
             )],
             Some(&step_rows),
+            LocalHistoryCoverage::Complete,
+            198,
         );
-
-        let summary = summary(&dir);
-
-        assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
-        assert_eq!(summary.total_tokens, 198);
     }
 }
 
 #[test]
 fn embedded_and_step_timestamps_must_agree() {
-    let dir = tempfile::tempdir().unwrap();
     let uuid = "conflicting";
-    database(
-        &dir,
+    expect_summary(
         "conflict",
         &[
             (0, turn_blob(Some(uuid), 100, Some(NOW_SECONDS - 120))),
@@ -378,20 +317,15 @@ fn embedded_and_step_timestamps_must_agree() {
             (10, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 60)))),
             (20, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 30)))),
         ]),
+        LocalHistoryCoverage::Partial,
+        198,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-    assert_eq!(summary.total_tokens, 198);
 }
 
 #[test]
 fn unique_bot_ids_recover_each_turn_despite_auxiliary_step_rows() {
-    let dir = tempfile::tempdir().unwrap();
     let uuid = "per-turn";
-    database(
-        &dir,
+    expect_summary(
         "bot-correlation",
         &[
             (
@@ -429,19 +363,15 @@ fn unique_bot_ids_recover_each_turn_despite_auxiliary_step_rows() {
                 )),
             ),
         ]),
+        LocalHistoryCoverage::Complete,
+        496,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
-    assert_eq!(summary.total_tokens, 496);
 }
 
 #[test]
 fn reused_step_uuid_recovers_distinct_timestamps_with_an_unidentified_row() {
     let uuid = "reused-with-unidentified";
     for unidentified_position in 0..=2 {
-        let dir = tempfile::tempdir().unwrap();
         let mut step_rows = vec![
             (10, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 120)))),
             (20, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 60)))),
@@ -450,29 +380,23 @@ fn reused_step_uuid_recovers_distinct_timestamps_with_an_unidentified_row() {
             unidentified_position,
             (15, Some(step_metadata(None, Some(NOW_SECONDS - 300)))),
         );
-        database(
-            &dir,
+        expect_summary(
             "reused-with-unidentified",
             &[
                 (0, turn_blob(Some(uuid), 100, None)),
                 (1, turn_blob(Some(uuid), 200, None)),
             ],
             Some(&step_rows),
+            LocalHistoryCoverage::Complete,
+            496,
         );
-
-        let summary = summary(&dir);
-
-        assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
-        assert_eq!(summary.total_tokens, 496);
     }
 }
 
 #[test]
 fn reused_step_uuid_with_one_identified_row_and_an_unidentified_row_stays_partial() {
-    let dir = tempfile::tempdir().unwrap();
     let uuid = "single-identified-with-unidentified";
-    database(
-        &dir,
+    expect_summary(
         "single-identified-with-unidentified",
         &[
             (0, turn_blob(Some(uuid), 100, None)),
@@ -482,12 +406,9 @@ fn reused_step_uuid_with_one_identified_row_and_an_unidentified_row_stays_partia
             (10, Some(step_metadata(Some(uuid), Some(NOW_SECONDS - 120)))),
             (20, Some(step_metadata(None, Some(NOW_SECONDS - 60)))),
         ]),
+        LocalHistoryCoverage::Partial,
+        0,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-    assert_eq!(summary.total_tokens, 0);
 }
 
 #[test]
@@ -496,7 +417,6 @@ fn unidentified_duplicate_bot_id_withholds_exact_and_positional_recovery() {
     let bot_id = "shared-bot";
     for unidentified_first in [false, true] {
         for unidentified_timestamp in [Some(NOW_SECONDS - 60), None] {
-            let dir = tempfile::tempdir().unwrap();
             let identified = (
                 10,
                 Some(step_metadata_with_bot_id(
@@ -518,30 +438,24 @@ fn unidentified_duplicate_bot_id_withholds_exact_and_positional_recovery() {
             } else {
                 vec![identified, unidentified]
             };
-            database(
-                &dir,
+            expect_summary(
                 "duplicate-bot-with-unidentified",
                 &[(
                     0,
                     turn_blob_with_bot_id(Some(uuid), 100, None, Some(bot_id)),
                 )],
                 Some(&step_rows),
+                LocalHistoryCoverage::Partial,
+                0,
             );
-
-            let summary = summary(&dir);
-
-            assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-            assert_eq!(summary.total_tokens, 0);
         }
     }
 }
 
 #[test]
 fn conflicting_bot_id_evidence_is_withheld() {
-    let dir = tempfile::tempdir().unwrap();
     let uuid = "ambiguous-bot";
-    database(
-        &dir,
+    expect_summary(
         "ambiguous-bot",
         &[(
             (0),
@@ -565,19 +479,14 @@ fn conflicting_bot_id_evidence_is_withheld() {
                 )),
             ),
         ]),
+        LocalHistoryCoverage::Partial,
+        0,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-    assert_eq!(summary.total_tokens, 0);
 }
 
 #[test]
 fn cross_step_bot_id_evidence_is_withheld() {
-    let dir = tempfile::tempdir().unwrap();
-    database(
-        &dir,
+    expect_summary(
         "cross-step-bot",
         &[(
             (0),
@@ -601,10 +510,7 @@ fn cross_step_bot_id_evidence_is_withheld() {
                 )),
             ),
         ]),
+        LocalHistoryCoverage::Partial,
+        0,
     );
-
-    let summary = summary(&dir);
-
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
-    assert_eq!(summary.total_tokens, 0);
 }

@@ -46,6 +46,27 @@ enum DatabaseScan {
     Unsupported,
 }
 
+impl DatabaseScan {
+    fn partial(events: Vec<Event>) -> Self {
+        Self::Supported {
+            events,
+            complete: false,
+        }
+    }
+}
+
+/// Outcome of the per-row size checks shared by both table readers.
+enum CheckedBlob<'r> {
+    Blob {
+        idx: i64,
+        bytes: &'r [u8],
+    },
+    /// Unusable row: skip it and mark the read incomplete.
+    Invalid,
+    /// A byte limit ran out (already recorded on the budget): stop the read.
+    Exhausted,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SchemaInspection {
     Supported,
@@ -406,21 +427,15 @@ fn discover_databases(roots: &[PathBuf], budget: &mut Budget) -> (Vec<PathBuf>, 
 
 fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<DatabaseScan> {
     if !budget.check() {
-        return Ok(DatabaseScan::Supported {
-            events: Vec::new(),
-            complete: false,
-        });
+        return Ok(DatabaseScan::partial(Vec::new()));
     }
     let mut conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
-    match supported_schema(&tx, budget)? {
+    match table_schema(&tx, budget, "gen_metadata", &["idx", "data"])? {
         SchemaInspection::Supported => {}
         SchemaInspection::Unsupported => return Ok(DatabaseScan::Unsupported),
         SchemaInspection::Incomplete => {
-            return Ok(DatabaseScan::Supported {
-                events: Vec::new(),
-                complete: false,
-            });
+            return Ok(DatabaseScan::partial(Vec::new()));
         }
     }
 
@@ -439,20 +454,14 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<DatabaseS
 
     // Never realign step timestamps after a malformed or truncated primary scan.
     if !rows.complete {
-        return Ok(DatabaseScan::Supported {
-            events: rows.events,
-            complete: false,
-        });
+        return Ok(DatabaseScan::partial(rows.events));
     }
 
     if !matches!(
-        supported_steps_schema(&tx, budget),
+        table_schema(&tx, budget, "steps", &["idx", "metadata"]),
         Ok(SchemaInspection::Supported)
     ) {
-        return Ok(DatabaseScan::Supported {
-            events: rows.events,
-            complete: false,
-        });
+        return Ok(DatabaseScan::partial(rows.events));
     }
 
     let needed_occurrences = rows
@@ -474,24 +483,15 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<DatabaseS
         match read_step_timestamps(&tx, &needed_occurrences, budget, &mut rows.database_bytes) {
             Ok(scan) => scan,
             Err(_) => {
-                return Ok(DatabaseScan::Supported {
-                    events: rows.events,
-                    complete: false,
-                });
+                return Ok(DatabaseScan::partial(rows.events));
             }
         };
     if !step_scan.complete {
-        return Ok(DatabaseScan::Supported {
-            events: rows.events,
-            complete: false,
-        });
+        return Ok(DatabaseScan::partial(rows.events));
     }
 
     if !embedded_timestamps_agree(&rows.occurrences, &step_scan, &rows.bot_id_uses) {
-        return Ok(DatabaseScan::Supported {
-            events: rows.events,
-            complete: false,
-        });
+        return Ok(DatabaseScan::partial(rows.events));
     }
 
     let resolved = resolve_step_timestamps(
@@ -551,44 +551,15 @@ fn read_generation_rows(
             break;
         }
 
-        let idx: i64 = match row.get(0) {
-            Ok(value) if value >= 0 => value,
-            _ => {
+        let (idx, blob) = match checked_blob(row, &mut database_bytes, budget)? {
+            CheckedBlob::Blob { idx, bytes } => (idx, bytes),
+            CheckedBlob::Invalid => {
                 complete = false;
                 continue;
             }
-        };
-        let declared: Option<i64> = row.get(1).ok();
-        let Some(declared) = declared.and_then(|value| usize::try_from(value).ok()) else {
-            complete = false;
-            continue;
-        };
-        database_bytes = match database_bytes.checked_add(declared) {
-            Some(value) if value <= MAX_DATABASE_BYTES => value,
-            _ => {
+            CheckedBlob::Exhausted => {
                 complete = false;
-                budget.exhausted = true;
                 break;
-            }
-        };
-        budget.bytes = match budget.bytes.checked_add(declared) {
-            Some(value) if value <= MAX_TOTAL_BYTES => value,
-            _ => {
-                complete = false;
-                budget.exhausted = true;
-                break;
-            }
-        };
-        if declared == 0 || declared > MAX_BLOB_BYTES {
-            complete = false;
-            continue;
-        }
-
-        let blob = match row.get_ref(2)? {
-            ValueRef::Blob(bytes) if bytes.len() == declared => bytes,
-            _ => {
-                complete = false;
-                continue;
             }
         };
         let Some(turn) = parse_turn(blob) else {
@@ -684,44 +655,15 @@ fn read_step_timestamps(
             break;
         }
 
-        let idx: i64 = match row.get(0) {
-            Ok(value) if value >= 0 => value,
-            _ => {
+        let (idx, blob) = match checked_blob(row, database_bytes, budget)? {
+            CheckedBlob::Blob { idx, bytes } => (idx, bytes),
+            CheckedBlob::Invalid => {
                 rows_are_valid = false;
                 continue;
             }
-        };
-        let declared: Option<i64> = row.get(1).ok();
-        let Some(declared) = declared.and_then(|value| usize::try_from(value).ok()) else {
-            rows_are_valid = false;
-            continue;
-        };
-        *database_bytes = match (*database_bytes).checked_add(declared) {
-            Some(value) if value <= MAX_DATABASE_BYTES => value,
-            _ => {
+            CheckedBlob::Exhausted => {
                 complete = false;
-                budget.exhausted = true;
                 break;
-            }
-        };
-        budget.bytes = match budget.bytes.checked_add(declared) {
-            Some(value) if value <= MAX_TOTAL_BYTES => value,
-            _ => {
-                complete = false;
-                budget.exhausted = true;
-                break;
-            }
-        };
-        if declared == 0 || declared > MAX_BLOB_BYTES {
-            rows_are_valid = false;
-            continue;
-        }
-
-        let blob = match row.get_ref(2)? {
-            ValueRef::Blob(bytes) if bytes.len() == declared => bytes,
-            _ => {
-                rows_are_valid = false;
-                continue;
             }
         };
         let Some(metadata) = parse_step_metadata(blob) else {
@@ -763,44 +705,54 @@ fn read_step_timestamps(
     })
 }
 
-fn supported_schema(conn: &Connection, budget: &mut Budget) -> rusqlite::Result<SchemaInspection> {
-    let mut statement =
-        conn.prepare("SELECT name, type, rootpage FROM main.sqlite_master LIMIT ?1")?;
-    let mut rows = statement.query([i64::try_from(MAX_SCHEMA_ENTRIES + 1).unwrap_or(i64::MAX)])?;
-    let mut found = false;
-    let mut schema_entries = 0usize;
-    while let Some(row) = rows.next()? {
-        if !budget.check() {
-            return Ok(SchemaInspection::Incomplete);
-        }
-        schema_entries += 1;
-        if schema_entries > MAX_SCHEMA_ENTRIES {
-            return Ok(SchemaInspection::Incomplete);
-        }
-        let name: String = row.get(0)?;
-        let kind: String = row.get(1)?;
-        if !budget.charge_schema_text(&name) || !budget.charge_schema_text(&kind) {
-            return Ok(SchemaInspection::Incomplete);
-        }
-        if !name.eq_ignore_ascii_case("gen_metadata") {
-            continue;
-        }
-        let rootpage: i64 = row.get(2)?;
-        if kind != "table" || rootpage <= 0 || found {
-            return Ok(SchemaInspection::Unsupported);
-        }
-        found = true;
+/// Size-check one `(idx, declared length, blob)` row. Rows with a bad index or
+/// length are skipped before any bytes are charged; out-of-range lengths are
+/// charged first, then rejected.
+fn checked_blob<'r>(
+    row: &'r rusqlite::Row<'_>,
+    database_bytes: &mut usize,
+    budget: &mut Budget,
+) -> rusqlite::Result<CheckedBlob<'r>> {
+    let idx: i64 = match row.get(0) {
+        Ok(value) if value >= 0 => value,
+        _ => return Ok(CheckedBlob::Invalid),
+    };
+    let declared: Option<i64> = row.get(1).ok();
+    let Some(declared) = declared.and_then(|value| usize::try_from(value).ok()) else {
+        return Ok(CheckedBlob::Invalid);
+    };
+    let Some(next_database) = database_bytes
+        .checked_add(declared)
+        .filter(|value| *value <= MAX_DATABASE_BYTES)
+    else {
+        budget.exhausted = true;
+        return Ok(CheckedBlob::Exhausted);
+    };
+    *database_bytes = next_database;
+    let Some(next_total) = budget
+        .bytes
+        .checked_add(declared)
+        .filter(|value| *value <= MAX_TOTAL_BYTES)
+    else {
+        budget.exhausted = true;
+        return Ok(CheckedBlob::Exhausted);
+    };
+    budget.bytes = next_total;
+    if declared == 0 || declared > MAX_BLOB_BYTES {
+        return Ok(CheckedBlob::Invalid);
     }
-    if !found {
-        return Ok(SchemaInspection::Unsupported);
-    }
-
-    has_stored_columns(conn, "gen_metadata", &["idx", "data"], budget)
+    Ok(match row.get_ref(2)? {
+        ValueRef::Blob(bytes) if bytes.len() == declared => CheckedBlob::Blob { idx, bytes },
+        _ => CheckedBlob::Invalid,
+    })
 }
 
-fn supported_steps_schema(
+/// Exactly one real `table` in `main` with the `required` stored columns.
+fn table_schema(
     conn: &Connection,
     budget: &mut Budget,
+    table: &str,
+    required: &[&str],
 ) -> rusqlite::Result<SchemaInspection> {
     let mut statement =
         conn.prepare("SELECT name, type, rootpage FROM main.sqlite_master LIMIT ?1")?;
@@ -820,7 +772,7 @@ fn supported_steps_schema(
         if !budget.charge_schema_text(&name) || !budget.charge_schema_text(&kind) {
             return Ok(SchemaInspection::Incomplete);
         }
-        if !name.eq_ignore_ascii_case("steps") {
+        if !name.eq_ignore_ascii_case(table) {
             continue;
         }
         let rootpage: i64 = row.get(2)?;
@@ -833,7 +785,7 @@ fn supported_steps_schema(
         return Ok(SchemaInspection::Unsupported);
     }
 
-    has_stored_columns(conn, "steps", &["idx", "metadata"], budget)
+    has_stored_columns(conn, table, required, budget)
 }
 
 fn has_stored_columns(

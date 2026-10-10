@@ -4,14 +4,6 @@
 //! Uses browser cookies for authentication
 
 pub mod billing;
-pub mod scraper;
-
-// Re-exports for advanced scraping
-#[allow(
-    unused_imports,
-    reason = "imports needed for future OpenCode provider wiring"
-)]
-pub use scraper::{OpenCodeError, OpenCodeUsageFetcher, OpenCodeUsageSnapshot};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -77,26 +69,42 @@ impl OpenCodeProvider {
         self.parse_subscription(&subscription)
     }
 
-    /// Fetch workspace ID from server
-    async fn fetch_workspace_id(&self, cookie_header: &str) -> Result<String, ProviderError> {
-        let url = format!("{}?id={}", SERVER_URL, WORKSPACES_SERVER_ID);
-
-        let response = self
-            .client
+    /// GET a SolidStart server function, optionally with a one-element
+    /// `[workspace_id]` argument list.
+    pub(super) fn server_fn_get(
+        &self,
+        server_id: &str,
+        workspace_arg: Option<&str>,
+        cookie_header: &str,
+        referer: &str,
+    ) -> reqwest::RequestBuilder {
+        let mut url = format!("{}?id={}", SERVER_URL, server_id);
+        if let Some(workspace_id) = workspace_arg {
+            let args = serde_json::json!([workspace_id]);
+            url.push_str("&args=");
+            url.push_str(&Self::url_encode(&args.to_string()));
+        }
+        self.client
             .get(&url)
             .header("Cookie", cookie_header)
-            .header("X-Server-Id", WORKSPACES_SERVER_ID)
+            .header("X-Server-Id", server_id)
             .header("X-Server-Instance", format!("server-fn:{}", Uuid::new_v4()))
             .header(
                 "User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             )
             .header("Origin", BASE_URL)
-            .header("Referer", BASE_URL)
+            .header("Referer", referer)
             .header(
                 "Accept",
                 "text/javascript, application/json;q=0.9, */*;q=0.8",
             )
+    }
+
+    /// Fetch workspace ID from server
+    async fn fetch_workspace_id(&self, cookie_header: &str) -> Result<String, ProviderError> {
+        let response = self
+            .server_fn_get(WORKSPACES_SERVER_ID, None, cookie_header, BASE_URL)
             .send()
             .await?;
 
@@ -133,28 +141,12 @@ impl OpenCodeProvider {
         cookie_header: &str,
     ) -> Result<String, ProviderError> {
         let referer = format!("https://opencode.ai/workspace/{}/billing", workspace_id);
-        let args = serde_json::json!([workspace_id]);
-        let encoded_args = Self::url_encode(&args.to_string());
-        let url = format!(
-            "{}?id={}&args={}",
-            SERVER_URL, SUBSCRIPTION_SERVER_ID, encoded_args
-        );
-
         let response = self
-            .client
-            .get(&url)
-            .header("Cookie", cookie_header)
-            .header("X-Server-Id", SUBSCRIPTION_SERVER_ID)
-            .header("X-Server-Instance", format!("server-fn:{}", Uuid::new_v4()))
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            )
-            .header("Origin", BASE_URL)
-            .header("Referer", referer)
-            .header(
-                "Accept",
-                "text/javascript, application/json;q=0.9, */*;q=0.8",
+            .server_fn_get(
+                SUBSCRIPTION_SERVER_ID,
+                Some(workspace_id),
+                cookie_header,
+                &referer,
             )
             .send()
             .await?;
@@ -619,6 +611,73 @@ impl Provider for OpenCodeProvider {
 mod tests {
     use super::*;
 
+    fn request_headers(request: &reqwest::Request) -> Vec<(String, String)> {
+        request
+            .headers()
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_str().unwrap().to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn server_fn_get_pins_url_and_header_order_for_each_call_site() {
+        let provider = OpenCodeProvider::new();
+        let cases = [
+            (WORKSPACES_SERVER_ID, None, BASE_URL, ""),
+            (
+                SUBSCRIPTION_SERVER_ID,
+                Some("wrk_a b"),
+                "https://opencode.ai/workspace/wrk_a b/billing",
+                "&args=%5B%22wrk_a%20b%22%5D",
+            ),
+            (
+                billing::BILLING_SERVER_ID,
+                Some("wrk_a b"),
+                "https://opencode.ai/workspace/wrk_a b",
+                "&args=%5B%22wrk_a%20b%22%5D",
+            ),
+        ];
+        for (server_id, workspace_arg, referer, args) in cases {
+            let request = provider
+                .server_fn_get(server_id, workspace_arg, "auth=synthetic", referer)
+                .build()
+                .unwrap();
+            assert_eq!(request.method(), reqwest::Method::GET);
+            assert_eq!(
+                request.url().as_str(),
+                format!("{SERVER_URL}?id={server_id}{args}")
+            );
+            let headers = request_headers(&request);
+            let names: Vec<_> = headers.iter().map(|(name, _)| name.as_str()).collect();
+            assert_eq!(
+                names,
+                [
+                    "cookie",
+                    "x-server-id",
+                    "x-server-instance",
+                    "user-agent",
+                    "origin",
+                    "referer",
+                    "accept"
+                ]
+            );
+            assert_eq!(headers[0].1, "auth=synthetic");
+            assert_eq!(headers[1].1, server_id);
+            let instance = headers[2].1.strip_prefix("server-fn:").unwrap();
+            assert!(Uuid::parse_str(instance).is_ok());
+            assert_eq!(
+                headers[3].1,
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            );
+            assert_eq!(headers[4].1, BASE_URL);
+            assert_eq!(headers[5].1, referer);
+            assert_eq!(
+                headers[6].1,
+                "text/javascript, application/json;q=0.9, */*;q=0.8"
+            );
+        }
+    }
+
     #[test]
     fn parses_json_renewal_window() {
         let provider = OpenCodeProvider::new();
@@ -650,29 +709,91 @@ mod tests {
     }
 
     #[test]
-    fn parses_weekly_only_json_without_rolling() {
+    fn parse_usage_json_window_shapes() {
         let provider = OpenCodeProvider::new();
         let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "weeklyUsage": { "usagePercent": 76.0, "resetInSec": 86400 }
-        });
-
-        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
-        assert!((snap.primary.used_percent - 76.0).abs() < f64::EPSILON);
-        assert!(snap.secondary.is_none());
-    }
-
-    #[test]
-    fn parses_rolling_only_json_without_weekly() {
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "rollingUsage": { "usagePercent": 12.5, "resetInSec": 600 }
-        });
-
-        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
-        assert!((snap.primary.used_percent - 12.5).abs() < f64::EPSILON);
-        assert!(snap.secondary.is_none());
+        let cases = [
+            (
+                "weekly only, without rolling",
+                serde_json::json!({
+                    "weeklyUsage": { "usagePercent": 76.0, "resetInSec": 86400 }
+                }),
+                76.0,
+                None,
+                f64::EPSILON,
+            ),
+            (
+                "rolling only, without weekly",
+                serde_json::json!({
+                    "rollingUsage": { "usagePercent": 12.5, "resetInSec": 600 }
+                }),
+                12.5,
+                None,
+                f64::EPSILON,
+            ),
+            (
+                "nested data.subscription shape",
+                serde_json::json!({
+                    "data": {
+                        "subscription": {
+                            "rollingUsage": { "usedPercent": 18.5, "resetInSeconds": 1200 },
+                            "weeklyUsage": { "percentUsed": 42, "resetsInSec": 86400 }
+                        }
+                    }
+                }),
+                18.5,
+                Some(42.0),
+                f64::EPSILON,
+            ),
+            // The 0.25 week fraction scales to 25%.
+            (
+                "fiveHour and week aliases",
+                serde_json::json!({
+                    "fiveHourUsage": { "pct": 11, "resetInSec": 300 },
+                    "weekUsage": { "value": 0.25, "resetInSec": 7200 }
+                }),
+                11.0,
+                Some(25.0),
+                f64::EPSILON,
+            ),
+            // Upstream #2331: used=1, limit=100 is 1%, not 100% (false exhausted).
+            (
+                "sub-one-percent computed used/limit is not rescaled to 100",
+                serde_json::json!({
+                    "rollingUsage": { "used": 1, "limit": 100, "resetInSec": 600 },
+                    "weeklyUsage": { "used": 1, "limit": 200, "resetInSec": 86400 }
+                }),
+                1.0,
+                Some(0.5),
+                0.001,
+            ),
+            (
+                "direct fractional usagePercent still scales",
+                serde_json::json!({
+                    "rollingUsage": { "usagePercent": 0.25, "resetInSec": 600 }
+                }),
+                25.0,
+                None,
+                0.001,
+            ),
+        ];
+        for (name, payload, primary, secondary, tolerance) in cases {
+            let snap = provider.parse_usage_json(&payload, now).expect(name);
+            assert!(
+                (snap.primary.used_percent - primary).abs() < tolerance,
+                "{name}: primary {}",
+                snap.primary.used_percent
+            );
+            match (snap.secondary.as_ref(), secondary) {
+                (None, None) => {}
+                (Some(window), Some(expected)) => assert!(
+                    (window.used_percent - expected).abs() < tolerance,
+                    "{name}: secondary {}",
+                    window.used_percent
+                ),
+                (actual, expected) => panic!("{name}: secondary {actual:?} vs {expected:?}"),
+            }
+        }
     }
 
     #[test]
@@ -691,74 +812,6 @@ mod tests {
         let text = r#"weeklyUsage: { usagePercent: 55, resetInSec: 99 } not-json"#;
         let snap = provider.parse_subscription(text).expect("snapshot");
         assert!((snap.primary.used_percent - 55.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn parses_nested_data_subscription_shape() {
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "data": {
-                "subscription": {
-                    "rollingUsage": { "usedPercent": 18.5, "resetInSeconds": 1200 },
-                    "weeklyUsage": { "percentUsed": 42, "resetsInSec": 86400 }
-                }
-            }
-        });
-        let snap = provider
-            .parse_usage_json(&payload, now)
-            .expect("nested snapshot");
-        assert!((snap.primary.used_percent - 18.5).abs() < f64::EPSILON);
-        assert!((snap.secondary.as_ref().unwrap().used_percent - 42.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn parses_five_hour_and_week_aliases() {
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "fiveHourUsage": { "pct": 11, "resetInSec": 300 },
-            "weekUsage": { "value": 0.25, "resetInSec": 7200 }
-        });
-        let snap = provider
-            .parse_usage_json(&payload, now)
-            .expect("alias snapshot");
-        assert!((snap.primary.used_percent - 11.0).abs() < f64::EPSILON);
-        // 0.25 fraction scales to 25%
-        assert!((snap.secondary.as_ref().unwrap().used_percent - 25.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn sub_one_percent_computed_used_limit_is_not_rescaled_to_100() {
-        // Upstream #2331: used=1, limit=100 → 1%, not 100% (false exhausted).
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "rollingUsage": { "used": 1, "limit": 100, "resetInSec": 600 },
-            "weeklyUsage": { "used": 1, "limit": 200, "resetInSec": 86400 }
-        });
-        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
-        assert!(
-            (snap.primary.used_percent - 1.0).abs() < 0.001,
-            "primary {}",
-            snap.primary.used_percent
-        );
-        assert!(
-            (snap.secondary.as_ref().unwrap().used_percent - 0.5).abs() < 0.001,
-            "secondary {}",
-            snap.secondary.as_ref().unwrap().used_percent
-        );
-    }
-
-    #[test]
-    fn direct_fractional_usage_percent_still_scales() {
-        let provider = OpenCodeProvider::new();
-        let now = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap();
-        let payload = serde_json::json!({
-            "rollingUsage": { "usagePercent": 0.25, "resetInSec": 600 }
-        });
-        let snap = provider.parse_usage_json(&payload, now).expect("snapshot");
-        assert!((snap.primary.used_percent - 25.0).abs() < 0.001);
     }
 
     #[test]

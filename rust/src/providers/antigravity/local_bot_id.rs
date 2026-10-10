@@ -116,14 +116,7 @@ pub(super) fn append_recovered_events(
                     continue;
                 }
                 if bot_id_uses.get(bot_id) == Some(&1) {
-                    let mut turn = pending.turn.clone();
-                    turn.timestamp_ms = Some(exact.timestamp_ms);
-                    events.push(Event {
-                        session: session.to_string(),
-                        row: pending.row,
-                        turn,
-                        total: pending.total,
-                    });
+                    events.push(recovered_event(session, pending, exact.timestamp_ms));
                     recovered += 1;
                     continue;
                 }
@@ -141,16 +134,20 @@ pub(super) fn append_recovered_events(
         let Some(timestamp_ms) = timestamps.get(*offset) else {
             continue;
         };
-        let mut turn = pending.turn.clone();
-        turn.timestamp_ms = Some(*timestamp_ms);
-        events.push(Event {
-            session: session.to_string(),
-            row: pending.row,
-            turn,
-            total: pending.total,
-        });
+        events.push(recovered_event(session, pending, *timestamp_ms));
         recovered += 1;
     }
     events.sort_by_key(|event| event.row);
     recovered
+}
+
+fn recovered_event(session: &str, pending: &PendingTimestampRow, timestamp_ms: i64) -> Event {
+    let mut turn = pending.turn.clone();
+    turn.timestamp_ms = Some(timestamp_ms);
+    Event {
+        session: session.to_string(),
+        row: pending.row,
+        turn,
+        total: pending.total,
+    }
 }

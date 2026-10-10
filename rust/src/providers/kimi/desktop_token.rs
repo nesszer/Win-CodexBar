@@ -20,7 +20,6 @@
 
 use base64::Engine;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct KimiDesktopAuthToken;
 
@@ -44,10 +43,6 @@ impl KimiDesktopAuthToken {
     /// Most recently accessed `kimi-auth` token from the signed-in Kimi
     /// Desktop session, or `None` when the app/database/cookie is absent or
     /// unreadable. Production entry point.
-    pub fn load() -> Option<String> {
-        Self::load_for_region(super::KimiRegion::China)
-    }
-
     pub fn load_for_region(region: super::KimiRegion) -> Option<String> {
         let data_root = dirs::data_dir()?;
         Self::load_from_region(&data_root, region)
@@ -101,7 +96,7 @@ impl KimiDesktopAuthToken {
             })
             .ok()
             .and_then(|row| decode_cookie_value(row, aes_key))
-            .filter(|token| !is_expired_jwt(token, unix_now_secs()))
+            .filter(|token| !is_expired_jwt(token, super::unix_now_secs()))
     }
 }
 
@@ -131,13 +126,6 @@ fn is_expired_jwt(token: &str, now_unix: f64) -> bool {
         return false;
     };
     expiry.is_finite() && expiry <= now_unix
-}
-
-fn unix_now_secs() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs_f64())
-        .unwrap_or(0.0)
 }
 
 /// Decode a `(value, encrypted_value)` pair: plaintext first, AES-256-GCM
