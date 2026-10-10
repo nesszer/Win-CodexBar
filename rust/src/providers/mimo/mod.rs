@@ -231,9 +231,11 @@ fn snapshot_from_parts(
         .and_then(|data| data.current_period_end.as_deref())
         .and_then(parse_mimo_date);
 
-    let primary = if let Some(item) = usage_item {
+    // Upstream MiMoUsageSnapshot only builds the token window when `limit > 0`,
+    // and `percent` is a 0-1 fraction that it scales to 0-100 and clamps.
+    let primary = if let Some(item) = usage_item.filter(|item| item.limit > 0) {
         RateWindow::with_details(
-            item.percent,
+            (item.percent * 100.0).clamp(0.0, 100.0),
             RateWindow::monthly_window_minutes(period_end),
             period_end,
             Some(format!("{}/{} tokens", item.used, item.limit)),
@@ -352,6 +354,81 @@ mod tests {
         assert_eq!(
             balance_description(12.5, "CNY", Some("8.25"), None),
             "12.50 CNY balance"
+        );
+    }
+
+    /// `tokenPlan/usage` payload from the Mac-parity MiMo pack (synthetic values).
+    const PACK_USAGE_JSON: &str = r#"{
+        "code": 0,
+        "data": {
+            "monthUsage": {
+                "percent": 0.37,
+                "items": [
+                    { "name": "credits", "used": 370000, "limit": 1000000, "percent": 0.37 }
+                ]
+            }
+        }
+    }"#;
+
+    fn usage_response(json: &str) -> Option<TokenPlanUsageResponse> {
+        serde_json::from_str(json).ok()
+    }
+
+    fn snapshot_with_usage(usage: Option<TokenPlanUsageResponse>) -> UsageSnapshot {
+        snapshot_from_parts(
+            12.34,
+            "CNY".into(),
+            Some("8.00".into()),
+            Some("4.34".into()),
+            None,
+            usage,
+        )
+    }
+
+    fn usage_item_json(used: i64, limit: i64, percent: f64) -> String {
+        format!(
+            r#"{{"code":0,"data":{{"monthUsage":{{"percent":{percent},"items":[{{"name":"credits","used":{used},"limit":{limit},"percent":{percent}}}]}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn mimo_token_percent_fraction_is_scaled_to_percentage() {
+        let snapshot = snapshot_with_usage(usage_response(PACK_USAGE_JSON));
+        assert_eq!(snapshot.primary.used_percent, 37.0);
+        assert_eq!(
+            snapshot.primary.reset_description.as_deref(),
+            Some("370000/1000000 tokens")
+        );
+    }
+
+    #[test]
+    fn mimo_token_percent_is_clamped_to_0_100() {
+        let over = snapshot_with_usage(usage_response(&usage_item_json(10, 10, 1.5)));
+        assert_eq!(over.primary.used_percent, 100.0);
+        let under = snapshot_with_usage(usage_response(&usage_item_json(0, 10, -0.2)));
+        assert_eq!(under.primary.used_percent, 0.0);
+    }
+
+    #[test]
+    fn mimo_token_window_requires_positive_limit() {
+        let snapshot = snapshot_with_usage(usage_response(&usage_item_json(5, 0, 0.5)));
+        assert_eq!(snapshot.primary.used_percent, 0.0);
+        assert_eq!(
+            snapshot.primary.reset_description.as_deref(),
+            Some("No token-plan usage")
+        );
+    }
+
+    #[test]
+    fn mimo_token_usage_without_percent_is_ignored() {
+        let usage =
+            usage_response(r#"{"code":0,"data":{"monthUsage":{"items":[{"used":1,"limit":10}]}}}"#);
+        assert!(usage.is_none());
+        let snapshot = snapshot_with_usage(usage);
+        assert_eq!(snapshot.primary.used_percent, 0.0);
+        assert_eq!(
+            snapshot.primary.reset_description.as_deref(),
+            Some("No token-plan usage")
         );
     }
 
