@@ -126,7 +126,7 @@ fn open_with_anchor(
     let props = SurfaceMode::TrayPanel.window_properties();
     let url = WebviewUrl::App("index.html?window=flyout".into());
 
-    let mut builder = tauri::WebviewWindowBuilder::new(app, FLYOUT_LABEL, url)
+    let builder = tauri::WebviewWindowBuilder::new(app, FLYOUT_LABEL, url)
         .title("CodexBar")
         .inner_size(props.width, props.height)
         .decorations(props.decorations)
@@ -152,9 +152,6 @@ fn open_with_anchor(
         // focus.
         .focused(false)
         .visible(false);
-    if let (Some(min_w), Some(min_h)) = (props.min_width, props.min_height) {
-        builder = builder.min_inner_size(min_w, min_h);
-    }
     let win = builder.build().map_err(|e| e.to_string())?;
     apply_window_always_on_top(&win, settings.tray_panel_always_on_top)?;
 
@@ -449,17 +446,15 @@ mod tests {
     #[test]
     fn panel_fill_matches_the_css_panel_background() {
         let css = include_str!("../../../src/styles.css");
-        assert!(css.contains("--mac-panel-bg: #dedee2;"));
-        assert_eq!(
-            (PANEL_FILL.0, PANEL_FILL.1, PANEL_FILL.2, PANEL_FILL.3),
-            (0xDE, 0xDE, 0xE2, 0xFF)
-        );
+        let tauri::utils::config::Color(r, g, b, a) = PANEL_FILL;
+        assert_eq!(a, 0xFF);
+        assert!(css.contains(&format!("--mac-panel-bg: #{r:02x}{g:02x}{b:02x};")));
     }
 
     #[test]
     fn tray_panel_window_properties_still_the_single_source_for_flyout_shape() {
         // `open_or_focus`'s builder reads size/decorations/resizable/
-        // skip_taskbar/min-size from
+        // skip_taskbar from
         // `SurfaceMode::TrayPanel.window_properties()` directly (not
         // independent duplicated constants) — this pins down the values that
         // relationship depends on, so a change to `surface.rs` shows up here

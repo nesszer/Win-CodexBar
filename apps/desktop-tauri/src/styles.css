@@ -1049,10 +1049,13 @@ html {
    fades the content in smoothly.  The page behind the panel carries the
    panel fill (--mac-panel-bg, and PANEL_FILL in shell/flyout_window.rs) so
    no other color shows while the panel is hidden. */
+:root {
+  --mac-panel-bg: #dedee2;
+}
 html:has(.tray-panel-reveal),
 body:has(.tray-panel-reveal),
 .tray-panel-reveal {
-  background: #dedee2;
+  background: var(--mac-panel-bg);
 }
 .tray-panel-reveal {
   display: flex;
@@ -3396,7 +3399,6 @@ html:has(.menu-surface--tray) {
   --mac-text-menu: 400 13px/16px var(--mac-font);
   --mac-text-shortcut: 400 13px/16px var(--mac-font);
 
-  --mac-panel-bg: #dedee2;
   --mac-panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.25);
   --mac-panel-border: rgba(0, 0, 0, 0.38);
   --mac-text: rgba(0, 0, 0, 0.85);
@@ -3534,9 +3536,8 @@ html:has(.menu-surface--tray) {
   box-sizing: border-box;
   overflow: visible;
 }
-/* Selected card — subtle highlight like macOS active provider */
+/* Selected card: no highlight plate, like the macOS menu card. */
 .menu-surface--tray .menu-stack__item--selected {
-  background: rgba(255, 255, 255, 0.06);
   border: none;
   border-radius: 6px;
   padding: 4px 4px;

@@ -932,6 +932,28 @@ describe("TrayPanel provider grid", () => {
     expect(surface.style.zoom).toBe("1.5");
   });
 
+  it("follows a new Windows accent the next time the panel takes focus", async () => {
+    tauriMocks.getSystemAccentColor.mockResolvedValue("#0078d4");
+    const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
+    const selectionBg = () =>
+      container
+        .querySelector<HTMLElement>(".menu-surface--tray")
+        ?.style.getPropertyValue("--mac-selection-bg");
+    await waitFor(() => expect(selectionBg()).toBe("#0078d4"));
+
+    tauriMocks.getSystemAccentColor.mockResolvedValue("#ffb900");
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => expect(selectionBg()).toBe("#ffb900"));
+    expect(
+      container
+        .querySelector<HTMLElement>(".menu-surface--tray")!
+        .style.getPropertyValue("--mac-selection-text"),
+    ).toBe("#000");
+  });
+
   it("reveals the tray panel if the native resize pass fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     windowMocks.getCurrentWindow.mockReturnValue({

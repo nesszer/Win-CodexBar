@@ -196,10 +196,6 @@ impl Chrome {
         self == Self::DarkResizable
     }
 
-    fn paints_dark_brush(self) -> bool {
-        self != Self::LightPanel
-    }
-
     /// `DWMWA_WINDOW_CORNER_PREFERENCE`, when the window asks for one.
     fn corner_preference(self) -> Option<u32> {
         (self == Self::LightPanel).then_some(DWMWCP_ROUND)
@@ -311,11 +307,9 @@ fn apply_chrome(win: &tauri::WebviewWindow, chrome: Chrome) {
 
         // Set background brush to dark (reuse a single GDI brush)
         const GCL_HBRBACKGROUND: i32 = -10;
-        if chrome.paints_dark_brush() {
-            let brush = *DARK_BRUSH.get_or_init(|| CreateSolidBrush(0x001C1C1E));
-            if brush != 0 {
-                SetWindowLongPtrW(hwnd, GCL_HBRBACKGROUND, brush);
-            }
+        let brush = *DARK_BRUSH.get_or_init(|| CreateSolidBrush(0x001C1C1E));
+        if brush != 0 {
+            SetWindowLongPtrW(hwnd, GCL_HBRBACKGROUND, brush);
         }
 
         // Remove WS_CAPTION; only strip WS_THICKFRAME for non-resizable windows
@@ -387,12 +381,9 @@ mod tests {
     }
 
     #[test]
-    fn the_light_panel_is_fixed_size_and_skips_the_dark_brush() {
+    fn only_the_resizable_dark_chrome_keeps_the_resize_frame() {
         assert!(!Chrome::LightPanel.keeps_resize_frame());
-        assert!(!Chrome::LightPanel.paints_dark_brush());
         assert!(!Chrome::Dark.keeps_resize_frame());
-        assert!(Chrome::Dark.paints_dark_brush());
         assert!(Chrome::DarkResizable.keeps_resize_frame());
-        assert!(Chrome::DarkResizable.paints_dark_brush());
     }
 }

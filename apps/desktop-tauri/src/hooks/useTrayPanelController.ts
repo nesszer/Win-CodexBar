@@ -67,7 +67,6 @@ export function useTrayPanelController(state: BootstrapState) {
   const trayScale = clampTrayScalePercent(settings.trayScalePercent) / 100;
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
-  const [accentColor, setAccentColor] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     void getAppInfo().then(
@@ -76,14 +75,29 @@ export function useTrayPanelController(state: BootstrapState) {
       },
       () => {},
     );
-    void getSystemAccentColor().then(
-      (color) => {
-        if (!cancelled) setAccentColor(color);
-      },
-      () => {},
-    );
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // The hidden panel window lives for the whole app run, so a focus re-read
+  // is what picks up an accent changed in Windows settings.
+  const [accentColor, setAccentColor] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const readAccent = () => {
+      void getSystemAccentColor().then(
+        (color) => {
+          if (!cancelled) setAccentColor(color);
+        },
+        () => {},
+      );
+    };
+    readAccent();
+    window.addEventListener("focus", readAccent);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", readAccent);
     };
   }, []);
 

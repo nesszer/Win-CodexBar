@@ -10,7 +10,8 @@ function linearChannel(byte: number): number {
 
 /**
  * Menu selection colors from the Windows accent, the way macOS menus use the
- * system accent. White text stays only where it keeps 4.5:1 contrast.
+ * system accent. White text stays only where it keeps 4.5:1 contrast. Where
+ * white fails, black clears 4.67:1 on any accent.
  */
 export function accentSelectionStyle(accent: string | null): CSSProperties {
   const match = accent ? HEX_COLOR.exec(accent) : null;
@@ -20,6 +21,6 @@ export function accentSelectionStyle(accent: string | null): CSSProperties {
   const whiteContrast = 1.05 / (luminance + 0.05);
   return {
     "--mac-selection-bg": accent,
-    "--mac-selection-text": whiteContrast >= 4.5 ? "#fff" : "rgba(0, 0, 0, 0.85)",
+    "--mac-selection-text": whiteContrast >= 4.5 ? "#fff" : "#000",
   } as CSSProperties;
 }

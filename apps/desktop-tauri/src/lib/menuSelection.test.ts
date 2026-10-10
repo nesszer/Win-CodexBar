@@ -9,10 +9,17 @@ describe("accentSelectionStyle", () => {
     });
   });
 
-  it("switches to dark text on a light accent", () => {
+  it("switches to black text on a light accent", () => {
     expect(accentSelectionStyle("#ffb900")).toEqual({
       "--mac-selection-bg": "#ffb900",
-      "--mac-selection-text": "rgba(0, 0, 0, 0.85)",
+      "--mac-selection-text": "#000",
+    });
+  });
+
+  it("uses solid black on a mid gray accent, where 85% black would fall below 4.5:1", () => {
+    expect(accentSelectionStyle("#7a7a7a")).toEqual({
+      "--mac-selection-bg": "#7a7a7a",
+      "--mac-selection-text": "#000",
     });
   });
 
