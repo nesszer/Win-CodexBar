@@ -55,15 +55,28 @@ fn codex_today_summary(history: &CostSummary, cache: &CostUsageCache) -> CostSum
     };
     let (cost, _) = add_codex_days_map_to_summary(&mut summary, &cache.days, &range);
     summary.total_cost_usd = cost;
-    summary.sessions_count = cache
-        .files
-        .values()
-        .filter(|usage| usage.days.contains_key(&range.until_key))
-        .count()
+    summary.sessions_count = codex_cache_sessions_in_range(cache, &range)
         .try_into()
         .unwrap_or(u32::MAX);
     summary.known_zero = summary.history_coverage_established && summary.sessions_count == 0;
     summary
+}
+
+/// Cached Codex files with usage on at least one day of `range`.
+pub(crate) fn codex_cache_sessions_in_range(
+    cache: &CostUsageCache,
+    range: &CostUsageDayRange,
+) -> usize {
+    cache
+        .files
+        .values()
+        .filter(|usage| {
+            usage
+                .days
+                .keys()
+                .any(|day| CostUsageDayRange::is_in_range(day, &range.since_key, &range.until_key))
+        })
+        .count()
 }
 
 fn coverage_from_summary(summary: &CostSummary) -> CostCoverageCounts {

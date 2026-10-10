@@ -1,5 +1,6 @@
 use super::cache_days::days_from_codex_source_rows;
 use super::*;
+use crate::codex_costs::codex_cache_sessions_in_range;
 use crate::core::{
     CodexSourceRowCache, CodexSourceUsageRow, read_source_rows, recover_rows, row_cache,
     row_cache_matches, row_cache_needs_recovery,
@@ -245,15 +246,7 @@ pub(super) fn scan_codex_detailed_with_cache(
         summary.total_cost_usd += cost;
         // Session count is a display field; the cache holds far fewer files than u32::MAX.
         #[allow(clippy::cast_possible_truncation, reason = "cache file counts fit u32")]
-        let sessions_count = cache
-            .files
-            .values()
-            .filter(|usage| {
-                usage.days.keys().any(|day| {
-                    CostUsageDayRange::is_in_range(day, &range.since_key, &range.until_key)
-                })
-            })
-            .count() as u32;
+        let sessions_count = codex_cache_sessions_in_range(&cache, &range) as u32;
         summary.sessions_count = sessions_count;
 
         // Pi-compatible sessions are outside the Codex JSONL cache.
@@ -548,15 +541,7 @@ pub(super) fn scan_codex_detailed_with_cache(
     rebuilt.total_cost_usd += native_cost;
     #[allow(clippy::cast_possible_truncation, reason = "cache file counts fit u32")]
     {
-        rebuilt.sessions_count = summary_cache
-            .files
-            .values()
-            .filter(|usage| {
-                usage.days.keys().any(|day| {
-                    CostUsageDayRange::is_in_range(day, &range.since_key, &range.until_key)
-                })
-            })
-            .count() as u32;
+        rebuilt.sessions_count = codex_cache_sessions_in_range(&summary_cache, &range) as u32;
     }
     let cancelled_with_missing_cache_rows =
         is_cancelled(cancel) && cache.files.keys().any(|path| !Path::new(path).exists());
