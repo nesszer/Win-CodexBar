@@ -152,3 +152,70 @@ fn workspace_option_groups_the_existing_cost_request_only() {
         cost_report_query(&start, &end, false).len() + 1
     );
 }
+
+#[test]
+fn messages_and_costs_fold_into_ranked_windows() {
+    let messages: MessagesUsageResponse = serde_json::from_str(
+        r#"{"data":[
+  {"starting_at":"2026-09-23T00:00:00Z","ending_at":"2026-09-24T00:00:00Z","results":[
+    {"model":"claude-b","uncached_input_tokens":10,"cache_read_input_tokens":5,"output_tokens":5},
+    {"model":"  ","uncached_input_tokens":1,"cache_creation":{"total_input_tokens":2}},
+    {"model":"claude-a","uncached_input_tokens":20}]},
+  {"starting_at":"2026-09-24T00:00:00Z","ending_at":"2026-09-25T00:00:00Z","results":[
+    {"model":"claude-c","output_tokens":7},
+    {"uncached_input_tokens":4}]}]}"#,
+    )
+    .unwrap();
+    let report = costs(
+        r#"{"data":[
+  {"starting_at":"2026-09-22T00:00:00Z","ending_at":"2026-09-23T00:00:00Z","results":[
+    {"amount":"300","description":" Web search "},
+    {"amount":"100","cost_type":"tokens"},
+    {"amount":"200","description":"","cost_type":"session"},
+    {"amount":"50"}]}]}"#,
+    );
+    let result = result_from_admin_usage(&report, &messages, now(), false);
+    let usage = &result.usage;
+    let windows: Vec<_> = usage
+        .extra_rate_windows
+        .iter()
+        .map(|window| {
+            (
+                window.id.as_str(),
+                window.title.as_str(),
+                window.window.reset_description.as_deref().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        windows,
+        [
+            ("input-tokens", "Input tokens", "42"),
+            ("output-tokens", "Output tokens", "12"),
+            ("model-0", "Model: claude-a", "20 tokens"),
+            ("model-1", "Model: claude-b", "20 tokens"),
+            ("model-2", "Model: Claude API", "7 tokens"),
+            ("cost-0", "Cost: Web search", "$3.00"),
+            ("cost-1", "Cost: Claude API", "$2.50"),
+            ("cost-2", "Cost: tokens", "$1.00"),
+        ]
+    );
+    assert_eq!(
+        usage.primary.reset_description.as_deref(),
+        Some("$6.50 over last 30 days")
+    );
+    assert_eq!(
+        usage
+            .secondary
+            .as_ref()
+            .unwrap()
+            .reset_description
+            .as_deref(),
+        Some("54 tokens")
+    );
+    assert_eq!(
+        usage.primary.resets_at.map(|at| at.to_rfc3339()).as_deref(),
+        Some("2026-09-22T00:00:00+00:00")
+    );
+    assert!(result.display_details().is_empty());
+}
