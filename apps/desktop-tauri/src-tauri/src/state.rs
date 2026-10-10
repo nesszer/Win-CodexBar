@@ -167,7 +167,7 @@ pub struct AppState {
     /// One-shot permission for frontend layout code to reveal a newly opened
     /// flyout, carrying whether the revealed window may take focus.
     pub flyout_reveal_pending: Option<Activation>,
-    /// Active while a user gesture (resize drag, HTML5 drag-reorder) is
+    /// Active while a user gesture (the provider tab HTML5 drag-reorder) is
     /// running a Win32 modal loop that transiently steals focus from the
     /// WebView2 child. `(began, until)` — `until` is the hard expiry;
     /// `began` lets a genuine refocus clear the guard early once the

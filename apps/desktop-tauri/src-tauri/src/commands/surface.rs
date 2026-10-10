@@ -75,9 +75,8 @@ pub async fn open_flyout_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Reveal the flyout window after the frontend's first layout pass. Called by
-/// `useTrayPanelLayout` once content has been measured/auto-fit (or the
-/// remembered fixed size re-applied), so Windows never shows a pre-measure
-/// blank/backing frame.
+/// `useTrayPanelLayout` once content has been measured and auto-fit, so
+/// Windows never shows a pre-measure blank/backing frame.
 ///
 /// No-ops when the flyout window doesn't exist or no one-shot reveal is pending.
 /// The window takes focus only as far as the pending reveal's activation
