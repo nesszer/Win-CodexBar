@@ -102,7 +102,6 @@ pub fn render_json_result(
     json_result
 }
 
-/// Serialize a [`UsagePace`] into a compact JSON object for the `--json` output.
 /// `{level, description}` status object shared by every usage JSON row.
 pub(super) fn status_json(status: &StatusInfo) -> serde_json::Value {
     serde_json::json!({
@@ -111,6 +110,7 @@ pub(super) fn status_json(status: &StatusInfo) -> serde_json::Value {
     })
 }
 
+/// Serialize a [`UsagePace`] into a compact JSON object for the `--json` output.
 fn pace_json(pace: UsagePace) -> serde_json::Value {
     serde_json::json!({
         "stage": format!("{:?}", pace.stage).to_lowercase(),
