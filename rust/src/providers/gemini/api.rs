@@ -661,17 +661,9 @@ fn resolve_account_plan(status: &CodeAssistStatus, hosted_domain: Option<&str>) 
 // --- Helper functions ---
 
 fn parse_iso_date(s: &str) -> Option<DateTime<Utc>> {
-    // Try with fractional seconds first
-    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
-        return Some(dt.with_timezone(&Utc));
-    }
-
-    // Try without fractional seconds
-    if let Ok(dt) = chrono::DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ") {
-        return Some(dt.with_timezone(&Utc));
-    }
-
-    None
+    DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 fn extract_email_from_jwt(token: &str) -> Option<String> {
