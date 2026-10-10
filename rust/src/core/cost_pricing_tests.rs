@@ -1,6 +1,16 @@
 use super::codex_routed_pricing;
 use super::*;
 
+impl CostUsagePricing {
+    /// Get the display label for a Codex model (e.g. "Research Preview")
+    fn codex_display_label(model: &str) -> Option<&'static str> {
+        let key = Self::normalize_codex_model(model);
+        CODEX_PRICING
+            .get(key.as_str())
+            .and_then(|p| p.display_label)
+    }
+}
+
 #[test]
 fn test_normalize_codex_model() {
     assert_eq!(CostUsagePricing::normalize_codex_model("gpt-5"), "gpt-5");

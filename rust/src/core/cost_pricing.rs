@@ -329,14 +329,6 @@ impl CostUsagePricing {
         codex_routed_pricing::counts_toward_codex_subscription(model)
     }
 
-    /// Get the display label for a Codex model (e.g. "Research Preview")
-    pub fn codex_display_label(model: &str) -> Option<&'static str> {
-        let key = Self::normalize_codex_model(model);
-        CODEX_PRICING
-            .get(key.as_str())
-            .and_then(|p| p.display_label)
-    }
-
     /// Strip Fast/priority suffix to find the base model for pricing lookup.
     ///
     /// Fast-tier models ("gpt-5.5-fast", "gpt-5.6-sol-priority") price as the
