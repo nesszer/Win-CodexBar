@@ -9,21 +9,54 @@
 use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{Map, Value};
 
+use crate::core::RateWindow;
+
 type Object = Map<String, Value>;
 
 /// How deep [`dictionary_contexts`] descends into nested objects (Swift `maxDepth`).
 const MAX_CONTEXT_DEPTH: usize = 2;
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(super) struct PassFields {
-    pub used: Option<f64>,
-    pub total: Option<f64>,
-    pub remaining: Option<f64>,
-    pub bonus: Option<f64>,
-    pub resets_at: Option<DateTime<Utc>>,
+/// Pass amounts in USD. `total` includes `bonus`. Wherever two of
+/// used / total / remaining are known the third is already derived, so a
+/// missing `total` means there is no pass window.
+#[derive(Debug, Default, PartialEq)]
+struct PassFields {
+    used: Option<f64>,
+    total: Option<f64>,
+    bonus: Option<f64>,
+    resets_at: Option<DateTime<Utc>>,
 }
 
-pub(super) fn pass_fields(payload: Option<&Value>) -> PassFields {
+/// The Kilo Pass window (upstream `KiloUsageSnapshot.passWindow`): percent of
+/// base plus bonus used, the billing reset, and a
+/// `$used / $base (+ $bonus bonus)` detail line.
+pub(super) fn pass_window(payload: Option<&Value>) -> Option<RateWindow> {
+    let fields = pass_fields(payload);
+    let total = fields.total?.max(0.0);
+    if !total.is_finite() {
+        return None;
+    }
+    let used = fields.used.unwrap_or(0.0).max(0.0);
+    let bonus = fields.bonus.unwrap_or(0.0).max(0.0);
+    let base = (total - bonus).max(0.0);
+    let used_percent = if total > 0.0 {
+        ((used / total) * 100.0).clamp(0.0, 100.0)
+    } else {
+        // Matches upstream: a valid zero-total pass reads as exhausted.
+        100.0
+    };
+
+    let mut detail = format!("${used:.2} / ${base:.2}");
+    if bonus > 0.0 {
+        detail.push_str(&format!(" (+ ${bonus:.2} bonus)"));
+    }
+    Some(
+        RateWindow::with_details(used_percent, None, fields.resets_at, Some(detail))
+            .with_description_as_detail(),
+    )
+}
+
+fn pass_fields(payload: Option<&Value>) -> PassFields {
     let Some(subscription) = subscription_data(payload) else {
         return fallback_pass_fields(payload);
     };
@@ -34,10 +67,6 @@ pub(super) fn pass_fields(payload: Option<&Value>) -> PassFields {
         .unwrap_or(0.0)
         .max(0.0);
     let total = base.map(|base| base + bonus);
-    let remaining = match (total, used) {
-        (Some(total), Some(used)) => Some((total - used).max(0.0)),
-        _ => None,
-    };
     let resets_at = ["nextBillingAt", "nextRenewalAt", "renewsAt", "renewAt"]
         .iter()
         .find_map(|key| date_from(subscription.get(*key)));
@@ -45,7 +74,6 @@ pub(super) fn pass_fields(payload: Option<&Value>) -> PassFields {
     PassFields {
         used,
         total,
-        remaining,
         bonus: (bonus > 0.0).then_some(bonus),
         resets_at,
     }
@@ -185,7 +213,7 @@ fn fallback_pass_fields(payload: Option<&Value>) -> PassFields {
         ],
         &contexts,
     );
-    let mut remaining = money_amount(
+    let remaining = money_amount(
         &[
             "remainingCents",
             "remainingAmountCents",
@@ -247,16 +275,10 @@ fn fallback_pass_fields(payload: Option<&Value>) -> PassFields {
     {
         used = Some((total - remaining).max(0.0));
     }
-    if remaining.is_none()
-        && let (Some(total), Some(used)) = (total, used)
-    {
-        remaining = Some((total - used).max(0.0));
-    }
 
     PassFields {
         used,
         total,
-        remaining,
         bonus,
         resets_at,
     }
@@ -402,7 +424,6 @@ mod tests {
         let fields = pass_fields(Some(&payload));
         assert_eq!(fields.used, Some(0.0));
         assert_eq!(fields.total, Some(28.5));
-        assert_eq!(fields.remaining, Some(28.5));
         assert_eq!(fields.bonus, Some(9.5));
         assert_eq!(
             fields.resets_at.map(|date| date.to_rfc3339()),
@@ -467,7 +488,6 @@ mod tests {
         let fields = pass_fields(Some(&payload));
         assert_eq!(fields.total, Some(28.5));
         assert_eq!(fields.used, Some(3.5));
-        assert_eq!(fields.remaining, Some(25.0));
         assert_eq!(fields.bonus, Some(9.5));
         assert!(fields.resets_at.is_some());
         assert_eq!(plan_name(Some(&payload)).as_deref(), Some("Starter"));
@@ -477,5 +497,62 @@ mod tests {
     fn fallback_plan_name_reads_nested_plan_name() {
         let payload = serde_json::json!({ "plan": { "name": "Kilo Pass Pro" } });
         assert_eq!(plan_name(Some(&payload)).as_deref(), Some("Kilo Pass Pro"));
+    }
+
+    #[test]
+    fn pass_window_reports_base_and_bonus_detail() {
+        let payload = serde_json::json!({
+            "subscription": {
+                "tier": "tier_49",
+                "currentPeriodUsageUsd": 12.4,
+                "currentPeriodBaseCreditsUsd": 49.0,
+                "currentPeriodBonusCreditsUsd": 10.0,
+                "nextBillingAt": "2026-10-17T00:00:00Z"
+            }
+        });
+        let window = pass_window(Some(&payload)).expect("pass window");
+        assert!((window.used_percent - 12.4 / 59.0 * 100.0).abs() < 1e-9);
+        assert_eq!(
+            window.reset_description.as_deref(),
+            Some("$12.40 / $49.00 (+ $10.00 bonus)")
+        );
+        assert!(window.description_is_detail);
+        assert_eq!(
+            window.resets_at.map(|date| date.to_rfc3339()),
+            Some("2026-10-17T00:00:00+00:00".to_string())
+        );
+    }
+
+    #[test]
+    fn pass_window_without_bonus_omits_bonus_suffix() {
+        let payload = serde_json::json!({
+            "subscription": { "currentPeriodUsageUsd": 4.75, "currentPeriodBaseCreditsUsd": 19.0 }
+        });
+        let window = pass_window(Some(&payload)).expect("pass window");
+        assert!((window.used_percent - 25.0).abs() < 1e-9);
+        assert_eq!(window.reset_description.as_deref(), Some("$4.75 / $19.00"));
+        assert_eq!(window.resets_at, None);
+    }
+
+    #[test]
+    fn pass_window_zero_total_is_exhausted_and_missing_total_has_no_window() {
+        let zero = serde_json::json!({
+            "subscription": { "currentPeriodUsageUsd": 0, "currentPeriodBaseCreditsUsd": 0 }
+        });
+        let window = pass_window(Some(&zero)).expect("zero-total pass window");
+        assert!((window.used_percent - 100.0).abs() < 1e-9);
+        assert_eq!(window.reset_description.as_deref(), Some("$0.00 / $0.00"));
+
+        let usage_only = serde_json::json!({ "subscription": { "currentPeriodUsageUsd": 3.0 } });
+        assert!(pass_window(Some(&usage_only)).is_none());
+        assert!(pass_window(None).is_none());
+    }
+
+    #[test]
+    fn fallback_pass_window_derives_total_from_used_and_remaining() {
+        let payload = serde_json::json!({ "usedCents": 250, "remainingCents": 750 });
+        let window = pass_window(Some(&payload)).expect("fallback pass window");
+        assert!((window.used_percent - 25.0).abs() < 1e-9);
+        assert_eq!(window.reset_description.as_deref(), Some("$2.50 / $10.00"));
     }
 }

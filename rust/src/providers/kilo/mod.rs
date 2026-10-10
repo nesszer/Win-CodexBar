@@ -149,30 +149,8 @@ impl KiloProvider {
         // --- Kilo Pass (secondary window) ---
         // `kiloPass.getState` nests the pass under `subscription`; the decoding
         // (nested, flat and generic fallback shapes) lives in `pass.rs`.
-        let fields = pass::pass_fields(kilo_pass_data);
-        let pass_total = fields
-            .total
-            .or_else(|| Some(fields.used? + fields.remaining?))
-            .map(|total| total.max(0.0))
-            .filter(|total| total.is_finite());
-        if let Some(pass_total) = pass_total {
-            let usage = fields
-                .used
-                .or_else(|| Some(pass_total - fields.remaining?))
-                .unwrap_or(0.0)
-                .max(0.0);
-            let pass_pct = if pass_total > 0.0 {
-                ((usage / pass_total) * 100.0).clamp(0.0, 100.0)
-            } else {
-                // Matches upstream: a valid zero-total pass reads as exhausted.
-                100.0
-            };
-            if pass_pct.is_finite() {
-                let mut secondary = RateWindow::new(pass_pct);
-                secondary.resets_at = fields.resets_at;
-                secondary.reset_description = Some(format!("${usage:.2}/${pass_total:.2}"));
-                snap = snap.with_secondary(secondary);
-            }
+        if let Some(secondary) = pass::pass_window(kilo_pass_data) {
+            snap = snap.with_secondary(secondary);
         }
 
         if let Some(plan) = pass::plan_name(kilo_pass_data) {
@@ -362,6 +340,10 @@ mod tests {
         let secondary = snap.secondary.expect("pass window");
         // 5/25 = 20%
         assert!((secondary.used_percent - 20.0).abs() < 0.001);
+        assert_eq!(
+            secondary.reset_description.as_deref(),
+            Some("$5.00 / $20.00 (+ $5.00 bonus)")
+        );
         assert_eq!(snap.login_method.as_deref(), Some("Kilo Pass"));
     }
 
@@ -404,6 +386,12 @@ mod tests {
             pass.resets_at.map(|date| date.to_rfc3339()),
             Some("2026-10-17T00:00:00+00:00".to_string())
         );
+        // The base/bonus split survives as the upstream detail line.
+        assert_eq!(
+            pass.reset_description.as_deref(),
+            Some("$12.40 / $49.00 (+ $10.00 bonus)")
+        );
+        assert!(pass.description_is_detail);
         assert_eq!(snap.login_method.as_deref(), Some("Pro"));
     }
 
