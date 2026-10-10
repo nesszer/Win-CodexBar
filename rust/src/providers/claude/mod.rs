@@ -1952,6 +1952,63 @@ Resets Apr 5, 2pm (America/Bogota)
     }
 
     #[test]
+    fn reset_dates_resolve_every_month_and_form() {
+        let now = "2026-09-24T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let at = |text: &str, window: Option<u32>| {
+            parse_claude_reset_date(text, now, window).map(|date| date.to_rfc3339())
+        };
+        let months = [
+            "Jan", "FEB", "mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "dEc",
+        ];
+        for (index, month) in months.iter().enumerate() {
+            assert_eq!(
+                at(&format!("Resets {month} 5, 2027 at 3pm (UTC)"), None),
+                Some(format!("2027-{:02}-05T15:00:00+00:00", index + 1)),
+                "{month}"
+            );
+        }
+        let rows = [
+            ("Resets Foo 5, 2027 at 3pm (UTC)", None, None),
+            ("Resets Feb 30, 2027 at 3pm (UTC)", None, None),
+            (
+                "Resets Sep 23 at 3pm (UTC)",
+                None,
+                Some("2027-09-23T15:00:00+00:00"),
+            ),
+            (
+                "Resets Sep 23 at 3pm (UTC)",
+                Some(10_080),
+                Some("2026-09-23T15:00:00+00:00"),
+            ),
+            (
+                "Resets Feb 29 at 3pm (UTC)",
+                None,
+                Some("2028-02-29T15:00:00+00:00"),
+            ),
+            ("Resets 3pm (UTC)", None, Some("2026-09-24T15:00:00+00:00")),
+            ("Resets 11am (UTC)", None, Some("2026-09-25T11:00:00+00:00")),
+            (
+                "Resets 11am (UTC)",
+                Some(300),
+                Some("2026-09-24T11:00:00+00:00"),
+            ),
+            (
+                "Resets Nov 1, 2026 at 1:30am (America/New_York)",
+                None,
+                Some("2026-11-01T05:30:00+00:00"),
+            ),
+            (
+                "Resets Mar 8, 2026 at 2:30am (America/New_York)",
+                None,
+                None,
+            ),
+        ];
+        for (text, window, expected) in rows {
+            assert_eq!(at(text, window).as_deref(), expected, "{text} {window:?}");
+        }
+    }
+
+    #[test]
     fn parses_compact_usage_screen() {
         let provider = ClaudeProvider::new();
         let output = r#"

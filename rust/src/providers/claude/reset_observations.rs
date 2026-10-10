@@ -221,6 +221,31 @@ mod tests {
     }
 
     #[test]
+    fn missing_store_loads_empty_and_invalid_scopes_fail() {
+        let root = tempdir().unwrap();
+        assert_eq!(load_reset_observations(root.path(), "a").unwrap(), vec![]);
+        assert!(matches!(
+            load_reset_observations(root.path(), " "),
+            Err(ClaudeResetObservationError::EmptyAccountScope)
+        ));
+        let path = store_path(root.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, br#"{"version":1}"#).unwrap();
+        assert_eq!(load_reset_observations(root.path(), "a").unwrap(), vec![]);
+        let stray = observation("b", "2026-09-20T10:00:00Z", "2026-09-21T10:00:00Z");
+        let store = serde_json::json!({"version": 1, "accounts": {"a": [stray]}});
+        std::fs::write(&path, store.to_string()).unwrap();
+        assert!(matches!(
+            load_reset_observations(root.path(), "z"),
+            Err(ClaudeResetObservationError::AccountScopeMismatch)
+        ));
+        assert!(matches!(
+            merge_and_persist_reset_observations(root.path(), "z", &[]),
+            Err(ClaudeResetObservationError::AccountScopeMismatch)
+        ));
+    }
+
+    #[test]
     fn malformed_and_future_stores_fail_closed() {
         let root = tempdir().unwrap();
         let path = store_path(root.path());
