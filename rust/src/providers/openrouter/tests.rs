@@ -543,7 +543,16 @@ async fn get_json_keeps_each_call_sites_auth_set_and_reason() {
     let credits_auth = &[StatusCode::UNAUTHORIZED][..];
     // (label, auth statuses, forbidden reason, HTTP status, body,
     //  expected error, expected reason)
-    let cases: [(&str, &[StatusCode], Option<&str>, usize, &str, &str, &str); 7] = [
+    type Case<'a> = (
+        &'a str,
+        &'a [StatusCode],
+        Option<&'a str>,
+        usize,
+        &'a str,
+        &'a str,
+        &'a str,
+    );
+    let cases: [Case<'_>; 7] = [
         ("credits", credits_auth, None, 200, r#"{"ok":1}"#, "", ""),
         (
             "credits",
