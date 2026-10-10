@@ -1613,26 +1613,15 @@ mod tests {
     }
 
     #[test]
-    fn passive_probe_env_disables_autoupdater_and_color() {
+    fn passive_probe_env_disables_autoupdater_color_and_chrome() {
         let env = claude_passive_probe_env(HashMap::new());
-        assert_eq!(
-            env.get("DISABLE_AUTOUPDATER").map(String::as_str),
-            Some("1")
-        );
-        assert_eq!(env.get("NO_COLOR").map(String::as_str), Some("1"));
-    }
-
-    #[test]
-    fn probe_avoids_chrome_and_fullscreen_startup_dialogs() {
-        let env = claude_passive_probe_env(HashMap::new());
-        assert_eq!(
-            env.get("CLAUDE_CODE_ENABLE_CFC").map(String::as_str),
-            Some("0")
-        );
-        let settings: serde_json::Value =
-            serde_json::from_str(&claude_usage_settings_args()[1]).unwrap();
-        assert_eq!(settings["tui"], "default");
-        assert_eq!(settings["remoteControlAtStartup"], false);
+        for (key, value) in [
+            ("DISABLE_AUTOUPDATER", "1"),
+            ("NO_COLOR", "1"),
+            ("CLAUDE_CODE_ENABLE_CFC", "0"),
+        ] {
+            assert_eq!(env.get(key).map(String::as_str), Some(value), "{key}");
+        }
     }
 
     #[test]
@@ -1664,6 +1653,10 @@ mod tests {
                 r#"{"remoteControlAtStartup":false,"tui":"default"}"#.to_string(),
             ]
         );
+        let settings: serde_json::Value =
+            serde_json::from_str(&claude_usage_settings_args()[1]).unwrap();
+        assert_eq!(settings["tui"], "default");
+        assert_eq!(settings["remoteControlAtStartup"], false);
     }
 
     #[test]
@@ -1740,9 +1733,20 @@ mod tests {
         assert!(other.join("session.jsonl").exists(), "other projects stay");
     }
 
+    fn parse_ok(output: &str) -> ProviderFetchResult {
+        ClaudeProvider::new()
+            .parse_cli_output(output)
+            .expect("should parse")
+    }
+
+    fn parse_err(output: &str) -> ProviderError {
+        ClaudeProvider::new()
+            .parse_cli_output(output)
+            .expect_err("should reject")
+    }
+
     #[test]
     fn parses_current_cli_usage_screen() {
-        let provider = ClaudeProvider::new();
         let output = r#"
 Status   Config   Usage
 
@@ -1759,7 +1763,7 @@ Status   Config   Usage
   $3.31 / $70.00 spent · Resets Apr 1 (America/Bogota)
 "#;
 
-        let result = provider.parse_cli_output(output).expect("should parse");
+        let result = parse_ok(output);
 
         assert_eq!(result.source_label, "cli");
         assert_eq!(result.usage.primary.used_percent, 100.0);
@@ -1780,36 +1784,29 @@ Status   Config   Usage
     }
 
     #[test]
-    fn parses_exhausted_short_form_as_full_session_usage() {
-        let provider = ClaudeProvider::new();
-        let output = "You're out of extra usage · resets 12pm (America/Bogota)";
-
-        let result = provider.parse_cli_output(output).expect("should parse");
-
-        assert_eq!(result.usage.primary.used_percent, 100.0);
-        assert_eq!(
-            result.usage.primary.reset_description.as_deref(),
-            Some("resets 12pm (America/Bogota)")
-        );
-    }
-
-    #[test]
-    fn parses_hit_limit_short_form_as_full_session_usage() {
-        let provider = ClaudeProvider::new();
-        let output = "You've hit your limit \u{00b7} resets 3:20pm (Asia/Shanghai)";
-
-        let result = provider.parse_cli_output(output).expect("should parse");
-
-        assert_eq!(result.usage.primary.used_percent, 100.0);
-        assert_eq!(
-            result.usage.primary.reset_description.as_deref(),
-            Some("resets 3:20pm (Asia/Shanghai)")
-        );
+    fn parses_short_forms_as_full_session_usage() {
+        let rows = [
+            (
+                "You're out of extra usage · resets 12pm (America/Bogota)",
+                "resets 12pm (America/Bogota)",
+            ),
+            (
+                "You've hit your limit \u{00b7} resets 3:20pm (Asia/Shanghai)",
+                "resets 3:20pm (Asia/Shanghai)",
+            ),
+        ];
+        for (output, reset) in rows {
+            let result = parse_ok(output);
+            assert_eq!(result.usage.primary.used_percent, 100.0, "{output}");
+            assert_eq!(
+                result.usage.primary.reset_description.as_deref(),
+                Some(reset)
+            );
+        }
     }
 
     #[test]
     fn parses_remaining_available_and_decimal_percentages() {
-        let provider = ClaudeProvider::new();
         let output = r#"
 Status   Config   Usage
 
@@ -1825,7 +1822,7 @@ Status   Config   Usage
   1% consumed
 "#;
 
-        let result = provider.parse_cli_output(output).expect("should parse");
+        let result = parse_ok(output);
 
         assert_eq!(result.usage.primary.used_percent, 87.5);
         assert_eq!(
@@ -1854,7 +1851,6 @@ Status   Config   Usage
 
     #[test]
     fn parses_all_cli_model_scoped_weekly_limits() {
-        let provider = ClaudeProvider::new();
         let output = r#"
 Current session
 10% used
@@ -1873,7 +1869,7 @@ Current week (Opus only)
 Resets Apr 5, 2pm (America/Bogota)
 "#;
 
-        let result = provider.parse_cli_output(output).expect("should parse");
+        let result = parse_ok(output);
 
         assert_eq!(result.usage.extra_rate_windows.len(), 2);
         assert_eq!(
@@ -2010,7 +2006,6 @@ Resets Apr 5, 2pm (America/Bogota)
 
     #[test]
     fn parses_compact_usage_screen() {
-        let provider = ClaudeProvider::new();
         let output = r#"
 Settings:StatusConfigUsage(tabtocycle)
 Loadingusagedata...
@@ -2025,7 +2020,7 @@ Currentweek(Sonnetonly)
 ResetsFeb12at1:29pm(Asia/Calcutta)
 "#;
 
-        let result = provider.parse_cli_output(output).expect("should parse");
+        let result = parse_ok(output);
 
         assert_eq!(result.usage.primary.used_percent, 6.0);
         assert_eq!(
@@ -2053,7 +2048,6 @@ ResetsFeb12at1:29pm(Asia/Calcutta)
 
     #[test]
     fn does_not_promote_weekly_reset_to_session() {
-        let provider = ClaudeProvider::new();
         let output = r#"
 Current session
 17% used
@@ -2062,7 +2056,7 @@ Current week (all models)
 Resets Dec 24 at 3:59pm (Europe/Paris)
 "#;
 
-        let result = provider.parse_cli_output(output).expect("should parse");
+        let result = parse_ok(output);
 
         assert_eq!(result.usage.primary.used_percent, 17.0);
         assert_eq!(result.usage.primary.reset_description, None);
@@ -2216,22 +2210,6 @@ Resets Dec 24 at 3:59pm (Europe/Paris)
         assert!(extract_cli_scoped_weekly_limits(&outside, now).is_empty());
         let next = "Current week (Opus)\nCurrent session\n25% used";
         assert!(extract_cli_scoped_weekly_limits(next, now).is_empty());
-    }
-
-    #[test]
-    fn rejects_cli_output_without_usage_markers() {
-        let provider = ClaudeProvider::new();
-        let output = "Claude Code on Windows requires git-bash.";
-
-        let err = provider
-            .parse_cli_output(output)
-            .expect_err("should reject non-usage output");
-
-        assert!(matches!(err, ProviderError::Parse(_)));
-        assert_eq!(
-            err.to_string(),
-            "Parse error: Claude CLI did not return usage data"
-        );
     }
 
     #[test]
@@ -2391,31 +2369,16 @@ Resets Dec 24 at 3:59pm (Europe/Paris)
     }
 
     #[test]
-    fn rejects_claude_2_1_non_interactive_slash_response() {
-        let provider = ClaudeProvider::new();
-        let output = r#"
+    fn rejects_cli_output_that_is_not_a_usage_screen() {
+        let git_bash = "Claude Code on Windows requires git-bash.";
+        let claude_2_1 = r#"
 I see you've entered `/usage` and `/exit`.
 
 **Usage**: Token usage and statistics are typically displayed by the CLI interface itself. I don't have direct access to those metrics through my available tools.
 
 **Exit**: I'll end the session here. Goodbye!
 "#;
-
-        let err = provider
-            .parse_cli_output(output)
-            .expect_err("should reject non-interactive slash command response");
-
-        assert!(matches!(err, ProviderError::Other(_)));
-        assert_eq!(
-            err.to_string(),
-            "Claude CLI treated /usage as a normal prompt instead of opening the interactive usage screen. Use Auto, OAuth, or Web mode for Claude usage."
-        );
-    }
-
-    #[test]
-    fn rejects_legacy_non_interactive_slash_response() {
-        let provider = ClaudeProvider::new();
-        let output = r#"
+        let legacy = r#"
 I see you've entered two slash commands:
 
 1. `/usage` - This appears to be a request to check usage information
@@ -2423,18 +2386,7 @@ I see you've entered two slash commands:
 
 However, looking at the available custom slash commands, I don't see these commands defined.
 "#;
-
-        let err = provider
-            .parse_cli_output(output)
-            .expect_err("should reject non-interactive slash command response");
-
-        assert!(matches!(err, ProviderError::Other(_)));
-    }
-
-    #[test]
-    fn rejects_cli_activity_stats_without_plan_limits() {
-        let provider = ClaudeProvider::new();
-        let output = r#"
+        let activity = r#"
 ❯ /usage
 
 Status   Config   Usage   Stats
@@ -2445,37 +2397,50 @@ Favorite model: glm-4.6        Total tokens: 263.3k
 Sessions: 6                    Longest session: 18s
 Active days: 2/10              Longest streak: 1 day
 "#;
-
-        let err = provider
-            .parse_cli_output(output)
-            .expect_err("should reject local activity stats");
-
-        assert!(matches!(err, ProviderError::Other(_)));
-        assert_eq!(
-            err.to_string(),
-            "Claude CLI /usage opened, but this Claude version returned local activity stats instead of plan limit percentages. Use Auto, OAuth, or Web mode for Claude limits."
-        );
-    }
-
-    #[test]
-    fn rejects_ansi_spaced_cli_activity_stats_without_plan_limits() {
-        let provider = ClaudeProvider::new();
-        let output = "\x1b[2CTotal\x1b[1Ccost:\x1b[12C$0.0000\n\
+        let ansi_activity = "\x1b[2CTotal\x1b[1Ccost:\x1b[12C$0.0000\n\
                       \x1b[2CTotal\x1b[1Cduration\x1b[1C(API):\x1b[2C0s\n\
                       \x1b[2CUsage:\x1b[17C0\x1b[1Cinput,\x1b[1C0\x1b[1Coutput,\x1b[1C0\x1b[1Ccache\x1b[1Cread";
-
-        let err = provider
-            .parse_cli_output(output)
-            .expect_err("should reject ANSI-spaced local activity stats");
-
-        assert!(matches!(err, ProviderError::Other(_)));
+        let rows: [(&str, &str, Option<&str>); 5] = [
+            (
+                git_bash,
+                "parse",
+                Some("Parse error: Claude CLI did not return usage data"),
+            ),
+            (
+                claude_2_1,
+                "other",
+                Some(
+                    "Claude CLI treated /usage as a normal prompt instead of opening the interactive usage screen. Use Auto, OAuth, or Web mode for Claude usage.",
+                ),
+            ),
+            (legacy, "other", None),
+            (
+                activity,
+                "other",
+                Some(
+                    "Claude CLI /usage opened, but this Claude version returned local activity stats instead of plan limit percentages. Use Auto, OAuth, or Web mode for Claude limits.",
+                ),
+            ),
+            (ansi_activity, "other", None),
+        ];
+        for (output, kind, message) in rows {
+            let err = parse_err(output);
+            let got = match &err {
+                ProviderError::Parse(_) => "parse",
+                ProviderError::Other(_) => "other",
+                _ => "unexpected",
+            };
+            assert_eq!(got, kind, "{output}");
+            if let Some(message) = message {
+                assert_eq!(err.to_string(), message);
+            }
+        }
     }
 
     #[test]
     fn accepts_plan_limits_followed_by_activity_stats() {
         // Claude Code 2.1.27x on Windows prints the exit summary (cost,
         // duration, cache tokens) after the /usage view when the probe ends.
-        let provider = ClaudeProvider::new();
         let output = r#"
 ❯ /usage
 
@@ -2494,9 +2459,7 @@ Total duration (API):  0s
 Usage:                 0 input, 0 output, 0 cache read
 "#;
 
-        let result = provider
-            .parse_cli_output(output)
-            .expect("plan limits should win over trailing activity stats");
+        let result = parse_ok(output);
 
         assert_eq!(result.usage.primary.used_percent, 19.0);
         assert_eq!(
@@ -2561,11 +2524,9 @@ Usage:                 0 input, 0 output, 0 cache read
 
     #[test]
     fn cli_quota_without_credential_identity_cannot_prove_account_action() {
-        let provider = ClaudeProvider::new();
-        let result = provider
-            .parse_cli_output("Current session\n25% used\nCurrent week (all models)\n40% used")
-            .expect("CLI quota should parse");
-        let result = mark_live_claude_cli_result(result);
+        let result = mark_live_claude_cli_result(parse_ok(
+            "Current session\n25% used\nCurrent week (all models)\n40% used",
+        ));
 
         assert!(result.usage.account_email.is_none());
         assert!(result.has_successful_claude_cli_quota);
@@ -2578,77 +2539,56 @@ Usage:                 0 input, 0 output, 0 cache read
         assert!(!result.has_successful_claude_cli_quota);
     }
     #[test]
-    fn cli_presence_maps_to_local_runtime_offline() {
-        assert_eq!(
-            ClaudeProvider::new().error_state_kind(&ProviderError::NotInstalled(
-                "Claude CLI not found. Install from https://docs.claude.ai/claude-code".to_string(),
-            )),
-            crate::core::ProviderStateKind::LocalRuntimeOffline
+    fn error_states_and_last_good_policies() {
+        use crate::core::ProviderStateKind;
+        let provider = ClaudeProvider::new();
+        // `true` checks the free function on the rendered text; `false` the
+        // provider method. Each row keeps the path its original test used.
+        type Row = (
+            ProviderError,
+            ProviderStateKind,
+            Option<(LastGoodFailurePolicy, bool)>,
         );
-        // Other error kinds keep their default classification.
-        assert_eq!(
-            ClaudeProvider::new().error_state_kind(&ProviderError::AuthRequired),
-            crate::core::ProviderStateKind::NeedsAuthentication
-        );
-    }
-
-    #[test]
-    fn oauth_rate_limit_is_not_sign_in_required() {
-        let error = ProviderError::OAuthTransient(
+        let rows: [Row; 6] = [
+            (
+                ProviderError::NotInstalled(
+                    "Claude CLI not found. Install from https://docs.claude.ai/claude-code".to_string(),
+                ),
+                ProviderStateKind::LocalRuntimeOffline,
+                None,
+            ),
+            (
+                ProviderError::AuthRequired,
+                ProviderStateKind::NeedsAuthentication,
+                None,
+            ),
+            (ProviderError::OAuthTransient(
             "OAuth error: Claude OAuth usage endpoint is rate limited. Retrying in about 1s; credentials were preserved."
                 .to_string(),
-        );
-        assert_eq!(
-            ClaudeProvider::new().error_state_kind(&error),
-            crate::core::ProviderStateKind::Unknown
-        );
-        assert_eq!(
-            ClaudeProvider::new().last_good_failure_policy_for_error(&error),
-            LastGoodFailurePolicy::Preserve
-        );
-    }
-
-    #[test]
-    fn oauth_refresh_cooldown_is_not_sign_in_required() {
-        let error = ProviderError::OAuthTransient(
+        ), ProviderStateKind::Unknown, Some((LastGoodFailurePolicy::Preserve, false))),
+            (ProviderError::OAuthTransient(
             "Claude OAuth token expired and token refresh is cooling down after a failed attempt. Please retry shortly, or run `claude login`."
                 .to_string(),
-        );
-        assert_eq!(
-            ClaudeProvider::new().error_state_kind(&error),
-            crate::core::ProviderStateKind::Unknown
-        );
-        assert_eq!(
-            ClaudeProvider::new().last_good_failure_policy_for_error(&error),
-            LastGoodFailurePolicy::Preserve
-        );
-    }
-
-    #[test]
-    fn missing_oauth_credentials_still_require_sign_in() {
-        let error = ProviderError::OAuth(
+        ), ProviderStateKind::Unknown, Some((LastGoodFailurePolicy::Preserve, false))),
+            (ProviderError::OAuth(
             "Claude OAuth credentials not found. Run `claude` to authenticate.".to_string(),
-        );
-        assert_eq!(
-            ClaudeProvider::new().error_state_kind(&error),
-            crate::core::ProviderStateKind::NeedsAuthentication
-        );
-        assert_eq!(
-            last_good_failure_policy_for_error(&error.to_string()),
-            LastGoodFailurePolicy::Replace
-        );
-    }
-
-    #[test]
-    fn untyped_oauth_rate_limit_text_is_not_transient() {
-        let error = ProviderError::OAuth("OAuth API returned rate limited".to_string());
-        assert_eq!(
-            ClaudeProvider::new().error_state_kind(&error),
-            crate::core::ProviderStateKind::NeedsAuthentication
-        );
-        assert_eq!(
-            ClaudeProvider::new().last_good_failure_policy_for_error(&error),
-            LastGoodFailurePolicy::Replace
-        );
+        ), ProviderStateKind::NeedsAuthentication, Some((LastGoodFailurePolicy::Replace, true))),
+            (ProviderError::OAuth("OAuth API returned rate limited".to_string()), ProviderStateKind::NeedsAuthentication, Some((LastGoodFailurePolicy::Replace, false))),
+        ];
+        for (error, state, policy) in rows {
+            assert_eq!(provider.error_state_kind(&error), state, "{error}");
+            match policy {
+                Some((expected, true)) => assert_eq!(
+                    last_good_failure_policy_for_error(&error.to_string()),
+                    expected
+                ),
+                Some((expected, false)) => assert_eq!(
+                    provider.last_good_failure_policy_for_error(&error),
+                    expected,
+                    "{error}"
+                ),
+                None => {}
+            }
+        }
     }
 }
