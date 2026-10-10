@@ -516,8 +516,7 @@ where
     for (index, host) in hosts.iter().enumerate() {
         match operation(host).await {
             Ok(v) => return Ok(v),
-            Err(ProviderError::AuthRequired) => return Err(ProviderError::AuthRequired),
-            Err(ProviderError::Parse(msg)) => return Err(ProviderError::Parse(msg)),
+            Err(e) if !should_failover(&e) => return Err(e),
             Err(e) => {
                 last_err = Some(e);
                 if index + 1 < hosts.len() {
@@ -731,9 +730,7 @@ pub(crate) fn snapshot_from_credit_status(
     snap
 }
 
-// Classify failover errors for pure unit tests.
-#[cfg(test)]
-pub(crate) fn should_failover(err: &ProviderError) -> bool {
+fn should_failover(err: &ProviderError) -> bool {
     !matches!(err, ProviderError::AuthRequired | ProviderError::Parse(_))
 }
 
