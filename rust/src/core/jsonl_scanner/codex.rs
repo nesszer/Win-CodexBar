@@ -9,7 +9,8 @@ use helpers::{
     BoundedJsonlLine, CODEX_JSONL_MAX_LINE_BYTES, nonempty_json_string, parse_rfc3339_timestamp,
     read_bounded_jsonl_line, read_bounded_jsonl_line_until, session_meta_field,
 };
-use parser::{CodexParseMode, CodexParserState};
+pub(crate) use parser::CodexParseMode;
+use parser::CodexParserState;
 
 /// Saved cursor and parser state of an unfinished parent-baseline fork parse.
 /// Restoring all of it accounts the remaining bytes exactly as one
@@ -379,28 +380,10 @@ impl JsonlScanner {
         Some(format!("{:?}:{}", metadata.modified().ok(), metadata.len()))
     }
 
-    /// Compare RFC3339 timestamps using parsed instants. Malformed timestamps
-    /// are unsafe for fork-baseline reconciliation and therefore fail closed.
-    pub(crate) fn codex_timestamp_at_or_before(earlier: &str, later: &str) -> bool {
-        match (
-            parse_rfc3339_timestamp(earlier),
-            parse_rfc3339_timestamp(later),
-        ) {
-            (Some(earlier), Some(later)) => earlier <= later,
-            _ => false,
-        }
-    }
-
-    /// Strict counterpart of [`Self::codex_timestamp_at_or_before`]: `earlier`
-    /// is before `later`. Malformed timestamps fail closed.
-    pub(crate) fn codex_timestamp_before(earlier: &str, later: &str) -> bool {
-        match (
-            parse_rfc3339_timestamp(earlier),
-            parse_rfc3339_timestamp(later),
-        ) {
-            (Some(earlier), Some(later)) => earlier < later,
-            _ => false,
-        }
+    /// Order two RFC3339 timestamps by parsed instant. `None` when either is
+    /// malformed, so fork-baseline reconciliation fails closed.
+    pub(crate) fn codex_timestamp_cmp(earlier: &str, later: &str) -> Option<std::cmp::Ordering> {
+        Some(parse_rfc3339_timestamp(earlier)?.cmp(&parse_rfc3339_timestamp(later)?))
     }
 
     /// Parse a Codex JSONL file
@@ -411,246 +394,33 @@ impl JsonlScanner {
         initial_model: Option<String>,
         initial_totals: Option<CodexTotals>,
     ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state(
+        Self::parse_codex(
             file_path,
             range,
-            start_offset,
-            initial_model,
-            initial_totals,
-            None,
-            None,
-            None,
-        )
-    }
-
-    /// Parse a Codex file while retaining the timestamp-order state of an
-    /// already decoded prefix.  A known prefix only pays for the append
-    /// boundary and newly read token events; an unknown legacy prefix is
-    /// intentionally rejected by the caller and should be parsed from zero.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "resume state mirrors the persisted parser cache"
-    )]
-    pub fn parse_codex_file_with_state(
-        file_path: &Path,
-        range: &CostUsageDayRange,
-        start_offset: i64,
-        initial_model: Option<String>,
-        initial_totals: Option<CodexTotals>,
-        previous_token_timestamp: Option<String>,
-        token_timestamps_monotonic: Option<bool>,
-        cancel: Option<&AtomicBool>,
-    ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state_bounded(
-            file_path,
-            range,
-            start_offset,
-            initial_model,
-            initial_totals,
-            previous_token_timestamp,
-            token_timestamps_monotonic,
-            cancel,
-            None,
-        )
-    }
-
-    /// Parse a Codex file with an optional cap on bytes newly consumed this pass.
-    /// The reader may finish the current bounded JSONL line before yielding.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "resume state mirrors the persisted parser cache"
-    )]
-    pub fn parse_codex_file_with_state_bounded(
-        file_path: &Path,
-        range: &CostUsageDayRange,
-        start_offset: i64,
-        initial_model: Option<String>,
-        initial_totals: Option<CodexTotals>,
-        previous_token_timestamp: Option<String>,
-        token_timestamps_monotonic: Option<bool>,
-        cancel: Option<&AtomicBool>,
-        max_bytes_to_read: Option<i64>,
-    ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state_bounded_internal(
-            file_path,
-            range,
-            cancel,
-            None,
-            max_bytes_to_read,
             CodexParseMode::Standard {
                 start_offset,
                 initial_model,
                 initial_totals,
-                previous_token_timestamp,
-                token_timestamps_monotonic,
+                previous_token_timestamp: None,
+                token_timestamps_monotonic: None,
             },
-        )
-    }
-
-    /// Parse a Codex file against a caller-owned frozen target. The target is
-    /// intentionally separate from the current physical EOF so an active
-    /// rollout cannot make a bounded catch-up pass chase its own growth.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "resume state mirrors the persisted parser cache"
-    )]
-    pub(crate) fn parse_codex_file_with_state_bounded_target(
-        file_path: &Path,
-        range: &CostUsageDayRange,
-        start_offset: i64,
-        initial_model: Option<String>,
-        initial_totals: Option<CodexTotals>,
-        previous_token_timestamp: Option<String>,
-        token_timestamps_monotonic: Option<bool>,
-        cancel: Option<&AtomicBool>,
-        scan_target_size: Option<i64>,
-        max_bytes_to_read: Option<i64>,
-    ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state_bounded_internal(
-            file_path,
-            range,
-            cancel,
-            scan_target_size,
-            max_bytes_to_read,
-            CodexParseMode::Standard {
-                start_offset,
-                initial_model,
-                initial_totals,
-                previous_token_timestamp,
-                token_timestamps_monotonic,
-            },
-        )
-    }
-
-    /// Parse a forked Codex child from byte zero with a parent cumulative
-    /// baseline. This is intentionally separate from ordinary append-resume
-    /// parsing so existing non-fork semantics remain unchanged.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "fork parse state mirrors the persisted parser cache"
-    )]
-    pub(crate) fn parse_codex_file_with_state_bounded_fork(
-        file_path: &Path,
-        range: &CostUsageDayRange,
-        initial_totals: CodexTotals,
-        cancel: Option<&AtomicBool>,
-        max_bytes_to_read: Option<i64>,
-    ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state_bounded_internal(
-            file_path,
-            range,
-            cancel,
             None,
-            max_bytes_to_read,
-            CodexParseMode::ParentBaseline {
-                baseline: initial_totals,
-                paginated_continuation: false,
-                remaining_inherited_totals: None,
-            },
-        )
-    }
-
-    /// Fork equivalent of [`Self::parse_codex_file_with_state_bounded_target`].
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "fork parse state mirrors the persisted parser cache"
-    )]
-    pub(crate) fn parse_codex_file_with_state_bounded_fork_target(
-        file_path: &Path,
-        range: &CostUsageDayRange,
-        initial_totals: CodexTotals,
-        cancel: Option<&AtomicBool>,
-        scan_target_size: Option<i64>,
-        max_bytes_to_read: Option<i64>,
-    ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state_bounded_fork_target_with_accounting(
-            file_path,
-            range,
-            initial_totals,
-            false,
             None,
-            cancel,
-            scan_target_size,
-            max_bytes_to_read,
+            None,
         )
     }
 
-    pub(crate) fn parse_codex_file_with_inferred_fork_baseline(
+    /// Parse a Codex file in `mode`. `scan_target_size` freezes the end of the
+    /// pass below the physical EOF so an active rollout cannot make a bounded
+    /// catch-up pass chase its own growth. `max_bytes_to_read` caps the bytes
+    /// newly consumed; the reader may finish the current line before yielding.
+    pub(crate) fn parse_codex(
         file_path: &Path,
         range: &CostUsageDayRange,
-        subagent_history_start_ordinal: Option<i64>,
-        cancel: Option<&AtomicBool>,
-        scan_target_size: Option<i64>,
-        max_bytes_to_read: Option<i64>,
-    ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state_bounded_internal(
-            file_path,
-            range,
-            cancel,
-            scan_target_size,
-            max_bytes_to_read,
-            CodexParseMode::InferSubagent {
-                start_ordinal: subagent_history_start_ordinal,
-            },
-        )
-    }
-
-    /// Fork equivalent with persisted paginated-continuation accounting.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "fork parse state mirrors the persisted parser cache"
-    )]
-    pub(crate) fn parse_codex_file_with_state_bounded_fork_target_with_accounting(
-        file_path: &Path,
-        range: &CostUsageDayRange,
-        initial_totals: CodexTotals,
-        paginated_continuation: bool,
-        remaining_inherited_totals: Option<CodexTotals>,
-        cancel: Option<&AtomicBool>,
-        scan_target_size: Option<i64>,
-        max_bytes_to_read: Option<i64>,
-    ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state_bounded_internal(
-            file_path,
-            range,
-            cancel,
-            scan_target_size,
-            max_bytes_to_read,
-            CodexParseMode::ParentBaseline {
-                baseline: initial_totals,
-                paginated_continuation,
-                remaining_inherited_totals,
-            },
-        )
-    }
-
-    /// Continue an unfinished fork parse at its saved cursor. Upstream 0.67.0
-    /// resumes a resolved fork the same way instead of rereading its prefix.
-    pub(crate) fn parse_codex_fork_resume(
-        file_path: &Path,
-        range: &CostUsageDayRange,
-        resume: CodexForkParseResume,
-        cancel: Option<&AtomicBool>,
-        scan_target_size: Option<i64>,
-        max_bytes_to_read: Option<i64>,
-    ) -> std::io::Result<CodexParseResult> {
-        Self::parse_codex_file_with_state_bounded_internal(
-            file_path,
-            range,
-            cancel,
-            scan_target_size,
-            max_bytes_to_read,
-            CodexParseMode::ResumeParentBaseline(resume),
-        )
-    }
-
-    fn parse_codex_file_with_state_bounded_internal(
-        file_path: &Path,
-        range: &CostUsageDayRange,
-        cancel: Option<&AtomicBool>,
-        scan_target_size: Option<i64>,
-        max_bytes_to_read: Option<i64>,
         mode: CodexParseMode,
+        cancel: Option<&AtomicBool>,
+        scan_target_size: Option<i64>,
+        max_bytes_to_read: Option<i64>,
     ) -> std::io::Result<CodexParseResult> {
         let file = File::open(file_path)?;
         // Session JSONL files are bounded by the cache budget; sizes fit i64.

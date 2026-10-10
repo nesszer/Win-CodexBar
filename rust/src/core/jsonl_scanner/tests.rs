@@ -715,14 +715,18 @@ fn codex_append_timestamp_state_is_output_equivalent_and_boundary_only() {
     )
     .unwrap();
 
-    let appended = JsonlScanner::parse_codex_file_with_state(
+    let appended = JsonlScanner::parse_codex(
         file.path(),
         &range,
-        prefix.parsed_bytes,
-        prefix.last_model.clone(),
-        prefix.last_totals.clone(),
-        prefix.last_token_timestamp.clone(),
-        prefix.token_timestamps_monotonic,
+        CodexParseMode::Standard {
+            start_offset: prefix.parsed_bytes,
+            initial_model: prefix.last_model.clone(),
+            initial_totals: prefix.last_totals.clone(),
+            previous_token_timestamp: prefix.last_token_timestamp.clone(),
+            token_timestamps_monotonic: prefix.token_timestamps_monotonic,
+        },
+        None,
+        None,
         None,
     )
     .expect("parse appended suffix");
@@ -768,14 +772,18 @@ fn codex_parse_publishes_only_the_committed_prefix_before_an_incomplete_tail() {
     assert!(partial.is_complete, "the logical prefix is complete");
 
     writeln!(file, "{}", &complete_tail[split..]).unwrap();
-    let resumed = JsonlScanner::parse_codex_file_with_state(
+    let resumed = JsonlScanner::parse_codex(
         file.path(),
         &range,
-        partial.parsed_bytes,
-        partial.last_model,
-        partial.last_totals,
-        partial.last_token_timestamp,
-        partial.token_timestamps_monotonic,
+        CodexParseMode::Standard {
+            start_offset: partial.parsed_bytes,
+            initial_model: partial.last_model,
+            initial_totals: partial.last_totals,
+            previous_token_timestamp: partial.last_token_timestamp,
+            token_timestamps_monotonic: partial.token_timestamps_monotonic,
+        },
+        None,
+        None,
         None,
     )
     .expect("resume completed tail");

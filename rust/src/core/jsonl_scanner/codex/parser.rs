@@ -35,7 +35,11 @@ pub(super) struct CodexParserState {
     fork_parse_baseline: Option<CodexTotals>,
 }
 
-pub(super) enum CodexParseMode {
+pub(crate) enum CodexParseMode {
+    /// Resume from `start_offset` with the timestamp-order state of an already
+    /// decoded prefix. A known prefix only pays for the append boundary and
+    /// newly read token events; an unknown legacy prefix is intentionally
+    /// rejected by the caller and should be parsed from zero.
     Standard {
         start_offset: i64,
         initial_model: Option<String>,
@@ -43,12 +47,17 @@ pub(super) enum CodexParseMode {
         previous_token_timestamp: Option<String>,
         token_timestamps_monotonic: Option<bool>,
     },
+    /// Parse a forked child from byte zero with a parent cumulative baseline.
+    /// Kept separate from append-resume parsing so non-fork semantics remain
+    /// unchanged.
     ParentBaseline {
         baseline: CodexTotals,
         paginated_continuation: bool,
         remaining_inherited_totals: Option<CodexTotals>,
     },
     /// Continue an unfinished `ParentBaseline` parse at its saved cursor.
+    /// Upstream 0.67.0 resumes a resolved fork the same way instead of
+    /// rereading its prefix.
     ResumeParentBaseline(CodexForkParseResume),
     InferSubagent {
         start_ordinal: Option<i64>,

@@ -513,10 +513,8 @@ impl CodexLineagePlanner {
 
         let child_fork_timestamp = child_fork_timestamp?;
         if let Some(last_token_timestamp) = usage.codex_last_token_timestamp.as_deref()
-            && JsonlScanner::codex_timestamp_at_or_before(
-                last_token_timestamp,
-                child_fork_timestamp,
-            )
+            && JsonlScanner::codex_timestamp_cmp(last_token_timestamp, child_fork_timestamp)
+                .is_some_and(std::cmp::Ordering::is_le)
         {
             return usage.last_totals.clone();
         }
@@ -525,11 +523,13 @@ impl CodexLineagePlanner {
         // its counters are still the origin it inherited when it forked.
         let (state, inherited) = fork_origin?;
         let forked_before_cutoff = usage.codex_fork_timestamp.as_deref().is_some_and(|forked| {
-            JsonlScanner::codex_timestamp_at_or_before(forked, child_fork_timestamp)
+            JsonlScanner::codex_timestamp_cmp(forked, child_fork_timestamp)
+                .is_some_and(std::cmp::Ordering::is_le)
         });
         let first_own_token_after_cutoff = usage.codex_last_token_timestamp.is_none()
             || state.first_token_timestamp.as_deref().is_some_and(|first| {
-                JsonlScanner::codex_timestamp_before(child_fork_timestamp, first)
+                JsonlScanner::codex_timestamp_cmp(child_fork_timestamp, first)
+                    .is_some_and(std::cmp::Ordering::is_lt)
             });
         (forked_before_cutoff && first_own_token_after_cutoff).then(|| inherited.clone())
     }

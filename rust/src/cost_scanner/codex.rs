@@ -1,5 +1,7 @@
 use super::*;
-use crate::core::{CodexForkAccountingState, CodexSessionLineage, CodexSessionMetadata};
+use crate::core::{
+    CodexForkAccountingState, CodexParseMode, CodexSessionLineage, CodexSessionMetadata,
+};
 
 mod cache_days;
 mod flat_sources;
@@ -671,14 +673,16 @@ impl CostScanner {
                 && JsonlScanner::is_line_boundary_offset(path, start_offset)
             {
                 let resumable_target_size = codex_resumable_scan_target_size(size, entry);
-                let parse_result = match JsonlScanner::parse_codex_file_with_state_bounded_target(
+                let parse_result = match JsonlScanner::parse_codex(
                     path,
                     range,
-                    start_offset,
-                    entry.last_model.clone(),
-                    entry.last_totals.clone(),
-                    entry.codex_last_token_timestamp.clone(),
-                    entry.codex_token_timestamps_monotonic,
+                    CodexParseMode::Standard {
+                        start_offset,
+                        initial_model: entry.last_model.clone(),
+                        initial_totals: entry.last_totals.clone(),
+                        previous_token_timestamp: entry.codex_last_token_timestamp.clone(),
+                        token_timestamps_monotonic: entry.codex_token_timestamps_monotonic,
+                    },
                     cancel,
                     resumable_target_size,
                     max_bytes_to_read,
@@ -765,15 +769,18 @@ impl CostScanner {
             })
             .flatten();
         let parse_result = match match &accounting_mode {
-            CodexAccountingMode::Standard => JsonlScanner::parse_codex_file_with_state_bounded(
+            CodexAccountingMode::Standard => JsonlScanner::parse_codex(
                 path,
                 range,
-                0,
-                None,
-                None,
-                None,
-                None,
+                CodexParseMode::Standard {
+                    start_offset: 0,
+                    initial_model: None,
+                    initial_totals: None,
+                    previous_token_timestamp: None,
+                    token_timestamps_monotonic: None,
+                },
                 cancel,
+                None,
                 max_bytes_to_read,
             ),
             CodexAccountingMode::Baseline {
@@ -781,40 +788,42 @@ impl CostScanner {
                 paginated_continuation,
                 ..
             } => match fork_resume {
-                Some(resume) => JsonlScanner::parse_codex_fork_resume(
+                Some(resume) => JsonlScanner::parse_codex(
                     path,
                     range,
-                    resume.parse,
+                    CodexParseMode::ResumeParentBaseline(resume.parse),
                     cancel,
                     Some(resume.target_size),
                     max_bytes_to_read,
                 ),
                 None => {
-                    JsonlScanner::parse_codex_file_with_state_bounded_fork_target_with_accounting(
+                    JsonlScanner::parse_codex(
                         path,
                         range,
-                        baseline.clone(),
-                        *paginated_continuation,
-                        // A parse from byte zero replays the inherited counters
-                        // itself. Only a resumed parse carries their used-up
-                        // remainder, as upstream restores fork state only then.
-                        None,
+                        CodexParseMode::ParentBaseline {
+                            baseline: baseline.clone(),
+                            paginated_continuation: *paginated_continuation,
+                            // A parse from byte zero replays the inherited counters
+                            // itself. Only a resumed parse carries their used-up
+                            // remainder, as upstream restores fork state only then.
+                            remaining_inherited_totals: None,
+                        },
                         cancel,
                         parse_target_size,
                         max_bytes_to_read,
                     )
                 }
             },
-            CodexAccountingMode::InferSubagent { start_ordinal } => {
-                JsonlScanner::parse_codex_file_with_inferred_fork_baseline(
-                    path,
-                    range,
-                    *start_ordinal,
-                    cancel,
-                    parse_target_size,
-                    max_bytes_to_read,
-                )
-            }
+            CodexAccountingMode::InferSubagent { start_ordinal } => JsonlScanner::parse_codex(
+                path,
+                range,
+                CodexParseMode::InferSubagent {
+                    start_ordinal: *start_ordinal,
+                },
+                cancel,
+                parse_target_size,
+                max_bytes_to_read,
+            ),
             CodexAccountingMode::Unresolved => {
                 unreachable!("unresolved forks return before parsing")
             }

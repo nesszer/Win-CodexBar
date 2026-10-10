@@ -613,12 +613,12 @@ impl CostUsageDayRange {
 /// JSONL Scanner for cost/usage logs
 pub struct JsonlScanner;
 pub(crate) mod codex;
-pub(crate) use codex::CodexForkParseResume;
 pub(crate) use codex::priority::CodexPriorityOverlay;
 pub use codex::priority::{
     CODEX_PRIORITY_COMPLETED_MODEL_RETENTION_LIMIT, CodexPriorityCursorAnchor,
     CodexPriorityTurnMetadata, CodexPriorityTurnsCursor,
 };
+pub(crate) use codex::{CodexForkParseResume, CodexParseMode};
 mod save_skip;
 pub(crate) use codex::source_rows::{
     read_source_rows, recover_rows, row_cache, row_cache_matches, row_cache_needs_recovery,
