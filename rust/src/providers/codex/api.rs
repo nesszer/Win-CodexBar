@@ -2182,6 +2182,50 @@ mod tests {
     }
 
     #[test]
+    fn normalize_named_windows_routes_by_role() {
+        // Primary is reported as -1.0 for the "No active 5h session" placeholder.
+        let s = |used| win(300, used);
+        let w = |used| win(10_080, used);
+        let u = |used| win(999, used);
+        let m = |used| win(43_200, used);
+        let rows: Vec<(Option<RateWindow>, Option<RateWindow>, f64, Option<f64>)> = vec![
+            (None, None, -1.0, None),
+            (Some(w(1.0)), None, -1.0, Some(1.0)),
+            (Some(s(1.0)), None, 1.0, None),
+            (Some(u(1.0)), None, 1.0, None),
+            (Some(m(1.0)), None, 1.0, None),
+            (None, Some(w(2.0)), -1.0, Some(2.0)),
+            (None, Some(s(2.0)), 2.0, None),
+            (None, Some(u(2.0)), 2.0, None),
+            (Some(w(1.0)), Some(s(2.0)), 2.0, Some(1.0)),
+            (Some(w(1.0)), Some(u(2.0)), -1.0, Some(1.0)),
+            (Some(u(1.0)), Some(s(2.0)), 2.0, Some(1.0)),
+            (Some(s(1.0)), Some(w(2.0)), 1.0, Some(2.0)),
+            (Some(u(1.0)), Some(w(2.0)), 1.0, Some(2.0)),
+            (Some(s(1.0)), Some(s(2.0)), 1.0, Some(2.0)),
+            (Some(w(1.0)), Some(w(2.0)), 1.0, Some(2.0)),
+            (Some(u(1.0)), Some(u(2.0)), 1.0, Some(2.0)),
+            (Some(m(1.0)), Some(w(2.0)), 1.0, Some(2.0)),
+        ];
+        for (index, (primary, secondary, want_primary, want_secondary)) in
+            rows.into_iter().enumerate()
+        {
+            let (got_primary, got_secondary) = normalize_named_windows(primary, secondary);
+            let got_primary = if got_primary.is_informational {
+                -1.0
+            } else {
+                got_primary.used_percent
+            };
+            assert_eq!(got_primary, want_primary, "row {index} primary");
+            assert_eq!(
+                got_secondary.map(|window| window.used_percent),
+                want_secondary,
+                "row {index} secondary"
+            );
+        }
+    }
+
+    #[test]
     fn f5_normalize_array_routes_session_weekly_monthly_to_lanes() {
         // 5h session + weekly + monthly → (session, weekly, monthly, None)
         let windows = vec![win(300, 10.0), win(10_080, 20.0), win(43_200, 30.0)];
