@@ -603,6 +603,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn group_rank_title_and_scope_follow_the_group_family() {
+        // (displayName, name, rank, title, scope)
+        let cases = [
+            (Some("Gemini Pro"), None, 0, "Gemini", "gemini"),
+            (None, Some("claude & GPT"), 1, "Claude/GPT", "claude-gpt"),
+            (
+                Some("OpenAI gpt-oss"),
+                Some("Gemini"),
+                1,
+                "Claude/GPT",
+                "claude-gpt",
+            ),
+            (Some("  "), Some("Gemini"), 2, "Quota", "quota"),
+            (
+                Some(" Third Party! "),
+                None,
+                2,
+                "Third Party!",
+                "third-party",
+            ),
+            (None, None, 2, "Quota", "quota"),
+        ];
+        for (display_name, name, rank, title, scope) in cases {
+            let group: QuotaSummaryGroup = serde_json::from_value(serde_json::json!({
+                "displayName": display_name,
+                "name": name,
+            }))
+            .unwrap();
+            assert_eq!(group_rank(&group), rank, "{display_name:?} {name:?}");
+            assert_eq!(group_title(&group), title, "{display_name:?} {name:?}");
+            assert_eq!(group_scope(&group), scope, "{display_name:?} {name:?}");
+        }
+    }
+
     fn single_bucket_snapshot(bucket_id: &str, display_name: &str, window: &str) -> UsageSnapshot {
         let data = format!(
             r#"{{"groups":[{{"displayName":"Gemini Models","buckets":[

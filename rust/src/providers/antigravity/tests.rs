@@ -112,6 +112,42 @@ fn parses_equals_form_args() {
 }
 
 #[test]
+fn unselected_model_window_ids_are_lowercase_ascii_slugs() {
+    let response: UserStatusResponse = serde_json::from_value(serde_json::json!({
+        "userStatus": {
+            "cascadeModelConfigData": {
+                "clientModelConfigs": [
+                    {"label": "Claude Sonnet", "modelId": "claude-sonnet", "quotaInfo": {"remainingFraction": 0.5}},
+                    {"label": "Other One", "modelId": "  GPT-OSS 120B (Medium)  ", "quotaInfo": {"remainingFraction": 0.5}},
+                    {"label": "Other Two", "modelId": "!!!", "quotaInfo": {"remainingFraction": 0.5}},
+                    {"label": "Other Three", "id": "Mod\u{e8}le_A", "quotaInfo": {"remainingFraction": 0.5}},
+                    {"label": "Plain Label", "quotaInfo": {"remainingFraction": 0.5}}
+                ]
+            }
+        }
+    }))
+    .unwrap();
+    let snap = AntigravityProvider::new()
+        .parse_user_status(response)
+        .unwrap();
+    let mut ids: Vec<_> = snap
+        .extra_rate_windows
+        .iter()
+        .map(|window| window.id.as_str())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        [
+            "model-gpt-oss-120b--medium",
+            "model-mod-le-a",
+            "model-plain-label",
+            "model-unknown",
+        ]
+    );
+}
+
+#[test]
 fn local_post_sends_connect_json_with_the_request_timeout() {
     let client = reqwest::Client::new();
     let request = local_post(
