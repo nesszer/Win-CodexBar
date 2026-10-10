@@ -415,22 +415,19 @@ impl TtyCommandRunner {
             match rx.recv_timeout(remaining.min(Duration::from_millis(50))) {
                 Ok(chunk) => {
                     tracing::trace!(
-                        elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        elapsed_ms = elapsed_ms(start),
                         bytes = chunk.len(),
                         "tty session: startup chunk"
                     );
                     buffer.push_str(&chunk);
-                    if chunk.contains("\x1b[6n") {
-                        let _cursor_reply = write!(writer, "\x1b[1;1R");
-                        let _cursor_flushed = writer.flush();
-                    }
+                    answer_cursor_query(&chunk, &mut writer);
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
         }
         tracing::trace!(
-            elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+            elapsed_ms = elapsed_ms(start),
             buffered = buffer.len(),
             "tty session: sending script"
         );
@@ -522,22 +519,13 @@ impl TtyCommandRunner {
             while let Ok(chunk) = rx.try_recv() {
                 received_output = true;
                 tracing::trace!(
-                    elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    elapsed_ms = elapsed_ms(start),
                     bytes = chunk.len(),
                     "tty session: output chunk"
                 );
                 buffer.push_str(&chunk);
                 last_output_time = Instant::now();
-
-                // Some Windows ConPTY-backed shells issue an ANSI Device
-                // Status Report request and wait for a terminal cursor
-                // position response before processing scripted input.
-                if chunk.contains("\x1b[6n") {
-                    // Best-effort cursor-position reply; a dead PTY ignores it.
-                    let _cursor_reply = write!(writer, "\x1b[1;1R");
-                    // Best-effort flush of the cursor reply.
-                    let _cursor_flushed = writer.flush();
-                }
+                answer_cursor_query(&chunk, &mut writer);
 
                 // Check for URLs
                 if let Some(ref regex) = url_regex {
@@ -636,7 +624,7 @@ impl TtyCommandRunner {
 
         if child.try_wait().ok().flatten().is_none() {
             tracing::trace!(
-                elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                elapsed_ms = elapsed_ms(start),
                 "tty session: killing child tree"
             );
             // On Windows several CLIs (claude.exe, npm shims) are launchers
@@ -649,10 +637,7 @@ impl TtyCommandRunner {
             let _killed = child.kill();
             // Best-effort reap; the exit status is intentionally discarded.
             let _reaped = child.wait();
-            tracing::trace!(
-                elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
-                "tty session: child reaped"
-            );
+            tracing::trace!(elapsed_ms = elapsed_ms(start), "tty session: child reaped");
         }
 
         if buffer.is_empty() && !stopped_early {
@@ -723,44 +708,18 @@ impl Default for TtyCommandRunner {
     }
 }
 
-/// Rolling buffer for pattern matching across chunks
-#[derive(Debug)]
-pub struct RollingBuffer {
-    max_needle: usize,
-    tail: String,
+/// Milliseconds since `start`, saturating, for trace fields.
+fn elapsed_ms(start: Instant) -> u64 {
+    u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-impl RollingBuffer {
-    pub fn new(max_needle: usize) -> Self {
-        Self {
-            max_needle: max_needle.max(1),
-            tail: String::new(),
-        }
-    }
-
-    /// Append new data and return combined data for scanning
-    pub fn append(&mut self, data: &str) -> String {
-        if data.is_empty() {
-            return String::new();
-        }
-
-        let mut combined = String::with_capacity(self.tail.len() + data.len());
-        combined.push_str(&self.tail);
-        combined.push_str(data);
-
-        // Keep only the tail portion for next scan
-        if combined.len() >= self.max_needle - 1 {
-            let start = combined.len() - (self.max_needle - 1);
-            self.tail = combined[start..].to_string();
-        } else {
-            self.tail = combined.clone();
-        }
-
-        combined
-    }
-
-    pub fn reset(&mut self) {
-        self.tail.clear();
+/// Some Windows ConPTY-backed shells issue an ANSI Device Status Report
+/// request and wait for a cursor position response before processing input;
+/// answer it best-effort (a dead PTY ignores the write).
+fn answer_cursor_query(chunk: &str, writer: &mut impl Write) {
+    if chunk.contains("\x1b[6n") {
+        let _cursor_reply = write!(writer, "\x1b[1;1R");
+        let _cursor_flushed = writer.flush();
     }
 }
 
@@ -976,18 +935,6 @@ mod tests {
         assert_eq!(opts.idle_timeout_secs, Some(5.0));
         assert!(opts.stop_on_url);
         assert!(opts.stop_on_substrings.contains(&"error".to_string()));
-    }
-
-    #[test]
-    fn test_rolling_buffer() {
-        let mut buf = RollingBuffer::new(10);
-
-        let result1 = buf.append("hello");
-        assert_eq!(result1, "hello");
-
-        let result2 = buf.append(" world");
-        assert!(result2.contains("hello"));
-        assert!(result2.contains(" world"));
     }
 
     #[test]
