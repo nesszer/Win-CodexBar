@@ -60,13 +60,9 @@ export function useTrayPanelLayout({
 
   const applySize = useCallback(async (size: LogicalSize): Promise<void> => {
     const win = getCurrentWindow();
-    try {
-      await win.setSize(size);
-      const actual = await win.innerSize();
-      lastSizeRef.current = { width: actual.width, height: actual.height };
-    } catch {
-      /* ignore */
-    }
+    await win.setSize(size);
+    const actual = await win.innerSize();
+    lastSizeRef.current = { width: actual.width, height: actual.height };
   }, []);
 
   const requestLayout = useCallback(() => {

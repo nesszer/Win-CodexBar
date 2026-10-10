@@ -967,6 +967,7 @@ describe("TrayPanel provider grid", () => {
     await waitFor(() => {
       expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
     });
+    expect(warn).toHaveBeenCalledWith("CodexBar tray panel resize failed", expect.any(Error));
 
     warn.mockRestore();
   });
