@@ -23,6 +23,7 @@ vi.mock("@tauri-apps/api/event", () => eventMocks);
 import { LocaleProvider } from "../i18n/LocaleProvider";
 import { buildBundle } from "../test/localeHarness";
 import { loadStyles, ruleBlock } from "../test/styles";
+import type { UsageThresholdSettings } from "../lib/metricRowModel";
 import type { ProviderUsageSnapshot, WayfinderUsageSnapshot } from "../types/bridge";
 import MenuCard from "./MenuCard";
 
@@ -91,6 +92,8 @@ function renderCard(
     compactOverview?: boolean;
     onLayoutChange?: () => void;
     costSummaryDisplayStyle?: "compact" | "detailed" | "hidden";
+    usageThresholds?: UsageThresholdSettings | null;
+    weeklyProgressWorkDays?: number | null;
   } = {},
 ) {
   return render(
@@ -105,6 +108,8 @@ function renderCard(
           showPace: opts.showPace,
           compactOverview: opts.compactOverview,
           costSummaryDisplayStyle: opts.costSummaryDisplayStyle,
+          usageThresholds: opts.usageThresholds,
+          weeklyProgressWorkDays: opts.weeklyProgressWorkDays,
         }}
         onLayoutChange={opts.onLayoutChange}
       />
@@ -130,7 +135,6 @@ describe("MenuCard", () => {
         PanelFiveHours: "5h",
         PanelBlockedByMonthlyLimit: "Blocked by monthly limit",
         PanelOnPaceBudget: "On-pace budget",
-        PanelReserveSuffix: "in reserve",
         PanelPeriodCost: "{} cost",
         PanelPeriodTokens: "{} tokens",
         CostPeriodShortMonthToDate: "MTD",
@@ -140,6 +144,15 @@ describe("MenuCard", () => {
         ResetsInHoursMinutes: "Resets in {}h {}m",
         ResetsInMinutes: "Resets in {}m",
         ResetsInDaysHours: "Resets in {}d {}h",
+        ResetsInHoursOnly: "Resets in {}h",
+        DurationHoursMinutes: "{}h {}m",
+        PaceOnPace: "On pace",
+        PaceInReserve: "{}% in reserve",
+        PaceInDeficit: "{}% in deficit",
+        PaceLastsUntilReset: "Lasts until reset",
+        PaceRunsOutIn: "Runs out in {}",
+        UsageBarQuotaWarnings: "Quota warnings",
+        UsageBarWorkDays: "Work days",
         NextExpiresInHoursMinutes: "Next expires in {}h {}m",
         NextExpiresInMinutes: "Next expires in {}m",
         NextExpiresInDaysHours: "Next expires in {}d {}h",
@@ -291,8 +304,8 @@ describe("MenuCard", () => {
     expect(await screen.findByText("35% used")).toBeInTheDocument();
     expect(screen.queryByText("65% left")).not.toBeInTheDocument();
 
-    const fill = document.querySelector<HTMLElement>(".menu-metric__bar-fill");
-    expect(fill?.style.width).toBe("35%");
+    const fill = document.querySelector(".menu-metric__progress-fill");
+    expect(fill?.getAttribute("width")).toBe("35%");
   });
 
   it("shows an additional balance description below the meter and reset time", async () => {
@@ -310,7 +323,7 @@ describe("MenuCard", () => {
 
     const description = await screen.findByText("750 / 1000 credits left");
     expect(description).toHaveClass("menu-metric__detail");
-    expect(screen.getByText(/Resets in/)).toBeInTheDocument();
+    expect(screen.getByText("Resets in 1h")).toHaveClass("menu-metric__reset");
   });
 
   it("does not repeat a reset-phrase description as an extra detail", async () => {
@@ -321,20 +334,21 @@ describe("MenuCard", () => {
 
     renderCard(snapshot);
 
-    await screen.findByText(/Resets in/);
+    expect(await screen.findByText("Resets in 5h")).toHaveClass("menu-metric__reset");
     expect(document.querySelectorAll(".menu-metric__reset")).toHaveLength(1);
     expect(document.querySelectorAll(".menu-metric__detail")).toHaveLength(0);
     expect(screen.queryByText("Resets in 3h")).not.toBeInTheDocument();
   });
 
-  it("displays over-quota usage without overflowing the bar", async () => {
+  it("clamps over-quota usage to a full bar and 100% used", async () => {
     renderCard(provider(null, 115, { exhausted: true, resetDescription: "115% used" }), {
       showAsUsed: true,
     });
 
-    expect(await screen.findAllByText("115% used")).not.toHaveLength(0);
-    const fill = document.querySelector<HTMLElement>(".menu-metric__bar-fill");
-    expect(fill?.style.width).toBe("100%");
+    expect(await screen.findByText("100% used")).toHaveClass("menu-metric__percent");
+    expect(screen.queryByText("115% used")).not.toBeInTheDocument();
+    const fill = document.querySelector(".menu-metric__progress-fill");
+    expect(fill?.getAttribute("width")).toBe("100%");
   });
 
   it("replaces an exhausted percentage with a future reset countdown", async () => {
@@ -343,7 +357,8 @@ describe("MenuCard", () => {
 
     renderCard(snapshot, { showResetWhenExhausted: true });
 
-    expect(await screen.findByText(/Resets in \d+m/)).toBeInTheDocument();
+    expect(await screen.findByText("Resets in 1h")).toHaveClass("menu-metric__reset");
+    expect(document.querySelector(".menu-metric__percent")).toBeNull();
     expect(screen.queryByText("0% left")).not.toBeInTheDocument();
   });
 
@@ -493,7 +508,8 @@ describe("MenuCard", () => {
 
     const title = await screen.findByText("Requests");
     expect(title.parentElement).not.toHaveTextContent("100% left");
-    expect(title.parentElement?.querySelector(".menu-metric__bar")).toBeNull();
+    expect(title.parentElement?.querySelector(".menu-metric__progress")).toBeNull();
+    expect(document.querySelectorAll(".menu-metric__progress")).toHaveLength(1);
     expect(screen.getByText("7 requests")).toBeInTheDocument();
   });
 
@@ -518,7 +534,8 @@ describe("MenuCard", () => {
     const title = await screen.findByText("Reset credits");
     expect(screen.getByText("2 reset credits available")).toBeInTheDocument();
     expect(screen.getByText(/Next expires in/)).toBeInTheDocument();
-    expect(title.parentElement?.querySelector(".menu-metric__bar")).toBeNull();
+    expect(title.parentElement?.querySelector(".menu-metric__progress")).toBeNull();
+    expect(document.querySelectorAll(".menu-metric__progress")).toHaveLength(1);
   });
 
   it("keeps reset credit count in absolute reset-time mode", async () => {
@@ -710,14 +727,26 @@ describe("MenuCard", () => {
       etaSeconds: 90 * 60,
       willLastToReset: false,
     };
-    snapshot.primary = rateWindow(31, {
-      windowMinutes: 7 * 24 * 60,
-      resetsAt: resetAt.toISOString(),
-    });
+    snapshot.primary = {
+      ...rateWindow(31, {
+        windowMinutes: 7 * 24 * 60,
+        resetsAt: resetAt.toISOString(),
+      }),
+      pace: {
+        stage: "far_ahead",
+        deltaPercent: 20,
+        expectedUsedPercent: 11,
+        actualUsedPercent: 31,
+        etaSeconds: 90 * 60,
+        willLastToReset: false,
+      },
+    };
 
     const { container } = renderCard(snapshot, { showPace: false });
 
     expect(await screen.findByText("69% left")).toBeInTheDocument();
+    expect(container.querySelector(".menu-metric__meta")).not.toBeInTheDocument();
+    expect(container.querySelector(".menu-metric__progress-pace")).not.toBeInTheDocument();
     expect(container.querySelector(".menu-card__pace")).not.toBeInTheDocument();
     expect(screen.queryByText("On-pace budget")).not.toBeInTheDocument();
     expect(container.querySelector(".menu-metric__forecast")).not.toBeInTheDocument();
@@ -733,12 +762,20 @@ describe("MenuCard", () => {
       windowMinutes: 5 * 60,
       resetsAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
     });
-    snapshot.secondary = rateWindow(23, {
-      windowMinutes: 7 * 24 * 60,
-      resetsAt: resetAt.toISOString(),
-      reservePercent: 34,
-      reserveWillLastToReset: true,
-    });
+    snapshot.secondary = {
+      ...rateWindow(23, {
+        windowMinutes: 7 * 24 * 60,
+        resetsAt: resetAt.toISOString(),
+      }),
+      pace: {
+        stage: "far_behind",
+        deltaPercent: -34,
+        expectedUsedPercent: 57,
+        actualUsedPercent: 23,
+        etaSeconds: null,
+        willLastToReset: true,
+      },
+    };
     snapshot.pace = {
       stage: "far_ahead",
       deltaPercent: 20,
@@ -755,6 +792,8 @@ describe("MenuCard", () => {
     expect(container.querySelector(".menu-card__pace")).not.toBeInTheDocument();
     expect(screen.queryByText("On-pace budget")).not.toBeInTheDocument();
     expect(screen.queryByText(/in reserve/)).not.toBeInTheDocument();
+    expect(container.querySelector(".menu-metric__meta")).not.toBeInTheDocument();
+    expect(container.querySelector(".menu-metric__progress-pace")).not.toBeInTheDocument();
     expect(container.querySelector(".menu-metric__forecast")).not.toBeInTheDocument();
   });
 
@@ -772,9 +811,15 @@ describe("MenuCard", () => {
       ...rateWindow(0, {
         windowMinutes: 7 * 24 * 60,
         resetsAt: shortReset,
-        reservePercent: 30,
-        reserveWillLastToReset: true,
       }),
+      pace: {
+        stage: "far_behind",
+        deltaPercent: -30,
+        expectedUsedPercent: 30,
+        actualUsedPercent: 0,
+        etaSeconds: null,
+        willLastToReset: true,
+      },
       monthlyLimitBlock: block,
     };
     snapshot.secondaryLabel = "Code 5-hour";
@@ -825,11 +870,13 @@ describe("MenuCard", () => {
     expect(blockedRows[0]).toHaveTextContent(/^Code 7-dayBlocked by monthly limit$/);
     expect(blockedRows[1]).toHaveTextContent(/^Code 5-hourBlocked by monthly limit$/);
     for (const row of blockedRows) {
-      expect(row.querySelector(".menu-metric__bar")).toBeNull();
-      expect(row.querySelector(".menu-metric__pct")).toBeNull();
+      expect(row.querySelector(".menu-metric__progress")).toBeNull();
+      expect(row.querySelector(".menu-metric__percent")).toBeNull();
       expect(row.querySelector(".menu-metric__reset")).toBeNull();
+      expect(row.querySelector(".menu-metric__meta")).toBeNull();
     }
     // The pool row keeps its own bar, percent, reset and exhausted label.
+    expect(container.querySelectorAll(".menu-metric__progress")).toHaveLength(1);
     expect(screen.getByText("Total usage")).toBeInTheDocument();
     expect(screen.getAllByText("100% used")).toHaveLength(1);
     expect(screen.queryByText("0% used")).not.toBeInTheDocument();
@@ -1085,17 +1132,119 @@ describe("MenuCard", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the reserve row when timing data is incomplete", async () => {
+  it("puts the percent after the title and the reset at the end of the same line", async () => {
+    const snapshot = provider(null, 37);
+    snapshot.primary.resetsAt = new Date(Date.now() + 90 * 60 * 1000).toISOString();
+
+    const { container } = renderCard(snapshot);
+
+    expect(await screen.findByText("63% left")).toHaveClass("menu-metric__percent");
+    const head = container.querySelector(".menu-metric__head");
+    expect(Array.from(head?.children ?? [], (node) => node.textContent)).toEqual([
+      "ProviderSessionLabel 63% left",
+      "Resets in 1h 30m",
+    ]);
+  });
+
+  it("shows a reserve as a green pace stripe and a pace line under the bar", async () => {
     const snapshot = provider(null, 20);
-    snapshot.primary = rateWindow(20, {
-        reservePercent: 12,
-        reserveWillLastToReset: true,
-      });
+    snapshot.secondaryLabel = "Weekly";
+    snapshot.secondary = {
+      ...rateWindow(40, {
+        windowMinutes: 7 * 24 * 60,
+        resetsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      }),
+      pace: {
+        stage: "behind",
+        deltaPercent: -12,
+        expectedUsedPercent: 52,
+        actualUsedPercent: 40,
+        etaSeconds: null,
+        willLastToReset: true,
+      },
+    };
 
-    renderCard(snapshot);
+    const { container } = renderCard(snapshot);
 
-    expect(await screen.findByText("12% in reserve")).toBeInTheDocument();
-    expect(screen.queryByText("On-pace budget")).not.toBeInTheDocument();
+    expect(await screen.findByText("12% in reserve · Lasts until reset")).toHaveClass(
+      "menu-metric__meta",
+    );
+    const stripes = container.querySelectorAll(".menu-metric__progress-pace");
+    expect(stripes).toHaveLength(1);
+    expect(stripes[0].getAttribute("x")).toBe("48%");
+    expect(stripes[0].getAttribute("data-deficit")).toBe("false");
+  });
+
+  it("shows a deficit as a red pace stripe and says when the window runs out", async () => {
+    const snapshot = provider(null, 20);
+    snapshot.secondaryLabel = "Weekly";
+    snapshot.secondary = {
+      ...rateWindow(40, {
+        windowMinutes: 7 * 24 * 60,
+        resetsAt: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(),
+      }),
+      pace: {
+        stage: "ahead",
+        deltaPercent: 9,
+        expectedUsedPercent: 31,
+        actualUsedPercent: 40,
+        etaSeconds: 2.5 * 60 * 60,
+        willLastToReset: false,
+      },
+    };
+
+    const { container } = renderCard(snapshot, { showAsUsed: true });
+
+    expect(await screen.findByText("9% in deficit · Runs out in 2h 30m")).toHaveClass(
+      "menu-metric__meta",
+    );
+    const stripe = container.querySelector(".menu-metric__progress-pace");
+    expect(stripe?.getAttribute("x")).toBe("31%");
+    expect(stripe?.getAttribute("data-deficit")).toBe("true");
+  });
+
+  it.each([
+    ["global thresholds on a % left bar", false, {}, ["5%", "20%"]],
+    ["global thresholds on a % used bar", true, {}, ["80%", "95%"]],
+    ["a provider session override", false, { "claude:session": { high: 60 } }, ["5%", "40%"]],
+  ])("draws quota warning markers from %s", async (_case, showAsUsed, overrides, expected) => {
+    const { container } = renderCard(provider(null, 30), {
+      showAsUsed,
+      usageThresholds: {
+        highUsageThreshold: 80,
+        criticalUsageThreshold: 95,
+        providerUsageThresholds: overrides,
+      },
+    });
+
+    await screen.findByText(showAsUsed ? "30% used" : "70% left");
+    expect(
+      Array.from(container.querySelectorAll(".menu-metric__progress-warning"), (node) =>
+        node.getAttribute("x"),
+      ),
+    ).toEqual(expected);
+    expect(container.querySelector(".menu-metric__progress")?.getAttribute("aria-valuetext")).toBe(
+      `${showAsUsed ? 30 : 70}%. Quota warnings: ${expected.join(", ")}`,
+    );
+  });
+
+  it("draws work day ticks on the weekly bar only", async () => {
+    const snapshot = provider(null, 20, {});
+    snapshot.primary.windowMinutes = 5 * 60;
+    snapshot.secondaryLabel = "Weekly";
+    snapshot.secondary = rateWindow(40, { windowMinutes: 7 * 24 * 60 });
+
+    const { container } = renderCard(snapshot, { weeklyProgressWorkDays: 5 });
+
+    await screen.findByText("60% left");
+    const bars = container.querySelectorAll(".menu-metric__progress");
+    expect(bars).toHaveLength(2);
+    expect(bars[0].querySelectorAll(".menu-metric__progress-workday")).toHaveLength(0);
+    expect(
+      Array.from(bars[1].querySelectorAll(".menu-metric__progress-workday"), (node) =>
+        node.getAttribute("x"),
+      ),
+    ).toEqual(["20%", "40%", "60%", "80%"]);
   });
 
 

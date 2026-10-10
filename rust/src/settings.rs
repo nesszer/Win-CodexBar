@@ -605,7 +605,7 @@ impl Default for Settings {
             menu_bar_shows_highest_usage: false,
             menu_bar_shows_percent: false,
             menu_bar_color_pace: false,
-            show_as_used: true,        // Show as "used" by default
+            show_as_used: false,
             enable_animations: true,   // Animations enabled by default
             reset_time_relative: true, // Show relative times by default
             show_reset_when_exhausted: false,

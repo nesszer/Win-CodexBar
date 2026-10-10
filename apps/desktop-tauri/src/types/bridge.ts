@@ -618,6 +618,8 @@ export interface RateWindowSnapshot {
   reserveDescription: string | null;
   reserveWillLastToReset?: boolean;
   reserveEtaSeconds?: number | null;
+  /** Pace of this window; absent when the provider's pace is not authoritative or the window is informational. */
+  pace?: WindowPaceSnapshot | null;
   /** Set while a longer exhausted pool blocks this window; raw percentages stay the provider data. */
   monthlyLimitBlock?: MonthlyLimitBlock | null;
 }
@@ -649,8 +651,27 @@ export interface CostSnapshotBridge {
   alwaysVisible?: boolean;
 }
 
+export type PaceStage =
+  | "on_track"
+  | "slightly_ahead"
+  | "ahead"
+  | "far_ahead"
+  | "slightly_behind"
+  | "behind"
+  | "far_behind";
+
+/** Pace of one rate window. A positive `deltaPercent` is a deficit, a negative one a reserve. */
+export interface WindowPaceSnapshot {
+  stage: PaceStage;
+  deltaPercent: number;
+  expectedUsedPercent: number;
+  actualUsedPercent: number;
+  etaSeconds?: number | null;
+  willLastToReset: boolean;
+}
+
 export interface PaceSnapshot {
-  stage: "on_track" | "slightly_ahead" | "ahead" | "far_ahead" | "slightly_behind" | "behind" | "far_behind";
+  stage: PaceStage;
   deltaPercent: number;
   willLastToReset: boolean;
   etaSeconds: number | null;

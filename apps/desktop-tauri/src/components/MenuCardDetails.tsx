@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   CostSummaryDisplayStyle,
   DailyCostPoint,
@@ -35,31 +35,18 @@ import { getPaceBudget, type PaceBudget } from "../lib/paceBudget";
 import { isMonthlyLimitBlockActive } from "../lib/monthlyLimitBlock";
 import { periodCostLabel, periodTokensLabel } from "../lib/costPeriod";
 import { providerCostPeriodTitle } from "../lib/providerLabels";
-import { resetDescriptionFallback, windowDetailText } from "../lib/usageWindows";
+import { windowDetailText } from "../lib/usageWindows";
 import { localizeProviderText } from "../lib/providerText";
 import { localizeProviderLabel } from "../lib/windowLabels";
 import { isDetailSectionVisible } from "../lib/usageItemVisibility";
 import PaceDetailsChart from "./PaceDetailsChart";
-
-/** Format a reserve description from raw pace data at render time. */
-function formatReserveDescription(
-  snap: RateWindowSnapshot,
-  t: (key: LocaleKey) => string,
-): string | null {
-  if (snap.reservePercent == null) return null;
-  if (snap.reserveWillLastToReset) {
-    return t("PanelReserveLastsUntilReset");
-  }
-  const eta = snap.reserveEtaSeconds;
-  if (eta == null) return null;
-  const h = Math.floor(eta / 3600);
-  if (h >= 24) {
-    return t("PanelReserveRunsOutInDaysHours")
-      .replace("{}", String(Math.floor(h / 24)))
-      .replace("{}", String(h % 24));
-  }
-  return t("PanelReserveRunsOutInHours").replace("{}", String(h));
-}
+import UsageProgressBar from "./UsageProgressBar";
+import {
+  metricResetText,
+  metricRowPresentation,
+  type MetricLane,
+  type UsageThresholdSettings,
+} from "../lib/metricRowModel";
 
 /** Upstream session-quota estimate: "Estimated: {n} session quota(s) left". */
 function formatSessionEquivalentEstimate(
@@ -297,43 +284,24 @@ function paceStageKey(stage: PaceSnapshot["stage"]): LocaleKey {
   }
 }
 
-type UsageLevel = "normal" | "high" | "critical" | "exhausted";
 const WEEKLY_WINDOW_MINUTES = 7 * 24 * 60;
-
-function levelOf(remainPct: number, exhausted: boolean): UsageLevel {
-  if (exhausted) return "exhausted";
-  if (remainPct <= 5) return "critical";
-  if (remainPct <= 25) return "high";
-  return "normal";
-}
 
 export interface MetricEntry {
   id: string;
   label: string;
   snap: RateWindowSnapshot;
+  lane: MetricLane;
   resetFormatMode?: ResetTimeFormatMode;
   sessionEquivalentForecast?: SessionEquivalentForecastSnapshot | null;
 }
 
-type MetricPaceView =
-  | { kind: "budget"; budget: PaceBudget }
-  | { kind: "reserve"; percent: number }
-  | { kind: "none" };
-
-function getMetricPaceView(snap: RateWindowSnapshot): MetricPaceView {
-  if (snap.isExhausted) return { kind: "none" };
-
+function metricPaceBudget(snap: RateWindowSnapshot): PaceBudget | null {
+  if (snap.isExhausted) return null;
   const isWeeklyWindow =
     snap.windowMinutes != null && snap.windowMinutes >= WEEKLY_WINDOW_MINUTES;
-  const budget = isWeeklyWindow ? getPaceBudget(snap) : null;
-  if (budget) return { kind: "budget", budget };
-
-  if (snap.reservePercent != null) {
-    return { kind: "reserve", percent: snap.reservePercent };
-  }
-
-  return { kind: "none" };
+  return isWeeklyWindow ? getPaceBudget(snap) : null;
 }
+
 type MetricRowDisplay = {
   resetTimeRelative: boolean;
   showResetWhenExhausted?: boolean;
@@ -342,17 +310,25 @@ type MetricRowDisplay = {
   compactOverview?: boolean;
   costSummaryDisplayStyle?: CostSummaryDisplayStyle;
   monthlyLimitBlockNow?: number;
+  usageThresholds?: UsageThresholdSettings | null;
+  weeklyProgressWorkDays?: number | null;
 };
 
-/**
- * Single metric row inside the card — mirrors upstream `MetricRow`:
- *   • title (body / medium)
- *   • UsageProgressBar (capsule, 6pt)
- *   • HStack: "N% used"  · ·  reset countdown (right-aligned, secondary)
- */
+function useCountdownNow(ticking: boolean): number {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!ticking) return;
+    const id = window.setInterval(() => setTick((tick) => tick + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, [ticking]);
+  return Date.now();
+}
+
 function MetricRow({
   title,
   snap,
+  lane,
+  providerId,
   exhaustedLabel,
   display,
   expanded,
@@ -362,6 +338,8 @@ function MetricRow({
 }: {
   title: string;
   snap: RateWindowSnapshot;
+  lane: MetricLane;
+  providerId: string;
   exhaustedLabel: string;
   display: MetricRowDisplay;
   expanded: boolean;
@@ -377,6 +355,8 @@ function MetricRow({
     showAsUsed = false,
     compactOverview = false,
     monthlyLimitBlockNow,
+    usageThresholds = null,
+    weeklyProgressWorkDays = null,
   } = display;
   // Upstream 0.69.0 #4091: a longer exhausted pool (Kimi's monthly membership)
   // blocks this window until the pool resets. Raw percentages stay untouched.
@@ -385,36 +365,18 @@ function MetricRow({
     monthlyLimitBlockNow ?? Date.now(),
   );
   const isInformational = snap.isInformational === true;
-  const usedPct = Number.isFinite(snap.usedPercent) ? Math.max(0, snap.usedPercent) : 0;
-  const barPct = Math.min(100, usedPct);
-  const remain = 100 - usedPct;
-  const displayPct = showAsUsed ? usedPct : Math.max(0, remain);
-  const barDisplayPct = showAsUsed ? barPct : Math.max(0, Math.min(100, remain));
-  const displayLabel = showAsUsed ? t("PanelUsedSuffix") : t("PanelLeftSuffix");
-  const level = levelOf(remain, snap.isExhausted);
-  const detailText = localizeProviderText(windowDetailText(snap), t) || null;
-  const resetText = useFormattedResetTime(
-    blocked ? null : snap.resetsAt,
-    isInformational || blocked ? null : resetDescriptionFallback(snap),
+  const informationalReset = useFormattedResetTime(
+    isInformational && !blocked ? snap.resetsAt : null,
+    null,
     resetTimeRelative,
     resetFormatMode ?? "reset",
   );
-  const infoPrimary =
-    localizeProviderText(snap.resetDescription?.trim(), t) || resetText || "—";
-  const resetTarget = snap.resetsAt ? Date.parse(snap.resetsAt) : Number.NaN;
-  const replacesPercent =
-    showResetWhenExhausted &&
-    snap.isExhausted &&
-    Number.isFinite(resetTarget) &&
-    resetTarget > Date.now() &&
-    resetText !== null;
-  const paceView = showPace ? getMetricPaceView(snap) : { kind: "none" as const };
-  const reserveDescription = formatReserveDescription(snap, t);
-  const forecastText = formatSessionEquivalentEstimate(sessionEquivalentForecast);
+  const now = useCountdownNow(!isInformational && !blocked && snap.resetsAt != null);
+  const detailText = localizeProviderText(windowDetailText(snap), t) || null;
   if (blocked) {
     // Upstream `MetricRow` status layout: title plus one secondary status line,
-    // no bar, percent, reset, pace, reserve, or forecast. The pool's own row
-    // keeps its reset; the shorter resets cannot restore access.
+    // no bar, percent, reset, pace, or forecast. The pool's own row keeps its
+    // reset; the shorter resets cannot restore access.
     return (
       <div className="menu-metric menu-metric--blocked">
         <span className="menu-metric__title">{title}</span>
@@ -422,39 +384,68 @@ function MetricRow({
       </div>
     );
   }
-  return (
-    <div className="menu-metric">
-      <span className="menu-metric__title">{title}</span>
-      {!isInformational && (
-        <div className="menu-metric__bar">
-          <div className="menu-metric__bar-fill" data-level={level} style={{ width: `${barDisplayPct}%` }} />
+  if (isInformational) {
+    const infoPrimary =
+      localizeProviderText(snap.resetDescription?.trim(), t) || informationalReset || "—";
+    return (
+      <div className="menu-metric">
+        <span className="menu-metric__title">{title}</span>
+        <div className="menu-metric__row">
+          <span className="menu-metric__pct">{infoPrimary}</span>
+          {!compactOverview &&
+            snap.resetDescription?.trim() &&
+            informationalReset &&
+            informationalReset !== infoPrimary && (
+              <span className="menu-metric__reset">{informationalReset}</span>
+            )}
         </div>
-      )}
-      <div className="menu-metric__row">
-        <span className="menu-metric__pct">
-          {isInformational
-            ? infoPrimary
-            : replacesPercent
-              ? resetText
-              : `${Math.round(displayPct)}% ${displayLabel}`}
-        </span>
-        {!compactOverview && isInformational &&
-          snap.resetDescription?.trim() &&
-          resetText &&
-          resetText !== infoPrimary && (
-            <span className="menu-metric__reset">{resetText}</span>
-          )}
-        {!compactOverview && !isInformational && resetText && !replacesPercent && (
-          <span className="menu-metric__reset">{resetText}</span>
+        {!compactOverview && detailText && (
+          <div className="menu-metric__detail">{detailText}</div>
         )}
       </div>
+    );
+  }
+  const row = metricRowPresentation(
+    {
+      snap,
+      lane,
+      providerId,
+      resetText: metricResetText(snap, resetTimeRelative, now, t),
+      compact: compactOverview,
+      showAsUsed,
+      showResetWhenExhausted,
+      paceEnabled: showPace,
+      usageThresholds,
+      weeklyProgressWorkDays,
+      now,
+    },
+    t,
+  );
+  const budget = showPace && !compactOverview ? metricPaceBudget(snap) : null;
+  const forecastText = formatSessionEquivalentEstimate(sessionEquivalentForecast);
+  return (
+    <div className="menu-metric">
+      <div className="menu-metric__head">
+        <span className="menu-metric__title">
+          {title}
+          {row.percentText && (
+            <>
+              {" "}
+              <span className="menu-metric__percent">{row.percentText}</span>
+            </>
+          )}
+        </span>
+        {row.resetText && <span className="menu-metric__reset">{row.resetText}</span>}
+      </div>
+      <UsageProgressBar bar={row.bar} label={title} />
+      {row.metaText && <div className="menu-metric__meta">{row.metaText}</div>}
       {!compactOverview && detailText && (
         <div className="menu-metric__detail">{detailText}</div>
       )}
-      {!compactOverview && !isInformational && snap.isExhausted && (
+      {!compactOverview && snap.isExhausted && (
         <div className="menu-metric__exhausted">{exhaustedLabel}</div>
       )}
-      {!compactOverview && !isInformational && paceView.kind === "budget" && (
+      {budget && (
         <div className="menu-metric__budget">
           <button
             type="button"
@@ -463,14 +454,13 @@ function MetricRow({
             aria-expanded={expanded}
           >
             <span>{t("PanelOnPaceBudget")}</span>
-            {reserveDescription && <span>{reserveDescription}</span>}
           </button>
           {expanded && <div className="menu-metric__budget-pills">
             {[
-              [t("PanelNow"), paceView.budget.now],
-              [t("PanelOneHour"), paceView.budget.nextHour],
-              [t("PanelFiveHours"), paceView.budget.nextFiveHours],
-              [t("PanelTodayBudget"), paceView.budget.today],
+              [t("PanelNow"), budget.now],
+              [t("PanelOneHour"), budget.nextHour],
+              [t("PanelFiveHours"), budget.nextFiveHours],
+              [t("PanelTodayBudget"), budget.today],
             ].map(([label, value]) => (
               <span className="menu-metric__budget-pill" key={String(label)}>
                 {label} {formatBudget(Number(value))}%
@@ -480,15 +470,7 @@ function MetricRow({
           {expanded && <PaceDetailsChart snap={snap} t={t} />}
         </div>
       )}
-      {!compactOverview && !isInformational && paceView.kind === "reserve" && (
-        <div className="menu-metric__row menu-metric__reserve">
-          <span className="menu-metric__pct">{Math.round(paceView.percent)}% {t("PanelReserveSuffix")}</span>
-          {reserveDescription && (
-            <span className="menu-metric__reset">{reserveDescription}</span>
-          )}
-        </div>
-      )}
-      {!compactOverview && showPace && !isInformational && forecastText && (
+      {!compactOverview && showPace && forecastText && (
         <div className="menu-metric__row menu-metric__forecast">
           <span className="menu-metric__pct">{forecastText}</span>
         </div>
@@ -663,6 +645,8 @@ export default function MenuCardDetails({
               key={m.id}
               title={m.label}
               snap={m.snap}
+              lane={m.lane}
+              providerId={provider.providerId}
               exhaustedLabel={t("DetailWindowExhausted")}
               display={metricDisplay}
               expanded={expandedPaceWindow === m.id}
