@@ -89,7 +89,6 @@ describe("MenuCard", () => {
       buildBundle({
         ActionCopyError: "Copy error",
         ApiSpendTitle: "API spend",
-        AtlasCloudAvailableBalance: "Available balance",
         AtlasCloudBalance: "Atlas Cloud balance",
         DetailPaceRunsOutIn: "Runs out in",
         PanelEstimatedFromLocalLogs: "Estimated from local logs",

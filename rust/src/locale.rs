@@ -194,12 +194,9 @@ locale_keys! {
     TabNotifications,
     TabMenuBar,
     TabMenu,
-    TabApiKeys,
-    TabCookies,
     TabUsageSpend,
     TabAdvanced,
     TabAbout,
-    TabShortcuts,
 
     // General settings (Preferences)
     InterfaceLanguage,
@@ -214,8 +211,6 @@ locale_keys! {
     // Notification settings (Preferences)
     ShowNotificationsHelper,
     SoundEnabledHelper,
-    HighUsageThresholdHelper,
-    CriticalUsageThresholdHelper,
 
     // Notification settings (Preferences)
     ShowNotifications,
@@ -242,9 +237,7 @@ locale_keys! {
     NotificationSoundEventSessionDepletedHelper,
     NotificationSoundEventSessionRestored,
     NotificationSoundEventSessionRestoredHelper,
-    HighUsageThreshold,
     HighUsageAlert,
-    CriticalUsageThreshold,
     CriticalUsageAlert,
     PredictivePaceWarnings,
     PredictivePaceWarningsHelper,
@@ -271,43 +264,27 @@ locale_keys! {
     CredentialExpiryBody,
 
     // Display settings (Preferences)
-    UsageDisplay,
-    ShowUsageAsUsed,
-    ShowUsageAsUsedHelper,
     ResetTimeRelative,
     ResetTimeRelativeHelper,
     ShowResetWhenExhausted,
     ShowResetWhenExhaustedHelper,
     ShowPace,
     ShowPaceHelper,
-    TrayIcon,
-    MergeTrayIcons,
-    MergeTrayIconsHelper,
-    PerProviderTrayIcons,
-    PerProviderTrayIconsHelper,
 
     // Provider settings (Preferences)
     ProviderEnabled,
     ProviderDisabled,
-    ProviderInfo,
     ProviderUsage,
-    AtlasCloudAvailableBalance,
     AtlasCloudBalance,
     PanelUsageDetails,
     AuthType,
     DataSource,
-    ProviderNotDetected,
-    ProviderLastFetchFailed,
     ProviderUsageNotFetchedYet,
-    ProviderNotFetchedYetTitle,
-    ProviderDisabledNoRecentData,
     ProviderSourceAutoShort,
     ProviderSourceWebShort,
     ProviderSourceCliShort,
     ProviderSourceOauthShort,
     ProviderSourceApiShort,
-    ProviderSourceGithubApiShort,
-    ProviderSourceLocalShort,
     ProviderSourceKiroEnvShort,
     WayfinderGatewayTitle,
     WayfinderGatewayLabel,
@@ -325,81 +302,34 @@ locale_keys! {
     WayfinderOffline,
     WayfinderDryRun,
     WayfinderMissingKeys,
-    TrackingItem,
-    MainWindowLiveUsageData,
-    StartTrackingUsage,
-    ClickTrayIconForMetrics,
 
     // Browser cookie import (Preferences)
-    BrowserCookieImport,
-    ImportFromBrowser,
-    NoCookiesFoundInBrowser,
-    SelectBrowser,
-    ImportCookies,
-    ImportSuccess,
-    ImportFailed,
-    SaveFailed,
-    CookiesAutoImport,
     QuickActions,
     OpenProviderDashboard,
-    OllamaNoDashboard,
 
     // API Keys tab (Preferences)
-    ApiKeysTitle,
-    ApiKeysDescription,
     AddKey,
     KeySet,
-    KeyRequired,
     Remove,
-    GetKey,
 
     // Cookies tab (Preferences)
-    SavedCookies,
-    AddManualCookie,
     CookieHeader,
-    PasteHere,
-    DeleteCookie,
-    CookieSaved,
-    CookieDeleted,
 
     // Advanced tab (Preferences)
-    RefreshSettings,
     Animations,
     MenuBar,
-    Fun,
-    GlobalShortcut,
     Privacy,
     Updates,
     UpdateChannel,
-    UpdateChannelStable,
-    UpdateChannelBeta,
     Never,
     LastUpdated,
     NeverUpdated,
-    MinutesAgo,
-    HoursAgo,
-    DaysAgo,
-    BuiltWithRust,
-    OriginalMacOSVersion,
-    Links,
-    BuildInfo,
-    EnabledProviders,
     Appearance,
-    ThemeSelection,
-    LightMode,
-    DarkMode,
 
     // About (Preferences)
-    AboutTitle,
     Version,
 
-    // Main popup - Header actions
-    ActionRefreshAll,
-    ActionSettings,
-    ActionClose,
-
     // Main popup - Provider section
-    ProviderAccount,
     ProviderSession,
     ProviderWeekly,
     ProviderMonthly,
@@ -411,45 +341,20 @@ locale_keys! {
     DeepSeekPricingNext,
     DeepSeekPricingEffective,
     DeepSeekPricingAdvice,
-    ProviderModel,
-    ProviderPlan,
-    ProviderNextReset,
-    ProviderNoRecentUsage,
-    ProviderNotSignedIn,
-    SummaryTab,
 
     // Main popup - Loading/Empty/Error states (non-happy-path)
     StateLoadingProviders,
-    StateNoProviderData,
     StateNoProviderSelected,
-    StateSummaryRefreshPending,
     StateError,
-    StateRetry,
-    StateDownload,
-    StateRestartAndUpdate,
-
-    // Main popup - Credits
-    CreditsTitle,
 
     // Main popup - Update banner (non-happy-path)
-    UpdateRestartAndUpdate,
-    UpdateRetry,
-    UpdateDownload,
     UpdateDownloading,
     UpdateReady,
-    UpdateFailed,
-
-    // Main popup - Settings button
-    ButtonOpenProviderSettings,
 
     // Main popup - Bottom menu (Actions)
     MenuSettings,
     MenuAbout,
     MenuQuit,
-
-    // Main popup - Status strings
-    StatusJustUpdated,
-    StatusUnableToGetUsage,
 
     // Main popup - Provider detail actions
     ActionRefresh,
@@ -459,30 +364,13 @@ locale_keys! {
     ActionCopyError,
     ActionBuyCredits,
 
-    // Main popup - Pace status
-    PaceOnTrack,
-    PaceBehind,
-
     // Main popup - Reset prefix
     MetricResetsIn,
 
-    // Main popup - Section titles
-    SectionUsageBreakdown,
-    SectionCost,
-
     // Main popup - Usage/reset labels
     ResetInProgress,
-    TomorrowAt,
-    UsedPercent,
-    RemainingPercent,
-    RemainingAmount,
-    Tokens1K,
-    TodayCost,
-    Last30DaysCost,
-    StatusLabel,
 
     // Tray - Single icon mode
-    TrayOpenCodexBar,
     TrayPopOutDashboard,
     TrayShowFloatBar,
     TrayStayAwakeActive,
@@ -490,9 +378,7 @@ locale_keys! {
     TrayProviders,
     TraySettings,
     TrayCheckForUpdates,
-    TrayQuit,
     TrayLoading,
-    TrayNoProviders,
     TraySessionPercent,
     TrayWeeklyPercent,
     TrayStatusError,
@@ -501,26 +387,16 @@ locale_keys! {
     TrayStatusPartial,
     TrayWeeklyExhausted,
     TrayCreditsRemaining,
-    TrayStatusRowLoading,
     TrayStatusRowError,
-    TrayCreditsRow,
-
-    // Tray - Per-provider mode
-    TrayProviderPopOut,
-    TrayProviderRefresh,
-    TrayProviderSettings,
-    TrayProviderQuit,
 
     // Provider settings - Live renderer specific
     State,
     Source,
-    Updated,
     UpdatedJustNow,
     UpdatedMinutesAgo,
     UpdatedHoursAgo,
     UpdatedDaysAgo,
     Status,
-    AllSystemsOperational,
     Plan,
     Account,
 
@@ -528,7 +404,6 @@ locale_keys! {
     ProviderSessionLabel,
     ProviderWeeklyLabel,
     ClaudeScopedWeeklyLabel,
-    ProviderCodeReviewLabel,
     ResetsInShort,
     ResetsInDaysHours,
     ResetsInHoursMinutes,
@@ -541,20 +416,11 @@ locale_keys! {
 
     // Provider detail - Tray Display
     TrayDisplayTitle,
-    ShowInTray,
 
     // Provider detail - Credits
     CreditsLabel,
-    CreditsLeft,
-
-    // Provider detail - Cost
-    CostTitle,
-    TodayCostFull,
-    Last30DaysCostFull,
 
     // Provider detail - Settings section
-    ProviderSettingsTitle,
-    ProviderAccountsTitle,
     ProviderOptionsTitle,
     MenuBarMetric,
     MenuBarMetricHelper,
@@ -563,16 +429,8 @@ locale_keys! {
     ProviderZedUsageSourceAutoHelp,
     ProviderZedUsageSourceApiHelp,
     ProviderZedUsageSourceWebHelp,
-    ProviderNoCodexAccountsDetected,
     ProviderCodexAutoImportHelp,
     ProviderCodexHistoryHelp,
-    ProviderOpenAiCookies,
-    ProviderHistoricalTracking,
-    ProviderOpenAiWebExtras,
-    ProviderOpenAiWebExtrasHelp,
-    ProviderCodexCreditsUnavailable,
-    ProviderCodexLastFetchFailedTitle,
-    ProviderCodexNotRunningHelp,
     ProviderCookieSource,
     CookieSourceManual,
     ProviderRaycastAutoImportHelp,
@@ -633,16 +491,11 @@ locale_keys! {
     ProviderManualCookieMissing,
     ProviderUseAutomaticCookies,
     ProviderRegion,
-    ProviderClaudeCookies,
     ProviderClaudeCookiesHelp,
     ProviderClaudeAvoidKeychainPrompts,
     ProviderClaudeAvoidKeychainPromptsHelp,
-    ProviderClaudeDailyRoutinesUsage,
-    ProviderClaudeDailyRoutinesUsageHelp,
     ProviderClaudeAllowReadingClaudeCodeCredentials,
     ProviderClaudeAllowReadingClaudeCodeCredentialsHelp,
-    ProviderCodexSparkUsage,
-    ProviderCodexSparkUsageHelp,
     CopilotSeatCreditTitle,
     CopilotSeatCreditHelper,
     CopilotSeatCreditInvalid,
@@ -710,9 +563,6 @@ locale_keys! {
     CodexSwitchRestartPrompt,
     CodexAccountsRestartDesktop,
     ProviderCursorCookieSourceHelp,
-    ProviderCursorCreditsHelp,
-    AutoFallbackHelp,
-    ProviderSourceOauthWeb,
     Automatic,
     Average,
     ExtraUsage,
@@ -741,7 +591,6 @@ locale_keys! {
     NetworkProxyUserLabel,
     NetworkProxyPasswordLabel,
     NetworkProxyPasswordHelper,
-    NetworkProxyInvalidUrl,
     UsageSpendTitle,
     UsageSpendCaption,
     UsageSpendModels,
@@ -767,12 +616,10 @@ locale_keys! {
     UsageSpendKnownSubtotal,
     IncompleteRequestsLabel,
     IncompleteRequestsDetail,
-    UsageSpendAllTimeHistory,
     UsageSpendCustomPricing,
     UsageSpendDailyLedger,
     UsageSpendDailyLedgerHelper,
     UsageSpendNoDailyData,
-    OverviewSpendTitle,
     OverviewSpendProviderCoverage,
     OverviewSpendEstimate,
     UsageSpendProjects,
@@ -812,91 +659,41 @@ locale_keys! {
     AgentSessionsSshHostsHelper,
     AgentSessionsLoading,
     AgentSessionsEmpty,
-    UpdatesTitle,
     UpdateChannelChoice,
     UpdateChannelChoiceHelper,
     AutoDownloadUpdates,
     AutoDownloadUpdatesHelper,
-    InstallUpdatesOnQuit,
-    InstallUpdatesOnQuitHelper,
 
     // Keyboard shortcuts
-    KeyboardShortcutsTitle,
-    GlobalShortcutLabel,
-    GlobalShortcutHelper,
-    ShortcutFormatHint,
     Saved,
     InvalidFormat,
-    ShortcutHintPlaceholder,
-
-    // Display/Preferences helpers
-    SelectProvider,
 
     // Refresh interval labels
-    RefreshInterval30Sec,
     RefreshInterval1Min,
     RefreshInterval5Min,
-    RefreshInterval10Min,
 
     // Cookies tab
-    BrowserCookiesTitle,
-    CookieImport,
     Provider,
-    SelectPlaceholder,
-    AutoRefreshInterval,
 
     // About tab - render_about_tab
-    AboutDescription,
-    AboutDescriptionLine2,
-    ViewOnGitHub,
     SubmitIssue,
-    MaintainedBy,
-    CommitLabel,
-    BuildDateLabel,
 
     // Shared form controls
     Save,
     Cancel,
     Label,
     Token,
-    AddAccount,
-    AccountAdded,
-    AccountRemoved,
-    AccountSwitched,
-    AccountLabelHint,
-    EnterApiKeyFor,
     PasteApiKeyHere,
-    ApiKeySaved,
-    ApiKeyRemoved,
-    EnvironmentVariable,
-    CookieSavedForProvider,
-    CookieRemovedForProvider,
-
-    // Usage helper functions
-    ShowUsedPercent,
-    ShowRemainingPercent,
 
     // Main popup - Update banner messages (non-happy-path)
     UpdateAvailableMessage,
-    UpdateReadyMessage,
-    UpdateFailedMessage,
-    UpdateDownloadingMessage,
 
     // Tauri desktop shell — Settings section headings
-    TabTokenAccounts,
     SectionRefresh,
     SectionNotifications,
     SectionUsageThresholds,
     SectionKeyboard,
-    SectionUsageRendering,
-    SectionTime,
     SectionLanguage,
-    SectionCredentialsSecurity,
-    SectionDebug,
-    SectionApiKeys,
-    SectionSavedCookies,
-    SectionImportFromBrowser,
-    SectionAddCookieManually,
     SectionTokenAccounts,
     SectionSavedAccounts,
     SectionAddAccount,
@@ -976,8 +773,6 @@ locale_keys! {
     OverviewLayoutCompact,
     ShowAllTokenAccountsLabel,
     ShowAllTokenAccountsHelper,
-    EnableAnimationsLabel,
-    EnableAnimationsHelper,
     // Tauri desktop shell — Advanced tab fields
     UpdateChannelStableOption,
     UpdateChannelBetaOption,
@@ -999,27 +794,18 @@ locale_keys! {
 
     // Tauri desktop shell — settings status / common
     SettingsStatusSaving,
-    ApiKeysTabHint,
 
     // Tauri desktop shell — tray / popout
     FetchingProviderData,
     NoProvidersConfigured,
     EnableProvidersHint,
     OpenSettingsButton,
-    TooltipRefresh,
-    TrayCardErrorBadge,
-    SummaryProvidersLabel,
-    SummaryRefreshing,
-    SummaryFailed,
-    SummaryWithErrors,
 
     // Tauri desktop shell — provider detail
-    DetailBackButton,
     DetailWindowPrimary,
     DetailWindowSecondary,
     DetailWindowModelSpecific,
     DetailWindowTertiary,
-    DetailWindowMinutesSuffix,
     DetailWindowExhausted,
     DetailPaceTitle,
     DetailPaceOnTrack,
@@ -1092,7 +878,6 @@ locale_keys! {
     FloatBarShowCostDescription,
 
     // Tauri desktop shell — update banner
-    BannerCheckingForUpdates,
     BannerUpdateAvailablePrefix,
     BannerDownloadButton,
     BannerViewRelease,
@@ -1115,11 +900,6 @@ locale_keys! {
     ProviderStatusError,
     ProviderStatusLoading,
     ProviderStatusDisabled,
-    ProviderDetailPlaceholder,
-    ProviderIssueNeedsSignIn,
-    ProviderIssueFetchNeedsAttention,
-    ProviderIssueCopy,
-    ProviderIssueUnsupportedSourceModePrefix,
     ProviderIssueAuthRequired,
     ProviderIssueSessionExpired,
     ProviderIssueLocalRuntimeOffline,
@@ -1159,7 +939,6 @@ locale_keys! {
     CredsOpenFolderAction,
     CredsRefreshDetectionAction,
     CredsSavePathAction,
-    CredsBrowseAction,
     CredsGeminiCliLabel,
     CredsGeminiCliHelperPrefix,
     CredsGeminiCliSetupAction,
@@ -1174,8 +953,6 @@ locale_keys! {
     CredsJetBrainsHelperMissing,
     CredsJetBrainsCustomPathLabel,
     CredsJetBrainsCustomPathPlaceholder,
-    CredsJetBrainsSelectLabel,
-    CredsJetBrainsAutoDetectOption,
     CredsKiroLabel,
     CredsKiroHelperAvailablePrefix,
     CredsKiroHelperMissing,
@@ -1201,19 +978,11 @@ locale_keys! {
     TokenAccountGithubLoginButton,
     TokenAccountEmpty,
     TokenAccountLabelPlaceholder,
-    TokenAccountProviderLabel,
-    TokenAccountProviderPlaceholder,
     TokenAccountAddedPrefix,
     TokenAccountUsedPrefix,
-    TokenAccountTabHint,
-    TokenAccountNoSupported,
     TokenAccountInlineSummary,
 
     // Phase 9 - Tray / pop-out pace badges + countdowns
-    TrayPaceBadgeSlow,
-    TrayPaceBadgeSteady,
-    TrayPaceBadgeRacing,
-    TrayPaceBadgeBurning,
     TrayResetsInLabel,
     TrayResetsDueNow,
 
@@ -1259,12 +1028,6 @@ locale_keys! {
     DiagnosticsCopyButton,
     DiagnosticsCopied,
     DiagnosticsCopyFailed,
-
-    // Tauri desktop shell — Cookies tab hints / placeholder
-    SavedCookiesHint,
-    ImportFromBrowserHint,
-    NoBrowsersDetectedHint,
-    CookieHeaderValuePlaceholder,
 
     // Tauri desktop shell — API key section fields
     ApiKeyTitle,
@@ -1337,7 +1100,6 @@ locale_keys! {
 
     // Mistral PAYG monthly spend (#2821, #2947)
     MistralMonthlySpend,
-    MistralMonthlySpendHelper,
     // Mistral Monthly Plan menu bar metric (upstream 0.70.0 #4072)
     MetricMonthlyPlan,
 
@@ -1360,7 +1122,6 @@ locale_keys! {
     ProviderAutoResumeAfterQuotaResetHelper,
 
     // Recorded remaining-quota burndown (upstream 0.70.0 #4085)
-    BurndownChartTitle,
     BurndownChartAriaLabel,
 
     // History window for local cost surfaces (upstream 0.67.0 reporting periods)

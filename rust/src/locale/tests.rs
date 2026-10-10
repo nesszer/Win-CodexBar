@@ -20,7 +20,6 @@ fn test_locale_key_english() {
 #[test]
 fn test_locale_key_chinese() {
     assert_eq!(get_text(Language::Chinese, LocaleKey::TabGeneral), "通用");
-    assert_eq!(get_text(Language::Chinese, LocaleKey::TabCookies), "Cookie");
     assert_eq!(
         get_text(Language::Chinese, LocaleKey::InterfaceLanguage),
         "界面语言"
@@ -80,7 +79,6 @@ fn test_japanese_menu_card_locale_values_are_translated() {
         (LocaleKey::DetailCostLimit, "上限"),
         (LocaleKey::DetailCostRemaining, "残り"),
         (LocaleKey::DetailCostBalance, "残高"),
-        (LocaleKey::AtlasCloudAvailableBalance, "利用可能残高"),
         (LocaleKey::AtlasCloudBalance, "Atlas Cloud の残高"),
         (LocaleKey::DetailCostResets, "リセット"),
         (LocaleKey::DetailChartCost, "コスト（30日間）"),
@@ -129,15 +127,11 @@ fn test_japanese_tray_panel_locale_values_are_translated() {
         (LocaleKey::TrayStatusIncident, " (インシデント)"),
         (LocaleKey::TrayStatusPartial, " (一部停止)"),
         (LocaleKey::TrayLoading, "CodexBar - 読み込み中..."),
-        (LocaleKey::TrayStatusRowLoading, "読み込み中..."),
         (LocaleKey::TrayStatusRowError, "エラー"),
         (LocaleKey::TrayCreditsRemaining, "残りクレジット {}%"),
-        (LocaleKey::TrayCreditsRow, "クレジット {}%"),
         (LocaleKey::ProviderStatusStale, "古い"),
         (LocaleKey::ProviderStatusError, "エラー"),
         (LocaleKey::ProviderStatusLoading, "読み込み中"),
-        (LocaleKey::TrayCardErrorBadge, "エラー"),
-        (LocaleKey::SummaryWithErrors, "エラーあり"),
         (
             LocaleKey::StateLoadingProviders,
             "プロバイダーを読み込み中...",
@@ -511,14 +505,6 @@ fn test_fluent_preserves_literal_placeholders_and_status_spacing() {
         "Credits remaining {}%"
     );
     assert_eq!(
-        get_text(Language::English, LocaleKey::UsedPercent),
-        "{:.0}% used"
-    );
-    assert_eq!(
-        get_text(Language::English, LocaleKey::RemainingAmount),
-        "{:.2} remaining"
-    );
-    assert_eq!(
         get_text(Language::English, LocaleKey::UsageSpendKnownSubtotal),
         "≥{} known"
     );
@@ -533,10 +519,6 @@ fn test_brazilian_portuguese_preserves_placeholders_and_status_spacing() {
     assert_eq!(
         get_text(Language::PortugueseBrazil, LocaleKey::TrayCreditsRemaining),
         "Créditos restantes {}%"
-    );
-    assert_eq!(
-        get_text(Language::PortugueseBrazil, LocaleKey::UsedPercent),
-        "{:.0}% usado"
     );
 }
 
