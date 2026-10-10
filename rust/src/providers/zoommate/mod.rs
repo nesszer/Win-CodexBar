@@ -185,19 +185,15 @@ impl ZoomMateProvider {
 
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
         let request_context = self.resolve_request_context(ctx).await?;
-        match self
+        let result = self
             .fetch_credits_status(&request_context, ctx.web_timeout)
-            .await
+            .await;
+        if let (Err(ProviderError::AuthRequired), Some(key)) =
+            (&result, request_context.cache_key.as_deref())
         {
-            Ok(snap) => Ok(snap),
-            Err(ProviderError::AuthRequired) => {
-                if let Some(key) = request_context.cache_key.as_deref() {
-                    cache_invalidate(key);
-                }
-                Err(ProviderError::AuthRequired)
-            }
-            Err(e) => Err(e),
+            cache_invalidate(key);
         }
+        result
     }
 
     async fn resolve_request_context(
