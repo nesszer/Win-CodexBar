@@ -3,12 +3,12 @@
 //! Fetches usage data from Kiro (Amazon's AI coding assistant)
 //! Uses kiro-cli for authentication and usage fetching
 
+mod cli_path;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
-pub mod version;
 
-pub use version::find_kiro_cli;
+pub use cli_path::find_kiro_cli;
 
 use async_trait::async_trait;
 use chrono::Datelike;
@@ -59,7 +59,7 @@ impl KiroProvider {
 
     /// Find Kiro CLI binary
     fn which_kiro() -> Option<PathBuf> {
-        version::find_kiro_cli()
+        cli_path::find_kiro_cli()
     }
 
     /// Check if user is logged in by running `kiro-cli whoami`
