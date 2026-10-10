@@ -228,4 +228,28 @@ mod tests {
         assert!(text.contains("Snapshot updated: 2000-01-01T00:00:00Z"));
         assert!(text.contains("Day boundaries: Asia/Tokyo"));
     }
+
+    #[test]
+    fn local_text_shows_unknown_values_as_dashes_and_flags_partial_history() {
+        let partial = CodexCostSummary::from_summaries_at(
+            &CostSummary::default(),
+            &CostSummary::default(),
+            30,
+            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            "UTC",
+        );
+
+        let text =
+            render_codex_host_report(&CodexHostCostReport::success("local", "local", partial));
+
+        assert_eq!(
+            text,
+            "This machine — Codex API-equivalent estimate (not billed)\n\
+             Today: — · — tokens\n\
+             Last 30 days: — · — tokens\n\
+             Snapshot updated: 2023-11-14T22:13:20Z\n\
+             Day boundaries: UTC\n\
+             Partial history; scan is incomplete."
+        );
+    }
 }
