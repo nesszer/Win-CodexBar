@@ -31,6 +31,38 @@ fn zero_token_turn_blob(timestamp_seconds: u64, model: &str) -> Vec<u8> {
     field_bytes(1, &chat)
 }
 
+/// The CLI conversations directory under `dir`.
+fn cli_root(dir: &tempfile::TempDir) -> PathBuf {
+    dir.path().join(".gemini/antigravity-cli/conversations")
+}
+
+/// Open `root/name`, creating `root`, with an empty `gen_metadata` table.
+fn database_at(root: &Path, name: &str) -> Connection {
+    fs::create_dir_all(root).unwrap();
+    let conn = Connection::open(root.join(name)).unwrap();
+    conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
+        .unwrap();
+    conn
+}
+
+fn insert_row(conn: &Connection, idx: i64, data: impl rusqlite::ToSql) {
+    conn.execute(
+        "INSERT INTO gen_metadata(idx, data) VALUES(?1, ?2)",
+        params![idx, data],
+    )
+    .unwrap();
+}
+
+/// Scan the default `.gemini` roots under `dir`.
+fn expect_summary(dir: &tempfile::TempDir) -> LocalSessionSummary {
+    let SQLiteScan::Summary(summary) =
+        summarize(&database_roots(&dir.path().join(".gemini")), Utc::now(), 30)
+    else {
+        panic!("supported database should produce coverage");
+    };
+    summary
+}
+
 #[test]
 fn missing_databases_falls_through() {
     let dir = tempfile::tempdir().unwrap();
@@ -43,7 +75,7 @@ fn missing_databases_falls_through() {
 #[test]
 fn foreign_database_is_non_authoritative() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join(".gemini/antigravity-cli/conversations");
+    let root = cli_root(&dir);
     fs::create_dir_all(&root).unwrap();
     let conn = Connection::open(root.join("one.db")).unwrap();
     conn.execute("CREATE TABLE wrong(idx INTEGER, data BLOB)", [])
@@ -58,17 +90,8 @@ fn foreign_database_is_non_authoritative() {
 #[test]
 fn empty_supported_database_is_confirmed_zero() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join(".gemini/antigravity-cli/conversations");
-    fs::create_dir_all(&root).unwrap();
-    let conn = Connection::open(root.join("one.db")).unwrap();
-    conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-        .unwrap();
-    drop(conn);
-    let SQLiteScan::Summary(summary) =
-        summarize(&database_roots(&dir.path().join(".gemini")), Utc::now(), 30)
-    else {
-        panic!("supported database should produce coverage");
-    };
+    drop(database_at(&cli_root(&dir), "one.db"));
+    let summary = expect_summary(&dir);
     assert_eq!(summary.coverage, LocalHistoryCoverage::Complete);
     assert_eq!(summary.total_tokens, 0);
     assert_eq!(summary.session_count, 0);
@@ -79,19 +102,11 @@ fn same_named_databases_in_separate_roots_keep_distinct_rows_and_sessions() {
     let dir = tempfile::tempdir().unwrap();
     let first_root = dir.path().join("first");
     let second_root = dir.path().join("second");
-    fs::create_dir_all(&first_root).unwrap();
-    fs::create_dir_all(&second_root).unwrap();
     let timestamp = u64::try_from(Utc::now().timestamp()).unwrap();
 
     for (root, input) in [(&first_root, 100_u64), (&second_root, 200_u64)] {
-        let conn = Connection::open(root.join("session.db")).unwrap();
-        conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-            .unwrap();
-        conn.execute(
-            "INSERT INTO gen_metadata(idx, data) VALUES(1, ?1)",
-            [valid_turn_blob(input, timestamp)],
-        )
-        .unwrap();
+        let conn = database_at(root, "session.db");
+        insert_row(&conn, 1, valid_turn_blob(input, timestamp));
     }
 
     let SQLiteScan::Summary(summary) = summarize(&[first_root, second_root], Utc::now(), 30) else {
@@ -106,34 +121,18 @@ fn same_named_databases_in_separate_roots_keep_distinct_rows_and_sessions() {
 #[test]
 fn zero_token_unknown_model_does_not_poison_priced_history() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join(".gemini/antigravity-cli/conversations");
-    fs::create_dir_all(&root).unwrap();
+    let root = cli_root(&dir);
     let now = Utc::now();
     let timestamp = u64::try_from(now.timestamp()).unwrap();
 
-    let priced = Connection::open(root.join("priced.db")).unwrap();
-    priced
-        .execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-        .unwrap();
-    priced
-        .execute(
-            "INSERT INTO gen_metadata(idx, data) VALUES(1, ?1)",
-            [valid_turn_blob_with_model(
-                100,
-                timestamp,
-                Some("claude-sonnet-4-6"),
-            )],
-        )
-        .unwrap();
-
-    let zero = Connection::open(root.join("zero.db")).unwrap();
-    zero.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-        .unwrap();
-    zero.execute(
-        "INSERT INTO gen_metadata(idx, data) VALUES(1, ?1)",
-        [zero_token_turn_blob(timestamp, "unknown-model")],
-    )
-    .unwrap();
+    let priced = database_at(&root, "priced.db");
+    insert_row(
+        &priced,
+        1,
+        valid_turn_blob_with_model(100, timestamp, Some("claude-sonnet-4-6")),
+    );
+    let zero = database_at(&root, "zero.db");
+    insert_row(&zero, 1, zero_token_turn_blob(timestamp, "unknown-model"));
 
     let SQLiteScan::Summary(summary) = summarize(&[root], now, 30) else {
         panic!("supported databases should produce coverage");
@@ -159,23 +158,10 @@ fn zero_token_unknown_model_does_not_poison_priced_history() {
 #[test]
 fn non_blob_rows_make_coverage_partial() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join(".gemini/antigravity-cli/conversations");
-    fs::create_dir_all(&root).unwrap();
-    let conn = Connection::open(root.join("one.db")).unwrap();
-    conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-        .unwrap();
-    conn.execute(
-        "INSERT INTO gen_metadata(idx,data) VALUES(?1,?2)",
-        params![1_i64, "not-a-blob"],
-    )
-    .unwrap();
+    let conn = database_at(&cli_root(&dir), "one.db");
+    insert_row(&conn, 1, "not-a-blob");
     drop(conn);
-    let SQLiteScan::Summary(summary) =
-        summarize(&database_roots(&dir.path().join(".gemini")), Utc::now(), 30)
-    else {
-        panic!("supported database should produce coverage");
-    };
-    assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
+    assert_eq!(expect_summary(&dir).coverage, LocalHistoryCoverage::Partial);
 }
 #[test]
 fn discovery_allows_exactly_500_databases_but_marks_501_partial() {
@@ -255,29 +241,13 @@ fn schema_entry_budget_is_incomplete_not_foreign() {
 #[test]
 fn undecodable_row_beside_valid_rows_yields_a_lower_bound() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join(".gemini/antigravity-cli/conversations");
-    fs::create_dir_all(&root).unwrap();
     let timestamp = u64::try_from(Utc::now().timestamp()).unwrap();
-    let conn = Connection::open(root.join("one.db")).unwrap();
-    conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-        .unwrap();
-    conn.execute(
-        "INSERT INTO gen_metadata(idx, data) VALUES(1, ?1)",
-        [valid_turn_blob(100, timestamp)],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO gen_metadata(idx, data) VALUES(2, ?1)",
-        params!["not-a-blob"],
-    )
-    .unwrap();
+    let conn = database_at(&cli_root(&dir), "one.db");
+    insert_row(&conn, 1, valid_turn_blob(100, timestamp));
+    insert_row(&conn, 2, "not-a-blob");
     drop(conn);
 
-    let SQLiteScan::Summary(summary) =
-        summarize(&database_roots(&dir.path().join(".gemini")), Utc::now(), 30)
-    else {
-        panic!("supported database should produce coverage");
-    };
+    let summary = expect_summary(&dir);
 
     assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
     assert!(summary.total_tokens > 0);
@@ -289,26 +259,14 @@ fn undecodable_row_beside_valid_rows_yields_a_lower_bound() {
 #[test]
 fn contradicting_rows_for_one_index_are_withheld_not_published() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join(".gemini/antigravity-cli/conversations");
-    fs::create_dir_all(&root).unwrap();
     let timestamp = u64::try_from(Utc::now().timestamp()).unwrap();
-    let conn = Connection::open(root.join("one.db")).unwrap();
-    conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-        .unwrap();
+    let conn = database_at(&cli_root(&dir), "one.db");
     for input in [100_u64, 900_u64] {
-        conn.execute(
-            "INSERT INTO gen_metadata(idx, data) VALUES(1, ?1)",
-            [valid_turn_blob(input, timestamp)],
-        )
-        .unwrap();
+        insert_row(&conn, 1, valid_turn_blob(input, timestamp));
     }
     drop(conn);
 
-    let SQLiteScan::Summary(summary) =
-        summarize(&database_roots(&dir.path().join(".gemini")), Utc::now(), 30)
-    else {
-        panic!("supported database should produce coverage");
-    };
+    let summary = expect_summary(&dir);
 
     assert_eq!(summary.coverage, LocalHistoryCoverage::Partial);
     assert_eq!(summary.total_tokens, 0);
@@ -321,22 +279,19 @@ fn list_price_uses_prompt_plus_input_and_output_plus_reasoning() {
     // Upstream AntigravityLocalReaderTests: a known model gets a list-price estimate, a routing
     // variant prices from its base model, and an unknown model stays unpriced.
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join(".gemini/antigravity-cli/conversations");
-    fs::create_dir_all(&root).unwrap();
+    let root = cli_root(&dir);
     let now = Utc::now();
     let timestamp = u64::try_from(now.timestamp()).unwrap();
     for (name, model) in [
         ("direct.db", "claude-sonnet-4-6"),
         ("routed.db", "claude-sonnet-4-6-Thinking"),
     ] {
-        let conn = Connection::open(root.join(name)).unwrap();
-        conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-            .unwrap();
-        conn.execute(
-            "INSERT INTO gen_metadata(idx, data) VALUES(1, ?1)",
-            [valid_turn_blob_with_model(100, timestamp, Some(model))],
-        )
-        .unwrap();
+        let conn = database_at(&root, name);
+        insert_row(
+            &conn,
+            1,
+            valid_turn_blob_with_model(100, timestamp, Some(model)),
+        );
     }
 
     let SQLiteScan::Summary(summary) = summarize(std::slice::from_ref(&root), now, 30) else {
@@ -351,18 +306,12 @@ fn list_price_uses_prompt_plus_input_and_output_plus_reasoning() {
     assert_eq!(summary.cost_estimate.coverage.unpriced, 0);
     assert_eq!(summary.total_usd(), Some(per_request * 2.0));
 
-    let conn = Connection::open(root.join("unknown.db")).unwrap();
-    conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-        .unwrap();
-    conn.execute(
-        "INSERT INTO gen_metadata(idx, data) VALUES(1, ?1)",
-        [valid_turn_blob_with_model(
-            100,
-            timestamp,
-            Some("fixture-unpriced"),
-        )],
-    )
-    .unwrap();
+    let conn = database_at(&root, "unknown.db");
+    insert_row(
+        &conn,
+        1,
+        valid_turn_blob_with_model(100, timestamp, Some("fixture-unpriced")),
+    );
     drop(conn);
 
     let SQLiteScan::Summary(summary) = summarize(std::slice::from_ref(&root), now, 30) else {
@@ -399,18 +348,16 @@ fn routine_read_offers_background_pricing_only_for_unpriced_history() {
     // rows; `Some(Some(model))`: one recorded request for `model`.
     let routine_read = |database: Option<Option<&str>>| {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join(".gemini/antigravity-cli/conversations");
+        let root = cli_root(&dir);
         fs::create_dir_all(&root).unwrap();
         if let Some(model) = database {
-            let conn = Connection::open(root.join("one.db")).unwrap();
-            conn.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB)", [])
-                .unwrap();
+            let conn = database_at(&root, "one.db");
             if let Some(model) = model {
-                conn.execute(
-                    "INSERT INTO gen_metadata(idx, data) VALUES(1, ?1)",
-                    [valid_turn_blob_with_model(100, timestamp, Some(model))],
-                )
-                .unwrap();
+                insert_row(
+                    &conn,
+                    1,
+                    valid_turn_blob_with_model(100, timestamp, Some(model)),
+                );
             }
         }
         match summarize(&[root], now, 30) {
