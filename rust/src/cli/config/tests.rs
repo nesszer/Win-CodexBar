@@ -1,4 +1,3 @@
-
 use super::{
     ClaudeCodeCredentialsConsent, ConfigCommand, ConfigFileError, ConfigOutputArgs, ConsentAction,
     apply_consent_action, consent_text, provider_statuses, read_json_config,

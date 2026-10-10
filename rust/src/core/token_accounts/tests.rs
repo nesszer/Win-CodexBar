@@ -1,4 +1,3 @@
-
 use super::*;
 
 /// Pins every provider's token-account metadata so table refactors stay byte-identical.

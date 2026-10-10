@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::core::{PaceStage, RateWindow, UsagePace};
 use chrono::{DateTime, Duration, Utc};
