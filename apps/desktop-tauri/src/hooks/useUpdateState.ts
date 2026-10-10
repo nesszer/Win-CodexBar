@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import type { UpdateStatePayload } from "../types/bridge";
 import {
   checkForUpdates,
@@ -9,6 +8,7 @@ import {
   openReleasePage,
   getUpdateState,
 } from "../lib/tauri";
+import { useTauriEvent } from "./useTauriEvent";
 
 export interface UseUpdateStateResult {
   /** Current update lifecycle state from the backend. */
@@ -79,18 +79,12 @@ export function useUpdateState(): UseUpdateStateResult {
       if (!cancelled) setUpdateState(s);
     });
 
-    const unlisten = listen<UpdateStatePayload>(
-      "update-state-changed",
-      (event) => {
-        if (!cancelled) setUpdateState(event.payload);
-      },
-    );
-
     return () => {
       cancelled = true;
-      unlisten.then((fn) => fn());
     };
   }, []);
+
+  useTauriEvent<UpdateStatePayload>("update-state-changed", (event) => setUpdateState(event.payload), []);
 
   return { updateState, checkNow, download, apply, dismiss, openRelease };
 }

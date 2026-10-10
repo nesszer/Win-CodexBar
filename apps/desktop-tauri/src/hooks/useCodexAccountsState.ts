@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import type { CodexAccountsStateBridge, CodexAccountUsageSnapshot } from "../types/bridge";
 import { getCodexAccountsState } from "../lib/tauri";
+import { useTauriEvent } from "./useTauriEvent";
 
 type CodexAccountsView = Required<
   Pick<
@@ -52,16 +52,7 @@ export function useCodexAccountsState() {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const unlistenPromise = listen("codex-accounts-updated", () => {
-      if (!cancelled) void load();
-    });
-    return () => {
-      cancelled = true;
-      void unlistenPromise.then((fn) => fn());
-    };
-  }, [load]);
+  useTauriEvent("codex-accounts-updated", () => void load(), [load]);
 
   const setSnapshot = useCallback((id: string, snapshot: CodexAccountUsageSnapshot) => {
     setView((prev) => prev && { ...prev, snapshots: { ...prev.snapshots, [id]: snapshot } });

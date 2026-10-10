@@ -7,9 +7,9 @@ import {
   type CSSProperties,
   type MouseEvent,
 } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
+import { useTauriEvent } from "../hooks/useTauriEvent";
 import { useCurrency } from "../hooks/CurrencyProvider";
 import { useLocale } from "../hooks/useLocale";
 import { useProviders } from "../hooks/useProviders";
@@ -350,13 +350,8 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return () => clearInterval(id);
   }, [settings.refreshIntervalSecs, settings.lowPowerMode]);
 
-  useEffect(() => {
-    const unlisten = listen(FLOAT_BAR_CONFIG_CHANGED_EVENT, () => {
-      void getSettingsSnapshot().then(setSettings).catch(() => {});
-    });
-    return () => {
-      void unlisten.then((fn) => fn());
-    };
+  useTauriEvent(FLOAT_BAR_CONFIG_CHANGED_EVENT, () => {
+    void getSettingsSnapshot().then(setSettings).catch(() => {});
   }, []);
 
   // Orientation flips re-lay-out the bar without recreating the window.
