@@ -1062,20 +1062,12 @@ impl Settings {
             .unwrap_or("")
     }
 
-    pub fn set_manual_cookie_header(&mut self, id: ProviderId, header: impl Into<String>) {
-        self.provider_config_mut(id).manual_cookie_header = Some(header.into());
-    }
-
     /// API token for `id`, or `""` if unset.
     pub fn api_token(&self, id: ProviderId) -> &str {
         self.provider_configs
             .get(&id)
             .and_then(|c| c.api_token.as_deref())
             .unwrap_or("")
-    }
-
-    pub fn set_api_token(&mut self, id: ProviderId, token: impl Into<String>) {
-        self.provider_config_mut(id).api_token = Some(token.into());
     }
 
     pub fn management_api_token(&self, id: ProviderId) -> Option<&str> {
@@ -1176,10 +1168,6 @@ impl Settings {
             .unwrap_or(DEFAULT_CODEX_OPENAI_WEB_EXTRAS)
     }
 
-    pub fn set_openai_web_extras(&mut self, id: ProviderId, value: bool) {
-        self.provider_config_mut(id).openai_web_extras = Some(value);
-    }
-
     /// Codex Spark rows are visible by default.
     pub fn spark_usage_visible(&self, id: ProviderId) -> bool {
         self.provider_configs
@@ -1234,10 +1222,6 @@ impl Settings {
             .get(&id)
             .map(|c| c.historical_tracking)
             .unwrap_or(false)
-    }
-
-    pub fn set_historical_tracking(&mut self, id: ProviderId, value: bool) {
-        self.provider_config_mut(id).historical_tracking = value;
     }
 
     /// Per-provider "avoid keychain prompts" toggle (currently claude-only).

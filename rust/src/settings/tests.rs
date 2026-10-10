@@ -1129,12 +1129,12 @@ fn test_provider_configs_roundtrip() {
     settings.set_usage_source(ProviderId::Claude, "ccusage");
     settings.set_api_region(ProviderId::Alibaba, "cn");
     settings.set_api_region(ProviderId::Zai, "cn");
-    settings.set_manual_cookie_header(ProviderId::Amp, "amp=PLACEHOLDER");
-    settings.set_api_token(ProviderId::MiniMax, "TOK_PLACEHOLDER");
+    settings.provider_config_mut(ProviderId::Amp).manual_cookie_header = Some("amp=PLACEHOLDER".into());
+    settings.provider_config_mut(ProviderId::MiniMax).api_token = Some("TOK_PLACEHOLDER".into());
     settings.set_workspace_id(ProviderId::OpenCode, "ws_placeholder");
     settings.set_ide_base_path(ProviderId::JetBrains, "C:/JB");
-    settings.set_openai_web_extras(ProviderId::Codex, false);
-    settings.set_historical_tracking(ProviderId::Codex, true);
+    settings.provider_config_mut(ProviderId::Codex).openai_web_extras = Some(false);
+    settings.provider_config_mut(ProviderId::Codex).historical_tracking = true;
     settings.set_avoid_keychain_prompts(ProviderId::Claude, true);
     settings.set_auto_resume_after_quota_reset(ProviderId::Codex, true);
     settings
@@ -1461,7 +1461,7 @@ fn cookie_denial_round_trips_through_settings_persistence() {
     let path = dir.path().join("settings.json");
     let mut settings = Settings::default();
     settings.set_cookie_source(ProviderId::Codex, "off");
-    settings.set_openai_web_extras(ProviderId::Codex, false);
+    settings.provider_config_mut(ProviderId::Codex).openai_web_extras = Some(false);
 
     settings.save_to_path(&path).unwrap();
     let loaded = Settings::load_from_path(Some(&path));
