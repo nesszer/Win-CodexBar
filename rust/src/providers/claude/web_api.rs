@@ -58,6 +58,25 @@ fn classify_web_http_error(
     ProviderError::Other(format!("Failed to get {label}: {status}"))
 }
 
+/// Pass a success through; otherwise read the body and classify the status.
+async fn ensure_success(
+    response: reqwest::Response,
+    label: &str,
+) -> Result<reqwest::Response, ProviderError> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    let response_headers = response.headers().clone();
+    let body = response.bytes().await?;
+    Err(classify_web_http_error(
+        label,
+        status,
+        &response_headers,
+        &body,
+    ))
+}
+
 /// Read the response body as text, then deserialize as JSON. On failure, include
 /// non-sensitive shape metadata so auth redirects, error envelopes, and schema
 /// changes are distinguishable without exposing account data in UI/log output.
@@ -532,26 +551,7 @@ impl ClaudeWebApiFetcher {
         }
 
         let url = format!("{}/organizations", self.base_url);
-
-        let response = self
-            .client
-            .get(&url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let response_headers = response.headers().clone();
-            let body = response.bytes().await?;
-            return Err(classify_web_http_error(
-                "organizations",
-                status,
-                &response_headers,
-                &body,
-            ));
-        }
-
+        let response = ensure_success(self.get(&url, headers).await?, "organizations").await?;
         let orgs: Vec<Organization> = parse_json_with_body(response, "organizations").await?;
 
         orgs.into_iter()
@@ -573,10 +573,7 @@ impl ClaudeWebApiFetcher {
     ) -> Result<UsageResponse, ProviderError> {
         let url = format!("{}/organizations/{}/usage", self.base_url, org_id);
         let opted_in = self
-            .client
-            .get(format!("{url}?{RESET_OPT_IN_QUERY}"))
-            .headers(headers.clone())
-            .send()
+            .get(&format!("{url}?{RESET_OPT_IN_QUERY}"), headers)
             .await?;
 
         let response = match opted_in.status() {
@@ -593,32 +590,38 @@ impl ClaudeWebApiFetcher {
                         &body,
                     ));
                 }
-                self.get_plain_usage(&url, headers).await?
+                self.get(&url, headers).await?
             }
-            _ => self.get_plain_usage(&url, headers).await?,
+            _ => self.get(&url, headers).await?,
         };
 
-        let status = response.status();
-        if !status.is_success() {
-            let response_headers = response.headers().clone();
-            let body = response.bytes().await?;
-            return Err(classify_web_http_error(
-                "usage",
-                status,
-                &response_headers,
-                &body,
-            ));
-        }
-
-        parse_json_with_body(response, "usage").await
+        parse_json_with_body(ensure_success(response, "usage").await?, "usage").await
     }
 
-    async fn get_plain_usage(
+    async fn get(
         &self,
         url: &str,
         headers: &reqwest::header::HeaderMap,
     ) -> Result<reqwest::Response, ProviderError> {
         Ok(self.client.get(url).headers(headers.clone()).send().await?)
+    }
+
+    /// GET and parse JSON. Unlike [`ensure_success`], a failure reports only
+    /// the status, without reading the body or mapping 401/403 to auth.
+    async fn get_json<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        headers: &reqwest::header::HeaderMap,
+        label: &str,
+    ) -> Result<T, ProviderError> {
+        let response = self.get(url, headers).await?;
+        if !response.status().is_success() {
+            return Err(ProviderError::Other(format!(
+                "Failed to get {label}: {}",
+                response.status()
+            )));
+        }
+        parse_json_with_body(response, label).await
     }
 
     /// Get extra usage (credits)
@@ -631,22 +634,7 @@ impl ClaudeWebApiFetcher {
             "{}/organizations/{}/overage_spend_limit",
             self.base_url, org_id
         );
-
-        let response = self
-            .client
-            .get(&url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "Failed to get extra usage: {}",
-                response.status()
-            )));
-        }
-
-        parse_json_with_body(response, "extra usage").await
+        self.get_json(&url, headers, "extra usage").await
     }
 
     /// Best-effort prepaid Extra usage balance. Non-fatal on any failure.
@@ -680,22 +668,7 @@ impl ClaudeWebApiFetcher {
         headers: &reqwest::header::HeaderMap,
     ) -> Result<AccountResponse, ProviderError> {
         let url = format!("{}/account", self.base_url);
-
-        let response = self
-            .client
-            .get(&url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "Failed to get account: {}",
-                response.status()
-            )));
-        }
-
-        parse_json_with_body(response, "account").await
+        self.get_json(&url, headers, "account").await
     }
 
     /// Convert a usage window to a RateWindow
