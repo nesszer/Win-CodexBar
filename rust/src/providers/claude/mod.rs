@@ -35,8 +35,8 @@ use admin_api::ClaudeAdminApiFetcher;
 #[cfg(test)]
 use cli_reset::parse_claude_reset_date_in_system_zone;
 use cli_reset::{
-    extract_cli_scoped_weekly_limits, normalized_for_label_search, parse_claude_reset_date,
-    parse_percent_line, starts_next_usage_section,
+    extract_cli_scoped_weekly_limits, label_section, normalized_for_label_search,
+    parse_claude_reset_date, parse_percent_line, percent_matches,
 };
 
 // ── Upstream 0.50.1 #2516: CLI usage-result cache ────────────────────────────
@@ -1010,26 +1010,15 @@ impl ClaudeProvider {
             ));
         }
 
-        // Parse session percent: "X% used" or "X% left"
-        let mut session_percent: Option<f64> = None;
-        let mut weekly_percent: Option<f64> = None;
-
-        // Look for "Current session" section
-        if let Some(session_pct) = extract_percent_near_label(&clean, "current session") {
-            session_percent = Some(session_pct);
-        }
-
-        // Look for "Current week" section
-        if let Some(weekly_pct) = extract_percent_near_label(&clean, "current week (all models)")
-            .or_else(|| extract_percent_near_label(&clean, "current week"))
-        {
-            weekly_percent = Some(weekly_pct);
-        }
+        let mut session_percent = extract_percent_near_label(&clean, "current session");
+        let mut weekly_percent = WEEKLY_LABELS
+            .iter()
+            .find_map(|label| extract_percent_near_label(&clean, label));
 
         // Fallback: collect all percentages in order. Activity stats carry
         // their own percentages, which must never be read as plan limits.
         if session_percent.is_none() && !activity_stats {
-            let all_percents = extract_all_percents(&clean);
+            let all_percents: Vec<f64> = percent_matches(&clean).collect();
             if !all_percents.is_empty() {
                 session_percent = Some(all_percents[0]);
             }
@@ -1053,8 +1042,9 @@ impl ClaudeProvider {
 
         // Extract reset times
         let session_reset = extract_reset_description(&clean, "current session");
-        let weekly_reset = extract_reset_description(&clean, "current week (all models)")
-            .or_else(|| extract_reset_description(&clean, "current week"));
+        let weekly_reset = WEEKLY_LABELS
+            .iter()
+            .find_map(|label| extract_reset_description(&clean, label));
         let short_form_reset = if is_exhausted_short_form(&clean_lower) {
             extract_inline_reset_description(&clean)
         } else {
@@ -1378,57 +1368,31 @@ fn is_cli_activity_stats_response(text: &str) -> bool {
     has_activity_overview || has_session_cost_summary
 }
 
-/// Extract percentage near a label (e.g., "Current session")
-/// Returns the percentage as "used" (not remaining)
-fn extract_percent_near_label(text: &str, label: &str) -> Option<f64> {
+/// The weekly heading Claude prints, newest wording first.
+const WEEKLY_LABELS: [&str; 2] = ["current week (all models)", "current week"];
+
+/// First match of `find` in any section headed by `label`; each section is
+/// scanned for at most `max_lines` lines, label line included.
+fn find_near_label<T>(
+    text: &str,
+    label: &str,
+    max_lines: usize,
+    mut find: impl FnMut(&str) -> Option<T>,
+) -> Option<T> {
     let label_normalized = normalized_for_label_search(label);
     let lines: Vec<&str> = text.lines().collect();
-
-    // Find the line containing the label
-    for (idx, line) in lines.iter().enumerate() {
-        if normalized_for_label_search(line).contains(&label_normalized) {
-            // Look in the next few lines for a percentage
-            for (offset, next_line) in lines.iter().skip(idx).take(12).enumerate() {
-                if offset > 0 && starts_next_usage_section(next_line, &label_normalized) {
-                    break;
-                }
-                if let Some(pct) = parse_percent_line(next_line) {
-                    return Some(pct);
-                }
-            }
-        }
-    }
-
-    None
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| normalized_for_label_search(line).contains(&label_normalized))
+        .find_map(|(idx, _)| {
+            label_section(&lines, idx, &label_normalized, max_lines).find_map(&mut find)
+        })
 }
 
-/// Extract all percentages from text in order
-fn extract_all_percents(text: &str) -> Vec<f64> {
-    let re = match Regex::new(
-        r"(\d{1,3}(?:\.\d+)?)\s*%\s*(used|spent|consumed|left|remaining|available)",
-    ) {
-        Ok(r) => r,
-        Err(_) => return vec![],
-    };
-
-    let mut results = Vec::new();
-    let lower = text.to_lowercase();
-
-    for caps in re.captures_iter(&lower) {
-        if let (Some(val_match), Some(kind_match)) = (caps.get(1), caps.get(2))
-            && let Ok(val) = val_match.as_str().parse::<f64>()
-        {
-            let kind = kind_match.as_str();
-            let used = if matches!(kind, "left" | "remaining" | "available") {
-                (100.0 - val).max(0.0)
-            } else {
-                val.min(100.0)
-            };
-            results.push(used);
-        }
-    }
-
-    results
+/// Percentage near a label (e.g. "Current session"), as "used".
+fn extract_percent_near_label(text: &str, label: &str) -> Option<f64> {
+    find_near_label(text, label, 12, parse_percent_line)
 }
 
 fn is_exhausted_short_form(clean_lower: &str) -> bool {
@@ -1483,31 +1447,9 @@ fn extract_login_method(text: &str) -> Option<String> {
     None
 }
 
-/// Extract reset description near a label
+/// Reset text near a label, from "resets" to the end of its line.
 fn extract_reset_description(text: &str, label: &str) -> Option<String> {
-    let label_normalized = normalized_for_label_search(label);
-    let lines: Vec<&str> = text.lines().collect();
-
-    for (idx, line) in lines.iter().enumerate() {
-        if normalized_for_label_search(line).contains(&label_normalized) {
-            // Look in the next few lines for "Resets"
-            for (offset, next_line) in lines.iter().skip(idx).take(14).enumerate() {
-                if offset > 0 && starts_next_usage_section(next_line, &label_normalized) {
-                    break;
-                }
-                let lower = next_line.to_lowercase();
-                if lower.contains("resets") {
-                    // Extract the reset info
-                    if let Some(pos) = lower.find("resets") {
-                        let reset_part = &next_line[pos..];
-                        return Some(reset_part.trim().to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    None
+    find_near_label(text, label, 14, extract_inline_reset_description)
 }
 
 /// Extract a "resets ..." suffix from a short single-line status.
@@ -2168,10 +2110,10 @@ Resets Dec 24 at 3:59pm (Europe/Paris)
     fn all_percents_fold_case_and_clamp() {
         let text = "50% USED\n20 % Left\n101% used\n150% left\n5.5% remaining\n1000% used\n7%Spent 8% available";
         assert_eq!(
-            extract_all_percents(text),
+            percent_matches(text).collect::<Vec<_>>(),
             vec![50.0, 80.0, 100.0, 0.0, 94.5, 0.0, 7.0, 92.0]
         );
-        assert!(extract_all_percents("no numbers here").is_empty());
+        assert!(percent_matches("no numbers here").next().is_none());
     }
 
     #[test]

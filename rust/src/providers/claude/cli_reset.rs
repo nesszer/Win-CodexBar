@@ -11,18 +11,25 @@ fn regex(cell: &'static OnceLock<Regex>, pattern: &'static str) -> &'static Rege
     cell.get_or_init(|| Regex::new(pattern).expect("valid Claude CLI regex"))
 }
 
-pub(super) fn parse_percent_line(line: &str) -> Option<f64> {
+/// Every "N% used/left/..." in order, as used percent clamped to 0..=100.
+pub(super) fn percent_matches(text: &str) -> impl Iterator<Item = f64> + '_ {
     static PERCENT: OnceLock<Regex> = OnceLock::new();
-    let captures = regex(
+    regex(
         &PERCENT,
         r"(?i)(\d{1,3}(?:\.\d+)?)\s*%\s*(used|spent|consumed|left|remaining|available)",
     )
-    .captures(line)?;
-    let value: f64 = captures.get(1)?.as_str().parse().ok()?;
-    match captures.get(2)?.as_str().to_ascii_lowercase().as_str() {
-        "left" | "remaining" | "available" => Some((100.0 - value).max(0.0)),
-        _ => Some(value.min(100.0)),
-    }
+    .captures_iter(text)
+    .filter_map(|captures| {
+        let value: f64 = captures.get(1)?.as_str().parse().ok()?;
+        match captures.get(2)?.as_str().to_ascii_lowercase().as_str() {
+            "left" | "remaining" | "available" => Some((100.0 - value).max(0.0)),
+            _ => Some(value.min(100.0)),
+        }
+    })
+}
+
+pub(super) fn parse_percent_line(line: &str) -> Option<f64> {
+    percent_matches(line).next()
 }
 
 pub(super) fn normalized_for_label_search(text: &str) -> String {
@@ -35,6 +42,25 @@ pub(super) fn normalized_for_label_search(text: &str) -> String {
 pub(super) fn starts_next_usage_section(line: &str, current_label: &str) -> bool {
     let normalized = normalized_for_label_search(line);
     normalized.starts_with("current") && !normalized.contains(current_label)
+}
+
+/// Up to `max_lines` lines from the label line at `idx`, ending before the
+/// next "Current ..." heading that is not `label_normalized`.
+pub(super) fn label_section<'a>(
+    lines: &'a [&'a str],
+    idx: usize,
+    label_normalized: &'a str,
+    max_lines: usize,
+) -> impl Iterator<Item = &'a str> {
+    lines
+        .iter()
+        .skip(idx)
+        .take(max_lines)
+        .enumerate()
+        .take_while(move |(offset, line)| {
+            *offset == 0 || !starts_next_usage_section(line, label_normalized)
+        })
+        .map(|(_, line)| *line)
 }
 
 pub(super) fn extract_cli_scoped_weekly_limits(
@@ -69,10 +95,7 @@ pub(super) fn extract_cli_scoped_weekly_limits(
         let mut used_percent = None;
         let mut reset_description = None;
         let current_label = normalized_for_label_search(line);
-        for (offset, section_line) in lines.iter().skip(idx).take(14).enumerate() {
-            if offset > 0 && starts_next_usage_section(section_line, &current_label) {
-                break;
-            }
+        for section_line in label_section(&lines, idx, &current_label, 14) {
             used_percent = used_percent.or_else(|| parse_percent_line(section_line));
             reset_description = reset_description.or_else(|| {
                 reset_re
