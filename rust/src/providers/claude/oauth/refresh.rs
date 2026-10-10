@@ -185,56 +185,35 @@ mod tests {
     // and 5xx stay transient (a retry can still heal them); 400/401 *without*
     // invalid_grant is likewise transient.
     #[test]
-    fn invalid_grant_on_400_or_401_is_terminal() {
-        for status in [400, 401] {
+    fn refresh_failure_kind_by_status_and_body() {
+        use RefreshFailureKind::{Terminal, Transient};
+        const GRANT: &str = r#"{"error":"invalid_grant"}"#;
+        let rows = [
+            (400, GRANT, Terminal),
+            (401, GRANT, Terminal),
+            // Case-insensitive match.
+            (400, r#"{"error":"INVALID_GRANT"}"#, Terminal),
+            // 403 is never terminal, even with invalid_grant in the body.
+            (403, GRANT, Transient),
+            // 400/401 with a different OAuth error are transient.
+            (400, r#"{"error":"invalid_client"}"#, Transient),
+            (401, r#"{"error":"invalid_client"}"#, Transient),
+            // 400/401 with no parseable error field are transient.
+            (400, "busy", Transient),
+            (401, "busy", Transient),
+            // Server and rate-limit errors.
+            (408, "busy", Transient),
+            (429, "busy", Transient),
+            (500, "busy", Transient),
+            (502, "busy", Transient),
+            (503, "busy", Transient),
+        ];
+        for (status, body, kind) in rows {
             let failure = RefreshFailure::from_http_status(
                 reqwest::StatusCode::from_u16(status).unwrap(),
-                r#"{"error":"invalid_grant"}"#,
+                body,
             );
-            assert_eq!(failure.kind, RefreshFailureKind::Terminal, "HTTP {status}");
-        }
-        // Case-insensitive match.
-        let failure = RefreshFailure::from_http_status(
-            reqwest::StatusCode::from_u16(400).unwrap(),
-            r#"{"error":"INVALID_GRANT"}"#,
-        );
-        assert_eq!(failure.kind, RefreshFailureKind::Terminal);
-    }
-
-    #[test]
-    fn forbidden_and_non_grant_4xx_stay_transient() {
-        // 403 is never terminal, even with invalid_grant in the body.
-        let failure = RefreshFailure::from_http_status(
-            reqwest::StatusCode::from_u16(403).unwrap(),
-            r#"{"error":"invalid_grant"}"#,
-        );
-        assert_eq!(failure.kind, RefreshFailureKind::Transient);
-        // 400/401 with a different OAuth error are transient.
-        for status in [400, 401] {
-            let failure = RefreshFailure::from_http_status(
-                reqwest::StatusCode::from_u16(status).unwrap(),
-                r#"{"error":"invalid_client"}"#,
-            );
-            assert_eq!(failure.kind, RefreshFailureKind::Transient, "HTTP {status}");
-        }
-        // 400/401 with no parseable error field are transient.
-        for status in [400, 401] {
-            let failure = RefreshFailure::from_http_status(
-                reqwest::StatusCode::from_u16(status).unwrap(),
-                "busy",
-            );
-            assert_eq!(failure.kind, RefreshFailureKind::Transient, "HTTP {status}");
-        }
-    }
-
-    #[test]
-    fn refresh_server_and_rate_limit_errors_stay_transient() {
-        for status in [408, 429, 500, 502, 503] {
-            let failure = RefreshFailure::from_http_status(
-                reqwest::StatusCode::from_u16(status).unwrap(),
-                "busy",
-            );
-            assert_eq!(failure.kind, RefreshFailureKind::Transient, "HTTP {status}");
+            assert_eq!(failure.kind, kind, "HTTP {status} {body}");
         }
     }
 }

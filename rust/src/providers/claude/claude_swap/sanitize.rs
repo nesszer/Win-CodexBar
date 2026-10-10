@@ -106,81 +106,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strips_terminal_escapes_and_bounds_length() {
-        let csi = "\u{1b}[31mred\u{1b}[0m";
-        assert_eq!(sanitize_display(csi, MAX_LABEL_CHARS), "red");
+    fn sanitizes_display_text() {
+        let rows = [
+            // Terminal escapes (CSI, OSC).
+            ("\u{1b}[31mred\u{1b}[0m", "red"),
+            ("a\u{1b}]0;ignored\u{07}b", "ab"),
+            // Line breaks and repeated spaces collapse.
+            ("one\r\ntwo\u{2028}three", "one two three"),
+            ("  a   b  ", "a b"),
+            // Bidi controls: RLO ... PDF around reversed text would otherwise render
+            // as "txet"; then LRM / RLM / ALM / isolates.
+            ("safe\u{202E}txet\u{202C}", "safetxet"),
+            ("left\u{200F}right\u{200E}\u{061C}", "leftright"),
+            ("a\u{2066}b\u{2069}c", "abc"),
+            ("x\u{202A}y\u{202B}z\u{202D}", "xyz"),
+            // Default-ignorable code points.
+            ("co\u{00AD}de", "code"),
+            ("a\u{200B}\u{200C}\u{200D}b", "ab"),
+            ("word\u{2060}joiner", "wordjoiner"),
+            ("\u{FEFF}bom", "bom"),
+            ("e\u{FE0F}motion", "emotion"),
+            ("tag\u{E0061}\u{E007F}end", "tagend"),
+            ("filler\u{3164}text", "fillertext"),
+            // U+0301 is a combining acute accent (Mn), not default-ignorable.
+            ("e\u{0301}", "e\u{0301}"),
+        ];
+        for (input, expected) in rows {
+            assert_eq!(
+                sanitize_display(input, MAX_LABEL_CHARS),
+                expected,
+                "{input:?}"
+            );
+        }
+    }
 
-        let osc = "a\u{1b}]0;ignored\u{07}b";
-        assert_eq!(sanitize_display(osc, MAX_LABEL_CHARS), "ab");
-
+    #[test]
+    fn bounds_display_length() {
         let long = "x".repeat(MAX_LABEL_CHARS + 50);
         assert_eq!(
             sanitize_display(&long, MAX_LABEL_CHARS).chars().count(),
             MAX_LABEL_CHARS
         );
-    }
-
-    #[test]
-    fn collapses_line_breaks_and_repeated_spaces() {
-        let multiline = "one\r\ntwo\u{2028}three";
-        assert_eq!(
-            sanitize_display(multiline, MAX_LABEL_CHARS),
-            "one two three"
-        );
-        assert_eq!(sanitize_display("  a   b  ", MAX_LABEL_CHARS), "a b");
-    }
-
-    #[test]
-    fn strips_bidi_controls_that_could_reorder_text() {
-        // RLO ... PDF around reversed text would otherwise render as "txet".
-        assert_eq!(
-            sanitize_display("safe\u{202E}txet\u{202C}", MAX_LABEL_CHARS),
-            "safetxet"
-        );
-        // LRM / RLM / ALM / isolates.
-        assert_eq!(
-            sanitize_display("left\u{200F}right\u{200E}\u{061C}", MAX_LABEL_CHARS),
-            "leftright"
-        );
-        assert_eq!(
-            sanitize_display("a\u{2066}b\u{2069}c", MAX_LABEL_CHARS),
-            "abc"
-        );
-        assert_eq!(
-            sanitize_display("x\u{202A}y\u{202B}z\u{202D}", MAX_LABEL_CHARS),
-            "xyz"
-        );
-    }
-
-    #[test]
-    fn strips_default_ignorable_code_points() {
-        assert_eq!(sanitize_display("co\u{00AD}de", MAX_LABEL_CHARS), "code");
-        assert_eq!(
-            sanitize_display("a\u{200B}\u{200C}\u{200D}b", MAX_LABEL_CHARS),
-            "ab"
-        );
-        assert_eq!(
-            sanitize_display("word\u{2060}joiner", MAX_LABEL_CHARS),
-            "wordjoiner"
-        );
-        assert_eq!(sanitize_display("\u{FEFF}bom", MAX_LABEL_CHARS), "bom");
-        assert_eq!(
-            sanitize_display("e\u{FE0F}motion", MAX_LABEL_CHARS),
-            "emotion"
-        );
-        assert_eq!(
-            sanitize_display("tag\u{E0061}\u{E007F}end", MAX_LABEL_CHARS),
-            "tagend"
-        );
-        assert_eq!(
-            sanitize_display("filler\u{3164}text", MAX_LABEL_CHARS),
-            "fillertext"
-        );
-    }
-
-    #[test]
-    fn preserves_ordinary_combining_marks() {
-        // U+0301 is a combining acute accent (Mn), not default-ignorable.
-        assert_eq!(sanitize_display("e\u{0301}", MAX_LABEL_CHARS), "e\u{0301}");
     }
 }
