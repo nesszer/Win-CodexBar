@@ -877,6 +877,75 @@ impl TokenAccountOverride {
 mod tests {
     use super::*;
 
+    /// Pins every provider's token-account metadata so table refactors stay byte-identical.
+    #[test]
+    fn for_provider_table_is_pinned() {
+        let rows: Vec<String> = ProviderId::all()
+            .iter()
+            .filter_map(|&provider| {
+                let support = TokenAccountSupport::for_provider(provider)?;
+                let injection = match &support.injection {
+                    TokenInjection::CookieHeader => "cookie".to_string(),
+                    TokenInjection::Environment { key } => format!("env:{key}"),
+                    TokenInjection::EnvironmentOrCookie { key } => format!("env_or_cookie:{key}"),
+                };
+                Some(format!(
+                    "{provider:?}|{}|{}|{}|{injection}|{}|{:?}",
+                    support.title,
+                    support.subtitle,
+                    support.placeholder,
+                    support.requires_manual_cookie_source,
+                    support.cookie_name
+                ))
+            })
+            .collect();
+        let mut expected: Vec<&str> = EXPECTED_SUPPORT_ROWS.to_vec();
+        let mut actual: Vec<&str> = rows.iter().map(String::as_str).collect();
+        expected.sort_unstable();
+        actual.sort_unstable();
+        assert_eq!(actual, expected);
+    }
+
+    const EXPECTED_SUPPORT_ROWS: &[&str] = &[
+        "Claude|Session tokens|Store Claude sessionKey cookies for settings-page usage. OAuth tokens are kept as a legacy fallback.|Paste sessionKey value or Cookie: sessionKey=...|cookie|true|Some(\"sessionKey\")",
+        "Zai|API tokens|Stored locally in token-accounts.json. Team usage can use workspace_id as organization|project.|Paste token...|env:Z_AI_API_KEY|false|None",
+        "Cursor|Session tokens|Store multiple Cursor Cookie headers.|Cookie: ...|cookie|true|None",
+        "OpenCode|Session tokens|Store multiple OpenCode Cookie headers.|Cookie: ...|cookie|true|None",
+        "Factory|Session tokens|Store multiple Factory Cookie headers.|Cookie: ...|cookie|true|None",
+        "Alibaba|Session tokens|Store multiple Alibaba Cookie headers.|Cookie: ...|cookie|true|None",
+        "AlibabaTokenPlan|Session tokens|Store multiple Alibaba Token Plan Cookie headers.|Cookie: cna=...; login_aliyunid_csrf=...|cookie|true|None",
+        "MiniMax|Session tokens|Store multiple MiniMax Cookie headers.|Cookie: ...|cookie|true|None",
+        "Augment|Session tokens|Store multiple Augment Cookie headers.|Cookie: ...|cookie|true|None",
+        "Amp|Session tokens|Store multiple Amp Cookie headers.|Cookie: ...|cookie|true|None",
+        "Ollama|Session tokens|Store multiple Ollama Cookie headers or __Secure-session values.|__Secure-session value or Cookie: ...|cookie|true|Some(\"__Secure-session\")",
+        "T3Chat|Session tokens|Store multiple T3 Chat Cookie headers or full browser cURL captures.|Cookie: ... or curl ... -H 'Cookie: ...'|cookie|true|None",
+        "ZoomMate|Session tokens|Store multiple ZoomMate Cookie headers or credits/status cURL captures.|Cookie: ... or curl 'https://ai.zoom.us/.../credits/status' -H 'Authorization: Bearer ...'|cookie|true|None",
+        "Mistral|Session tokens|Store multiple Mistral Cookie headers.|Cookie: ...|cookie|true|None",
+        "Manus|Session tokens|Store multiple Manus session_id values.|session_id value or Cookie: ...|cookie|true|Some(\"session_id\")",
+        "MiMo|Session tokens|Store multiple Xiaomi MiMo Cookie headers.|Cookie: api-platform_serviceToken=...; userId=...|cookie|true|None",
+        "CommandCode|Session tokens|Store multiple Command Code Cookie headers or Better Auth values.|Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value|cookie|true|Some(\"__Secure-better-auth.session_token\")",
+        "Qoder|Session tokens|Store multiple Qoder Cookie headers.|Cookie: ...|cookie|true|None",
+        "CodeBuddy|Session tokens|Store CodeBuddy CN Cookie headers (from plans-usage DevTools cURL).|Cookie: session=...; ... (or paste full Cookie header)|cookie|true|None",
+        "Sakana|Session tokens|Store multiple Sakana Console Cookie headers.|Cookie: ...|cookie|true|None",
+        "Notion|Session tokens|Store multiple Notion Cookie headers or token_v2 values.|Cookie: token_v2=... or paste the token_v2 value|cookie|true|Some(\"token_v2\")",
+        "Replicate|Session tokens|Store multiple Replicate Cookie headers from the billing page.|Cookie: sessionid=...; ...|cookie|true|Some(\"sessionid\")",
+        "Sub2Api|Group API keys|Store multiple sub2api group API keys with labels such as Claude, Codex, or Gemini.|sk-...|env:SUB2API_API_KEY|false|None",
+        "DeepInfra|API keys|Store multiple DeepInfra API keys.|API key from deepinfra.com/dash|env:DEEPINFRA_API_KEY|false|None",
+        "HuggingFace|API tokens|Store multiple Hugging Face access tokens.|Paste a Hugging Face access token|env:CODEXBAR_HUGGINGFACE_API_KEY|false|None",
+        "AiAnd|API keys|Store multiple ai& API keys.|API key from console.aiand.com|env:AIAND_API_KEY|false|None",
+        "ZenMux|API keys|Store multiple ZenMux Management API keys.|Management API key|env:ZENMUX_MANAGEMENT_API_KEY|false|None",
+        "ClinePass|API keys|Store multiple ClinePass API keys. Without one, CodexBar reads your existing Cline session (run cline auth) without copying it.|API key|env:CLINE_API_KEY|false|None",
+        "Neuralwatt|API keys|Store multiple Neuralwatt API keys.|API key|env:NEURALWATT_API_KEY|false|None",
+        "Grok|Grok credentials|Store SuperGrok bearer tokens or grok.com Cookie headers.|Bearer token or Cookie: ...|cookie|false|None",
+        "Xai|Management API keys|Store multiple xAI Management API keys. Team ID is set separately under provider settings.|xai-... Management API key from console.x.ai|env:XAI_MANAGEMENT_API_KEY|false|None",
+        "OpenRouter|API keys|Store multiple OpenRouter API keys.|sk-or-v1-...|env:OPENROUTER_API_KEY|false|None",
+        "Copilot|GitHub accounts|Store GitHub OAuth tokens for Copilot plan usage.|Sign in with GitHub or paste a GitHub OAuth token...|env:GITHUB_TOKEN|false|None",
+        "Kimi|Web sessions|Store labeled Kimi kimi-auth web sessions.|kimi-auth value or Cookie: kimi-auth=...|cookie|true|Some(\"kimi-auth\")",
+        "Doubao|Ark API keys|Store labeled Volcengine Ark API keys.|Ark API key|env:ARK_API_KEY|false|None",
+        "OpenCodeGo|API keys or sessions|Store labeled OpenCode Go API keys or Cookie headers.|API key or Cookie: ...|env_or_cookie:OPENCODE_API_KEY|false|None",
+        "Aixy|API keys|Store multiple Aixy API keys.|Paste Aixy API key…|env:AIXY_API_KEY|false|None",
+    ];
+
     #[test]
     fn test_token_account_support() {
         assert!(TokenAccountSupport::is_supported(ProviderId::Claude));
