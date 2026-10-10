@@ -271,33 +271,22 @@ fn read_identity(path: &Path) -> Result<KiroIdentity, ProviderError> {
         )
         .optional()
         .map_err(|error| ProviderError::Other(format!("Kiro profile lookup: {error}")))?;
-    let access_token =
-        json_string(token_json.as_deref(), "access_token").ok_or(ProviderError::AuthRequired)?;
+    let access_token = json_string(token_json.as_deref(), "access_token", true)
+        .ok_or(ProviderError::AuthRequired)?;
     let profile_arn =
-        json_string_exact(profile_json.as_deref(), "arn").ok_or(ProviderError::AuthRequired)?;
+        json_string(profile_json.as_deref(), "arn", false).ok_or(ProviderError::AuthRequired)?;
     Ok(KiroIdentity {
         access_token,
         profile_arn,
     })
 }
 
-fn json_string(json: Option<&str>, key: &str) -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(json?)
-        .ok()?
-        .get(key)?
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-fn json_string_exact(json: Option<&str>, key: &str) -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(json?)
-        .ok()?
-        .get(key)?
-        .as_str()
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+/// A non-empty string field of a JSON document; the ARN is matched untrimmed.
+fn json_string(json: Option<&str>, key: &str, trim: bool) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(json?).ok()?;
+    let text = value.get(key)?.as_str()?;
+    let text = if trim { text.trim() } else { text };
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 fn endpoint_for_profile_arn(profile_arn: &str) -> Option<&'static str> {
