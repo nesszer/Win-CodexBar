@@ -57,6 +57,23 @@ impl CostUsagePricing {
             None => family.to_string(),
         }
     }
+
+    fn codex_cost_usd_with_pricing_snapshot(
+        model: &str,
+        input_tokens: u64,
+        cached_input_tokens: u64,
+        output_tokens: u64,
+        pricing_snapshot: Option<&models_dev_pricing::ModelsDevPricingSnapshot>,
+    ) -> Option<f64> {
+        Self::codex_cost_usd_with_cache_write_and_pricing_snapshot(
+            model,
+            input_tokens,
+            cached_input_tokens,
+            0,
+            output_tokens,
+            pricing_snapshot,
+        )
+    }
 }
 
 #[test]
