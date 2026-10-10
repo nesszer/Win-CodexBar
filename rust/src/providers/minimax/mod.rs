@@ -774,78 +774,54 @@ fn billing_record_succeeded(record: &MiniMaxBillingRecord) -> bool {
     }
 }
 
-fn result_from_billing_summary(
-    summary: MiniMaxBillingSummary,
-    source_label: &str,
-) -> ProviderFetchResult {
-    let usage = UsageSnapshot::new(RateWindow::with_details(
-        0.0,
-        None,
-        None,
-        Some(format!(
-            "{} tokens today",
-            format_count(summary.today_tokens)
-        )),
-    ))
-    .with_secondary(RateWindow::with_details(
-        0.0,
-        None,
-        None,
-        Some(format!(
-            "{} tokens over last 30 days",
-            format_count(summary.last_30_days_tokens)
-        )),
-    ))
-    .with_login_method("MiniMax billing");
-    attach_billing_summary(ProviderFetchResult::new(usage, source_label), summary)
-}
-
 fn attach_billing_summary(
     mut result: ProviderFetchResult,
     summary: MiniMaxBillingSummary,
 ) -> ProviderFetchResult {
-    result.usage = result.usage.with_extra_rate_window(
-        "billing-tokens-today",
-        "Tokens today",
-        RateWindow::with_details(0.0, None, None, Some(format_count(summary.today_tokens))),
-    );
-    result.usage = result.usage.with_extra_rate_window(
-        "billing-tokens-30d",
-        "Tokens (30 days)",
-        RateWindow::with_details(
-            0.0,
-            None,
-            None,
-            Some(format_count(summary.last_30_days_tokens)),
+    let mut rows = vec![
+        (
+            "billing-tokens-today".to_string(),
+            "Tokens today".to_string(),
+            format_count(summary.today_tokens),
         ),
-    );
+        (
+            "billing-tokens-30d".to_string(),
+            "Tokens (30 days)".to_string(),
+            format_count(summary.last_30_days_tokens),
+        ),
+    ];
     if let Some(cash) = summary.today_cash {
-        result.usage = result.usage.with_extra_rate_window(
-            "billing-cash-today",
-            "Spend today",
-            RateWindow::with_details(0.0, None, None, Some(format!("${cash:.2}"))),
-        );
+        rows.push((
+            "billing-cash-today".to_string(),
+            "Spend today".to_string(),
+            format!("${cash:.2}"),
+        ));
     }
     if let Some(cash) = summary.last_30_days_cash {
-        result.usage = result.usage.with_extra_rate_window(
-            "billing-cash-30d",
-            "Spend (30 days)",
-            RateWindow::with_details(0.0, None, None, Some(format!("${cash:.2}"))),
-        );
+        rows.push((
+            "billing-cash-30d".to_string(),
+            "Spend (30 days)".to_string(),
+            format!("${cash:.2}"),
+        ));
         result.cost = Some(CostSnapshot::new(cash, "USD", "Last 30 days"));
     }
-    for (idx, item) in summary.top_methods.iter().enumerate() {
-        result.usage = result.usage.with_extra_rate_window(
-            format!("billing-method-{idx}"),
-            format!("Method: {}", item.name),
-            RateWindow::with_details(0.0, None, None, Some(breakdown_description(item))),
-        );
+    for (kind, label, items) in [
+        ("method", "Method", &summary.top_methods),
+        ("model", "Model", &summary.top_models),
+    ] {
+        for (idx, item) in items.iter().enumerate() {
+            rows.push((
+                format!("billing-{kind}-{idx}"),
+                format!("{label}: {}", item.name),
+                breakdown_description(item),
+            ));
+        }
     }
-    for (idx, item) in summary.top_models.iter().enumerate() {
+    for (id, title, detail) in rows {
         result.usage = result.usage.with_extra_rate_window(
-            format!("billing-model-{idx}"),
-            format!("Model: {}", item.name),
-            RateWindow::with_details(0.0, None, None, Some(breakdown_description(item))),
+            id,
+            title,
+            RateWindow::with_details(0.0, None, None, Some(detail)),
         );
     }
     result
@@ -1131,7 +1107,10 @@ mod tests {
             }]
         });
         let summary = parse_billing_summary(&json).unwrap();
-        let result = result_from_billing_summary(summary, "web-billing");
+        let result = attach_billing_summary(
+            ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(0.0)), "web-billing"),
+            summary,
+        );
         assert!(result.cost.is_some());
         assert!(
             result
@@ -1140,6 +1119,82 @@ mod tests {
                 .iter()
                 .any(|window| window.id == "billing-tokens-30d")
         );
+    }
+
+    #[test]
+    fn billing_summary_windows_follow_a_fixed_order() {
+        let breakdown = |name: &str, tokens: i64, cash: Option<f64>| MiniMaxBillingBreakdown {
+            name: name.to_string(),
+            tokens,
+            cash,
+        };
+        let summary = MiniMaxBillingSummary {
+            today_tokens: 1234,
+            last_30_days_tokens: 56789,
+            today_cash: Some(0.5),
+            last_30_days_cash: Some(12.345),
+            top_methods: vec![
+                breakdown("chat", 5000, Some(1.0)),
+                breakdown("audio", 10, None),
+            ],
+            top_models: vec![breakdown("abab6.5", 7000, None)],
+        };
+        let base = || ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(1.0)), "web");
+        let windows = |result: &ProviderFetchResult| -> Vec<(String, String, Option<String>)> {
+            result
+                .usage
+                .extra_rate_windows
+                .iter()
+                .map(|named| {
+                    assert_eq!(named.window.used_percent, 0.0);
+                    assert_eq!(named.window.window_minutes, None);
+                    assert_eq!(named.window.resets_at, None);
+                    (
+                        named.id.clone(),
+                        named.title.clone(),
+                        named.window.reset_description.clone(),
+                    )
+                })
+                .collect()
+        };
+        let row = |id: &str, title: &str, detail: &str| {
+            (id.to_string(), title.to_string(), Some(detail.to_string()))
+        };
+
+        let result = attach_billing_summary(base(), summary.clone());
+        assert_eq!(
+            windows(&result),
+            vec![
+                row("billing-tokens-today", "Tokens today", "1,234"),
+                row("billing-tokens-30d", "Tokens (30 days)", "56,789"),
+                row("billing-cash-today", "Spend today", "$0.50"),
+                row("billing-cash-30d", "Spend (30 days)", "$12.35"),
+                row("billing-method-0", "Method: chat", "5,000 tokens / $1.00"),
+                row("billing-method-1", "Method: audio", "10 tokens"),
+                row("billing-model-0", "Model: abab6.5", "7,000 tokens"),
+            ]
+        );
+        let cost = result.cost.expect("30-day spend sets cost");
+        assert_eq!(cost.used, 12.345);
+        assert_eq!(cost.currency_code, "USD");
+        assert_eq!(result.usage.primary.used_percent, 1.0);
+
+        let no_cash = MiniMaxBillingSummary {
+            today_cash: None,
+            last_30_days_cash: None,
+            top_methods: Vec::new(),
+            top_models: Vec::new(),
+            ..summary
+        };
+        let result = attach_billing_summary(base(), no_cash);
+        assert_eq!(
+            windows(&result),
+            vec![
+                row("billing-tokens-today", "Tokens today", "1,234"),
+                row("billing-tokens-30d", "Tokens (30 days)", "56,789"),
+            ]
+        );
+        assert!(result.cost.is_none());
     }
 
     #[test]

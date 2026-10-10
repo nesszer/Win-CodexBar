@@ -9,31 +9,45 @@ use serde_json::Value;
 
 use crate::core::{ProviderError, RateWindow, UsageSnapshot};
 
-use super::coding_plan::{MiniMaxCodingPlanSnapshot, parse_coding_plan_value};
-#[cfg(test)]
-use super::coding_plan::{RemainsRow, ServiceRow};
+use super::coding_plan::{
+    MiniMaxCodingPlanSnapshot, RemainsRow, ServiceRow, parse_coding_plan_value,
+};
+
+impl ServiceRow {
+    fn rate_window(&self) -> RateWindow {
+        RateWindow::with_details(
+            self.percent,
+            None,
+            self.resets_at,
+            self.reset_description.clone(),
+        )
+    }
+}
+
+impl RemainsRow {
+    fn rate_window(&self) -> RateWindow {
+        RateWindow::with_details(
+            self.percent,
+            self.window_minutes,
+            self.resets_at,
+            self.reset_description.clone(),
+        )
+    }
+}
 
 /// Recursively walk the JSON object tree for the first object having
 /// `model_remains` or `modelRemains` (upstream `findCodingPlanPayload`).
 fn find_coding_plan_payload(obj: &Value) -> Option<&Value> {
-    if let Value::Object(map) = obj {
-        if map.contains_key("model_remains") || map.contains_key("modelRemains") {
-            return Some(obj);
+    match obj {
+        Value::Object(map)
+            if map.contains_key("model_remains") || map.contains_key("modelRemains") =>
+        {
+            Some(obj)
         }
-        for value in map.values() {
-            if let Some(matched) = find_coding_plan_payload(value) {
-                return Some(matched);
-            }
-        }
+        Value::Object(map) => map.values().find_map(find_coding_plan_payload),
+        Value::Array(arr) => arr.iter().find_map(find_coding_plan_payload),
+        _ => None,
     }
-    if let Value::Array(arr) = obj {
-        for value in arr {
-            if let Some(matched) = find_coding_plan_payload(value) {
-                return Some(matched);
-            }
-        }
-    }
-    None
 }
 
 /// Extract `__NEXT_DATA__` JSON from HTML (upstream `nextDataJSONData`).
@@ -361,37 +375,19 @@ pub(super) fn to_usage_snapshot(
             if rows.is_empty() {
                 return Err(ProviderError::Parse("Missing coding plan data.".into()));
             }
-            let first = &rows[0];
-            let primary = RateWindow::with_details(
-                first.percent,
-                None,
-                first.resets_at,
-                first.reset_description.clone(),
-            );
-            let mut usage = UsageSnapshot::new(primary);
+            let mut usage = UsageSnapshot::new(rows[0].rate_window());
 
             // Secondary = second row if present
-            if rows.len() >= 2 {
-                let second = &rows[1];
-                usage = usage.with_secondary(RateWindow::with_details(
-                    second.percent,
-                    None,
-                    second.resets_at,
-                    second.reset_description.clone(),
-                ));
+            if let Some(second) = rows.get(1) {
+                usage = usage.with_secondary(second.rate_window());
             }
 
             // Extra windows for remaining rows
-            for row in rows.iter().skip(if rows.len() >= 2 { 2 } else { 1 }) {
+            for row in rows.iter().skip(2) {
                 usage = usage.with_extra_rate_window(
                     &row.service_type,
                     format!("{} · {}", row.service_type, row.window_type),
-                    RateWindow::with_details(
-                        row.percent,
-                        None,
-                        row.resets_at,
-                        row.reset_description.clone(),
-                    ),
+                    row.rate_window(),
                 );
             }
 
@@ -422,22 +418,11 @@ pub(super) fn to_usage_snapshot(
                 .or_else(|| rows.first())
                 .ok_or_else(|| ProviderError::Parse("Missing coding plan data.".into()))?;
 
-            let primary = RateWindow::with_details(
-                primary_row.percent,
-                primary_row.window_minutes,
-                primary_row.resets_at,
-                primary_row.reset_description.clone(),
-            );
-            let mut usage = UsageSnapshot::new(primary);
+            let mut usage = UsageSnapshot::new(primary_row.rate_window());
 
             // Secondary = first qualifying weekly row
             if let Some(weekly) = rows.iter().find(|r| r.is_weekly) {
-                usage = usage.with_secondary(RateWindow::with_details(
-                    weekly.percent,
-                    weekly.window_minutes,
-                    weekly.resets_at,
-                    weekly.reset_description.clone(),
-                ));
+                usage = usage.with_secondary(weekly.rate_window());
             }
 
             // Every row as an extra window
@@ -448,16 +433,7 @@ pub(super) fn to_usage_snapshot(
                     row.service_type.clone()
                 };
                 let title = format!("{} · {}", row.service_type, row.window_type);
-                usage = usage.with_extra_rate_window(
-                    id,
-                    title,
-                    RateWindow::with_details(
-                        row.percent,
-                        row.window_minutes,
-                        row.resets_at,
-                        row.reset_description.clone(),
-                    ),
-                );
+                usage = usage.with_extra_rate_window(id, title, row.rate_window());
             }
 
             if let Some(pn) = plan_name {
@@ -643,6 +619,184 @@ mod tests {
         let usage = to_usage_snapshot(&snapshot, now()).unwrap();
         assert!((usage.primary.used_percent - 25.0).abs() < 0.01);
         assert_eq!(usage.login_method.as_deref(), Some("Text Generation Pro"));
+    }
+
+    type WindowRow = (
+        String,
+        String,
+        f64,
+        Option<u32>,
+        Option<DateTime<Utc>>,
+        Option<String>,
+    );
+
+    fn window_row(id: &str, title: &str, window: &RateWindow) -> WindowRow {
+        (
+            id.to_string(),
+            title.to_string(),
+            window.used_percent,
+            window.window_minutes,
+            window.resets_at,
+            window.reset_description.clone(),
+        )
+    }
+
+    fn extra_rows(usage: &UsageSnapshot) -> Vec<WindowRow> {
+        usage
+            .extra_rate_windows
+            .iter()
+            .map(|named| window_row(&named.id, &named.title, &named.window))
+            .collect()
+    }
+
+    fn service_row(service_type: &str, window_type: &str, percent: f64) -> ServiceRow {
+        ServiceRow {
+            service_type: service_type.to_string(),
+            window_type: window_type.to_string(),
+            time_range: String::new(),
+            percent,
+            resets_at: Some(now() + Duration::hours(1)),
+            reset_description: Some(format!("{service_type} reset")),
+        }
+    }
+
+    #[test]
+    fn to_usage_snapshot_services_maps_every_row_window() {
+        let single = MiniMaxCodingPlanSnapshot::Services(vec![service_row("Text", "Today", 5.0)]);
+        let usage = to_usage_snapshot(&single, now()).unwrap();
+        assert!(usage.secondary.is_none());
+        assert!(usage.extra_rate_windows.is_empty());
+        assert_eq!(usage.login_method, None);
+
+        let rows = vec![
+            service_row("Text", "Today", 10.0),
+            service_row("Speech Max", "Week", 20.0),
+            service_row("Video", "Month", 30.0),
+        ];
+        let snapshot = MiniMaxCodingPlanSnapshot::Services(rows);
+        let usage = to_usage_snapshot(&snapshot, now()).unwrap();
+        let reset = Some(now() + Duration::hours(1));
+        assert_eq!(
+            window_row("", "", &usage.primary),
+            window_row(
+                "",
+                "",
+                &RateWindow::with_details(10.0, None, reset, Some("Text reset".into()))
+            )
+        );
+        assert_eq!(
+            window_row("", "", usage.secondary.as_ref().unwrap()),
+            window_row(
+                "",
+                "",
+                &RateWindow::with_details(20.0, None, reset, Some("Speech Max reset".into()))
+            )
+        );
+        assert_eq!(
+            extra_rows(&usage),
+            vec![(
+                "Video".to_string(),
+                "Video · Month".to_string(),
+                30.0,
+                None,
+                reset,
+                Some("Video reset".to_string()),
+            )]
+        );
+        assert_eq!(usage.login_method.as_deref(), Some("Speech Max"));
+    }
+
+    #[test]
+    fn to_usage_snapshot_remains_maps_every_row_window() {
+        let row = |window_type: &str, percent: f64, minutes: u32, unlimited: bool, weekly: bool| {
+            RemainsRow {
+                service_type: "general".to_string(),
+                model_name: "General".to_string(),
+                window_type: window_type.to_string(),
+                percent,
+                window_minutes: Some(minutes),
+                resets_at: Some(now() + Duration::minutes(i64::from(minutes))),
+                reset_description: Some(format!("{window_type} reset")),
+                is_unlimited: unlimited,
+                is_weekly: weekly,
+            }
+        };
+        let snapshot = MiniMaxCodingPlanSnapshot::Remains {
+            plan_name: None,
+            rows: vec![
+                row("Unlimited", 0.0, 60, true, false),
+                row("Today", 40.0, 1440, false, false),
+                row("Weekly", 70.0, 10080, false, true),
+            ],
+        };
+        let usage = to_usage_snapshot(&snapshot, now()).unwrap();
+        let at = |minutes: i64| Some(now() + Duration::minutes(minutes));
+        assert_eq!(
+            window_row("", "", &usage.primary),
+            (
+                "".into(),
+                "".into(),
+                40.0,
+                Some(1440),
+                at(1440),
+                Some("Today reset".into())
+            )
+        );
+        assert_eq!(
+            window_row("", "", usage.secondary.as_ref().unwrap()),
+            (
+                "".into(),
+                "".into(),
+                70.0,
+                Some(10080),
+                at(10080),
+                Some("Weekly reset".into())
+            )
+        );
+        assert_eq!(
+            extra_rows(&usage),
+            vec![
+                (
+                    "general".to_string(),
+                    "general · Unlimited".to_string(),
+                    0.0,
+                    Some(60),
+                    at(60),
+                    Some("Unlimited reset".to_string()),
+                ),
+                (
+                    "general".to_string(),
+                    "general · Today".to_string(),
+                    40.0,
+                    Some(1440),
+                    at(1440),
+                    Some("Today reset".to_string()),
+                ),
+                (
+                    "general:weekly".to_string(),
+                    "general · Weekly".to_string(),
+                    70.0,
+                    Some(10080),
+                    at(10080),
+                    Some("Weekly reset".to_string()),
+                ),
+            ]
+        );
+        assert_eq!(usage.login_method, None);
+    }
+
+    #[test]
+    fn coding_plan_payload_search_finds_the_first_nested_object() {
+        let json = serde_json::json!({
+            "a": [1, {"b": {"modelRemains": [], "tag": "camel"}}],
+            "z": {"model_remains": [], "tag": "snake"}
+        });
+        let found = find_coding_plan_payload(&json).unwrap();
+        assert_eq!(found["tag"], "camel");
+        let direct = serde_json::json!([{"model_remains": [], "tag": "array"}]);
+        assert_eq!(find_coding_plan_payload(&direct).unwrap()["tag"], "array");
+        assert!(find_coding_plan_payload(&serde_json::json!({"a": [1, "x"]})).is_none());
+        assert!(find_coding_plan_payload(&serde_json::json!("model_remains")).is_none());
     }
 
     #[test]
