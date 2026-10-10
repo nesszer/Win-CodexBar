@@ -1070,22 +1070,35 @@ mod tests {
         assert_eq!(number_field(&obj, &["missing", "other"]), None);
     }
 
-    fn provider_at(url: &str) -> CodeBuddyProvider {
+    const USAGE_PATH: &str = "/billing/meter/get-user-resource";
+
+    /// Mock the usage endpoint once; `body` is `(content-type, body)`. The
+    /// server guard is returned so the mock outlives the call.
+    async fn mock_usage(
+        status: usize,
+        body: Option<(&str, &str)>,
+        expect: Option<usize>,
+    ) -> (mockito::ServerGuard, mockito::Mock, CodeBuddyProvider) {
+        let mut server = mockito::Server::new_async().await;
+        let mut mock = server.mock("POST", USAGE_PATH).with_status(status);
+        if let Some((content_type, body)) = body {
+            mock = mock
+                .with_header("content-type", content_type)
+                .with_body(body);
+        }
+        if let Some(hits) = expect {
+            mock = mock.expect(hits);
+        }
+        let mock = mock.create_async().await;
         let mut provider = CodeBuddyProvider::new();
-        provider.api_url = url.to_string();
-        provider
+        provider.api_url = format!("{}{USAGE_PATH}", server.url());
+        (server, mock, provider)
     }
 
     #[tokio::test]
     async fn transient_failures_are_retried_exactly_once() {
-        let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("POST", "/billing/meter/get-user-resource")
-            .with_status(500)
-            .expect(2) // one initial attempt + one retry
-            .create_async()
-            .await;
-        let provider = provider_at(&format!("{}/billing/meter/get-user-resource", server.url()));
+        // One initial attempt + one retry.
+        let (_server, mock, provider) = mock_usage(500, None, Some(2)).await;
         let fail = provider.fetch_web("a=1").await.unwrap_err();
         assert!(fail.is_transient());
         mock.assert_async().await;
@@ -1093,14 +1106,8 @@ mod tests {
 
     #[tokio::test]
     async fn auth_required_is_permanent_and_never_retried() {
-        let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("POST", "/billing/meter/get-user-resource")
-            .with_status(401)
-            .expect(1) // auth failures must not be retried
-            .create_async()
-            .await;
-        let provider = provider_at(&format!("{}/billing/meter/get-user-resource", server.url()));
+        // Auth failures must not be retried.
+        let (_server, mock, provider) = mock_usage(401, None, Some(1)).await;
         let fail = provider.fetch_web("a=1").await.unwrap_err();
         assert!(!fail.is_transient());
         assert!(matches!(fail.into_error(), ProviderError::AuthRequired));
@@ -1109,16 +1116,8 @@ mod tests {
 
     #[tokio::test]
     async fn waf_html_body_is_treated_as_transient() {
-        let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("POST", "/billing/meter/get-user-resource")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body("<html><body>edgeone block</body></html>")
-            .expect(2)
-            .create_async()
-            .await;
-        let provider = provider_at(&format!("{}/billing/meter/get-user-resource", server.url()));
+        let html = ("text/html", "<html><body>edgeone block</body></html>");
+        let (_server, mock, provider) = mock_usage(200, Some(html), Some(2)).await;
         let fail = provider.fetch_web("a=1").await.unwrap_err();
         assert!(fail.is_transient());
         mock.assert_async().await;
@@ -1145,17 +1144,8 @@ mod tests {
 
         // Phase A: web success persists typed totals + fingerprint, source=web.
         {
-            let mut server = mockito::Server::new_async().await;
-            let mock = server
-                .mock("POST", "/billing/meter/get-user-resource")
-                .with_status(200)
-                .with_header("content-type", "application/json")
-                .with_body(payload_body)
-                .expect(1)
-                .create_async()
-                .await;
-            let provider =
-                provider_at(&format!("{}/billing/meter/get-user-resource", server.url()));
+            let json_body = ("application/json", payload_body);
+            let (_server, mock, provider) = mock_usage(200, Some(json_body), Some(1)).await;
             let result = provider.fetch_usage(&ctx(SourceMode::Auto)).await.unwrap();
             assert_eq!(result.source_label, "web");
             mock.assert_async().await;
@@ -1174,15 +1164,7 @@ mod tests {
 
         // Phase B: auth failure must surface — never masked by the valid cache.
         {
-            let mut server = mockito::Server::new_async().await;
-            let mock = server
-                .mock("POST", "/billing/meter/get-user-resource")
-                .with_status(401)
-                .expect(1)
-                .create_async()
-                .await;
-            let provider =
-                provider_at(&format!("{}/billing/meter/get-user-resource", server.url()));
+            let (_server, mock, provider) = mock_usage(401, None, Some(1)).await;
             let err = provider
                 .fetch_usage(&ctx(SourceMode::Auto))
                 .await
@@ -1193,15 +1175,7 @@ mod tests {
 
         // Phase C: transient failure in Auto falls back to the cache (source=cli).
         {
-            let mut server = mockito::Server::new_async().await;
-            let mock = server
-                .mock("POST", "/billing/meter/get-user-resource")
-                .with_status(500)
-                .expect(2)
-                .create_async()
-                .await;
-            let provider =
-                provider_at(&format!("{}/billing/meter/get-user-resource", server.url()));
+            let (_server, mock, provider) = mock_usage(500, None, Some(2)).await;
             let result = provider.fetch_usage(&ctx(SourceMode::Auto)).await.unwrap();
             assert_eq!(result.source_label, "cli");
             assert_eq!(
@@ -1223,14 +1197,7 @@ mod tests {
             json["accountHash"] = json!("deadbeefdeadbeef");
             std::fs::write(&cache_path, serde_json::to_string_pretty(&json).unwrap()).unwrap();
 
-            let mut server = mockito::Server::new_async().await;
-            server
-                .mock("POST", "/billing/meter/get-user-resource")
-                .with_status(500)
-                .create_async()
-                .await;
-            let provider =
-                provider_at(&format!("{}/billing/meter/get-user-resource", server.url()));
+            let (_server, _mock, provider) = mock_usage(500, None, None).await;
             assert!(provider.fetch_usage(&ctx(SourceMode::Auto)).await.is_err());
 
             // Web mode with a transient failure must not fall back at all.
