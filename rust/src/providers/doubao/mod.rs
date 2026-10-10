@@ -974,35 +974,33 @@ mod tests {
     }
     use reqwest::header::{HeaderMap, HeaderValue};
 
+    /// Probe result for `status` with `(remaining, limit)` rate-limit headers.
+    fn probe_with(
+        status: reqwest::StatusCode,
+        remaining: Option<&'static str>,
+        limit: Option<&'static str>,
+    ) -> DoubaoProbeResult {
+        let mut headers = HeaderMap::new();
+        for (name, value) in [
+            ("x-ratelimit-remaining-requests", remaining),
+            ("x-ratelimit-limit-requests", limit),
+        ] {
+            if let Some(value) = value {
+                headers.insert(name, HeaderValue::from_static(value));
+            }
+        }
+        probe_result_from_response(status, &headers, &json!({}))
+    }
+
     #[test]
     fn doubao_snapshot_uses_rate_limit_headers() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-ratelimit-remaining-requests",
-            HeaderValue::from_static("25"),
-        );
-        headers.insert(
-            "x-ratelimit-limit-requests",
-            HeaderValue::from_static("100"),
-        );
-        let snapshot =
-            probe_result_from_response(reqwest::StatusCode::OK, &headers, &json!({})).snapshot;
+        let snapshot = probe_with(reqwest::StatusCode::OK, Some("25"), Some("100")).snapshot;
         assert_eq!(snapshot.primary.used_percent, 75.0);
     }
 
     #[test]
     fn doubao_repeated_successful_zero_remaining_falls_back_to_active() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-ratelimit-remaining-requests",
-            HeaderValue::from_static("0"),
-        );
-        headers.insert(
-            "x-ratelimit-limit-requests",
-            HeaderValue::from_static("1000"),
-        );
-
-        let result = probe_result_from_response(reqwest::StatusCode::OK, &headers, &json!({}));
+        let result = probe_with(reqwest::StatusCode::OK, Some("0"), Some("1000"));
         assert!(result.has_ambiguous_zero_remaining());
 
         let snapshot = snapshot_from_parts(
@@ -1021,17 +1019,8 @@ mod tests {
 
     #[test]
     fn doubao_rate_limit_with_limit_header_reports_exhausted() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-ratelimit-limit-requests",
-            HeaderValue::from_static("1000"),
-        );
-        let snapshot = probe_result_from_response(
-            reqwest::StatusCode::TOO_MANY_REQUESTS,
-            &headers,
-            &json!({}),
-        )
-        .snapshot;
+        let snapshot =
+            probe_with(reqwest::StatusCode::TOO_MANY_REQUESTS, None, Some("1000")).snapshot;
 
         assert_eq!(snapshot.primary.used_percent, 100.0);
         assert_eq!(
@@ -1042,12 +1031,7 @@ mod tests {
 
     #[test]
     fn doubao_bare_rate_limit_uses_active_fallback() {
-        let snapshot = probe_result_from_response(
-            reqwest::StatusCode::TOO_MANY_REQUESTS,
-            &HeaderMap::new(),
-            &json!({}),
-        )
-        .snapshot;
+        let snapshot = probe_with(reqwest::StatusCode::TOO_MANY_REQUESTS, None, None).snapshot;
 
         assert_eq!(snapshot.primary.used_percent, 0.0);
         assert_eq!(
