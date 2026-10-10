@@ -60,7 +60,8 @@ impl CodebuffProvider {
     }
 
     fn get_api_key(api_key: Option<&str>) -> Result<String, ProviderError> {
-        Self::api_key_from_argument(api_key)
+        api_key
+            .and_then(clean_api_key)
             .or_else(Self::api_key_from_keyring)
             .or_else(Self::api_key_from_env)
             .or_else(Self::api_key_from_credentials_file)
@@ -70,10 +71,6 @@ impl CodebuffProvider {
                         .to_string(),
                 )
             })
-    }
-
-    fn api_key_from_argument(api_key: Option<&str>) -> Option<String> {
-        api_key.and_then(clean_api_key)
     }
 
     fn api_key_from_keyring() -> Option<String> {

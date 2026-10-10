@@ -143,88 +143,59 @@ mod tests {
 
     #[test]
     fn provider_status_messages_are_pinned() {
-        let deepgram_projects = StatusPolicy::auth_401("Deepgram projects API")
-            .forbidden("Deepgram API key does not have Management API access.".to_string());
-        let deepgram_usage = StatusPolicy::auth_401("Deepgram usage API")
-            .forbidden("Deepgram API key cannot read usage for project p1.".to_string());
-        let rows: [(&StatusPolicy<'_>, u16, &str); 22] = [
-            (&StatusPolicy::auth_401_403("CrossModel credits"), 200, "ok"),
+        let policies = [
+            StatusPolicy::auth_401_403("CrossModel credits"),
+            StatusPolicy::auth_401("Codebuff API"),
+            StatusPolicy::auth_401("Deepgram projects API")
+                .forbidden("Deepgram API key does not have Management API access.".to_string()),
+            StatusPolicy::auth_401("Deepgram usage API")
+                .forbidden("Deepgram API key cannot read usage for project p1.".to_string()),
+            StatusPolicy::auth_401("NanoGPT API"),
+            StatusPolicy::auth_401_403("Poe usage"),
+            StatusPolicy::status_only("Poe history"),
+        ];
+        let rows: &[(usize, u16, &str)] = &[
+            (0, 200, "ok"),
+            (0, 401, "auth"),
+            (0, 403, "auth"),
             (
-                &StatusPolicy::auth_401_403("CrossModel credits"),
-                401,
-                "auth",
-            ),
-            (
-                &StatusPolicy::auth_401_403("CrossModel credits"),
-                403,
-                "auth",
-            ),
-            (
-                &StatusPolicy::auth_401_403("CrossModel credits"),
+                0,
                 500,
                 "CrossModel credits returned status 500 Internal Server Error",
             ),
-            (&StatusPolicy::auth_401("Codebuff API"), 401, "auth"),
+            (1, 401, "auth"),
+            (1, 403, "Codebuff API returned status 403 Forbidden"),
+            (1, 429, "Codebuff API returned status 429 Too Many Requests"),
+            (2, 200, "ok"),
+            (2, 401, "auth"),
             (
-                &StatusPolicy::auth_401("Codebuff API"),
-                403,
-                "Codebuff API returned status 403 Forbidden",
-            ),
-            (
-                &StatusPolicy::auth_401("Codebuff API"),
-                429,
-                "Codebuff API returned status 429 Too Many Requests",
-            ),
-            (&deepgram_projects, 200, "ok"),
-            (&deepgram_projects, 401, "auth"),
-            (
-                &deepgram_projects,
+                2,
                 403,
                 "Deepgram API key does not have Management API access.",
             ),
             (
-                &deepgram_projects,
+                2,
                 502,
                 "Deepgram projects API returned status 502 Bad Gateway",
             ),
-            (&deepgram_usage, 401, "auth"),
-            (
-                &deepgram_usage,
-                403,
-                "Deepgram API key cannot read usage for project p1.",
-            ),
-            (
-                &deepgram_usage,
-                404,
-                "Deepgram usage API returned status 404 Not Found",
-            ),
-            (&StatusPolicy::auth_401("NanoGPT API"), 401, "auth"),
-            (
-                &StatusPolicy::auth_401("NanoGPT API"),
-                403,
-                "NanoGPT API returned status 403 Forbidden",
-            ),
-            (&StatusPolicy::auth_401_403("Poe usage"), 401, "auth"),
-            (&StatusPolicy::auth_401_403("Poe usage"), 403, "auth"),
-            (
-                &StatusPolicy::auth_401_403("Poe usage"),
-                503,
-                "Poe usage returned status 503 Service Unavailable",
-            ),
-            (
-                &StatusPolicy::status_only("Poe history"),
-                401,
-                "Poe history returned status 401 Unauthorized",
-            ),
-            (
-                &StatusPolicy::status_only("Poe history"),
-                403,
-                "Poe history returned status 403 Forbidden",
-            ),
-            (&StatusPolicy::status_only("Poe history"), 204, "ok"),
+            (3, 401, "auth"),
+            (3, 403, "Deepgram API key cannot read usage for project p1."),
+            (3, 404, "Deepgram usage API returned status 404 Not Found"),
+            (4, 401, "auth"),
+            (4, 403, "NanoGPT API returned status 403 Forbidden"),
+            (5, 401, "auth"),
+            (5, 403, "auth"),
+            (5, 503, "Poe usage returned status 503 Service Unavailable"),
+            (6, 401, "Poe history returned status 401 Unauthorized"),
+            (6, 403, "Poe history returned status 403 Forbidden"),
+            (6, 204, "ok"),
         ];
-        for (policy, status, expected) in rows {
-            assert_eq!(outcome(policy, status), expected, "status {status}");
+        for &(policy, status, expected) in rows {
+            assert_eq!(
+                outcome(&policies[policy], status),
+                expected,
+                "row {policy}/{status}"
+            );
         }
     }
 }

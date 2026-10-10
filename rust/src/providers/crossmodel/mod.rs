@@ -188,21 +188,18 @@ fn usage_window_rate(window: Option<&UsageWindow>, label: &str) -> Option<RateWi
     let window = window?;
     let cost = major_units(window.cost_micro);
     let mut details = vec![format!("{} cost {}", label, format_amount(cost, "USD"))];
-    if let Some(tokens) = window.total_tokens {
-        details.push(format!("{tokens} tokens"));
-    }
-    if let Some(requests) = window.request_count {
-        details.push(format!("{requests} requests"));
-    }
-    if let Some(successes) = window.success_count {
-        details.push(format!("{successes} successes"));
-    }
-    if let Some(prompt_tokens) = window.prompt_tokens {
-        details.push(format!("{prompt_tokens} prompt"));
-    }
-    if let Some(completion_tokens) = window.completion_tokens {
-        details.push(format!("{completion_tokens} completion"));
-    }
+    let counts = [
+        (window.total_tokens, "tokens"),
+        (window.request_count, "requests"),
+        (window.success_count, "successes"),
+        (window.prompt_tokens, "prompt"),
+        (window.completion_tokens, "completion"),
+    ];
+    details.extend(
+        counts
+            .into_iter()
+            .filter_map(|(count, unit)| Some(format!("{} {unit}", count?))),
+    );
     Some(RateWindow::with_details(
         0.0,
         None,
@@ -291,13 +288,11 @@ mod tests {
         );
 
         assert_eq!(result.cost.unwrap().limit, Some(8.059489));
-        assert!(
-            result
-                .usage
-                .primary
-                .reset_description
-                .unwrap()
-                .contains("12467 tokens")
+        assert_eq!(
+            result.usage.primary.reset_description.as_deref(),
+            Some(
+                "Daily cost $0.01, 12467 tokens, 9 requests, 9 successes, 9176 prompt, 3291 completion"
+            )
         );
     }
 }
