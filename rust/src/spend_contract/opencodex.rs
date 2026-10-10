@@ -11,7 +11,7 @@ use crate::core::{
 
 use super::{
     ActivityHistogram, CostCoverageCounts, CostProvenance, CustomPricing, CustomRates,
-    ImportedSpendSource, SpendDailyPoint, SpendModelRow, SpendTokenMix,
+    ImportedSpendSource, SpendDailyPoint, SpendModelRow, SpendTokenMix, add_optional,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -655,15 +655,6 @@ fn nonnegative_u64(value: Option<&Value>) -> Option<u64> {
     let parsed =
         (number.is_finite() && number >= 0.0 && number < u64::MAX as f64).then_some(number as u64);
     parsed
-}
-
-fn add_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
-    match (left, right) {
-        (Some(left), Some(right)) => left.checked_add(right),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
-    }
 }
 
 #[cfg(test)]
