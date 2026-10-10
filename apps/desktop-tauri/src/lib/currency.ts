@@ -68,17 +68,6 @@ export function formatDisplayCurrency(
   }
 }
 
-export function mergeValidCurrencyRates(input: Record<string, number>): Record<string, number> {
-  const rates = { ...FALLBACK_CURRENCY_RATES };
-  for (const code of SUPPORTED_CURRENCIES) {
-    const value = input[code];
-    if (Number.isFinite(value) && value > 0 && (code !== "USD" || Math.abs(value - 1) <= Number.EPSILON)) {
-      rates[code] = value;
-    }
-  }
-  return rates;
-}
-
 export function sumDisplayCurrencyAmounts(
   rows: Array<{ amount: number | null | undefined; currency: string }>,
   preferredCode: string,
