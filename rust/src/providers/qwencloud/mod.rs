@@ -746,36 +746,30 @@ fn date_field(value: &Value, key: &str) -> Option<DateTime<Utc>> {
     value.as_object().and_then(|map| parse_date(map.get(key)))
 }
 
-fn find_object_containing_any_of(value: &Value, keys: &[&str]) -> Option<Value> {
+/// Depth-first search: `probe` runs on each node before its children, and
+/// the first `Some` wins. Probes return `None` for arrays and scalars.
+fn deep_find<'a, T>(value: &'a Value, probe: &impl Fn(&'a Value) -> Option<T>) -> Option<T> {
+    if let Some(found) = probe(value) {
+        return Some(found);
+    }
     match value {
-        Value::Object(map) => {
-            if keys.iter().any(|key| map.contains_key(*key)) {
-                return Some(Value::Object(map.clone()));
-            }
-            map.values()
-                .find_map(|nested| find_object_containing_any_of(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_object_containing_any_of(nested, keys)),
+        Value::Object(map) => map.values().find_map(|nested| deep_find(nested, probe)),
+        Value::Array(values) => values.iter().find_map(|nested| deep_find(nested, probe)),
         _ => None,
     }
 }
 
+fn find_object_containing_any_of(value: &Value, keys: &[&str]) -> Option<Value> {
+    deep_find(value, &|node| {
+        let map = node.as_object()?;
+        keys.iter()
+            .any(|key| map.contains_key(*key))
+            .then(|| node.clone())
+    })
+}
+
 fn find_first_value_for_key(value: &Value, key: &str) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if let Some(nested) = map.get(key) {
-                return Some(nested.clone());
-            }
-            map.values()
-                .find_map(|nested| find_first_value_for_key(nested, key))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_value_for_key(nested, key)),
-        _ => None,
-    }
+    deep_find(value, &|node| node.as_object()?.get(key).cloned())
 }
 
 const PLAN_NAME_KEYS: &[&str] = &[
@@ -927,60 +921,24 @@ fn find_quota_info(value: &Value) -> Option<Value> {
             .chain(REMAINING_QUOTA_KEYS.iter())
             .copied()
             .collect();
-        find_first_object_with_any_key(value, &keys)
+        find_object_containing_any_of(value, &keys)
     })
 }
 
 fn find_first_object(value: &Value, keys: &[&str]) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(nested) = map.get(*key).filter(|v| v.is_object()) {
-                    return Some(nested.clone());
-                }
-            }
-            map.values()
-                .find_map(|nested| find_first_object(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_object(nested, keys)),
-        _ => None,
-    }
-}
-
-fn find_first_object_with_any_key(value: &Value, keys: &[&str]) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if keys.iter().any(|key| map.contains_key(*key)) {
-                return Some(Value::Object(map.clone()));
-            }
-            map.values()
-                .find_map(|nested| find_first_object_with_any_key(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_object_with_any_key(nested, keys)),
-        _ => None,
-    }
+    deep_find(value, &|node| {
+        let map = node.as_object()?;
+        keys.iter()
+            .find_map(|key| map.get(*key).filter(|v| v.is_object()).cloned())
+    })
 }
 
 fn find_first_array(value: &Value, keys: &[&str]) -> Option<Vec<Value>> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(Value::Array(values)) = map.get(*key) {
-                    return Some(values.clone());
-                }
-            }
-            map.values()
-                .find_map(|nested| find_first_array(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_array(nested, keys)),
-        _ => None,
-    }
+    deep_find(value, &|node| {
+        let map = node.as_object()?;
+        keys.iter()
+            .find_map(|key| map.get(*key).and_then(Value::as_array).cloned())
+    })
 }
 
 fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
@@ -990,15 +948,7 @@ fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
 }
 
 fn find_first_string(value: &Value, keys: &[&str]) -> Option<String> {
-    first_string(value, keys).or_else(|| match value {
-        Value::Object(map) => map
-            .values()
-            .find_map(|nested| find_first_string(nested, keys)),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_string(nested, keys)),
-        _ => None,
-    })
+    deep_find(value, &|node| first_string(node, keys))
 }
 
 fn first_f64(value: &Value, keys: &[&str]) -> Option<f64> {
@@ -1008,48 +958,21 @@ fn first_f64(value: &Value, keys: &[&str]) -> Option<f64> {
 }
 
 fn find_first_f64(value: &Value, keys: &[&str]) -> Option<f64> {
-    first_f64(value, keys).or_else(|| match value {
-        Value::Object(map) => map.values().find_map(|nested| find_first_f64(nested, keys)),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_f64(nested, keys)),
-        _ => None,
-    })
+    deep_find(value, &|node| first_f64(node, keys))
 }
 
 fn find_first_i64(value: &Value, keys: &[&str]) -> Option<i64> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(parsed) = parse_i64(map.get(*key)) {
-                    return Some(parsed);
-                }
-            }
-            map.values().find_map(|nested| find_first_i64(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_i64(nested, keys)),
-        _ => None,
-    }
+    deep_find(value, &|node| {
+        let map = node.as_object()?;
+        keys.iter().find_map(|key| parse_i64(map.get(*key)))
+    })
 }
 
 fn find_first_bool(value: &Value, keys: &[&str]) -> Option<bool> {
-    match value {
-        Value::Object(map) => {
-            for key in keys {
-                if let Some(parsed) = parse_bool(map.get(*key)) {
-                    return Some(parsed);
-                }
-            }
-            map.values()
-                .find_map(|nested| find_first_bool(nested, keys))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_bool(nested, keys)),
-        _ => None,
-    }
+    deep_find(value, &|node| {
+        let map = node.as_object()?;
+        keys.iter().find_map(|key| parse_bool(map.get(*key)))
+    })
 }
 
 fn first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
@@ -1059,15 +982,7 @@ fn first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
 }
 
 fn find_first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
-    first_date(value, keys).or_else(|| match value {
-        Value::Object(map) => map
-            .values()
-            .find_map(|nested| find_first_date(nested, keys)),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_date(nested, keys)),
-        _ => None,
-    })
+    deep_find(value, &|node| first_date(node, keys))
 }
 
 fn parse_string(value: Option<&Value>) -> Option<String> {
