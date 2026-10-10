@@ -77,14 +77,7 @@ pub(super) fn weekly_all_window(limits: &[ScopedWeeklyLimit]) -> Option<RateWind
         if limit.group.as_deref().is_some_and(|g| g != "weekly") {
             return None;
         }
-        let percent = limit.percent.filter(|value| value.is_finite())?;
-        let resets_at = limit_resets_at(limit);
-        Some(RateWindow::with_details(
-            percent.clamp(0.0, 100.0),
-            Some(7 * 24 * 60),
-            resets_at,
-            None,
-        ))
+        limit_window(limit, 7 * 24 * 60)
     })
 }
 
@@ -101,15 +94,19 @@ pub(super) fn session_window(limits: &[ScopedWeeklyLimit]) -> Option<RateWindow>
         if limit.group.as_deref().is_some_and(|g| g != "session") {
             return None;
         }
-        let percent = limit.percent.filter(|value| value.is_finite())?;
-        let resets_at = limit_resets_at(limit);
-        Some(RateWindow::with_details(
-            percent.clamp(0.0, 100.0),
-            Some(5 * 60),
-            resets_at,
-            None,
-        ))
+        limit_window(limit, 5 * 60)
     })
+}
+
+/// A finite `percent`, clamped, as a window of `minutes`.
+fn limit_window(limit: &ScopedWeeklyLimit, minutes: u32) -> Option<RateWindow> {
+    let percent = limit.percent.filter(|value| value.is_finite())?;
+    Some(RateWindow::with_details(
+        percent.clamp(0.0, 100.0),
+        Some(minutes),
+        limit_resets_at(limit),
+        None,
+    ))
 }
 
 fn limit_resets_at(limit: &ScopedWeeklyLimit) -> Option<DateTime<Utc>> {

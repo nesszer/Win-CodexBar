@@ -209,6 +209,18 @@ struct CacheCreation {
     total_input_tokens: Option<i64>,
 }
 
+impl MessageResult {
+    fn input_tokens(&self) -> i64 {
+        self.uncached_input_tokens.unwrap_or(0)
+            + self
+                .cache_creation
+                .as_ref()
+                .and_then(|c| c.total_input_tokens)
+                .unwrap_or(0)
+            + self.cache_read_input_tokens.unwrap_or(0)
+    }
+}
+
 fn result_from_admin_usage(
     costs: &CostReportResponse,
     messages: &MessagesUsageResponse,
@@ -225,14 +237,7 @@ fn result_from_admin_usage(
         .data
         .iter()
         .flat_map(|bucket| &bucket.results)
-        .map(|r| {
-            r.uncached_input_tokens.unwrap_or(0)
-                + r.cache_creation
-                    .as_ref()
-                    .and_then(|c| c.total_input_tokens)
-                    .unwrap_or(0)
-                + r.cache_read_input_tokens.unwrap_or(0)
-        })
+        .map(MessageResult::input_tokens)
         .sum();
     let output_tokens: i64 = messages
         .data
@@ -278,26 +283,13 @@ fn result_from_admin_usage(
     .with_login_method("Admin API");
     usage.updated_at = now;
 
-    let mut model_tokens: HashMap<String, i64> = HashMap::new();
-    for result in messages.data.iter().flat_map(|bucket| &bucket.results) {
-        let name = result
-            .model
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("Claude API");
-        let tokens = result.uncached_input_tokens.unwrap_or(0)
-            + result
-                .cache_creation
-                .as_ref()
-                .and_then(|c| c.total_input_tokens)
-                .unwrap_or(0)
-            + result.cache_read_input_tokens.unwrap_or(0)
-            + result.output_tokens.unwrap_or(0);
-        *model_tokens.entry(name.to_string()).or_default() += tokens;
-    }
-    let mut top_models: Vec<_> = model_tokens.into_iter().collect();
-    top_models.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let top_models = ranked_totals(
+        messages.data.iter().flat_map(|bucket| &bucket.results),
+        |result| result.model.as_deref(),
+        "Claude API",
+        |result| result.input_tokens() + result.output_tokens.unwrap_or(0),
+        |a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)),
+    );
     for (idx, (model, tokens)) in top_models.into_iter().take(3).enumerate() {
         usage = usage.with_extra_rate_window(
             format!("model-{idx}"),
@@ -306,19 +298,18 @@ fn result_from_admin_usage(
         );
     }
 
-    let mut cost_items: HashMap<String, f64> = HashMap::new();
-    for result in costs.data.iter().flat_map(|bucket| &bucket.results) {
-        let name = result
-            .description
-            .as_deref()
-            .or(result.cost_type.as_deref())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("Claude API");
-        *cost_items.entry(name.to_string()).or_default() += usd_from_lowest_unit(&result.amount);
-    }
-    let mut top_items: Vec<_> = cost_items.into_iter().collect();
-    top_items.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let top_items = ranked_totals(
+        costs.data.iter().flat_map(|bucket| &bucket.results),
+        |result| {
+            result
+                .description
+                .as_deref()
+                .or(result.cost_type.as_deref())
+        },
+        "Claude API",
+        |result| usd_from_lowest_unit(&result.amount),
+        |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal),
+    );
     for (idx, (item, cost)) in top_items.into_iter().take(3).enumerate() {
         usage = usage.with_extra_rate_window(
             format!("cost-{idx}"),
@@ -342,21 +333,16 @@ fn result_from_admin_usage(
 /// only when the report spans more than one workspace; a single workspace adds
 /// nothing over the organization view.
 fn workspace_spend_rows(costs: &CostReportResponse) -> Vec<ProviderDisplayDetail> {
-    let mut workspaces: HashMap<String, f64> = HashMap::new();
-    for result in costs.data.iter().flat_map(|bucket| &bucket.results) {
-        let name = result
-            .workspace_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("Default");
-        *workspaces.entry(name.to_string()).or_default() += usd_from_lowest_unit(&result.amount);
-    }
-    if workspaces.len() < 2 {
+    let ranked = ranked_totals(
+        costs.data.iter().flat_map(|bucket| &bucket.results),
+        |result| result.workspace_id.as_deref(),
+        "Default",
+        |result| usd_from_lowest_unit(&result.amount),
+        |a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)),
+    );
+    if ranked.len() < 2 {
         return Vec::new();
     }
-    let mut ranked: Vec<_> = workspaces.into_iter().collect();
-    ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     ranked
         .into_iter()
         .take(MAX_WORKSPACE_ROWS)
@@ -370,6 +356,27 @@ fn workspace_spend_rows(costs: &CostReportResponse) -> Vec<ProviderDisplayDetail
             .with_section_title(WORKSPACE_SECTION_TITLE)
         })
         .collect()
+}
+
+/// Sums `value` per trimmed, non-empty `name` (else `fallback`), sorted by `order`.
+fn ranked_totals<'a, R: 'a, V: Copy + Default + std::ops::AddAssign>(
+    rows: impl Iterator<Item = &'a R>,
+    name: impl Fn(&'a R) -> Option<&'a str>,
+    fallback: &str,
+    value: impl Fn(&R) -> V,
+    order: impl FnMut(&(String, V), &(String, V)) -> std::cmp::Ordering,
+) -> Vec<(String, V)> {
+    let mut totals: HashMap<String, V> = HashMap::new();
+    for row in rows {
+        let key = name(row)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(fallback);
+        *totals.entry(key.to_string()).or_default() += value(row);
+    }
+    let mut ranked: Vec<_> = totals.into_iter().collect();
+    ranked.sort_by(order);
+    ranked
 }
 
 fn usd_from_lowest_unit(raw: &str) -> f64 {

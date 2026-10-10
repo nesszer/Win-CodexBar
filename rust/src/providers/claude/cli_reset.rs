@@ -165,42 +165,33 @@ pub(super) fn parse_claude_reset_date_in_system_zone(
     let (raw, timezone) = normalize_claude_reset_text(text, system_timezone)?;
     let components = parse_claude_reset_components(&raw)?;
     let now_local = now.with_timezone(&timezone);
-    let candidates = match (components.year, components.month, components.day) {
-        (Some(year), Some(month), Some(day)) => local_reset_occurrences(
-            timezone,
-            year,
-            month,
-            day,
-            components.hour,
-            components.minute,
-        ),
+    // Without a year, try nearby years; without a date, yesterday to tomorrow.
+    let dates: Vec<(i32, u32, u32)> = match (components.year, components.month, components.day) {
+        (Some(year), Some(month), Some(day)) => vec![(year, month, day)],
         (None, Some(month), Some(day)) => (now_local.year() - 8..=now_local.year() + 8)
-            .flat_map(|year| {
-                local_reset_occurrences(
-                    timezone,
-                    year,
-                    month,
-                    day,
-                    components.hour,
-                    components.minute,
-                )
-            })
+            .map(|year| (year, month, day))
             .collect(),
         (None, None, None) => (-1..=1)
-            .flat_map(|offset| {
+            .map(|offset| {
                 let date = now_local.date_naive() + Duration::days(offset);
-                local_reset_occurrences(
-                    timezone,
-                    date.year(),
-                    date.month(),
-                    date.day(),
-                    components.hour,
-                    components.minute,
-                )
+                (date.year(), date.month(), date.day())
             })
             .collect(),
         _ => return None,
     };
+    let candidates = dates
+        .into_iter()
+        .flat_map(|(year, month, day)| {
+            local_reset_occurrences(
+                timezone,
+                year,
+                month,
+                day,
+                components.hour,
+                components.minute,
+            )
+        })
+        .collect();
 
     resolve_claude_reset_occurrence(candidates, now, expected_window_minutes)
 }
@@ -313,21 +304,14 @@ fn parse_claude_hour(
 }
 
 fn claude_month(month: &str) -> Option<u32> {
-    match month.to_ascii_lowercase().as_str() {
-        "jan" => Some(1),
-        "feb" => Some(2),
-        "mar" => Some(3),
-        "apr" => Some(4),
-        "may" => Some(5),
-        "jun" => Some(6),
-        "jul" => Some(7),
-        "aug" => Some(8),
-        "sep" => Some(9),
-        "oct" => Some(10),
-        "nov" => Some(11),
-        "dec" => Some(12),
-        _ => None,
-    }
+    const MONTHS: [&str; 12] = [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
+    let month = month.to_ascii_lowercase();
+    (1..)
+        .zip(MONTHS)
+        .find(|(_, name)| *name == month)
+        .map(|(number, _)| number)
 }
 
 fn local_reset_occurrences(

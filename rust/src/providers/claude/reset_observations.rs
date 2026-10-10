@@ -60,20 +60,8 @@ pub fn load_reset_observations(
     account_scope: &str,
 ) -> Result<Vec<ClaudeQuotaResetObservation>, ClaudeResetObservationError> {
     validate_scope(account_scope)?;
-    let path = store_path(config_root);
-    let raw = match secure_file::read_string(&path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(ClaudeResetObservationError::Read(error)),
-    };
-    let store: ClaudeResetObservationStore =
-        serde_json::from_str(&raw).map_err(ClaudeResetObservationError::Deserialize)?;
-    validate_store(&store)?;
-    Ok(store
-        .accounts
-        .get(account_scope)
-        .cloned()
-        .unwrap_or_default())
+    let mut store = load_store(&store_path(config_root))?;
+    Ok(store.accounts.remove(account_scope).unwrap_or_default())
 }
 
 pub fn merge_reset_observations(

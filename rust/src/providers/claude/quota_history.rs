@@ -158,24 +158,21 @@ pub fn aggregate_claude_quota_windows(
         history_coverage_established,
     } = options;
     let account_scope = account_scope.into();
+    let empty = |account_scope| ClaudeQuotaHistoryReport {
+        account_scope,
+        windows: Vec::new(),
+        history_coverage_established,
+    };
     let count = max_windows.clamp(1, 8);
     let duration_minutes = normalized_window_minutes(window_minutes);
     let duration = Duration::minutes(duration_minutes);
     let Some(live_reset_at) = live_reset_at.filter(|reset| reset.timestamp_millis() > 0) else {
-        return ClaudeQuotaHistoryReport {
-            account_scope,
-            windows: Vec::new(),
-            history_coverage_established,
-        };
+        return empty(account_scope);
     };
 
     let evidence = ResetEvidence::new(&account_scope, observations, now);
     if evidence.is_cancelled(live_reset_at) {
-        return ClaudeQuotaHistoryReport {
-            account_scope,
-            windows: Vec::new(),
-            history_coverage_established,
-        };
+        return empty(account_scope);
     }
     let current_end = current_window_end(live_reset_at, now, duration);
     let boundaries = quota_boundaries(current_end, duration, &evidence, count);
@@ -188,11 +185,7 @@ pub fn aggregate_claude_quota_windows(
     // transcript rows. Keep the account-scoped surface absent until a source
     // supplies explicit attribution for at least one row.
     if attributed_records.is_empty() {
-        return ClaudeQuotaHistoryReport {
-            account_scope,
-            windows: Vec::new(),
-            history_coverage_established,
-        };
+        return empty(account_scope);
     }
     let deduped = deduplicate_claude_records(attributed_records);
 
