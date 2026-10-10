@@ -4,19 +4,10 @@
 //! Uses API token stored in Windows Credential Manager
 
 mod balance;
-pub mod mcp_details;
 pub mod region;
 mod reset_plausibility;
 pub mod settings;
 
-// Re-exports for MCP details menu
-#[allow(
-    unused_imports,
-    reason = "imports needed for future ZAI provider wiring"
-)]
-pub use mcp_details::{
-    McpDetailsMenu, ZaiLimitEntry, ZaiLimitType, ZaiLimitUnit, ZaiUsageDetail, ZaiUsageSnapshot,
-};
 pub use region::ZaiRegion;
 pub use settings::ZaiSettingsError;
 
