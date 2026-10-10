@@ -360,41 +360,16 @@ impl BedrockProvider {
         region: &str,
     ) -> Result<BedrockClaudeActivity, ProviderError> {
         let endpoint = format!("https://monitoring.{region}.amazonaws.com");
-        let body_bytes = cloudwatch_request_body()?;
-        let body_hash = sha256_hex(&body_bytes);
-        let now = Utc::now();
-        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
-        let date_stamp = now.format("%Y%m%d").to_string();
-        let authorization = sign_authorization_for(
-            credentials,
-            AwsSigningRequest {
-                date_stamp: &date_stamp,
-                amz_date: &amz_date,
-                body_hash: &body_hash,
-                url: &endpoint,
-                body: &body_bytes,
-                target: CLOUDWATCH_TARGET,
+        let response = self
+            .signed_post(
+                credentials,
+                &endpoint,
+                cloudwatch_request_body()?,
+                CLOUDWATCH_TARGET,
                 region,
-                service: CLOUDWATCH_SERVICE,
-            },
-        )?;
-        let host = reqwest::Url::parse(&endpoint)
-            .ok()
-            .and_then(|u| u.host_str().map(str::to_string))
-            .unwrap_or_else(|| format!("monitoring.{region}.amazonaws.com"));
-        let mut request = self
-            .client
-            .post(endpoint)
-            .header("Content-Type", "application/x-amz-json-1.1")
-            .header("Host", host)
-            .header("X-Amz-Target", CLOUDWATCH_TARGET)
-            .header("X-Amz-Date", amz_date)
-            .header("x-amz-content-sha256", body_hash)
-            .header("Authorization", authorization);
-        if let Some(token) = &credentials.session_token {
-            request = request.header("X-Amz-Security-Token", token);
-        }
-        let response = request.body(body_bytes).send().await?;
+                CLOUDWATCH_SERVICE,
+            )
+            .await?;
         let status = response.status();
         let text = response.text().await?;
         if !status.is_success() {
@@ -418,49 +393,65 @@ impl BedrockProvider {
         granularity: &str,
         next_page_token: Option<&str>,
     ) -> Result<Value, ProviderError> {
-        let body_bytes = cost_request_body(start_date, end_date, granularity, next_page_token)?;
-        let body_hash = sha256_hex(&body_bytes);
-        let now = Utc::now();
-        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
-        let date_stamp = now.format("%Y%m%d").to_string();
-        let authorization = sign_authorization(
-            credentials,
-            &date_stamp,
-            &amz_date,
-            &body_hash,
-            COST_EXPLORER_URL,
-            &body_bytes,
-        )?;
-
+        let body = cost_request_body(start_date, end_date, granularity, next_page_token)?;
         let response = self
-            .signed_cost_request(credentials, amz_date, body_hash, authorization)
-            .body(body_bytes)
-            .send()
+            .signed_post(
+                credentials,
+                COST_EXPLORER_URL,
+                body,
+                COST_EXPLORER_TARGET,
+                SIGNING_REGION,
+                SERVICE,
+            )
             .await?;
         parse_cost_response(response).await
     }
 
-    fn signed_cost_request(
+    /// SigV4-signs `body` for `target` and POSTs it to `endpoint`.
+    async fn signed_post(
         &self,
         credentials: &AwsCredentials,
-        amz_date: String,
-        body_hash: String,
-        authorization: String,
-    ) -> reqwest::RequestBuilder {
-        let request = self
+        endpoint: &str,
+        body: Vec<u8>,
+        target: &str,
+        region: &str,
+        service: &str,
+    ) -> Result<reqwest::Response, ProviderError> {
+        let body_hash = sha256_hex(&body);
+        let now = Utc::now();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let date_stamp = now.format("%Y%m%d").to_string();
+        let authorization = sign_authorization_for(
+            credentials,
+            AwsSigningRequest {
+                date_stamp: &date_stamp,
+                amz_date: &amz_date,
+                body_hash: &body_hash,
+                url: endpoint,
+                body: &body,
+                target,
+                region,
+                service,
+            },
+        )?;
+        // The signer already rejected an unparseable endpoint.
+        let host = reqwest::Url::parse(endpoint)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .unwrap_or_default();
+        let mut request = self
             .client
-            .post(COST_EXPLORER_URL)
+            .post(endpoint)
             .header("Content-Type", "application/x-amz-json-1.1")
-            .header("Host", "ce.us-east-1.amazonaws.com")
-            .header("X-Amz-Target", COST_EXPLORER_TARGET)
+            .header("Host", host)
+            .header("X-Amz-Target", target)
             .header("X-Amz-Date", amz_date)
             .header("x-amz-content-sha256", body_hash)
             .header("Authorization", authorization);
-
-        match &credentials.session_token {
-            Some(token) => request.header("X-Amz-Security-Token", token),
-            None => request,
+        if let Some(token) = &credentials.session_token {
+            request = request.header("X-Amz-Security-Token", token);
         }
+        Ok(request.body(body).send().await?)
     }
 
     async fn fetch_via_api(
@@ -732,29 +723,6 @@ fn parse_bedrock_cost(page: &Value) -> f64 {
         .flatten()
         .flat_map(bedrock_group_amounts)
         .sum()
-}
-
-fn sign_authorization(
-    credentials: &AwsCredentials,
-    date_stamp: &str,
-    amz_date: &str,
-    body_hash: &str,
-    url: &str,
-    body: &[u8],
-) -> Result<String, ProviderError> {
-    sign_authorization_for(
-        credentials,
-        AwsSigningRequest {
-            date_stamp,
-            amz_date,
-            body_hash,
-            url,
-            body,
-            target: COST_EXPLORER_TARGET,
-            region: SIGNING_REGION,
-            service: SERVICE,
-        },
-    )
 }
 
 fn sign_authorization_for(
