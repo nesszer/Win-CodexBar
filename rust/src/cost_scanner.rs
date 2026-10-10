@@ -47,8 +47,6 @@ mod window;
 pub use claude_incomplete::ClaudeIncompleteReport;
 use claude_incomplete::ClaudeIncompleteTracker;
 use claude_pricing::ClaudeScanPricingResolver;
-#[cfg(test)]
-use claude_pricing::{ClaudePricing, FALLBACK_CLAUDE_MODEL};
 use claude_usage::{
     ClaudeUsageDedupKey, claude_usage_dedup_key, session_id_from_entries,
     should_count_claude_record,
