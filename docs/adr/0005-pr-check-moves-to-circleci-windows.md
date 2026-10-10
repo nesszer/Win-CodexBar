@@ -29,8 +29,9 @@ Move the hosted PR/push gate to CircleCI as a new `pr-check` job in
   build`, plus the interaction-guard script tests). The script's default
   (no-parameter) local behavior is unchanged.
   - `scripts/circleci-pr-gates.ps1` owns the three skip decisions that used
-    to live inline in the config (budget `off`, non-PR/non-main branch
-    pushes, docs-only PR diffs); each true skip calls `circleci-agent step
+    to live inline in the config (budget `off`, non-PR branch pushes other
+    than main/master and `gh-readonly-queue/` merge-queue pushes, docs-only PR
+    diffs); each true skip calls `circleci-agent step
     halt`.
   - `scripts/run-circleci-pr-check.ps1` owns toolchain provisioning with
     official checksum verification: `rustup-init.exe` is downloaded from
@@ -69,8 +70,8 @@ Move the hosted PR/push gate to CircleCI as a new `pr-check` job in
   still PR-associated, the base SHA is resolved from the public GitHub pulls
   API using the documented `CIRCLE_PROJECT_USERNAME`/`CIRCLE_PROJECT_REPONAME`
   variables and fetched with `--depth=1`. Docs-only evaluation applies only
-  to PR-associated pipelines; every `main`/`master` push runs the full
-  checks. Any resolution, fetch, or diff failure on a PR pipeline fails
+  to PR-associated pipelines; every `main`/`master` push and every
+  `gh-readonly-queue/` merge-queue push runs the full checks. Any resolution, fetch, or diff failure on a PR pipeline fails
   open: it exits only the gate step and therefore continues the job
   into the checks; the gate never silently skips on an unknown base.
 - Budget gating stays honest and coarse: the job reads `CI_BUDGET_MODE` as a
