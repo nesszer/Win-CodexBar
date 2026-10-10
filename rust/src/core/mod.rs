@@ -21,6 +21,8 @@ mod models_dev_targets;
 mod openai_dashboard;
 mod provider;
 mod provider_factory;
+#[cfg(test)]
+mod provider_registry_snapshot_tests;
 mod provider_state;
 mod quota_burndown;
 mod rate_window;
