@@ -40,8 +40,6 @@ pub const MAX_SERIES_SAMPLES: usize = 17_520;
 pub enum QuotaBurndownStoreError {
     #[error("quota burndown account key is empty")]
     EmptyAccountKey,
-    #[error("quota burndown account key does not match the requested partition")]
-    AccountKeyMismatch,
     #[error("failed to read quota burndown history: {0}")]
     Read(#[source] std::io::Error),
     #[error("failed to decode quota burndown history: {0}")]
