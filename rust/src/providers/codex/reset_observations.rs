@@ -69,17 +69,6 @@ pub struct CodexResetObservationMergeResult {
     pub changed: bool,
 }
 
-/// Path of the store under the shared configuration root.
-pub fn default_store_path() -> Result<PathBuf, CodexResetObservationError> {
-    let root = dirs::config_dir().ok_or_else(|| {
-        CodexResetObservationError::Read(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "configuration directory not found",
-        ))
-    })?;
-    Ok(root.join("CodexBar").join(STORE_RELATIVE_PATH))
-}
-
 /// Path of the store relative to an explicit config root (tests, proof homes).
 pub fn store_path(config_root: &Path) -> PathBuf {
     config_root.join(STORE_RELATIVE_PATH)
@@ -93,16 +82,20 @@ fn validate_scope(account_scope: &str) -> Result<(), CodexResetObservationError>
     }
 }
 
-/// Read the observations recorded for `account_scope`.
-pub fn load_reset_observations(
-    config_root: &Path,
-    account_scope: &str,
-) -> Result<Vec<CodexResetObservation>, CodexResetObservationError> {
-    validate_scope(account_scope)?;
-    let path = store_path(config_root);
-    let raw = match secure_file::read_string(&path) {
+/// A missing store reads as empty. Only the merge path also treats a blank
+/// file as empty; `load_reset_observations` reports it as a decode error.
+fn read_store(
+    path: &Path,
+    blank_is_empty: bool,
+) -> Result<CodexResetObservationStore, CodexResetObservationError> {
+    let raw = match secure_file::read_string(path) {
+        Ok(raw) if blank_is_empty && raw.trim().is_empty() => {
+            return Ok(CodexResetObservationStore::default());
+        }
         Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(CodexResetObservationStore::default());
+        }
         Err(error) => return Err(CodexResetObservationError::Read(error)),
     };
     let store: CodexResetObservationStore =
@@ -112,6 +105,16 @@ pub fn load_reset_observations(
             store.version,
         ));
     }
+    Ok(store)
+}
+
+/// Read the observations recorded for `account_scope`.
+pub fn load_reset_observations(
+    config_root: &Path,
+    account_scope: &str,
+) -> Result<Vec<CodexResetObservation>, CodexResetObservationError> {
+    validate_scope(account_scope)?;
+    let store = read_store(&store_path(config_root), false)?;
     Ok(store
         .accounts
         .get(account_scope)
@@ -163,19 +166,7 @@ pub fn merge_and_persist_reset_observation(
     }
 
     let path = store_path(config_root);
-    let mut store = match secure_file::read_string(&path) {
-        Ok(raw) if raw.trim().is_empty() => CodexResetObservationStore::default(),
-        Ok(raw) => serde_json::from_str(&raw).map_err(CodexResetObservationError::Deserialize)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            CodexResetObservationStore::default()
-        }
-        Err(error) => return Err(CodexResetObservationError::Read(error)),
-    };
-    if store.version != STORE_VERSION {
-        return Err(CodexResetObservationError::UnsupportedVersion(
-            store.version,
-        ));
-    }
+    let mut store = read_store(&path, true)?;
     let (changed, observations) = {
         let rows = store.accounts.entry(account_scope.to_string()).or_default();
         let changed = merge_reset_observations(
@@ -308,6 +299,51 @@ mod tests {
         secure_file::write_string(&path, r#"{"version": 99, "accounts": {}}"#).expect("write");
         assert!(matches!(
             load_reset_observations(root.path(), CODEX_ACCOUNT_SCOPE),
+            Err(CodexResetObservationError::UnsupportedVersion(99))
+        ));
+    }
+
+    #[test]
+    fn blank_store_fails_load_but_merges_as_empty() {
+        let root = temp_root("blank");
+        let path = store_path(root.path());
+        std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+        secure_file::write_string(
+            &path, "  
+",
+        )
+        .expect("write");
+        assert!(matches!(
+            load_reset_observations(root.path(), CODEX_ACCOUNT_SCOPE),
+            Err(CodexResetObservationError::Deserialize(_))
+        ));
+        let merged = merge_and_persist_reset_observation(
+            root.path(),
+            CODEX_ACCOUNT_SCOPE,
+            at(4_000),
+            at(1_000),
+        )
+        .expect("merge over blank store");
+        assert!(merged.changed);
+        assert_eq!(
+            load_reset_observations(root.path(), CODEX_ACCOUNT_SCOPE).expect("load"),
+            merged.observations
+        );
+    }
+
+    #[test]
+    fn unsupported_version_blocks_merge() {
+        let root = temp_root("merge-version");
+        let path = store_path(root.path());
+        std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+        secure_file::write_string(&path, r#"{"version": 99, "accounts": {}}"#).expect("write");
+        assert!(matches!(
+            merge_and_persist_reset_observation(
+                root.path(),
+                CODEX_ACCOUNT_SCOPE,
+                at(4_000),
+                at(1_000)
+            ),
             Err(CodexResetObservationError::UnsupportedVersion(99))
         ));
     }
