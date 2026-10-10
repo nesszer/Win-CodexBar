@@ -58,7 +58,7 @@ pub(super) fn find_object_containing_any_of(value: &Value, keys: &[&str]) -> Opt
     })
 }
 
-pub(super) const PLAN_NAME_KEYS: &[&str] = &[
+const PLAN_NAME_KEYS: &[&str] = &[
     "planName",
     "plan_name",
     "packageName",
@@ -123,7 +123,7 @@ pub(super) const REMAINING_QUOTA_KEYS: &[&str] = &[
     "surplusValue",
     "SurplusValue",
 ];
-pub(super) const RESET_DATE_KEYS: &[&str] = &[
+const RESET_DATE_KEYS: &[&str] = &[
     "nextRefreshTime",
     "resetTime",
     "periodEndTime",
@@ -196,7 +196,7 @@ pub(super) fn find_reset_date(value: &Value) -> Option<DateTime<Utc>> {
     first_date(value, RESET_DATE_KEYS).or_else(|| find_first_date(value, RESET_DATE_KEYS))
 }
 
-pub(super) fn find_first_object(value: &Value, keys: &[&str]) -> Option<Value> {
+fn find_first_object(value: &Value, keys: &[&str]) -> Option<Value> {
     deep_find(value, &|node| {
         let map = node.as_object()?;
         keys.iter()
@@ -204,7 +204,7 @@ pub(super) fn find_first_object(value: &Value, keys: &[&str]) -> Option<Value> {
     })
 }
 
-pub(super) fn find_first_array(value: &Value, keys: &[&str]) -> Option<Vec<Value>> {
+fn find_first_array(value: &Value, keys: &[&str]) -> Option<Vec<Value>> {
     deep_find(value, &|node| {
         let map = node.as_object()?;
         keys.iter()
@@ -212,7 +212,7 @@ pub(super) fn find_first_array(value: &Value, keys: &[&str]) -> Option<Vec<Value
     })
 }
 
-pub(super) fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
+fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
     let map = value.as_object()?;
     keys.iter().find_map(|key| parse_string(map.get(*key)))
 }
@@ -233,16 +233,16 @@ pub(super) fn find_first_i64(value: &Value, keys: &[&str]) -> Option<i64> {
     })
 }
 
-pub(super) fn first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
+fn first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
     let map = value.as_object()?;
     keys.iter().find_map(|key| parse_date(map.get(*key)))
 }
 
-pub(super) fn find_first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
+fn find_first_date(value: &Value, keys: &[&str]) -> Option<DateTime<Utc>> {
     deep_find(value, &|node| first_date(node, keys))
 }
 
-pub(super) fn parse_string(value: Option<&Value>) -> Option<String> {
+fn parse_string(value: Option<&Value>) -> Option<String> {
     value?
         .as_str()
         .map(str::trim)
@@ -250,7 +250,7 @@ pub(super) fn parse_string(value: Option<&Value>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-pub(super) fn parse_f64(value: Option<&Value>) -> Option<f64> {
+fn parse_f64(value: Option<&Value>) -> Option<f64> {
     match value? {
         Value::Number(number) => number.as_f64(),
         Value::String(text) => text.trim().replace(',', "").parse().ok(),
@@ -258,7 +258,7 @@ pub(super) fn parse_f64(value: Option<&Value>) -> Option<f64> {
     }
 }
 
-pub(super) fn parse_i64(value: Option<&Value>) -> Option<i64> {
+fn parse_i64(value: Option<&Value>) -> Option<i64> {
     match value? {
         Value::Number(number) => number.as_i64().or_else(|| {
             // Quota/timestamp JSON floats are whole numbers; the fractional
@@ -286,7 +286,7 @@ pub(super) fn parse_bool(value: Option<&Value>) -> Option<bool> {
     }
 }
 
-pub(super) fn parse_date(value: Option<&Value>) -> Option<DateTime<Utc>> {
+fn parse_date(value: Option<&Value>) -> Option<DateTime<Utc>> {
     if let Some(raw) = parse_i64(value) {
         if raw > 1_000_000_000_000 {
             return Utc.timestamp_opt(raw / 1000, 0).single();
@@ -312,7 +312,7 @@ pub(super) fn parse_date(value: Option<&Value>) -> Option<DateTime<Utc>> {
     None
 }
 
-pub(super) fn active_signal_score(value: &Value) -> i32 {
+fn active_signal_score(value: &Value) -> i32 {
     let status = first_string(value, &["status", "instanceStatus", "state"])
         .unwrap_or_default()
         .to_uppercase();
