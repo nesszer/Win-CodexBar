@@ -1,13 +1,22 @@
 //! GroqCloud provider implementation.
 //!
-//! Fetches Enterprise Prometheus metrics from Groq's metrics API
-//! (`https://api.groq.com/v1/metrics/prometheus/api/v1/query`). Standard
-//! (non-Enterprise) keys get HTTP 404 there, which is reported as a plan
-//! requirement instead of a raw status.
+//! Auto tries the console session first ([`console`]: spend, requests and
+//! tokens from console.groq.com), then falls back to Enterprise Prometheus
+//! metrics from Groq's metrics API
+//! (`https://api.groq.com/v1/metrics/prometheus/api/v1/query`) with an API key
+//! when there is no usable session. Standard (non-Enterprise) keys get HTTP
+//! 404 there, which is reported as a plan requirement instead of a raw status.
+
+mod console;
+#[cfg(test)]
+mod console_tests;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use reqwest::{Client, Url};
 use serde::Deserialize;
+
+use console::{ConsoleEndpoints, ConsoleError, ConsoleSession};
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
@@ -79,7 +88,7 @@ impl GroqProvider {
                 supports_credits: true,
                 default_enabled: false,
                 is_primary: false,
-                dashboard_url: Some("https://console.groq.com/settings/metrics"),
+                dashboard_url: Some("https://console.groq.com/dashboard/usage"),
                 status_page_url: Some("https://status.groq.com"),
                 tertiary_label_key: None,
             },
@@ -181,27 +190,121 @@ impl Provider for GroqProvider {
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
-        match ctx.source_mode {
-            SourceMode::Auto | SourceMode::OAuth => {
-                let api_key = resolve_api_key(
-                    ctx.api_key.as_deref(),
-                    GROQ_CREDENTIAL_TARGET,
-                    &["GROQ_API_KEY"],
-                )?;
-                Ok(ProviderFetchResult::new(
-                    self.fetch_api(&api_base_url(), &api_key).await?,
-                    "api",
-                ))
-            }
-            SourceMode::Web | SourceMode::Cli => {
-                Err(ProviderError::UnsupportedSource(ctx.source_mode))
-            }
-        }
+        let endpoints = ConsoleEndpoints::from_env(api_base_url());
+        self.fetch_routed(
+            ctx,
+            &endpoints,
+            &|name| std::env::var(name).ok(),
+            Utc::now(),
+        )
+        .await
     }
 
     fn available_sources(&self) -> Vec<SourceMode> {
-        vec![SourceMode::Auto, SourceMode::OAuth]
+        vec![SourceMode::Auto, SourceMode::Web, SourceMode::OAuth]
     }
+
+    fn supports_web(&self) -> bool {
+        true
+    }
+
+    fn cookie_source_scopes_session_only(&self) -> bool {
+        true
+    }
+
+    /// The API-key source must not read browser cookies, so the provider
+    /// imports the console session only when it will use it.
+    fn owns_browser_cookie_resolution(&self) -> bool {
+        true
+    }
+}
+
+impl GroqProvider {
+    /// Web uses only the console session and OAuth (the API-key source) only
+    /// Prometheus metrics. Auto tries the console first and falls back to
+    /// metrics when there is no usable session and an API key is configured.
+    async fn fetch_routed(
+        &self,
+        ctx: &FetchContext,
+        endpoints: &ConsoleEndpoints,
+        env: &(dyn Fn(&str) -> Option<String> + Sync),
+        now: DateTime<Utc>,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        match ctx.source_mode {
+            SourceMode::Web => Ok(self.fetch_console(ctx, endpoints, env, now).await?),
+            SourceMode::OAuth => {
+                let api_key = metrics_api_key(ctx)?;
+                self.fetch_metrics(&endpoints.api_base, &api_key).await
+            }
+            SourceMode::Auto => match self.fetch_console(ctx, endpoints, env, now).await {
+                Ok(result) => Ok(result),
+                Err(error) if error.allows_metrics_fallback() => {
+                    let Ok(api_key) = metrics_api_key(ctx) else {
+                        return Err(error.into());
+                    };
+                    tracing::debug!("No usable Groq console session; using Prometheus metrics");
+                    self.fetch_metrics(&endpoints.api_base, &api_key).await
+                }
+                Err(error) => Err(error.into()),
+            },
+            SourceMode::Cli => Err(ProviderError::UnsupportedSource(ctx.source_mode)),
+        }
+    }
+
+    async fn fetch_console(
+        &self,
+        ctx: &FetchContext,
+        endpoints: &ConsoleEndpoints,
+        env: &(dyn Fn(&str) -> Option<String> + Sync),
+        now: DateTime<Utc>,
+    ) -> Result<ProviderFetchResult, ConsoleError> {
+        let session = console_session(ctx, env).ok_or(ConsoleError::MissingSession)?;
+        console::fetch_usage(&self.client, endpoints, &session, now).await
+    }
+
+    async fn fetch_metrics(
+        &self,
+        base: &Url,
+        api_key: &str,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        Ok(ProviderFetchResult::new(
+            self.fetch_api(base, api_key).await?,
+            "api",
+        ))
+    }
+}
+
+/// The session in upstream's order: the environment override, then the
+/// manual cookie, then a browser session unless the cookie source rules the
+/// browser out.
+fn console_session(
+    ctx: &FetchContext,
+    env: &(dyn Fn(&str) -> Option<String> + Sync),
+) -> Option<ConsoleSession> {
+    if let Some(session) = ConsoleSession::from_env(env) {
+        return Some(session);
+    }
+    if let Some(header) = ctx.manual_cookie_header.as_deref() {
+        return ConsoleSession::from_cookie_header(header);
+    }
+    if ctx.manual_cookie_missing {
+        return None;
+    }
+    match crate::providers::browser_cookie_header(&console::COOKIE_DOMAINS) {
+        Ok(header) => ConsoleSession::from_cookie_header(&header),
+        Err(error) => {
+            tracing::debug!(%error, "Groq console browser session is unavailable");
+            None
+        }
+    }
+}
+
+fn metrics_api_key(ctx: &FetchContext) -> Result<String, ProviderError> {
+    resolve_api_key(
+        ctx.api_key.as_deref(),
+        GROQ_CREDENTIAL_TARGET,
+        &["GROQ_API_KEY"],
+    )
 }
 
 fn api_base_url() -> Url {

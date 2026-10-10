@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { providerSupportsChartData } from "./providerCharts";
+import { providerShowsDailyApiUsage, providerSupportsChartData } from "./providerCharts";
 
 describe("providerSupportsChartData", () => {
   it("keeps chart fetches limited to providers with chart/local usage data", () => {
@@ -13,5 +13,15 @@ describe("providerSupportsChartData", () => {
     expect(providerSupportsChartData("copilot")).toBe(false);
     expect(providerSupportsChartData("cursor")).toBe(false);
     expect(providerSupportsChartData("deepseek")).toBe(false);
+  });
+});
+
+describe("providerShowsDailyApiUsage", () => {
+  it("draws the daily API usage chart only for providers that send it", () => {
+    expect(providerShowsDailyApiUsage("openaiapi")).toBe(true);
+    expect(providerShowsDailyApiUsage("groq")).toBe(true);
+
+    expect(providerShowsDailyApiUsage("openai")).toBe(false);
+    expect(providerShowsDailyApiUsage("claude")).toBe(false);
   });
 });

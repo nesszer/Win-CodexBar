@@ -14,6 +14,7 @@ import type {
 } from "../types/bridge";
 import { useLocale } from "../hooks/useLocale";
 import { providerAllowsPace } from "../lib/providerPace";
+import { providerShowsDailyApiUsage } from "../lib/providerCharts";
 import {
   useFormattedResetTime,
   type ResetTimeFormatMode,
@@ -510,7 +511,7 @@ export interface MenuCardPresence {
   hasBurndown: boolean;
   localUsage: ProviderChartData["localUsage"] | null;
   wayfinderUsage: ProviderUsageSnapshot["wayfinderUsage"] | null;
-  /** Per-day OpenAI Admin API history; `openaiapi` only, and only with data. */
+  /** Per-day API usage history (OpenAI Admin API, Groq console); only with data. */
   openAiApiUsage: OpenAiApiUsageSnapshot | null;
   hasDetails: boolean;
 }
@@ -553,7 +554,7 @@ export function describeCard(
   const localUsage = provider.error ? null : chartData?.localUsage ?? null;
   const wayfinderUsage = isWayfinder ? provider.wayfinderUsage : null;
   const openAiApiUsage =
-    provider.providerId === "openaiapi" &&
+    providerShowsDailyApiUsage(provider.providerId) &&
     !provider.error &&
     (provider.openAiApiUsage?.daily.length ?? 0) > 0
       ? (provider.openAiApiUsage ?? null)

@@ -134,6 +134,15 @@ describe("MenuCard OpenAI daily usage section", () => {
     expect(section.querySelectorAll('[role="option"]')).toHaveLength(2);
   });
 
+  it("renders the Daily usage section for the Groq console history", async () => {
+    const { container } = renderCard(snapshot("groq", usage(3)));
+    await waitFor(() => {
+      expect(container.querySelector(".menu-card__daily-usage")).not.toBeNull();
+    });
+    const section = container.querySelector(".menu-card__daily-usage") as HTMLDetailsElement;
+    expect(section.querySelectorAll('[role="option"]')).toHaveLength(3);
+  });
+
   it("does not show another provider's OpenAI payload (provider siloing)", async () => {
     const { container } = renderCard(snapshot("claude", usage()));
     await waitFor(() => {
@@ -174,6 +183,11 @@ describe("describeCard OpenAI usage presence", () => {
     expect(describeCard(snapshot("openaiapi", usage(0)), null, []).openAiApiUsage).toBeNull();
     expect(describeCard(snapshot("openaiapi", null), null, []).openAiApiUsage).toBeNull();
     expect(describeCard(snapshot("openaiapi", usage(), "boom"), null, []).openAiApiUsage).toBeNull();
+  });
+
+  it("is present for the Groq console daily history", () => {
+    expect(describeCard(snapshot("groq", usage()), null, []).openAiApiUsage?.daily).toHaveLength(2);
+    expect(describeCard(snapshot("groq", usage(), "boom"), null, []).openAiApiUsage).toBeNull();
   });
 
   it("makes a card that only has daily usage count as having details", () => {

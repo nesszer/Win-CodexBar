@@ -583,7 +583,9 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             name: "Groq",
             requires_api_key: true,
             api_key_env_var: Some("GROQ_API_KEY"),
-            api_key_help: Some("Groq metrics require Enterprise Prometheus metrics access."),
+            api_key_help: Some(
+                "Usage & spend come from your console.groq.com browser session automatically.                  An API key is optional and only adds Enterprise Prometheus metrics.",
+            ),
             config_file_path: None,
             dashboard_url: Some("https://console.groq.com/settings/metrics"),
         },
