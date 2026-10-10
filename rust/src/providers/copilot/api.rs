@@ -779,14 +779,32 @@ where
 mod tests {
     use super::*;
 
-    fn parse_snapshot(json: &str) -> UsageSnapshot {
+    fn parse_with_seat(json: &str, seat: Option<f64>) -> Result<UsageSnapshot, ProviderError> {
         let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
-        snapshot_from_response_with_seat_entitlement(response, None).unwrap()
+        snapshot_from_response_with_seat_entitlement(response, seat)
+    }
+
+    fn parse_snapshot(json: &str) -> UsageSnapshot {
+        parse_with_seat(json, None).unwrap()
     }
 
     fn parse_snapshot_result(json: &str) -> Result<UsageSnapshot, ProviderError> {
-        let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
-        snapshot_from_response_with_seat_entitlement(response, None)
+        parse_with_seat(json, None)
+    }
+
+    fn seat_window(usage: &UsageSnapshot) -> Option<&NamedRateWindow> {
+        usage
+            .extra_rate_windows
+            .iter()
+            .find(|window| window.id == SEAT_CREDIT_WINDOW_ID)
+    }
+
+    fn assert_used(window: &RateWindow, expected: f64) {
+        assert!(
+            (window.used_percent - expected).abs() < 0.001,
+            "{} != {expected}",
+            window.used_percent
+        );
     }
 
     #[test]
@@ -813,8 +831,8 @@ mod tests {
         );
 
         assert_eq!(usage.login_method.as_deref(), Some("Copilot Pro"));
-        assert!((usage.primary.used_percent - 20.0).abs() < 0.001);
-        assert!((usage.secondary.unwrap().used_percent - 10.0).abs() < 0.001);
+        assert_used(&usage.primary, 20.0);
+        assert_used(&usage.secondary.unwrap(), 10.0);
     }
 
     #[test]
@@ -834,8 +852,8 @@ mod tests {
         );
 
         assert_eq!(usage.login_method.as_deref(), Some("Copilot Free"));
-        assert!((usage.primary.used_percent - 50.0).abs() < 0.001);
-        assert!((usage.secondary.unwrap().used_percent - 80.0).abs() < 0.001);
+        assert_used(&usage.primary, 50.0);
+        assert_used(&usage.secondary.unwrap(), 80.0);
     }
 
     #[test]
@@ -852,7 +870,7 @@ mod tests {
             }"#,
         );
 
-        assert!((usage.primary.used_percent - 75.0).abs() < 0.001);
+        assert_used(&usage.primary, 75.0);
     }
 
     #[test]
@@ -874,7 +892,7 @@ mod tests {
             }"#,
         );
 
-        assert!((usage.primary.used_percent - 25.0).abs() < 0.001);
+        assert_used(&usage.primary, 25.0);
         assert!(usage.secondary.is_none());
     }
 
@@ -929,7 +947,7 @@ mod tests {
         );
 
         assert_eq!(usage.login_method.as_deref(), Some("Copilot Business"));
-        assert!((usage.primary.used_percent - 60.0).abs() < 0.001);
+        assert_used(&usage.primary, 60.0);
         assert!(usage.secondary.is_none());
     }
 
@@ -948,7 +966,7 @@ mod tests {
             }"#,
         );
 
-        assert!((usage.primary.used_percent - 100.0).abs() < 0.001);
+        assert_used(&usage.primary, 100.0);
     }
 
     #[test]
@@ -971,11 +989,11 @@ mod tests {
             }"#,
         );
 
-        assert!((usage.primary.used_percent - 50.0).abs() < 0.001);
+        assert_used(&usage.primary, 50.0);
         assert_eq!(usage.extra_rate_windows.len(), 1);
         assert_eq!(usage.extra_rate_windows[0].id, "additional-budget");
         assert_eq!(usage.extra_rate_windows[0].title, "Additional Budget");
-        assert!((usage.extra_rate_windows[0].window.used_percent - 75.0).abs() < 0.001);
+        assert_used(&usage.extra_rate_windows[0].window, 75.0);
     }
 
     #[test]
@@ -995,7 +1013,7 @@ mod tests {
         );
 
         assert_eq!(usage.login_method.as_deref(), Some("Copilot Pro"));
-        assert!((usage.primary.used_percent - 115.0).abs() < 0.001);
+        assert_used(&usage.primary, 115.0);
         assert_eq!(
             usage.primary.reset_description.as_deref(),
             Some("115% used")
@@ -1017,7 +1035,7 @@ mod tests {
             }"#,
         );
 
-        assert!((usage.primary.used_percent - 115.0).abs() < 0.001);
+        assert_used(&usage.primary, 115.0);
         assert_eq!(
             usage.primary.reset_description.as_deref(),
             Some("115% used")
@@ -1069,7 +1087,7 @@ mod tests {
 
     #[test]
     fn configured_seat_allowance_adds_a_numeric_credit_window() {
-        let response: CopilotUsageResponse = serde_json::from_str(
+        let usage = parse_with_seat(
             r#"{
                 "copilot_plan": "business",
                 "quota_snapshots": {
@@ -1082,23 +1100,19 @@ mod tests {
                     }
                 }
             }"#,
+            Some(200.0),
         )
         .unwrap();
-        let usage = snapshot_from_response_with_seat_entitlement(response, Some(200.0)).unwrap();
 
-        let seat = usage
-            .extra_rate_windows
-            .iter()
-            .find(|window| window.id == SEAT_CREDIT_WINDOW_ID)
-            .expect("configured seat-credit window");
-        assert!((seat.window.used_percent - 25.0).abs() < 0.001);
+        let seat = seat_window(&usage).expect("configured seat-credit window");
+        assert_used(&seat.window, 25.0);
         assert!(!seat.window.is_informational);
         assert_eq!(seat.title, "Credits used");
     }
 
     #[test]
     fn missing_primary_quota_is_informational_when_seat_credit_is_available() {
-        let response: CopilotUsageResponse = serde_json::from_str(
+        let usage = parse_with_seat(
             r#"{
                 "copilot_plan": "business",
                 "quota_snapshots": {
@@ -1107,22 +1121,17 @@ mod tests {
                     }
                 }
             }"#,
+            Some(200.0),
         )
         .unwrap();
-        let usage = snapshot_from_response_with_seat_entitlement(response, Some(200.0)).unwrap();
 
         assert!(usage.primary.is_informational);
-        assert!(
-            usage
-                .extra_rate_windows
-                .iter()
-                .any(|window| window.id == SEAT_CREDIT_WINDOW_ID)
-        );
+        assert!(seat_window(&usage).is_some());
     }
 
     #[test]
     fn non_finite_derived_seat_credit_percentage_is_omitted() {
-        let response: CopilotUsageResponse = serde_json::from_str(
+        let usage = parse_with_seat(
             r#"{
                 "copilot_plan": "business",
                 "quota_snapshots": {
@@ -1131,21 +1140,16 @@ mod tests {
                     }
                 }
             }"#,
+            Some(1e-308),
         )
         .unwrap();
-        let usage = snapshot_from_response_with_seat_entitlement(response, Some(1e-308)).unwrap();
 
-        assert!(
-            usage
-                .extra_rate_windows
-                .iter()
-                .all(|window| window.id != SEAT_CREDIT_WINDOW_ID)
-        );
+        assert!(seat_window(&usage).is_none());
     }
 
     #[test]
     fn invalid_seat_allowance_keeps_credit_progress_unknown() {
-        let response: CopilotUsageResponse = serde_json::from_str(
+        let usage = parse_with_seat(
             r#"{
                 "copilot_plan": "business",
                 "token_based_billing": true,
@@ -1157,17 +1161,12 @@ mod tests {
                     }
                 }
             }"#,
+            Some(0.0),
         )
         .unwrap();
-        let usage = snapshot_from_response_with_seat_entitlement(response, Some(0.0)).unwrap();
 
         assert!(usage.primary.is_informational);
-        assert!(
-            usage
-                .extra_rate_windows
-                .iter()
-                .all(|window| window.id != SEAT_CREDIT_WINDOW_ID)
-        );
+        assert!(seat_window(&usage).is_none());
     }
 
     #[test]
@@ -1259,7 +1258,7 @@ mod tests {
         );
         // Windows still render normally next to the counter.
         assert!(credits_row.window.is_informational);
-        assert!((usage.primary.used_percent - 20.0).abs() < 0.001);
+        assert_used(&usage.primary, 20.0);
     }
 
     #[test]
