@@ -288,32 +288,23 @@ async fn hooks_watch_observation(
     let region = settings.api_region(provider_id);
     let gateway = settings.gateway_url(provider_id);
 
-    let mut ctx = FetchContext {
+    let ctx = FetchContext {
         source_mode,
         include_credits: false,
         web_timeout,
         verbose,
-        manual_cookie_header: None,
-        manual_cookie_missing: false,
-        api_key: None,
-        token_account_kind: None,
-        token_account_isolated: false,
+        api_key: ApiKeys::load()
+            .get(provider_id.cli_name())
+            .map(|s| s.to_string()),
         workspace_id: (!workspace.is_empty()).then(|| workspace.to_string()),
         seat_credit_entitlement: settings.seat_credit_entitlement(provider_id),
         api_region: (!region.is_empty()).then(|| region.to_string()),
         gateway_url: (!gateway.is_empty()).then(|| gateway.to_string()),
-        auto_prefer_web: false,
-        browser_cookie_import: false,
         // Hook watches keep the short optional-join grace.
         requires_optional_usage_completeness: false,
         optional_details_enabled: settings.optional_details_enabled(provider_id),
+        ..FetchContext::default()
     };
-
-    if ctx.api_key.is_none() {
-        ctx.api_key = ApiKeys::load()
-            .get(provider_id.cli_name())
-            .map(|s| s.to_string());
-    }
 
     let provider = instantiate_provider(provider_id);
     match provider.fetch_usage(&ctx).await {

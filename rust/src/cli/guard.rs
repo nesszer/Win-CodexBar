@@ -314,21 +314,9 @@ async fn fetch_guard_outcome(
         source_mode,
         include_credits: false,
         web_timeout,
-        verbose: false,
-        manual_cookie_header: None,
-        manual_cookie_missing: false,
-        api_key: None,
-        token_account_kind: None,
-        token_account_isolated: false,
-        workspace_id: None,
-        seat_credit_entitlement: None,
-        api_region: None,
-        gateway_url: None,
-        auto_prefer_web: false,
-        browser_cookie_import: false,
         // Guard checks keep the short optional-join grace.
         requires_optional_usage_completeness: false,
-        optional_details_enabled: false,
+        ..FetchContext::default()
     };
 
     match provider.fetch_usage(&ctx).await {

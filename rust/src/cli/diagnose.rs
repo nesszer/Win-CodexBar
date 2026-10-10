@@ -169,16 +169,11 @@ async fn collect_provider_diagnostic(
     let source_mode = configured_source_mode(provider_id, settings, source_mode);
     let ctx = FetchContext {
         source_mode,
-        include_credits: true,
         web_timeout,
-        verbose: false,
         manual_cookie_header: manual_cookies
             .get(provider_id.cli_name())
             .map(ToOwned::to_owned),
-        manual_cookie_missing: false,
         api_key: api_keys.get(provider_id.cli_name()).map(ToOwned::to_owned),
-        token_account_kind: None,
-        token_account_isolated: false,
         workspace_id: settings
             .provider_config(provider_id)
             .and_then(|config| config.workspace_id.clone()),
@@ -189,11 +184,10 @@ async fn collect_provider_diagnostic(
         gateway_url: settings
             .provider_config(provider_id)
             .and_then(|config| config.gateway_url.clone()),
-        auto_prefer_web: false,
-        browser_cookie_import: false,
         // Diagnostics keep the short optional-join grace (upstream #2583 gate).
         requires_optional_usage_completeness: false,
         optional_details_enabled: settings.optional_details_enabled(provider_id),
+        ..FetchContext::default()
     };
 
     let fetch_result = provider.fetch_usage(&ctx).await;

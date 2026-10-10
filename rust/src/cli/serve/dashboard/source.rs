@@ -14,7 +14,7 @@ use std::time::Duration;
 use chrono::Utc;
 
 use crate::cli::fetch_context::populate_api_region_from_settings;
-use crate::core::{CostScanOptions, FetchContext, ProviderId, SourceMode, instantiate_provider};
+use crate::core::{CostScanOptions, FetchContext, ProviderId, instantiate_provider};
 use crate::cost_scanner::{self, CostScanner};
 use crate::settings::Settings;
 use crate::spend_contract::build_local_spend_contract_from_summary;
@@ -280,23 +280,8 @@ async fn collect_claude_accounts(
             &account.token,
         );
         let mut ctx = FetchContext {
-            source_mode: SourceMode::Auto,
-            include_credits: true,
-            web_timeout: 60,
-            verbose: false,
             manual_cookie_header: Some(header),
-            manual_cookie_missing: false,
-            api_key: None,
-            token_account_kind: None,
-            token_account_isolated: false,
-            workspace_id: None,
-            seat_credit_entitlement: None,
-            api_region: None,
-            gateway_url: None,
-            auto_prefer_web: false,
-            browser_cookie_import: false,
-            requires_optional_usage_completeness: false,
-            optional_details_enabled: false,
+            ..FetchContext::default()
         };
         populate_api_region_from_settings(ProviderId::Claude, settings, &mut ctx);
         set.spawn(async move {
