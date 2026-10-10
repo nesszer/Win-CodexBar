@@ -2165,6 +2165,99 @@ Resets Dec 24 at 3:59pm (Europe/Paris)
     }
 
     #[test]
+    fn all_percents_fold_case_and_clamp() {
+        let text = "50% USED\n20 % Left\n101% used\n150% left\n5.5% remaining\n1000% used\n7%Spent 8% available";
+        assert_eq!(
+            extract_all_percents(text),
+            vec![50.0, 80.0, 100.0, 0.0, 94.5, 0.0, 7.0, 92.0]
+        );
+        assert!(extract_all_percents("no numbers here").is_empty());
+    }
+
+    #[test]
+    fn label_sections_stop_at_their_window_and_the_next_section() {
+        let filler = |count: usize| vec!["filler"; count].join("\n");
+        // Percent on the label line itself, and on the last line of the
+        // twelve-line window (label + 11).
+        assert_eq!(
+            extract_percent_near_label("Current session 30% used", "current session"),
+            Some(30.0)
+        );
+        let at_last = format!("Current session\n{}\n40% used", filler(10));
+        assert_eq!(
+            extract_percent_near_label(&at_last, "current session"),
+            Some(40.0)
+        );
+        let past_window = format!("Current session\n{}\n40% used", filler(11));
+        assert_eq!(
+            extract_percent_near_label(&past_window, "current session"),
+            None
+        );
+        // The next "Current ..." heading ends the section, but the same
+        // heading does not.
+        let next_section = "Current session\nCurrent week\n40% used";
+        assert_eq!(
+            extract_percent_near_label(next_section, "current session"),
+            None
+        );
+        let same_label = "Current session\nCURRENT SESSION again\n40% used";
+        assert_eq!(
+            extract_percent_near_label(same_label, "current session"),
+            Some(40.0)
+        );
+        // A section without a value falls through to a later label line.
+        let later = "Current session\nCurrent week\n10% used\nCurrent session\n60% left";
+        assert_eq!(
+            extract_percent_near_label(later, "current session"),
+            Some(40.0)
+        );
+        assert_eq!(
+            extract_percent_near_label("Current week (all models)\n10% used", "current week"),
+            Some(10.0)
+        );
+
+        // Reset text uses a fourteen-line window (label + 13).
+        let reset_last = format!("Current week\n{}\nResets Mon 9am", filler(12));
+        assert_eq!(
+            extract_reset_description(&reset_last, "current week").as_deref(),
+            Some("Resets Mon 9am")
+        );
+        let reset_past = format!("Current week\n{}\nResets Mon 9am", filler(13));
+        assert_eq!(extract_reset_description(&reset_past, "current week"), None);
+        assert_eq!(
+            extract_reset_description("Current week  5% used · resets Fri 1pm  ", "current week")
+                .as_deref(),
+            Some("resets Fri 1pm")
+        );
+        assert_eq!(
+            extract_reset_description(
+                "Current session\nCurrent week\nResets Mon",
+                "current session"
+            ),
+            None
+        );
+        let later_reset = "Current session\nCurrent week\nCurrent session\nResets 5pm";
+        assert_eq!(
+            extract_reset_description(later_reset, "current session").as_deref(),
+            Some("Resets 5pm")
+        );
+    }
+
+    #[test]
+    fn scoped_weekly_sections_use_a_fourteen_line_window() {
+        let now = Utc::now();
+        let filler = |count: usize| vec!["filler"; count].join("\n");
+        let inside = format!("Current week (Opus)\n{}\n25% used", filler(12));
+        let limits = extract_cli_scoped_weekly_limits(&inside, now);
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits[0].window.used_percent, 25.0);
+        let outside = format!("Current week (Opus)\n{}\n25% used", filler(13));
+        assert!(extract_cli_scoped_weekly_limits(&outside, now).is_empty());
+        let next = "Current week (Opus)\nCurrent session\n25% used";
+        assert!(extract_cli_scoped_weekly_limits(next, now).is_empty());
+    }
+
+    #[test]
     fn rejects_cli_output_without_usage_markers() {
         let provider = ClaudeProvider::new();
         let output = "Claude Code on Windows requires git-bash.";
