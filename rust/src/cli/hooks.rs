@@ -646,6 +646,78 @@ fn parse_event(raw: &str) -> anyhow::Result<HookEventType> {
 mod tests {
     use super::*;
 
+    /// `hooks <sub> --help` exactly as printed, so arg refactors keep the CLI text.
+    const EXPECTED_HOOKS_HELP: &str = r#"@@list
+Print configured hook rules
+
+Usage: codexbar hooks list [OPTIONS]
+
+Options:
+      --json         Emit JSON
+  -v, --verbose      Enable verbose logging
+      --json-output  Emit machine-readable logs (JSON) to stderr
+      --pretty       Pretty-print JSON
+      --no-color     Disable ANSI colors in output
+  -h, --help         Print help
+@@enable
+Enable hooks in hooks.json (master switch)
+
+Usage: codexbar hooks enable [OPTIONS]
+
+Options:
+      --json         Emit JSON
+  -v, --verbose      Enable verbose logging
+      --json-output  Emit machine-readable logs (JSON) to stderr
+      --pretty       Pretty-print JSON
+      --no-color     Disable ANSI colors in output
+  -h, --help         Print help
+@@disable
+Disable hooks in hooks.json (master switch)
+
+Usage: codexbar hooks disable [OPTIONS]
+
+Options:
+      --json         Emit JSON
+  -v, --verbose      Enable verbose logging
+      --json-output  Emit machine-readable logs (JSON) to stderr
+      --pretty       Pretty-print JSON
+      --no-color     Disable ANSI colors in output
+  -h, --help         Print help
+@@test
+Run matching rules for a sample event
+
+Usage: codexbar hooks test [OPTIONS] --provider <PROVIDER> <EVENT>
+
+Arguments:
+  <EVENT>  Event name (quota_low, quota_reached, quota_reset, usage_updated, provider_unavailable, provider_recovered, refresh_failed)
+
+Options:
+      --provider <PROVIDER>  Provider CLI name
+  -v, --verbose              Enable verbose logging
+      --json                 Emit JSON
+      --json-output          Emit machine-readable logs (JSON) to stderr
+      --no-color             Disable ANSI colors in output
+      --pretty               Pretty-print JSON
+  -h, --help                 Print help
+"#;
+
+    #[test]
+    fn hooks_subcommand_help_is_pinned() {
+        use clap::CommandFactory;
+        let mut out = String::new();
+        for sub in ["list", "enable", "disable", "test"] {
+            let err = crate::cli::Cli::command()
+                .try_get_matches_from(["codexbar", "hooks", sub, "--help"])
+                .unwrap_err();
+            out.push_str(&format!(
+                "@@{sub}
+{}",
+                err.render()
+            ));
+        }
+        assert_eq!(out, EXPECTED_HOOKS_HELP);
+    }
+
     #[test]
     fn browser_sign_in_failures_report_auth_required() {
         let error = ProviderError::BrowserSignInRequired {
