@@ -467,12 +467,6 @@ fn map_provider(raw: &str) -> Option<PiMappedProvider> {
     None
 }
 
-#[cfg(test)]
-fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<PiEntry> {
-    let entry = parse_pi_assistant_entry_any(value)?;
-    (entry.provider == target).then_some(entry)
-}
-
 fn parse_pi_assistant_entry_any(value: &Value) -> Option<PiEntry> {
     // Accept either flat or nested { message: {...} } pi-compatible rows.
     let message = value.get("message").unwrap_or(value);
@@ -663,6 +657,11 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::tempdir;
+
+    fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<PiEntry> {
+        let entry = parse_pi_assistant_entry_any(value)?;
+        (entry.provider == target).then_some(entry)
+    }
 
     #[test]
     fn maps_openai_codex_and_anthropic_providers() {
