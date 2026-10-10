@@ -857,31 +857,22 @@ mod tests {
     }
 
     #[test]
-    fn keeps_sub_one_utilization_in_percent_units() {
-        let window = UsageWindow {
-            utilization: Some(0.23),
-            resets_at: None,
-        };
+    fn keeps_utilization_in_percent_units() {
+        // 1.0 is a 1% session, not a full quota.
+        for utilization in [0.23, 1.0, 23.0] {
+            let window = UsageWindow {
+                utilization: Some(utilization),
+                resets_at: None,
+            };
 
-        let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
+            let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
 
-        assert!((rate.used_percent - 0.23).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn one_percent_session_is_not_reported_as_full_quota() {
-        let window = UsageWindow {
-            utilization: Some(1.0),
-            resets_at: None,
-        };
-
-        let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
-
-        assert!(
-            (rate.used_percent - 1.0).abs() < f64::EPSILON,
-            "session was {}, expected 1% (not 100%)",
-            rate.used_percent
-        );
+            assert!(
+                (rate.used_percent - utilization).abs() < f64::EPSILON,
+                "session was {}, expected {utilization}% (not 100%)",
+                rate.used_percent
+            );
+        }
     }
 
     #[test]
@@ -907,18 +898,6 @@ mod tests {
     }
 
     #[test]
-    fn preserves_existing_percentage_utilization() {
-        let window = UsageWindow {
-            utilization: Some(23.0),
-            resets_at: None,
-        };
-
-        let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
-
-        assert!((rate.used_percent - 23.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
     fn labels_max_5x_and_20x_plans() {
         assert_eq!(
             crate::providers::claude::claude_plan_label("default_claude_max_5x"),
@@ -931,43 +910,33 @@ mod tests {
     }
 
     #[test]
-    fn resolves_raw_session_key_from_primary_env_var() {
+    fn resolves_session_key_from_env_vars() {
         let _guard = env_lock().lock().expect("env lock");
-        // SAFETY: running under env_lock() so no other test thread touches the
-        // environment concurrently; single-threaded w.r.t. these keys.
-        unsafe {
-            std::env::remove_var("CLAUDE_AI_SESSION_KEY");
-            std::env::remove_var("CLAUDE_WEB_SESSION_KEY");
-            std::env::set_var("CLAUDE_AI_SESSION_KEY", "sk-ant-primary");
-            std::env::set_var("CLAUDE_WEB_SESSION_KEY", "sk-ant-secondary");
+        // (CLAUDE_AI_SESSION_KEY, CLAUDE_WEB_SESSION_KEY, resolved key)
+        let rows = [
+            (Some("sk-ant-primary"), "sk-ant-secondary", "sk-ant-primary"),
+            (
+                None,
+                "sessionKey=sk-ant-cookie-format",
+                "sk-ant-cookie-format",
+            ),
+        ];
+        for (primary, secondary, expected) in rows {
+            // SAFETY: env_lock() held for this whole test, so set_var/remove_var
+            // cannot race another thread's environment access.
+            unsafe {
+                std::env::remove_var("CLAUDE_AI_SESSION_KEY");
+                std::env::remove_var("CLAUDE_WEB_SESSION_KEY");
+                if let Some(primary) = primary {
+                    std::env::set_var("CLAUDE_AI_SESSION_KEY", primary);
+                }
+                std::env::set_var("CLAUDE_WEB_SESSION_KEY", secondary);
+            }
+
+            let session_key = ClaudeWebApiFetcher::resolve_session_key_from_env();
+
+            assert_eq!(session_key.as_deref(), Some(expected));
         }
-
-        let session_key = ClaudeWebApiFetcher::resolve_session_key_from_env();
-
-        assert_eq!(session_key.as_deref(), Some("sk-ant-primary"));
-
-        // SAFETY: same env_lock()-guarded mutation; restoring state after the
-        // assertions, before the lock is released.
-        unsafe {
-            std::env::remove_var("CLAUDE_AI_SESSION_KEY");
-            std::env::remove_var("CLAUDE_WEB_SESSION_KEY");
-        }
-    }
-
-    #[test]
-    fn resolves_session_key_assignment_from_env_var() {
-        let _guard = env_lock().lock().expect("env lock");
-        // SAFETY: env_lock() held for this whole test, so set_var/remove_var
-        // cannot race another thread's environment access.
-        unsafe {
-            std::env::remove_var("CLAUDE_AI_SESSION_KEY");
-            std::env::remove_var("CLAUDE_WEB_SESSION_KEY");
-            std::env::set_var("CLAUDE_WEB_SESSION_KEY", "sessionKey=sk-ant-cookie-format");
-        }
-
-        let session_key = ClaudeWebApiFetcher::resolve_session_key_from_env();
-
-        assert_eq!(session_key.as_deref(), Some("sk-ant-cookie-format"));
 
         // SAFETY: cleanup while still holding the env_lock() guard.
         unsafe {
@@ -980,36 +949,19 @@ mod tests {
     fn build_headers_include_required_browser_context() {
         let headers = ClaudeWebApiFetcher::build_headers("sessionKey=sk-ant-cookie-format");
 
-        assert_eq!(
-            headers
-                .get(header::COOKIE)
-                .and_then(|value| value.to_str().ok()),
-            Some("sessionKey=sk-ant-cookie-format")
-        );
-        assert_eq!(
-            headers
-                .get(header::ACCEPT)
-                .and_then(|value| value.to_str().ok()),
-            Some("application/json")
-        );
-        assert_eq!(
-            headers
-                .get(header::ORIGIN)
-                .and_then(|value| value.to_str().ok()),
-            Some("https://claude.ai")
-        );
-        assert_eq!(
-            headers
-                .get(header::REFERER)
-                .and_then(|value| value.to_str().ok()),
-            Some("https://claude.ai/settings/usage")
-        );
-        assert_eq!(
-            headers
-                .get("anthropic-client-platform")
-                .and_then(|value| value.to_str().ok()),
-            Some("web_claude_ai")
-        );
+        for (name, value) in [
+            (header::COOKIE.as_str(), "sessionKey=sk-ant-cookie-format"),
+            (header::ACCEPT.as_str(), "application/json"),
+            (header::ORIGIN.as_str(), "https://claude.ai"),
+            (header::REFERER.as_str(), "https://claude.ai/settings/usage"),
+            ("anthropic-client-platform", "web_claude_ai"),
+        ] {
+            assert_eq!(
+                headers.get(name).and_then(|value| value.to_str().ok()),
+                Some(value),
+                "{name}"
+            );
+        }
         assert!(headers.contains_key(header::USER_AGENT));
     }
 
@@ -1081,30 +1033,45 @@ mod tests {
     }
 
     #[test]
-    fn parses_extra_design_and_routines_aliases() {
-        let usage: super::UsageResponse = serde_json::from_str(
-            r#"{
-                "five_hour": { "utilization": 0.1 },
-                "seven_day_omelette": { "utilization": 26 },
-                "seven_day_cowork": { "utilization": 11 }
-            }"#,
-        )
-        .unwrap();
-
+    fn parses_design_and_routines_aliases_preferring_the_named_key() {
+        let rows = [
+            (
+                r#"{
+                    "five_hour": { "utilization": 0.1 },
+                    "seven_day_omelette": { "utilization": 26 },
+                    "seven_day_cowork": { "utilization": 11 }
+                }"#,
+                26.0,
+                11.0,
+            ),
+            (
+                r#"{
+                    "seven_day_design": { "utilization": 31 },
+                    "seven_day_omelette": { "utilization": 26 },
+                    "seven_day_routines": { "utilization": 19 },
+                    "seven_day_cowork": { "utilization": 11 }
+                }"#,
+                31.0,
+                19.0,
+            ),
+        ];
         let fetcher = ClaudeWebApiFetcher::new();
-        let design = usage
-            .seven_day_design
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("design window");
-        let routines = usage
-            .seven_day_routines
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("routines window");
+        for (json, design_percent, routines_percent) in rows {
+            let usage: super::UsageResponse = serde_json::from_str(json).unwrap();
+            let design = usage
+                .seven_day_design
+                .as_ref()
+                .map(|w| fetcher.to_rate_window(w, Some(10080)))
+                .expect("design window");
+            let routines = usage
+                .seven_day_routines
+                .as_ref()
+                .map(|w| fetcher.to_rate_window(w, Some(10080)))
+                .expect("routines window");
 
-        assert!((design.used_percent - 26.0).abs() < f64::EPSILON);
-        assert!((routines.used_percent - 11.0).abs() < f64::EPSILON);
+            assert!((design.used_percent - design_percent).abs() < f64::EPSILON);
+            assert!((routines.used_percent - routines_percent).abs() < f64::EPSILON);
+        }
     }
 
     #[test]
@@ -1127,34 +1094,6 @@ mod tests {
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].id, "claude-weekly-scoped-fable");
         assert_eq!(windows[0].title, "Fable only");
-    }
-
-    #[test]
-    fn parses_duplicate_design_and_routines_aliases_with_preferred_key() {
-        let usage: super::UsageResponse = serde_json::from_str(
-            r#"{
-                "seven_day_design": { "utilization": 31 },
-                "seven_day_omelette": { "utilization": 26 },
-                "seven_day_routines": { "utilization": 19 },
-                "seven_day_cowork": { "utilization": 11 }
-            }"#,
-        )
-        .unwrap();
-
-        let fetcher = ClaudeWebApiFetcher::new();
-        let design = usage
-            .seven_day_design
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("design window");
-        let routines = usage
-            .seven_day_routines
-            .as_ref()
-            .map(|w| fetcher.to_rate_window(w, Some(10080)))
-            .expect("routines window");
-
-        assert!((design.used_percent - 31.0).abs() < f64::EPSILON);
-        assert!((routines.used_percent - 19.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -1326,26 +1265,6 @@ mod tests {
                 "claude-routines"
             ]
         );
-    }
-
-    #[test]
-    fn web_extras_keep_routines_in_raw_snapshot() {
-        use crate::core::{NamedRateWindow, RateWindow, UsageSnapshot};
-
-        let mut snapshot = UsageSnapshot::new(RateWindow::new(10.0));
-        super::append_web_extra_windows(
-            &mut snapshot,
-            Some(RateWindow::new(1.0)),
-            vec![NamedRateWindow::new(
-                "claude-weekly-scoped-fable",
-                "Fable only",
-                RateWindow::new(2.0),
-            )],
-            Some(RateWindow::new(3.0)),
-        );
-
-        assert_eq!(snapshot.extra_rate_windows.len(), 3);
-        assert_eq!(snapshot.extra_rate_windows[2].id, "claude-routines");
     }
 }
 
