@@ -230,24 +230,17 @@ pub fn opacity_to_alpha(opacity: u8) -> u8 {
 /// already open. The bar never takes focus. Position is restored from the
 /// geometry store keyed by `floatbar`; on first launch the window is
 /// centered horizontally near the top of the primary monitor.
-pub fn show(
-    app: &tauri::AppHandle,
-    opacity: u8,
-    orientation: &str,
-    style: &str,
-    click_through: bool,
-) -> Result<(), String> {
+pub fn show(app: &tauri::AppHandle, settings: &codexbar::settings::Settings) -> Result<(), String> {
+    let opacity = settings.float_bar_opacity;
+    let orientation = settings.float_bar_orientation.as_str();
+    let style = settings.float_bar_style.as_str();
+    let click_through = settings.float_bar_click_through;
     if let Some(window) = app.get_webview_window(FLOATBAR_LABEL) {
         apply_opacity(&window, opacity);
         apply_click_through(&window, click_through);
         let _ = ensure_visible_on_active_monitor(&window, style);
         // Re-assert after possible unminimize/relocate so focus stays off.
-        apply_no_activate(&window);
-        apply_always_on_top(&window);
-        window.show().map_err(|e| e.to_string())?;
-        apply_always_on_top(&window);
-        super::topmost_guard::set_active(true);
-        return Ok(());
+        return present(&window);
     }
 
     let (w, h) = initial_size(orientation);
@@ -315,10 +308,15 @@ pub fn show(
 
     apply_opacity(&win, opacity);
     apply_click_through(&win, click_through);
-    apply_no_activate(&win);
-    apply_always_on_top(&win);
-    win.show().map_err(|e| e.to_string())?;
-    apply_always_on_top(&win);
+    present(&win)
+}
+
+/// Show the bar without activating it and keep it above the taskbar.
+fn present(window: &tauri::WebviewWindow) -> Result<(), String> {
+    apply_no_activate(window);
+    apply_always_on_top(window);
+    window.show().map_err(|e| e.to_string())?;
+    apply_always_on_top(window);
     super::topmost_guard::set_active(true);
     Ok(())
 }

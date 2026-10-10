@@ -28,13 +28,7 @@ pub fn install(app: &tauri::AppHandle) {
     if persisted.float_bar_enabled {
         // Best-effort floatbar show on startup; a show failure is logged
         // by the window layer and is non-fatal to app setup.
-        let _show = window::show(
-            app,
-            persisted.float_bar_opacity,
-            &persisted.float_bar_orientation,
-            &persisted.float_bar_style,
-            persisted.float_bar_click_through,
-        );
+        let _show = window::show(app, &persisted);
     }
 }
 
@@ -85,13 +79,7 @@ pub fn toggle(app: &tauri::AppHandle) {
     if settings.float_bar_enabled {
         // Best-effort show; window::show logs its own failures and the
         // toggle is fire-and-forget from the tray.
-        let _show = window::show(
-            app,
-            settings.float_bar_opacity,
-            &settings.float_bar_orientation,
-            &settings.float_bar_style,
-            settings.float_bar_click_through,
-        );
+        let _show = window::show(app, &settings);
     } else {
         // Best-effort hide; a hide failure leaves the bar visible, which
         // the next toggle corrects — non-fatal.
@@ -105,13 +93,7 @@ pub fn toggle(app: &tauri::AppHandle) {
 pub fn apply_state(app: &tauri::AppHandle, settings: &Settings) {
     let open = app.get_webview_window(FLOATBAR_LABEL).is_some();
     if settings.float_bar_enabled && !open {
-        let _show = window::show(
-            app,
-            settings.float_bar_opacity,
-            &settings.float_bar_orientation,
-            &settings.float_bar_style,
-            settings.float_bar_click_through,
-        );
+        let _show = window::show(app, settings);
     } else if !settings.float_bar_enabled && open {
         let _hide = window::hide(app);
     } else if let Some(w) = app.get_webview_window(FLOATBAR_LABEL) {

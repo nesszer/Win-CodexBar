@@ -15,7 +15,6 @@ use tauri::Manager;
 static MUTATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const AMBIENT_RECONCILIATION_GRACE: Duration = Duration::from_secs(5);
 
-#[tauri::command]
 pub fn claude_accounts_list() -> Result<Vec<ClaudeAccount>, String> {
     AccountManager::new()
         .and_then(|m| m.list())
