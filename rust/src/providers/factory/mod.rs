@@ -370,11 +370,12 @@ pub(crate) fn factory_api_error_is_recoverable(error: &ProviderError) -> bool {
 // ── Provider ─────────────────────────────────────────────────────────
 
 /// Droid (Factory) provider
-pub struct FactoryProvider {}
+#[derive(Default)]
+pub struct FactoryProvider;
 
 impl FactoryProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     fn get_cookies(&self, ctx: &FetchContext) -> Result<String, ProviderError> {
@@ -725,12 +726,6 @@ fn snapshot_from_billing_limits(
         login = format!("Droid - Fallback: {pref}");
     }
     usage.with_login_method(login)
-}
-
-impl Default for FactoryProvider {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[async_trait]

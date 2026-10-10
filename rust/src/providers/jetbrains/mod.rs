@@ -17,11 +17,12 @@ use crate::core::{
 };
 
 /// JetBrains AI provider
-pub struct JetBrainsProvider {}
+#[derive(Default)]
+pub struct JetBrainsProvider;
 
 impl JetBrainsProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Get JetBrains config directory
@@ -201,12 +202,6 @@ impl JetBrainsQuota {
         } else {
             0.0
         }
-    }
-}
-
-impl Default for JetBrainsProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

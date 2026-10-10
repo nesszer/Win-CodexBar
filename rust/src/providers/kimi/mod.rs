@@ -243,11 +243,12 @@ struct KimiWindow {
 }
 
 /// Kimi AI provider
-pub struct KimiProvider {}
+#[derive(Default)]
+pub struct KimiProvider;
 
 impl KimiProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     fn auth_token_from_cookie_headers(
@@ -316,12 +317,6 @@ impl KimiProvider {
             reset_at,
             description,
         ))
-    }
-}
-
-impl Default for KimiProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

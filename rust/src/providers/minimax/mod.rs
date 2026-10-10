@@ -176,11 +176,12 @@ impl MiniMaxRegion {
 }
 
 /// MiniMax provider
-pub struct MiniMaxProvider {}
+#[derive(Default)]
+pub struct MiniMaxProvider;
 
 impl MiniMaxProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     pub fn region_from_settings(value: Option<&str>) -> MiniMaxRegion {
@@ -990,12 +991,6 @@ fn format_count(value: i64) -> String {
         out.push(ch);
     }
     out.chars().rev().collect()
-}
-
-impl Default for MiniMaxProvider {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[async_trait]

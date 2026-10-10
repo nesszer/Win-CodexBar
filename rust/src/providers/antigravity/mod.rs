@@ -72,7 +72,8 @@ impl From<ManagedProcessError> for ProviderError {
 }
 
 /// Antigravity provider
-pub struct AntigravityProvider {}
+#[derive(Default)]
+pub struct AntigravityProvider;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AntigravityStrategyId {
@@ -140,7 +141,7 @@ fn is_agy_cli_command(command_line: &str) -> bool {
 
 impl AntigravityProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Detect running Antigravity language server and extract connection info
@@ -864,12 +865,6 @@ impl AntigravityProvider {
         response: UserStatusResponse,
     ) -> Result<UsageSnapshot, ProviderError> {
         legacy_status::parse_user_status(response)
-    }
-}
-
-impl Default for AntigravityProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

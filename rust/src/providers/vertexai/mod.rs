@@ -21,11 +21,12 @@ use crate::core::{
 };
 
 /// Vertex AI provider
-pub struct VertexAIProvider {}
+#[derive(Default)]
+pub struct VertexAIProvider;
 
 impl VertexAIProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Get Google Cloud credentials path
@@ -291,12 +292,6 @@ fn parse_access_token_response(body: &[u8]) -> Result<String, ProviderError> {
         .access_token
         .filter(|token| !token.trim().is_empty())
         .ok_or_else(|| ProviderError::Parse("No access_token in response".to_string()))
-}
-
-impl Default for VertexAIProvider {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[async_trait]

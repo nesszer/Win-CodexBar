@@ -40,7 +40,8 @@ const COOKIE_DOMAINS: &[&str] = &[
 /// with the real cycle length ending at `resets_at` (upstream `ProviderPaceCapability`).
 const MONTHLY_WINDOW_SENTINEL_MINUTES: u32 = 30 * 24 * 60;
 
-pub struct NotionProvider {}
+#[derive(Default)]
+pub struct NotionProvider;
 
 #[derive(Debug, Clone)]
 struct NotionWorkspace {
@@ -128,7 +129,7 @@ impl CreditRateLimitStatus {
 
 impl NotionProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     fn resolve_cookie_header(ctx: &FetchContext) -> Result<String, ProviderError> {
@@ -230,12 +231,6 @@ impl NotionProvider {
 
         serde_json::from_str(&text)
             .map_err(|e| ProviderError::Parse(format!("Could not parse Notion usage: {e}")))
-    }
-}
-
-impl Default for NotionProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

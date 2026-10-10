@@ -42,7 +42,8 @@ const WEEKLY_MINUTES: u32 = 7 * 24 * 60;
 const LEGACY_MINUTES: u32 = 30 * 24 * 60;
 const MONTHLY_MINUTES: u32 = 30 * 24 * 60;
 
-pub struct AlibabaTokenPlanProvider {}
+#[derive(Default)]
+pub struct AlibabaTokenPlanProvider;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct TokenPlanSnapshot {
@@ -64,7 +65,7 @@ pub(super) struct TokenPlanSnapshot {
 
 impl AlibabaTokenPlanProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     fn resolve_region(ctx: &FetchContext) -> Region {
@@ -365,12 +366,6 @@ impl AlibabaTokenPlanProvider {
             usage = usage.with_login_method(plan);
         }
         Ok(usage)
-    }
-}
-
-impl Default for AlibabaTokenPlanProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

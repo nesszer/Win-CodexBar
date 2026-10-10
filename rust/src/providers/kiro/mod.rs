@@ -30,7 +30,8 @@ use crate::core::{
 };
 
 /// Kiro provider (AWS AI assistant)
-pub struct KiroProvider {}
+#[derive(Default)]
+pub struct KiroProvider;
 struct KiroCliUsage {
     plan_name: String,
     matched_new_format: bool,
@@ -48,7 +49,7 @@ struct KiroCliUsage {
 
 impl KiroProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Get Kiro config directory
@@ -435,12 +436,6 @@ impl KiroProvider {
         }
 
         None
-    }
-}
-
-impl Default for KiroProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

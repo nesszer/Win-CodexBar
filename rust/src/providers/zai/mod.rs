@@ -195,7 +195,8 @@ fn unavailable_quota_detail(has_token_limits: bool) -> Option<ProviderDisplayDet
 }
 
 /// z.ai provider
-pub struct ZaiProvider {}
+#[derive(Default)]
+pub struct ZaiProvider;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ZaiTeamContext {
@@ -205,7 +206,7 @@ struct ZaiTeamContext {
 
 impl ZaiProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Effective API region (upstream 0.48.0): an explicit settings value
@@ -643,12 +644,6 @@ fn authorization_header(token: &str) -> String {
         trimmed.to_string()
     } else {
         format!("Bearer {trimmed}")
-    }
-}
-
-impl Default for ZaiProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

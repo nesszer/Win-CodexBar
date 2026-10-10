@@ -27,7 +27,8 @@ const OLLAMA_MONTHLY_WINDOW_MINUTES: u32 = 30 * 24 * 60;
 const OLLAMA_MONTHLY_USAGE_LABEL: &str = "Monthly usage";
 
 /// Ollama provider
-pub struct OllamaProvider {}
+#[derive(Default)]
+pub struct OllamaProvider;
 
 #[derive(Debug, Clone, PartialEq)]
 struct UsageBlock {
@@ -39,7 +40,7 @@ struct UsageBlock {
 
 impl OllamaProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Fetch usage by scraping ollama.com/settings
@@ -341,12 +342,6 @@ impl OllamaProvider {
     fn parse_account_email(&self, html: &str) -> Option<String> {
         let re = Regex::new(r#"[\w.+-]+@[\w-]+\.[\w.-]+"#).ok()?;
         re.find(html).map(|m| m.as_str().to_string())
-    }
-}
-
-impl Default for OllamaProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

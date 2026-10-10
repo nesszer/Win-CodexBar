@@ -140,7 +140,8 @@ impl KeyData {
 }
 
 /// OpenRouter provider
-pub struct OpenRouterProvider {}
+#[derive(Default)]
+pub struct OpenRouterProvider;
 
 /// Usage value for quota math when the server does not report remaining: the
 /// field matching the declared reset window when known, otherwise cumulative
@@ -162,7 +163,7 @@ fn quota_fallback_usage(key_data: &KeyData) -> Option<f64> {
 
 impl OpenRouterProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Get API token from ctx, Windows Credential Manager, or env
@@ -541,12 +542,6 @@ impl OpenRouterProvider {
         let mut window = RateWindow::new(0.0);
         window.reset_description = Some(format!("${spend:.2} {period}"));
         *usage = usage.clone().with_extra_rate_window(id, label, window);
-    }
-}
-
-impl Default for OpenRouterProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

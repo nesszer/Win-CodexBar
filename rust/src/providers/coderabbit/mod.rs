@@ -48,17 +48,12 @@ struct CliOutput {
     stderr: Vec<u8>,
 }
 
-pub struct CodeRabbitProvider {}
+#[derive(Default)]
+pub struct CodeRabbitProvider;
 
 impl CodeRabbitProvider {
     pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Default for CodeRabbitProvider {
-    fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 

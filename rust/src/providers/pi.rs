@@ -12,17 +12,12 @@ use crate::core::{
     UsageSnapshot,
 };
 
-pub struct PiProvider {}
+#[derive(Default)]
+pub struct PiProvider;
 
 impl PiProvider {
     pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Default for PiProvider {
-    fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 

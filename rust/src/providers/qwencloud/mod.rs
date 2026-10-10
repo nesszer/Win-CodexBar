@@ -52,7 +52,8 @@ const WEEKLY_MINUTES: u32 = 7 * 24 * 60;
 const LEGACY_MINUTES: u32 = 30 * 24 * 60;
 const MONTHLY_MINUTES: u32 = 30 * 24 * 60;
 
-pub struct QwenCloudProvider {}
+#[derive(Default)]
+pub struct QwenCloudProvider;
 
 #[derive(Debug, Clone, PartialEq)]
 struct QwenCloudSnapshot {
@@ -89,7 +90,7 @@ const USAGE_WINDOW_KEYS: &[&str] = &[
 
 impl QwenCloudProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
@@ -407,12 +408,6 @@ impl QwenCloudProvider {
             usage = usage.with_login_method(plan);
         }
         Ok(usage)
-    }
-}
-
-impl Default for QwenCloudProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

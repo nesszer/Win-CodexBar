@@ -141,11 +141,12 @@ fn api_key_for_region(env: &HashMap<String, String>, region: MoonshotRegion) -> 
 }
 
 /// Kimi K2 provider (API-based credits)
-pub struct KimiK2Provider {}
+#[derive(Default)]
+pub struct KimiK2Provider;
 
 impl KimiK2Provider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Region-bound API key resolution (upstream 0.48.0 #2621):
@@ -362,12 +363,6 @@ impl KimiK2Provider {
         }
 
         Ok(usage)
-    }
-}
-
-impl Default for KimiK2Provider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

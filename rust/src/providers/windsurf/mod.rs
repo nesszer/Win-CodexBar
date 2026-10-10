@@ -49,11 +49,12 @@ struct QuotaUsage {
     weekly_reset_at_unix: Option<i64>,
 }
 
-pub struct WindsurfProvider {}
+#[derive(Default)]
+pub struct WindsurfProvider;
 
 impl WindsurfProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     fn default_db_path() -> Option<PathBuf> {
@@ -169,12 +170,6 @@ impl WindsurfProvider {
             snapshot = snapshot.with_secondary(secondary);
         }
         with_identity(snapshot, plan.plan_name, plan.end_timestamp)
-    }
-}
-
-impl Default for WindsurfProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -14,7 +14,8 @@ use crate::settings::ApiKeys;
 
 const DEFAULT_API_VERSION: &str = "2024-10-21";
 
-pub struct AzureOpenAIProvider {}
+#[derive(Default)]
+pub struct AzureOpenAIProvider;
 
 #[derive(Debug, Clone)]
 struct AzureOpenAIConfig {
@@ -31,7 +32,7 @@ struct ChatCompletionResponse {
 
 impl AzureOpenAIProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     async fn fetch_via_api(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
@@ -301,12 +302,6 @@ fn clean_string(value: &str) -> Option<String> {
     }
     let value = value.trim().to_string();
     (!value.is_empty()).then_some(value)
-}
-
-impl Default for AzureOpenAIProvider {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[async_trait]

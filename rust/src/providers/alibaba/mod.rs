@@ -27,11 +27,12 @@ use self::sec_token::{
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
-pub struct AlibabaProvider {}
+#[derive(Default)]
+pub struct AlibabaProvider;
 
 impl AlibabaProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Resolve the [`AlibabaRegion`] from a settings value.
@@ -233,12 +234,6 @@ impl AlibabaProvider {
         let json: serde_json::Value =
             serde_json::from_slice(&body).map_err(|e| ProviderError::Parse(e.to_string()))?;
         parse_response(&json)
-    }
-}
-
-impl Default for AlibabaProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

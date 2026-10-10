@@ -26,11 +26,12 @@ use crate::core::{
 };
 
 /// Augment provider
-pub struct AugmentProvider {}
+#[derive(Default)]
+pub struct AugmentProvider;
 
 impl AugmentProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Get Augment config directory
@@ -257,12 +258,6 @@ impl AugmentProvider {
                 ))
             }
         })
-    }
-}
-
-impl Default for AugmentProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

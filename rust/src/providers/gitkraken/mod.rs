@@ -39,11 +39,12 @@ struct GitKrakenUsage {
 }
 
 /// GitKraken AI provider.
-pub struct GitKrakenProvider {}
+#[derive(Default)]
+pub struct GitKrakenProvider;
 
 impl GitKrakenProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     async fn fetch(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -97,12 +98,6 @@ impl GitKrakenProvider {
         let usage = parse_usage(&value)?;
 
         Ok(result_from_usage(usage))
-    }
-}
-
-impl Default for GitKrakenProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

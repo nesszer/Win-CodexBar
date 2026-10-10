@@ -20,7 +20,8 @@ const CUSTOMER_DATA_INPUT: &str =
     r#"{"0":{"json":{"sessionId":null},"meta":{"values":{"sessionId":["undefined"]}}}}"#;
 const COOKIE_DOMAINS: [&str; 2] = ["t3.chat", "www.t3.chat"];
 
-pub struct T3ChatProvider {}
+#[derive(Default)]
+pub struct T3ChatProvider;
 
 #[derive(Debug, Clone)]
 struct T3RequestContext {
@@ -50,7 +51,7 @@ struct T3Subscription {
 
 impl T3ChatProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
@@ -351,12 +352,6 @@ fn plan_name(customer: &T3CustomerData) -> Option<String> {
             .collect::<Vec<_>>()
             .join(" "),
     )
-}
-
-impl Default for T3ChatProvider {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[async_trait]

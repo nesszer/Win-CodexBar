@@ -116,11 +116,12 @@ struct BonusGrantsInfo {
 }
 
 /// Warp provider
-pub struct WarpProvider {}
+#[derive(Default)]
+pub struct WarpProvider;
 
 impl WarpProvider {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     /// Get API token from ctx, Windows Credential Manager, or env
@@ -375,12 +376,6 @@ impl WarpProvider {
         value
             .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
             .map(|value| value.with_timezone(&Utc))
-    }
-}
-
-impl Default for WarpProvider {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
