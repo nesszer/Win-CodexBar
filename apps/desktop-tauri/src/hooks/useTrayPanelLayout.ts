@@ -43,6 +43,7 @@ export function useTrayPanelLayout({
   const [layoutRevision, setLayoutRevision] = useState(0);
   const layoutReadyRef = useRef(false);
   const resizeRunRef = useRef(0);
+  const activeResizeRef = useRef<Promise<void>>(Promise.resolve());
   const layoutTimerRef = useRef<number | undefined>(undefined);
   const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
   const programmaticInFlightRef = useRef(0);
@@ -72,12 +73,9 @@ export function useTrayPanelLayout({
     const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
     if (!surface || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (
-        layoutReadyRef.current &&
-        programmaticInFlightRef.current > 0
-      ) {
-        return;
-      }
+      // Measuring lifts the surface/body constraints, which resizes the
+      // observed parts. Feeding that back would restart the pass forever.
+      if (programmaticInFlightRef.current > 0) return;
       requestLayout();
     });
     for (const part of [
@@ -110,6 +108,23 @@ export function useTrayPanelLayout({
 
     const resize = async () => {
       const run = ++resizeRunRef.current;
+      // A superseded pass can still be suspended with its measuring
+      // overrides applied; wait for it so `previous` below is never those.
+      const prior = activeResizeRef.current;
+      let finished!: () => void;
+      activeResizeRef.current = new Promise<void>((resolve) => {
+        finished = resolve;
+      });
+      try {
+        await prior;
+        if (run !== resizeRunRef.current) return;
+        await measure(run);
+      } finally {
+        finished();
+      }
+    };
+
+    const measure = async (run: number) => {
       const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
       if (!surface) return;
       const html = document.documentElement;

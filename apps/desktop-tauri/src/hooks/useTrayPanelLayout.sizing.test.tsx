@@ -200,6 +200,35 @@ describe("useTrayPanelLayout sizing", () => {
     );
   });
 
+  it("leaves no measuring overrides behind when style feedback overlaps the first pass", async () => {
+    vi.stubGlobal("ResizeObserver", StyleFeedbackResizeObserver);
+    setScrollHeight(1_200);
+    const html = document.documentElement;
+    const body = surface.querySelector<HTMLElement>(".menu-surface__body")!;
+    const stack = surface.querySelector<HTMLElement>(".menu-stack")!;
+
+    const { result } = renderHook(() => useTrayPanelLayout(hookProps()));
+    await waitFor(() => expect(result.current.layoutReady).toBe(true), {
+      timeout: 3000,
+    });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+    });
+
+    expect(feedbackObserverCallbacks).toBeGreaterThan(0);
+    expect(lastResize()).toEqual({ width: 310, height: 884 });
+    expect(surface.style.maxHeight).toBe("884px");
+    expect(surface.style.minHeight).toBe("");
+    expect(surface.style.height).toBe("");
+    expect(surface.style.overflow).toBe("");
+    expect(body.style.overflow).toBe("");
+    expect(body.style.flex).toBe("");
+    expect(stack.style.overflow).toBe("");
+    expect(document.body.style.overflow).toBe("");
+    expect(document.body.style.minHeight).toBe("");
+    expect(html.style.overflow).toBe("");
+  });
+
   it("commits stable small changes, locks the reporter pair on the larger member, tracks retained height in the DOM", async () => {
     setScrollHeight(538); // → 539 logical → 674 physical
     const { result } = renderHook(() => useTrayPanelLayout(hookProps()));
