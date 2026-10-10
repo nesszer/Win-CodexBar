@@ -951,3 +951,5 @@ fn cached_spend(
 
 #[cfg(test)]
 mod cache_key_tests;
+#[cfg(test)]
+mod tests;
