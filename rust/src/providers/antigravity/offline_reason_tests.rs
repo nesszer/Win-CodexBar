@@ -3,7 +3,7 @@
 
 use super::super::AntigravityProvider;
 use super::super::cli_print_failure::ExitReason;
-use super::super::tests::offline_result;
+use super::super::tests::{offline_result, run_fallback};
 use super::*;
 use crate::core::{ProviderFetchResult, RateWindow, UsageSnapshot};
 
@@ -16,6 +16,14 @@ fn offline_detail_value(result: &ProviderFetchResult) -> String {
     assert_eq!(details[0].id(), "antigravity-live-unavailable");
     assert_eq!(details[0].title(), "Live usage");
     details[0].value().to_string()
+}
+
+/// Resolve `failure` against offline history and return its explanation.
+fn offline_detail_for(failure: impl Into<LiveFailure>) -> String {
+    let resolved = AntigravityProvider::resolve_probe_failure(failure, Some(offline_result()))
+        .expect("offline history is preserved");
+    assert_eq!(resolved.source_label, "offline");
+    offline_detail_value(&resolved)
 }
 
 #[test]
@@ -62,11 +70,8 @@ fn offline_fallback_explains_each_typed_failure() {
         (ProviderError::NoCookies.into(), HINT),
     ];
     for (failure, reason) in cases {
-        let resolved = AntigravityProvider::resolve_probe_failure(failure, Some(offline_result()))
-            .expect("offline history is preserved");
-        assert_eq!(resolved.source_label, "offline");
         assert_eq!(
-            offline_detail_value(&resolved),
+            offline_detail_for(failure),
             format!("{OFFLINE_DETAIL_PREFIX} {reason}")
         );
     }
@@ -74,29 +79,19 @@ fn offline_fallback_explains_each_typed_failure() {
 
 #[test]
 fn offline_explanation_keeps_only_the_http_status() {
-    let body = AntigravityProvider::resolve_probe_failure(
-        LiveFailure::http_status(
-            500,
-            ProviderError::Other(
-                r#"API error 500 Internal Server Error: {"secret":"token-value"}"#.to_string(),
-            ),
+    let body = offline_detail_for(LiveFailure::http_status(
+        500,
+        ProviderError::Other(
+            r#"API error 500 Internal Server Error: {"secret":"token-value"}"#.to_string(),
         ),
-        Some(offline_result()),
-    )
-    .expect("offline history is preserved");
-    let body = offline_detail_value(&body);
+    ));
     assert!(body.contains("HTTP 500"), "{body}");
     assert!(!body.contains("token-value"), "{body}");
 
-    let expired = AntigravityProvider::resolve_probe_failure(
-        LiveFailure::http_status(
-            403,
-            ProviderError::Other(r#"API error 403 Forbidden: {"detail":"private"}"#.to_string()),
-        ),
-        Some(offline_result()),
-    )
-    .expect("offline history is preserved");
-    let expired = offline_detail_value(&expired);
+    let expired = offline_detail_for(LiveFailure::http_status(
+        403,
+        ProviderError::Other(r#"API error 403 Forbidden: {"detail":"private"}"#.to_string()),
+    ));
     assert!(expired.contains("session expired"), "{expired}");
     assert!(!expired.contains("private"), "{expired}");
 }
@@ -118,19 +113,16 @@ fn http_failure_without_history_surfaces_the_original_error() {
 
 #[tokio::test]
 async fn offline_fallback_explains_the_masked_cli_failure() {
-    let result = AntigravityProvider::new()
-        .resolve_runtime_fallback_with_offline(
-            Err(LiveFailure::not_running()),
-            || async {
-                Err(LiveFailure::cli_report(CliPrintFailure::Exited {
-                    code: 1,
-                    reason: ExitReason::EligibilityNetwork,
-                }))
-            },
-            Some(offline_result()),
-        )
-        .await
-        .expect("offline history should survive a failed CLI probe");
+    let (result, _) = run_fallback(
+        Err(LiveFailure::not_running()),
+        Err(LiveFailure::cli_report(CliPrintFailure::Exited {
+            code: 1,
+            reason: ExitReason::EligibilityNetwork,
+        })),
+        Some(offline_result()),
+    )
+    .await;
+    let result = result.expect("offline history should survive a failed CLI probe");
     assert_eq!(result.source_label, "offline");
     assert_eq!(
         offline_detail_value(&result),
@@ -140,17 +132,16 @@ async fn offline_fallback_explains_the_masked_cli_failure() {
 
 #[tokio::test]
 async fn unavailable_cli_keeps_the_local_failure_reason() {
-    let result = AntigravityProvider::new()
-        .resolve_runtime_fallback_with_offline(
-            Err(LiveFailure::http_status(
-                500,
-                ProviderError::Other("API error 500 Internal Server Error: busy".to_string()),
-            )),
-            || async { Ok(None) },
-            Some(offline_result()),
-        )
-        .await
-        .expect("offline history is preserved");
+    let (result, _) = run_fallback(
+        Err(LiveFailure::http_status(
+            500,
+            ProviderError::Other("API error 500 Internal Server Error: busy".to_string()),
+        )),
+        Ok(None),
+        Some(offline_result()),
+    )
+    .await;
+    let result = result.expect("offline history is preserved");
     assert_eq!(
         offline_detail_value(&result),
         format!("{OFFLINE_DETAIL_PREFIX} the usage request failed (HTTP 500)")
@@ -240,9 +231,7 @@ fn offline_explanation_never_echoes_error_text() {
         ProviderError::OAuth(leaky),
     ];
     for error in errors {
-        let resolved = AntigravityProvider::resolve_probe_failure(error, Some(offline_result()))
-            .expect("offline history is preserved");
-        let value = offline_detail_value(&resolved);
+        let value = offline_detail_for(error);
         for secret in secrets {
             assert!(!value.contains(secret), "{secret} leaked into {value}");
         }
@@ -266,28 +255,26 @@ fn auth_required_adds_no_offline_explanation() {
 #[tokio::test]
 async fn successful_live_fallback_carries_no_offline_explanation() {
     let live = ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(10.0)), "cli");
-    let result = AntigravityProvider::new()
-        .resolve_runtime_fallback_with_offline(
-            Err(ProviderError::Timeout.into()),
-            || async { Ok(Some(live)) },
-            Some(offline_result()),
-        )
-        .await
-        .expect("live CLI fallback wins over offline history");
+    let (result, _) = run_fallback(
+        Err(ProviderError::Timeout.into()),
+        Ok(Some(live)),
+        Some(offline_result()),
+    )
+    .await;
+    let result = result.expect("live CLI fallback wins over offline history");
     assert_eq!(result.source_label, "cli");
     assert!(result.display_details().is_empty());
 }
 
 #[tokio::test]
 async fn failed_cli_fallback_offline_result_explains_failure() {
-    let result = AntigravityProvider::new()
-        .resolve_runtime_fallback_with_offline(
-            Err(ProviderError::AuthRequired.into()),
-            || async { Err(LiveFailure::from(ProviderError::Timeout)) },
-            Some(offline_result()),
-        )
-        .await
-        .expect("offline history should survive a failed CLI probe");
+    let (result, _) = run_fallback(
+        Err(ProviderError::AuthRequired.into()),
+        Err(LiveFailure::from(ProviderError::Timeout)),
+        Some(offline_result()),
+    )
+    .await;
+    let result = result.expect("offline history should survive a failed CLI probe");
     assert_eq!(
         offline_detail_value(&result),
         format!("{OFFLINE_DETAIL_PREFIX} Antigravity quota request timed out.")

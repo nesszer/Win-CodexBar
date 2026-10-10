@@ -675,7 +675,7 @@ fn local_result() -> ProviderFetchResult {
 
 /// Resolve `local` with the given offline history and a CLI fallback that
 /// yields `cli`. Also reports whether the CLI fallback ran.
-async fn run_fallback(
+pub(super) async fn run_fallback(
     local: Result<Option<ProviderFetchResult>, LiveFailure>,
     cli: Result<Option<ProviderFetchResult>, LiveFailure>,
     offline: Option<ProviderFetchResult>,

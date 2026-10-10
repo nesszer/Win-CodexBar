@@ -96,41 +96,30 @@ fn has_duplicate_rows(rows: impl Iterator<Item = i64>) -> bool {
 mod tests {
     use super::*;
 
-    fn occurrences(rows: &[(i64, Option<i64>)]) -> Vec<StepOccurrence> {
-        rows.iter()
+    /// `(row, timestamp)` pairs without bot ids, keyed under one `step`.
+    fn step(rows: &[(i64, Option<i64>)]) -> HashMap<String, Vec<StepOccurrence>> {
+        let rows = rows
+            .iter()
             .map(|&(row, timestamp_ms)| StepOccurrence {
                 row,
                 timestamp_ms,
                 bot_id: None,
             })
-            .collect()
-    }
-
-    fn timestamps(rows: &[(i64, Option<i64>)]) -> Vec<StepOccurrence> {
-        rows.iter()
-            .map(|&(row, timestamp_ms)| StepOccurrence {
-                row,
-                timestamp_ms,
-                bot_id: None,
-            })
-            .collect()
+            .collect();
+        HashMap::from([("step".to_string(), rows)])
     }
 
     #[test]
     fn orders_rows_and_repeats_one_shared_timestamp() {
-        let occurrences =
-            HashMap::from([("step".to_string(), occurrences(&[(0, None), (1, None)]))]);
-        let timestamp_map = HashMap::from([(
-            "step".to_string(),
-            timestamps(&[(20, Some(200)), (10, Some(100))]),
-        )]);
+        let occurrences = step(&[(0, None), (1, None)]);
+        let timestamp_map = step(&[(20, Some(200)), (10, Some(100))]);
 
         assert_eq!(
             resolve_step_timestamps(&timestamp_map, &occurrences, &HashSet::new(), false)["step"],
             vec![100, 200]
         );
 
-        let timestamps = HashMap::from([("step".to_string(), timestamps(&[(10, Some(100))]))]);
+        let timestamps = step(&[(10, Some(100))]);
         assert_eq!(
             resolve_step_timestamps(&timestamps, &occurrences, &HashSet::new(), false)["step"],
             vec![100, 100]
@@ -139,13 +128,11 @@ mod tests {
 
     #[test]
     fn withholds_missing_duplicate_and_conflicting_evidence() {
-        let occurrences =
-            HashMap::from([("step".to_string(), occurrences(&[(0, None), (1, None)]))]);
-        for timestamps in [
-            timestamps(&[(10, None), (20, Some(200))]),
-            timestamps(&[(10, Some(100)), (10, Some(200))]),
+        let occurrences = step(&[(0, None), (1, None)]);
+        for evidence in [
+            step(&[(10, None), (20, Some(200))]),
+            step(&[(10, Some(100)), (10, Some(200))]),
         ] {
-            let evidence = HashMap::from([("step".to_string(), timestamps)]);
             assert!(
                 !resolve_step_timestamps(&evidence, &occurrences, &HashSet::new(), false)
                     .contains_key("step")
@@ -155,14 +142,8 @@ mod tests {
 
     #[test]
     fn embedded_timestamp_must_agree_with_aligned_step() {
-        let occurrences = HashMap::from([(
-            "step".to_string(),
-            occurrences(&[(0, Some(100)), (1, None)]),
-        )]);
-        let timestamps = HashMap::from([(
-            "step".to_string(),
-            timestamps(&[(10, Some(101)), (20, Some(200))]),
-        )]);
+        let occurrences = step(&[(0, Some(100)), (1, None)]);
+        let timestamps = step(&[(10, Some(101)), (20, Some(200))]);
 
         assert!(
             !resolve_step_timestamps(&timestamps, &occurrences, &HashSet::new(), false)
@@ -172,9 +153,8 @@ mod tests {
 
     #[test]
     fn unidentified_rows_do_not_reuse_one_timestamp_for_repeated_occurrences() {
-        let occurrences =
-            HashMap::from([("step".to_string(), occurrences(&[(0, None), (1, None)]))]);
-        let timestamps = HashMap::from([("step".to_string(), timestamps(&[(10, Some(100))]))]);
+        let occurrences = step(&[(0, None), (1, None)]);
+        let timestamps = step(&[(10, Some(100))]);
 
         assert!(
             !resolve_step_timestamps(&timestamps, &occurrences, &HashSet::new(), true)
@@ -184,8 +164,7 @@ mod tests {
 
     #[test]
     fn ambiguous_bot_timestamp_keeps_its_positional_slot() {
-        let occurrences =
-            HashMap::from([("step".to_string(), occurrences(&[(0, None), (1, None)]))]);
+        let occurrences = step(&[(0, None), (1, None)]);
         let timestamps = HashMap::from([(
             "step".to_string(),
             vec![
