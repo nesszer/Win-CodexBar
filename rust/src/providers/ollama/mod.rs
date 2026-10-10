@@ -543,6 +543,7 @@ fn ollama_api_key_error() -> ProviderError {
 mod tests {
     use super::*;
     use crate::core::LastGoodFailurePolicy;
+    use crate::providers::test_support::{mock_response, mock_status, mock_status_expect};
 
     #[tokio::test]
     async fn settings_fetch_follows_same_origin_redirects() {
@@ -553,12 +554,14 @@ mod tests {
             .with_header("location", "/settings/account")
             .create_async()
             .await;
-        let second = server
-            .mock("GET", "/settings/account")
-            .with_status(200)
-            .with_body("<html>usage</html>")
-            .create_async()
-            .await;
+        let second = mock_response(
+            &mut server,
+            "GET",
+            "/settings/account",
+            200,
+            "<html>usage</html>",
+        )
+        .await;
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -672,17 +675,8 @@ mod tests {
     #[tokio::test]
     async fn rejects_unproven_validation_responses_before_catalog_fetch() {
         let mut server = mockito::Server::new_async().await;
-        let validation = server
-            .mock("POST", "/api/web_search")
-            .with_status(422)
-            .create_async()
-            .await;
-        let catalog = server
-            .mock("GET", "/api/tags")
-            .expect(0)
-            .with_status(200)
-            .create_async()
-            .await;
+        let validation = mock_status(&mut server, "POST", "/api/web_search", 422).await;
+        let catalog = mock_status_expect(&mut server, "GET", "/api/tags", 200, 0).await;
         let client = reqwest::Client::new();
 
         let error = OllamaProvider::fetch_usage_api_at(

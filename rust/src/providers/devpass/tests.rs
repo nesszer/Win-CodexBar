@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::test_support::{mock_response, mock_response_expect};
 use chrono::{TimeZone, Utc};
 use serde_json::{Value, json};
 
@@ -378,12 +379,7 @@ async fn fetch_never_echoes_an_error_body() {
         (503, "Other"),
     ] {
         let mut server = mockito::Server::new_async().await;
-        server
-            .mock("GET", "/v1/key")
-            .with_status(status)
-            .with_body("private-response")
-            .create_async()
-            .await;
+        mock_response(&mut server, "GET", "/v1/key", status, "private-response").await;
 
         let error = fetch_key(&DevPassProvider::new().client, &key_url(&server), "k")
             .await
@@ -403,13 +399,8 @@ async fn fetch_never_echoes_an_error_body() {
 #[tokio::test]
 async fn fetch_does_not_follow_redirects_with_the_key() {
     let mut target = mockito::Server::new_async().await;
-    let leaked = target
-        .mock("GET", "/v1/key")
-        .with_status(200)
-        .with_body(body(&fixture()))
-        .expect(0)
-        .create_async()
-        .await;
+    let leaked =
+        mock_response_expect(&mut target, "GET", "/v1/key", 200, body(&fixture()), 0).await;
     let mut origin = mockito::Server::new_async().await;
     origin
         .mock("GET", "/v1/key")
@@ -429,12 +420,14 @@ async fn fetch_does_not_follow_redirects_with_the_key() {
 #[tokio::test]
 async fn fetch_rejects_an_oversized_body() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/v1/key")
-        .with_status(200)
-        .with_body(vec![b' '; MAX_BODY_BYTES + 1])
-        .create_async()
-        .await;
+    mock_response(
+        &mut server,
+        "GET",
+        "/v1/key",
+        200,
+        vec![b' '; MAX_BODY_BYTES + 1],
+    )
+    .await;
 
     let error = fetch_key(&DevPassProvider::new().client, &key_url(&server), "k")
         .await

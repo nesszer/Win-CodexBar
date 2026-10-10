@@ -86,6 +86,8 @@ pub mod sakana;
 pub mod stepfun;
 pub mod sub2api;
 pub mod t3chat;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod typesafe;
 pub mod v0;
 pub mod venice;

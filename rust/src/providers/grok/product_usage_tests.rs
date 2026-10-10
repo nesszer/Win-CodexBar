@@ -2,6 +2,7 @@ use super::credits_proxy::{BearerBilling, parse_credits_response};
 use super::product_usage::{GrokProductUsage, display_details};
 use super::tests::billing_response_with_percent;
 use super::*;
+use crate::providers::test_support::{mock_response, mock_status};
 
 /// Upstream live capture (`LiveMultiProductCreditsPayload.p6`).
 const LIVE_MULTI_PRODUCT_BODY: &str = r#"{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-09-20T18:42:45.537749+00:00","end":"2026-09-27T18:42:45.537749+00:00"},"creditUsagePercent":6.0,"onDemandCap":{"val":0},"onDemandUsed":{"val":0},"productUsage":[{"product":"GrokChat","usagePercent":4.0},{"product":"GrokBuild","usagePercent":2.0}],"isUnifiedBillingUser":true,"prepaidBalance":{"val":0},"topUpMethod":"TOP_UP_METHOD_SAVED_PAYMENT_METHOD","billingPeriodStart":"2026-09-20T18:42:45.537749+00:00","billingPeriodEnd":"2026-09-27T18:42:45.537749+00:00"}}"#;
@@ -251,12 +252,7 @@ fn context_without_credits() -> FetchContext {
 #[tokio::test]
 async fn bearer_result_shows_the_breakdown_as_plain_rows_under_one_bar() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/credits")
-        .with_status(200)
-        .with_body(LIVE_MULTI_PRODUCT_BODY)
-        .create_async()
-        .await;
+    mock_response(&mut server, "GET", "/credits", 200, LIVE_MULTI_PRODUCT_BODY).await;
 
     let result = provider_for(&server)
         .fetch_with_auth(
@@ -287,12 +283,7 @@ async fn bearer_result_shows_the_breakdown_as_plain_rows_under_one_bar() {
 #[tokio::test]
 async fn reset_credit_enrichment_preserves_the_breakdown() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/credits")
-        .with_status(200)
-        .with_body(LIVE_MULTI_PRODUCT_BODY)
-        .create_async()
-        .await;
+    mock_response(&mut server, "GET", "/credits", 200, LIVE_MULTI_PRODUCT_BODY).await;
     let result = provider_for(&server)
         .fetch_with_auth(
             &GrokCredentials::from_bearer("token-123"),
@@ -315,20 +306,15 @@ async fn reset_credit_enrichment_preserves_the_breakdown() {
 #[tokio::test]
 async fn grpc_percent_never_borrows_the_proxy_products() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/credits")
-        .with_status(200)
-        .with_body(
-            r#"{"config":{"currentPeriod":{"start":"2026-08-06T00:00:00Z","end":"2026-08-13T00:00:00Z"},"productUsage":[{"product":"GrokBuild","usagePercent":12}]}}"#,
-        )
-        .create_async()
-        .await;
-    server
-        .mock("POST", "/billing")
-        .with_status(200)
-        .with_body(billing_response_with_percent(12.0))
-        .create_async()
-        .await;
+    mock_response(&mut server, "GET", "/credits", 200, r#"{"config":{"currentPeriod":{"start":"2026-08-06T00:00:00Z","end":"2026-08-13T00:00:00Z"},"productUsage":[{"product":"GrokBuild","usagePercent":12}]}}"#,).await;
+    mock_response(
+        &mut server,
+        "POST",
+        "/billing",
+        200,
+        billing_response_with_percent(12.0),
+    )
+    .await;
 
     let result = provider_for(&server)
         .fetch_with_auth(
@@ -379,20 +365,15 @@ fn live_breakdown() -> Vec<(String, String)> {
 #[tokio::test]
 async fn grpc_breakdown_is_adopted_with_the_grpc_percent_on_a_period_only_proxy_answer() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/credits")
-        .with_status(200)
-        .with_body(
-            r#"{"config":{"currentPeriod":{"start":"2026-08-06T00:00:00Z","end":"2026-08-13T00:00:00Z"},"productUsage":[{"product":"GrokBuild","usagePercent":12}]}}"#,
-        )
-        .create_async()
-        .await;
-    server
-        .mock("POST", "/billing")
-        .with_status(200)
-        .with_body(super::billing::web_product_usage_tests::live_frame())
-        .create_async()
-        .await;
+    mock_response(&mut server, "GET", "/credits", 200, r#"{"config":{"currentPeriod":{"start":"2026-08-06T00:00:00Z","end":"2026-08-13T00:00:00Z"},"productUsage":[{"product":"GrokBuild","usagePercent":12}]}}"#,).await;
+    mock_response(
+        &mut server,
+        "POST",
+        "/billing",
+        200,
+        super::billing::web_product_usage_tests::live_frame(),
+    )
+    .await;
 
     let result = provider_for(&server)
         .fetch_with_auth(
@@ -410,17 +391,15 @@ async fn grpc_breakdown_is_adopted_with_the_grpc_percent_on_a_period_only_proxy_
 #[tokio::test]
 async fn grpc_only_bearer_fallback_shows_the_breakdown() {
     let mut server = mockito::Server::new_async().await;
-    server
-        .mock("GET", "/credits")
-        .with_status(500)
-        .create_async()
-        .await;
-    server
-        .mock("POST", "/billing")
-        .with_status(200)
-        .with_body(super::billing::web_product_usage_tests::live_frame())
-        .create_async()
-        .await;
+    mock_status(&mut server, "GET", "/credits", 500).await;
+    mock_response(
+        &mut server,
+        "POST",
+        "/billing",
+        200,
+        super::billing::web_product_usage_tests::live_frame(),
+    )
+    .await;
 
     let result = provider_for(&server)
         .fetch_with_auth(

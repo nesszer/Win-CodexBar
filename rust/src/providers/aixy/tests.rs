@@ -1,5 +1,6 @@
 use super::*;
 use crate::core::ProviderDisplayDetail;
+use crate::providers::test_support::{mock_response, mock_response_expect};
 use mockito::Matcher;
 use serde_json::{Value, json};
 
@@ -438,12 +439,14 @@ async fn statuses_are_classified_without_echoing_the_body() {
         (418, "failed (HTTP 418"),
     ] {
         let mut server = mockito::Server::new_async().await;
-        let _mock = server
-            .mock("GET", "/v1/usage")
-            .with_status(status)
-            .with_body("private upstream body")
-            .create_async()
-            .await;
+        let _mock = mock_response(
+            &mut server,
+            "GET",
+            "/v1/usage",
+            status,
+            "private upstream body",
+        )
+        .await;
 
         let provider = AixyProvider::new();
         let error = provider
@@ -463,12 +466,14 @@ async fn statuses_are_classified_without_echoing_the_body() {
 #[tokio::test]
 async fn malformed_bodies_fail_without_echoing_them() {
     let mut server = mockito::Server::new_async().await;
-    let _mock = server
-        .mock("GET", "/v1/usage")
-        .with_status(200)
-        .with_body("private upstream body")
-        .create_async()
-        .await;
+    let _mock = mock_response(
+        &mut server,
+        "GET",
+        "/v1/usage",
+        200,
+        "private upstream body",
+    )
+    .await;
     let error = AixyProvider::new()
         .fetch_usage(&context(&server.url()))
         .await
@@ -488,13 +493,7 @@ async fn does_not_forward_the_key_through_gateway_redirects() {
         .expect(1)
         .create_async()
         .await;
-    let target = server
-        .mock("GET", "/redirected")
-        .with_status(200)
-        .with_body(FIXTURE)
-        .expect(0)
-        .create_async()
-        .await;
+    let target = mock_response_expect(&mut server, "GET", "/redirected", 200, FIXTURE, 0).await;
 
     let error = AixyProvider::new()
         .fetch_usage(&context(&server.url()))

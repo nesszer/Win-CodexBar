@@ -396,6 +396,7 @@ fn parse_snapshot_for_testing(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::test_support::{mock_response_expect, mock_status_expect};
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -594,13 +595,15 @@ mod tests {
                 .expect(1)
                 .create_async()
                 .await;
-            let ok = server
-                .mock("GET", "/payment/checklist")
-                .with_status(200)
-                .with_body(checklist_json(-5.0, 1.0, None, false, None))
-                .expect(1)
-                .create_async()
-                .await;
+            let ok = mock_response_expect(
+                &mut server,
+                "GET",
+                "/payment/checklist",
+                200,
+                checklist_json(-5.0, 1.0, None, false, None),
+                1,
+            )
+            .await;
 
             let url = format!("{}/payment/checklist", server.url());
             let checklist = DeepInfraProvider::new()
@@ -692,11 +695,7 @@ mod tests {
     #[tokio::test]
     async fn expired_budget_fails_without_sending_a_request() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("GET", "/payment/checklist")
-            .expect(0)
-            .create_async()
-            .await;
+        let mock = mock_status_expect(&mut server, "GET", "/payment/checklist", 200, 0).await;
 
         let url = format!("{}/payment/checklist", server.url());
         let error = DeepInfraProvider::new()

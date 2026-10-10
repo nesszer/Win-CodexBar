@@ -3,6 +3,7 @@ use serde_json::json;
 
 use super::cookies::{SESSION_COOKIE_NAMES, request_cookies};
 use super::*;
+use crate::providers::test_support::{mock_response, mock_status_expect};
 
 // Fixture epochs: 2030-01-01T00:00:00Z renewal, promo expiries around it.
 const NOW: i64 = 1_750_000_000; // 2025-06-15T15:06:40Z
@@ -509,12 +510,7 @@ async fn no_usable_cookie_reports_missing_cookies_without_a_request() {
 #[tokio::test]
 async fn server_errors_are_terminal_and_do_not_try_more_cookies() {
     let mut server = mockito::Server::new_async().await;
-    let mock = server
-        .mock("GET", "/rest/billing/credits")
-        .with_status(500)
-        .expect(1)
-        .create_async()
-        .await;
+    let mock = mock_status_expect(&mut server, "GET", "/rest/billing/credits", 500, 1).await;
     let provider = provider_for(&server);
 
     let error = provider
@@ -529,12 +525,14 @@ async fn server_errors_are_terminal_and_do_not_try_more_cookies() {
 #[tokio::test]
 async fn invalid_payloads_are_parse_failures_with_a_friendly_reason() {
     let mut server = mockito::Server::new_async().await;
-    let mock = server
-        .mock("GET", "/rest/billing/credits")
-        .with_status(200)
-        .with_body(r#"{"balance_cents": 1}"#)
-        .create_async()
-        .await;
+    let mock = mock_response(
+        &mut server,
+        "GET",
+        "/rest/billing/credits",
+        200,
+        r#"{"balance_cents": 1}"#,
+    )
+    .await;
     let provider = provider_for(&server);
 
     let error = provider
