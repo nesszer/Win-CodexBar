@@ -76,9 +76,6 @@ where
 
     deserializer.deserialize_map(NonemptyObjectVisitor)
 }
-/// Maximum retained Codex JSONL line size (upstream session-metadata bound).
-const CODEX_JSONL_MAX_LINE_BYTES: usize = 256 * 1024;
-
 /// Default scanner-side refresh debounce (upstream CostUsageScanner).
 pub const DEFAULT_COST_SCAN_REFRESH_MIN_INTERVAL_SECS: u64 = 60;
 /// Default number of dirty Codex rollouts inspected in one refresh.

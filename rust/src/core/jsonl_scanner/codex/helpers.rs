@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::io::BufRead;
 
+/// Maximum retained Codex JSONL line size (upstream session-metadata bound).
 pub(super) const CODEX_JSONL_MAX_LINE_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Deserialize)]
