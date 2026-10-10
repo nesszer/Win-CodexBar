@@ -939,10 +939,7 @@ fn popout_layout_size_uses_remembered_logical_geometry() {
 }
 
 #[test]
-fn tray_panel_layout_uses_remembered_size() {
-    // The "Pop Out Dashboard" flyout now honors the user's remembered SIZE.
-    // (Position is still re-anchored above the tray via default_surface_position,
-    // which ignores the stored x/y — only the size is taken from geometry.)
+fn tray_panel_layout_ignores_remembered_size() {
     let props = SurfaceMode::TrayPanel.window_properties();
     let stored = crate::geometry_store::StoredGeometry {
         x: 0,
@@ -953,5 +950,5 @@ fn tray_panel_layout_uses_remembered_size() {
 
     let size = logical_size_from_geometry(SurfaceMode::TrayPanel, &props, Some(stored));
 
-    assert_eq!(size, (640.0, 720.0));
+    assert_eq!(size, (310.0, 776.0));
 }

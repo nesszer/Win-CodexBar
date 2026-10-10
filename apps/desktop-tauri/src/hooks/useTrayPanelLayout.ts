@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  getCurrentWindow,
-  LogicalSize,
-  PhysicalSize,
-} from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import {
   getWorkAreaRect,
   reanchorTrayPanel,
@@ -16,43 +12,19 @@ import {
   type TrayAutoFitState,
 } from "../lib/traySizing";
 
-const TRAY_WIDTH = 328;
+const TRAY_BASE_WIDTH = 310;
 const TRAY_MAX_MEASURE_HEIGHT = 920;
 const TRAY_OVERVIEW_MIN_HEIGHT = 200;
 const TRAY_DETAIL_MIN_HEIGHT = 420;
 const TRAY_DENSE_OVERVIEW_HEIGHT = 776;
-
-/** Scale a measured content height into the window's pixel space. TrayPanel
- * renders the surface with `zoom: trayScale` (CSS zoom), but every DOM metric
- * the layout pass reads — scrollHeight AND bounding rects — is reported in
- * the surface's LOCAL, pre-zoom px (measured identical at 100/150/200%). The
- * WIN32 window must be sized in POST-zoom px or tall cards clip below the
- * fold (and the zoomed width overflows into a horizontal scrollbar), so the
- * raw measure is multiplied by the active zoom before clamping (#265). */
-export function scaledContentHeight(rawHeight: number, zoom: number): number {
-  if (!Number.isFinite(zoom) || zoom <= 0 || zoom === 1) return rawHeight;
-  return Math.round(rawHeight * zoom);
-}
+const TRAY_HEIGHT_SLACK = 1;
 
 export interface TrayPanelLayoutOptions {
   canMeasure: boolean;
   denseOverview: boolean;
   detailMode: boolean;
   layoutKey: string;
-  /** Auto-fit the window to its content (until the user sets a size). */
-  autoFit?: boolean;
-  /** The user's remembered size in logical px, re-applied + re-anchored each
-   *  time the flyout opens. `null` when the user has not resized yet. */
-  fixedSize?: [number, number] | null;
-  /** Whether the flyout is currently open (surface mode === trayPanel). Used as
-   *  the "just opened" trigger for the fixed-size restore + re-anchor. */
-  isOpen?: boolean;
-  /** Active tray-panel zoom factor (the CSS `zoom` TrayPanel applies to the
-   *  surface). Auto-fit scales its measured content height by this before
-   *  clamping — see `scaledContentHeight`. Defaults to 1 (no zoom). */
   zoom?: number;
-  /** Called with the new logical size on a genuine user drag-resize. */
-  onUserResize?: (width: number, height: number) => void;
 }
 
 export interface TrayPanelLayout {
@@ -65,131 +37,24 @@ export function useTrayPanelLayout({
   denseOverview,
   detailMode,
   layoutKey,
-  autoFit = true,
-  fixedSize = null,
-  isOpen = false,
   zoom = 1,
-  onUserResize,
 }: TrayPanelLayoutOptions): TrayPanelLayout {
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutRevision, setLayoutRevision] = useState(0);
   const layoutReadyRef = useRef(false);
   const resizeRunRef = useRef(0);
+  const activeResizeRef = useRef<Promise<void>>(Promise.resolve());
   const layoutTimerRef = useRef<number | undefined>(undefined);
-  // The window's actual PHYSICAL size after the last resize WE performed. The
-  // onResized event also reports physical pixels, so comparing physical-to-
-  // physical needs no scale factor — Tauri scaleFactor / webview devicePixelRatio
-  // / Win32 can all disagree on a scaled display, and that disagreement is what
-  // compounded a per-open size growth.
   const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
   const programmaticInFlightRef = useRef(0);
-  // Auto-fit sizing decision state (committed frame + one-frame history +
-  // learned oscillation pair) — all frame logic lives in lib/traySizing so
-  // the #261 cycle detection stays pure and directly testable.
   const sizingStateRef = useRef<TrayAutoFitState>(EMPTY_AUTOFIT_STATE);
-  const fixedSizeRef = useRef(fixedSize);
-  useEffect(() => {
-    fixedSizeRef.current = fixedSize;
-  }, [fixedSize]);
-  const onUserResizeRef = useRef(onUserResize);
-  useEffect(() => {
-    onUserResizeRef.current = onUserResize;
-  }, [onUserResize]);
 
-  // Resize the window and record the resulting ACTUAL physical size. Wrapped in
-  // an in-flight counter so the Resized event(s) this triggers can never be
-  // mistaken for a user drag, regardless of event timing.
-  const applySize = useCallback(
-    async (size: LogicalSize | PhysicalSize): Promise<void> => {
-      const win = getCurrentWindow();
-      programmaticInFlightRef.current += 1;
-      try {
-        await win.setSize(size);
-        const actual = await win.innerSize();
-        lastSizeRef.current = { width: actual.width, height: actual.height };
-      } catch {
-        /* ignore */
-      } finally {
-        programmaticInFlightRef.current -= 1;
-      }
-    },
-    [],
-  );
-
-  // Report genuine user drag-resizes. Ignore resizes that fire while WE are
-  // resizing (in-flight counter) or whose physical size still matches the last
-  // size we applied; anything else is the user dragging the border. Everything
-  // is in PHYSICAL pixels — no scale conversion, so it can't drift. A DPI change
-  // (the panel moved onto a monitor with other scaling) announces its rescaled
-  // size first; adopting it keeps that rescale from counting as a user resize,
-  // which would freeze an auto-fit panel at a fixed size.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let unlistenScale: (() => void) | undefined;
-    let cancelled = false;
+  const applySize = useCallback(async (size: LogicalSize): Promise<void> => {
     const win = getCurrentWindow();
-    void (async () => {
-      try {
-        unlistenScale = await win.onScaleChanged(({ payload }) => {
-          lastSizeRef.current = {
-            width: payload.size.width,
-            height: payload.size.height,
-          };
-        });
-      } catch {
-        unlistenScale = undefined;
-      }
-      try {
-        unlisten = await win.onResized(({ payload }) => {
-          if (programmaticInFlightRef.current > 0) return;
-          const last = lastSizeRef.current;
-          if (
-            last &&
-            Math.abs(payload.width - last.width) <= 3 &&
-            Math.abs(payload.height - last.height) <= 3
-          ) {
-            return;
-          }
-          onUserResizeRef.current?.(payload.width, payload.height);
-        });
-      } catch {
-        unlisten = undefined;
-      }
-      if (cancelled) {
-        unlisten?.();
-        unlistenScale?.();
-      }
-    })();
-    return () => {
-      cancelled = true;
-      unlisten?.();
-      unlistenScale?.();
-    };
+    await win.setSize(size);
+    const actual = await win.innerSize();
+    lastSizeRef.current = { width: actual.width, height: actual.height };
   }, []);
-
-  // User-sized flyout: on each open, apply the remembered size, re-anchor above
-  // the tray at THAT size (so the anchor math uses the real height, not the
-  // default), then reveal. Content scrolls inside the fixed window via CSS.
-  const hasFixedSize = fixedSize != null;
-  useEffect(() => {
-    if (autoFit || !isOpen || !canMeasure) return;
-    const fixed = fixedSizeRef.current;
-    if (!fixed) return;
-    let cancelled = false;
-    void (async () => {
-      // `fixed` is the user's remembered LOGICAL size; the window converts it
-      // with the DPI of the monitor it is on now.
-      await applySize(new LogicalSize(fixed[0], fixed[1]));
-      await Promise.resolve(reanchorTrayPanel()).catch(() => {});
-      if (cancelled) return;
-      layoutReadyRef.current = true;
-      setLayoutReady(true);
-      await Promise.resolve(revealTrayPanelWindow()).catch(() => {});
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [autoFit, isOpen, canMeasure, hasFixedSize, applySize]);
 
   const requestLayout = useCallback(() => {
     if (layoutTimerRef.current !== undefined) {
@@ -208,19 +73,18 @@ export function useTrayPanelLayout({
     const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
     if (!surface || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      // Measuring temporarily removes the surface/body constraints, which
-      // resizes the observed surface. Do not feed that programmatic change
-      // back into another pass or the capped flyout flashes between its
-      // measured and committed layouts forever.
-      if (
-        layoutReadyRef.current &&
-        programmaticInFlightRef.current > 0
-      ) {
-        return;
-      }
+      // Measuring lifts the surface/body constraints, which resizes the
+      // observed parts. Feeding that back would restart the pass forever.
+      if (programmaticInFlightRef.current > 0) return;
       requestLayout();
     });
-    observer.observe(surface);
+    for (const part of [
+      surface,
+      surface.querySelector(".menu-surface__body"),
+      surface.querySelector(".menu-surface__footer"),
+    ]) {
+      if (part) observer.observe(part);
+    }
     return () => observer.disconnect();
   }, [requestLayout]);
 
@@ -233,16 +97,34 @@ export function useTrayPanelLayout({
   }, []);
 
   useEffect(() => {
-    if (!autoFit || !canMeasure) return;
+    if (!canMeasure) return;
 
     const minHeight = detailMode
       ? TRAY_DETAIL_MIN_HEIGHT
       : denseOverview
         ? TRAY_DENSE_OVERVIEW_HEIGHT
         : TRAY_OVERVIEW_MIN_HEIGHT;
+    const width = Math.round(TRAY_BASE_WIDTH * zoom);
 
     const resize = async () => {
       const run = ++resizeRunRef.current;
+      // A superseded pass can still be suspended with its measuring
+      // overrides applied; wait for it so `previous` below is never those.
+      const prior = activeResizeRef.current;
+      let finished!: () => void;
+      activeResizeRef.current = new Promise<void>((resolve) => {
+        finished = resolve;
+      });
+      try {
+        await prior;
+        if (run !== resizeRunRef.current) return;
+        await measure(run);
+      } finally {
+        finished();
+      }
+    };
+
+    const measure = async (run: number) => {
       const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
       if (!surface) return;
       const html = document.documentElement;
@@ -258,6 +140,7 @@ export function useTrayPanelLayout({
 
       const body = surface.querySelector<HTMLElement>(".menu-surface__body");
       const stack = surface.querySelector<HTMLElement>(".menu-stack");
+      const footer = surface.querySelector<HTMLElement>(".menu-surface__footer");
 
       const previous = {
         htmlOverflow: html.style.overflow,
@@ -298,19 +181,19 @@ export function useTrayPanelLayout({
         }
       };
 
-      // Suppress every Resized event this whole auto-fit pass causes (the burst
-      // of setSize calls + any that arrive shortly after) so none is mistaken
-      // for a user drag. The trailing delay absorbs late-delivered events.
       programmaticInFlightRef.current += 1;
       try {
-        if (!layoutReadyRef.current) {
+        const committed = sizingStateRef.current.committed;
+        if (!layoutReadyRef.current || committed?.width !== width) {
+          const height =
+            layoutReadyRef.current && committed ? committed.height : minHeight;
           sizingStateRef.current = recordAutoFitCommit(
             sizingStateRef.current,
-            TRAY_WIDTH,
-            minHeight,
+            width,
+            height,
             window.devicePixelRatio,
           );
-          await applySize(new LogicalSize(TRAY_WIDTH, minHeight));
+          await applySize(new LogicalSize(width, height));
         }
 
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -318,37 +201,24 @@ export function useTrayPanelLayout({
 
         if (run !== resizeRunRef.current) return;
 
+        // WebView2 reports bounding rects in rendered px but scrollHeight in
+        // the zoomed surface's local px (measured on Edge 154), so the local
+        // value is scaled before the two are compared.
         const surfaceRect = surface.getBoundingClientRect();
-        // Everything measured here is in the surface's LOCAL, pre-zoom px;
-        // scale into post-zoom window px via `scaledContentHeight` at each
-        // derivation point so the clamped window fits the rendered content.
-        let contentHeight = scaledContentHeight(
-          Math.max(surface.scrollHeight, Math.ceil(surfaceRect.height)),
-          zoom,
-        );
-        let maxBottom = surfaceRect.top + contentHeight;
         const bodyRect = body?.getBoundingClientRect();
-        if (bodyRect && bodyRect.height > 0) {
-          const scaledBottom =
-            surfaceRect.top +
-            scaledContentHeight(bodyRect.bottom - surfaceRect.top, zoom);
-          if (scaledBottom > maxBottom) {
-            maxBottom = scaledBottom;
-          }
-        }
-        const footer = surface.querySelector<HTMLElement>(".menu-surface__footer");
         const footerRect = footer?.getBoundingClientRect();
-        if (footerRect && footerRect.height > 0) {
-          const scaledBottom =
-            surfaceRect.top +
-            scaledContentHeight(footerRect.bottom - surfaceRect.top, zoom);
-          if (scaledBottom > maxBottom) {
-            maxBottom = scaledBottom;
-          }
-        }
-        contentHeight = Math.ceil(maxBottom - surfaceRect.top) + 4;
-
-        const height = Math.min(Math.max(contentHeight, minHeight), maxHeight);
+        const spare =
+          bodyRect && footerRect
+            ? Math.max(0, footerRect.top - bodyRect.bottom)
+            : 0;
+        const contentBottom = Math.max(
+          surfaceRect.top + surface.scrollHeight * zoom,
+          surfaceRect.bottom,
+        );
+        const height = Math.min(
+          Math.max(Math.ceil(contentBottom - spare) + TRAY_HEIGHT_SLACK, minHeight),
+          maxHeight,
+        );
 
         // #261: two-state cycle detection on physical targets. Normal rule
         // commits ANY real change (even +5 physical px); only exact same-
@@ -359,11 +229,9 @@ export function useTrayPanelLayout({
         const decision = decideTrayHeight(
           {
             measuredHeight: height,
-            expectedWidth: TRAY_WIDTH,
+            expectedWidth: width,
             minHeight,
             maxHeight,
-            // WebView layout px ↔ Win32 physical px ratio; CSS zoom does not
-            // affect it (zoom is already in `height` via scaledContentHeight).
             scaleFactor: window.devicePixelRatio,
             zoom,
             lastAppliedPhysicalHeight: lastSizeRef.current?.height ?? null,
@@ -371,11 +239,11 @@ export function useTrayPanelLayout({
           sizingStateRef.current,
         );
         sizingStateRef.current = decision.state;
-        surface.style.maxHeight = `${decision.height}px`;
+        surface.style.maxHeight = `${decision.height / zoom}px`;
         committedHeight = true;
 
         if (decision.commit) {
-          await applySize(new LogicalSize(TRAY_WIDTH, decision.height));
+          await applySize(new LogicalSize(width, decision.height));
           await Promise.resolve(reanchorTrayPanel()).catch(() => {});
         }
 
@@ -418,7 +286,7 @@ export function useTrayPanelLayout({
       window.clearTimeout(timer);
       resizeRunRef.current += 1;
     };
-  }, [autoFit, canMeasure, denseOverview, detailMode, layoutRevision, applySize, zoom]);
+  }, [canMeasure, denseOverview, detailMode, layoutRevision, applySize, zoom]);
 
   return { layoutReady, requestLayout };
 }

@@ -145,7 +145,6 @@ fn test_japanese_tray_panel_locale_values_are_translated() {
         (LocaleKey::StateError, "エラー"),
         (LocaleKey::PanelAllProviders, "すべてのプロバイダー"),
         (LocaleKey::PanelAllProvidersShort, "すべて"),
-        (LocaleKey::PanelZoom, "ズーム"),
         (LocaleKey::PanelMenu, "メニュー"),
         (LocaleKey::PanelToday, "今日"),
         (LocaleKey::PanelLatestTokens, "最新トークン"),
@@ -178,7 +177,6 @@ fn test_chinese_tray_panel_locale_values_are_translated() {
     let cases = [
         (LocaleKey::PanelAllProviders, "所有提供者"),
         (LocaleKey::PanelAllProvidersShort, "全部"),
-        (LocaleKey::PanelZoom, "缩放"),
         (LocaleKey::PanelMenu, "菜单"),
         (LocaleKey::PanelToday, "今日"),
         (LocaleKey::PanelLatestTokens, "最新令牌"),
@@ -212,7 +210,6 @@ fn test_korean_tray_panel_locale_values_are_translated() {
     let cases = [
         (LocaleKey::PanelAllProviders, "모든 제공자"),
         (LocaleKey::PanelAllProvidersShort, "전체"),
-        (LocaleKey::PanelZoom, "확대/축소"),
         (LocaleKey::PanelMenu, "메뉴"),
         (LocaleKey::PanelToday, "오늘"),
         (LocaleKey::PanelLatestTokens, "최신 토큰"),
@@ -246,7 +243,6 @@ fn test_spanish_tray_panel_locale_values_are_translated() {
     let cases = [
         (LocaleKey::PanelAllProviders, "Todos los proveedores"),
         (LocaleKey::PanelAllProvidersShort, "Todos"),
-        (LocaleKey::PanelZoom, "Zoom"),
         (LocaleKey::PanelMenu, "Menú"),
         (LocaleKey::PanelToday, "Hoy"),
         (LocaleKey::PanelLatestTokens, "Últimos tokens"),
