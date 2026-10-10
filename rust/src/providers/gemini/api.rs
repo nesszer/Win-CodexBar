@@ -2,7 +2,7 @@
 //!
 //! Uses Google Cloud Code Private API with OAuth tokens from ~/.gemini/oauth_creds.json
 
-use crate::core::{FetchContext, ProviderError, RateWindow};
+use crate::core::{FetchContext, ProviderError, RateWindow, UsageSnapshot};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -26,20 +26,8 @@ impl GeminiApi {
     }
 
     /// Fetch quota information from the Gemini API
-    /// Returns (primary RateWindow, optional model-specific RateWindow, optional email, optional plan)
     /// Note: Gemini quota API requires OAuth tokens, not API keys
-    pub async fn fetch_quota(
-        &self,
-        _ctx: &FetchContext,
-    ) -> Result<
-        (
-            RateWindow,
-            Option<RateWindow>,
-            Option<String>,
-            Option<String>,
-        ),
-        ProviderError,
-    > {
+    pub async fn fetch_quota(&self, _ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
         // Gemini quota endpoint requires OAuth credentials (not API keys)
         // Always load OAuth credentials from ~/.gemini/oauth_creds.json
         let mut creds = self.load_credentials()?;
@@ -99,7 +87,14 @@ impl GeminiApi {
             self.parse_quota_response(quota_response, Some(&creds))?;
         let plan = resolve_account_plan(&code_assist, hosted_domain.as_deref());
 
-        Ok((primary, model_specific, email, plan))
+        let mut usage = UsageSnapshot::new(primary);
+        if let Some(ms) = model_specific {
+            usage = usage.with_model_specific(ms);
+        }
+        if let Some(e) = email {
+            usage = usage.with_email(e);
+        }
+        Ok(usage.with_login_method(plan.unwrap_or_else(|| "Gemini CLI".to_string())))
     }
 
     async fn load_code_assist_status(&self, access_token: &str) -> CodeAssistStatus {
