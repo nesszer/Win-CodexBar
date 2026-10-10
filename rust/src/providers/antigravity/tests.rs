@@ -112,6 +112,49 @@ fn parses_equals_form_args() {
 }
 
 #[test]
+fn local_post_sends_connect_json_with_the_request_timeout() {
+    let client = reqwest::Client::new();
+    let request = local_post(
+        &client,
+        "https://127.0.0.1:1/exa.language_server_pb.LanguageServerService/GetUserStatus",
+        &user_status_body(),
+        std::time::Duration::from_secs(4),
+    )
+    .header("X-Codeium-Csrf-Token", "tok")
+    .build()
+    .unwrap();
+
+    assert_eq!(request.method(), reqwest::Method::POST);
+    let headers: Vec<_> = request
+        .headers()
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.to_str().unwrap()))
+        .collect();
+    assert_eq!(
+        headers,
+        [
+            ("content-type", "application/json"),
+            ("connect-protocol-version", "1"),
+            ("x-codeium-csrf-token", "tok"),
+        ]
+    );
+    assert_eq!(request.timeout(), Some(&std::time::Duration::from_secs(4)));
+    let body: serde_json::Value =
+        serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "metadata": {
+                "ideName": "antigravity",
+                "extensionName": "antigravity",
+                "ideVersion": "unknown",
+                "locale": "en"
+            }
+        })
+    );
+}
+
+#[test]
 fn ide_flags_capture_extension_token_and_prefer_the_extension_port() {
     // (command line, extension token, port)
     let cases = [
