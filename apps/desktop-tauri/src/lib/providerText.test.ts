@@ -1,19 +1,7 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { LocaleKey } from "../i18n/keys";
+import { fromFtl } from "../test/localeHarness";
 import { localizeDates, localizeProviderText } from "./providerText";
 import { localizeProviderLabel } from "./windowLabels";
-
-/** Translator backed by the shipped Fluent file, with `{ "{}" }` unescaped. */
-function fromFtl(file: string) {
-  const text = readFileSync(`${import.meta.dirname}/../../../../rust/src/locale/${file}`, "utf8");
-  const table = new Map<string, string>();
-  for (const line of text.split(/\r?\n/)) {
-    const m = /^([A-Za-z][\w-]*)\s*=\s?(.*)$/.exec(line);
-    if (m) table.set(m[1], m[2].replace(/\{ "\{\}" \}/g, "{}"));
-  }
-  return (key: LocaleKey) => table.get(key) ?? key;
-}
 
 const en = fromFtl("en-US.ftl");
 const ru = fromFtl("ru-RU.ftl");

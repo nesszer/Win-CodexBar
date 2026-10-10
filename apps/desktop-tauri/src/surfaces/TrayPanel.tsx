@@ -141,6 +141,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
             compactOverview:
               selectedProviderId === null && settings.overviewLayout !== "detailed",
             costSummaryDisplayStyle: settings.costSummaryDisplayStyle,
+            usageThresholds: settings,
+            weeklyProgressWorkDays: settings.weeklyProgressWorkDays ?? null,
           }}
           accentColor={settings.providerAccentColors[p.providerId]}
           onLayoutChange={requestLayout}

@@ -20,6 +20,7 @@ import type { DeepSeekPricingStatus } from "../types/bridge";
 import { isUsageItemVisible } from "../lib/usageItemVisibility";
 import { localizeWindowLabel } from "../lib/windowLabels";
 import { useMonthlyLimitBlockNow } from "../hooks/useMonthlyLimitBlockNow";
+import type { UsageThresholdSettings } from "../lib/metricRowModel";
 
 /** Small copy-to-clipboard button matching macOS CopyIconButton (doc.on.doc → checkmark). */
 function CopyIconButton({ text }: { text: string }) {
@@ -60,6 +61,9 @@ export interface MenuCardDisplayOptions {
    */
   compactOverview?: boolean;
   costSummaryDisplayStyle?: CostSummaryDisplayStyle;
+  /** Notification thresholds, drawn as quota warning markers on the bars. */
+  usageThresholds?: UsageThresholdSettings | null;
+  weeklyProgressWorkDays?: number | null;
 }
 
 interface MenuCardProps {
@@ -120,6 +124,8 @@ export default function MenuCard({
     showAsUsed = false,
     compactOverview = false,
     costSummaryDisplayStyle,
+    usageThresholds = null,
+    weeklyProgressWorkDays = null,
   } = display;
   const { t, language } = useLocale();
   const [chartData, setChartData] = useState<ProviderChartData | null>(null);
@@ -188,6 +194,7 @@ export default function MenuCard({
             id: "primary",
             label: localizeWindowLabel(provider.primaryLabel, t, language, provider.primary.windowMinutes) || t("DetailWindowPrimary"),
             snap: provider.primary,
+            lane: "primary" as const,
           },
         ]),
   ];
@@ -196,6 +203,7 @@ export default function MenuCard({
       id: "secondary",
       label: localizeWindowLabel(provider.secondaryLabel, t) || t("DetailWindowSecondary"),
       snap: provider.secondary,
+      lane: "secondary",
       sessionEquivalentForecast: provider.sessionEquivalentForecast,
     });
   if (provider.modelSpecific)
@@ -203,6 +211,7 @@ export default function MenuCard({
       id: "model-specific",
       label: t("DetailWindowModelSpecific"),
       snap: provider.modelSpecific,
+      lane: "tertiary",
     });
   if (provider.tertiary)
     metrics.push({
@@ -211,6 +220,7 @@ export default function MenuCard({
       // of the generic "DetailWindowTertiary" slot key when tertiaryLabel is set.
       label: localizeWindowLabel(provider.tertiaryLabel, t) || t("DetailWindowTertiary"),
       snap: provider.tertiary,
+      lane: "tertiary",
     });
   for (const extra of provider.extraRateWindows ?? []) {
     metrics.push({
@@ -219,6 +229,7 @@ export default function MenuCard({
         localizeWindowLabel(extra.title, t, language, extra.window.windowMinutes, extra.id) ||
         extra.title,
       snap: extra.window,
+      lane: "extra",
       resetFormatMode: extra.id === "reset-credits" ? "expires" : "reset",
     });
   }
@@ -323,6 +334,8 @@ export default function MenuCard({
             compactOverview,
             costSummaryDisplayStyle,
             monthlyLimitBlockNow,
+            usageThresholds,
+            weeklyProgressWorkDays,
           }}
           metrics={visibleMetrics}
           chartData={chartData}

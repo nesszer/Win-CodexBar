@@ -828,6 +828,23 @@ describe("TrayPanel provider grid", () => {
     });
   });
 
+  it("draws quota warning markers at the notification thresholds", async () => {
+    const { container } = renderTrayPanel([provider("claude", "Claude", 20)], {
+      showAsUsed: false,
+      highUsageThreshold: 75,
+      criticalUsageThreshold: 90,
+      providerUsageThresholds: { "claude:session": { critical: 95 } },
+    });
+
+    await waitFor(() => {
+      expect(
+        Array.from(container.querySelectorAll(".menu-metric__progress-warning"), (node) =>
+          node.getAttribute("x"),
+        ),
+      ).toEqual(["5%", "25%"]);
+    });
+  });
+
   it("hides provider grid icons when the display setting is disabled", async () => {
     const { container } = renderTrayPanel(
       [provider("codex", "Codex"), provider("claude", "Claude")],
