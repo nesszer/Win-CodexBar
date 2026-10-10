@@ -267,6 +267,8 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
 body {
@@ -3481,10 +3483,6 @@ html:has(.menu-surface--tray) {
 [data-theme="light"] *::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.36);
   background-clip: padding-box;
-}
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
 /* ── Menu surface: rounded NSMenu-style panel matching macOS popover ── */
