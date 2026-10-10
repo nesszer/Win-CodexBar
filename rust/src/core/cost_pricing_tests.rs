@@ -77,48 +77,35 @@ impl CostUsagePricing {
 }
 
 #[test]
-fn test_normalize_codex_model() {
-    assert_eq!(CostUsagePricing::normalize_codex_model("gpt-5"), "gpt-5");
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("openai/gpt-5"),
-        "gpt-5"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-5-codex"),
-        "gpt-5"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model(""),
-        CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("unknown"),
-        CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-reserve"),
-        "gpt-5.6-luna"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model(" GPT-RESERVE "),
-        "gpt-5.6-luna"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("openai/gpt-reserve"),
-        "gpt-5.6-luna"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("OPENAI/GPT-RESERVE"),
-        "gpt-5.6-luna"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-reserve-preview"),
-        "gpt-reserve-preview"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("my-gpt-reserve"),
-        "my-gpt-reserve"
-    );
+fn normalizes_codex_model_ids() {
+    let unattributed = CostUsagePricing::CODEX_UNATTRIBUTED_MODEL;
+    for (model, expected) in [
+        ("gpt-5", "gpt-5"),
+        ("openai/gpt-5", "gpt-5"),
+        ("gpt-5-codex", "gpt-5"),
+        ("", unattributed),
+        ("unknown", unattributed),
+        ("gpt-reserve", "gpt-5.6-luna"),
+        (" GPT-RESERVE ", "gpt-5.6-luna"),
+        ("openai/gpt-reserve", "gpt-5.6-luna"),
+        ("OPENAI/GPT-RESERVE", "gpt-5.6-luna"),
+        ("gpt-reserve-preview", "gpt-reserve-preview"),
+        ("my-gpt-reserve", "my-gpt-reserve"),
+        ("gpt-5.4-mini-codex", "gpt-5.4-mini"),
+        ("openai/gpt-5.5-2026-04-23", "gpt-5.5"),
+        ("gpt-5.5-pro-2026-04-23", "gpt-5.5-pro"),
+        ("gpt-5.6", "gpt-5.6-sol"),
+        ("openai/gpt-5.6", "gpt-5.6-sol"),
+        ("gpt-5.6-codex", "gpt-5.6-sol"),
+        ("gpt-5.6-2099-01-01", "gpt-5.6-sol"),
+        ("openai/gpt-5.6-codex-2099-01-01", "gpt-5.6-sol"),
+    ] {
+        assert_eq!(
+            CostUsagePricing::normalize_codex_model(model),
+            expected,
+            "{model:?}"
+        );
+    }
 }
 
 #[test]
@@ -144,28 +131,39 @@ fn test_normalize_claude_model() {
 }
 
 #[test]
-fn test_codex_cost() {
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5", 1000, 0, 500).unwrap();
-    assert!((cost - 0.00625).abs() < 1e-10);
+fn prices_codex_models() {
+    // (model, input, cached input, output, expected USD).
+    for (model, input, cached, output, expected) in [
+        ("gpt-5", 1000, 0, 500, 0.00625),
+        ("gpt-5.4-mini", 1000, 0, 500, 0.003),
+        ("gpt-5.4-nano", 1000, 0, 500, 0.000825),
+        ("gpt-5-pro", 1000, 0, 500, 0.075),
+        ("gpt-5.5", 1000, 500, 500, 0.01775),
+        ("gpt-5.6-sol", 1_000, 400, 1_000, 0.02256),
+        ("gpt-5.6-terra", 1_000, 400, 1_000, 0.01328),
+        ("gpt-5.6-luna", 1_000, 400, 1_000, 0.001328),
+    ] {
+        let cost = CostUsagePricing::codex_cost_usd(model, input, cached, output).unwrap();
+        assert!((cost - expected).abs() < 1e-10, "{model}");
+    }
 }
 
 #[test]
-fn test_claude_cost() {
-    assert!(
-        CostUsagePricing::claude_cost_usd("claude-haiku-4-5-20251001", 1000, 0, 0, 500).is_some()
-    );
-}
-
-#[test]
-fn test_opus_4_8_cost() {
-    let cost = CostUsagePricing::claude_cost_usd("claude-opus-4-8", 1_000, 0, 0, 500).unwrap();
-    assert!((cost - 0.0175).abs() < 1e-10);
-}
-
-#[test]
-fn test_fable_5_cost() {
-    let cost = CostUsagePricing::claude_cost_usd("claude-fable-5", 1_000, 0, 0, 500).unwrap();
-    assert!((cost - 0.035).abs() < 1e-10);
+fn prices_claude_models() {
+    for (model, expected) in [("claude-opus-4-8", 0.0175), ("claude-fable-5", 0.035)] {
+        let cost = CostUsagePricing::claude_cost_usd(model, 1_000, 0, 0, 500).unwrap();
+        assert!((cost - expected).abs() < 1e-10, "{model}");
+    }
+    for model in [
+        "claude-haiku-4-5-20251001",
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+    ] {
+        assert!(
+            CostUsagePricing::claude_cost_usd(model, 1000, 0, 0, 500).is_some(),
+            "{model}"
+        );
+    }
 }
 
 #[test]
@@ -185,85 +183,14 @@ fn test_claude_input_cost_per_token() {
 }
 
 #[test]
-fn test_format_model_name() {
-    assert_eq!(
-        CostUsagePricing::format_model_name("claude-3.5-sonnet"),
-        "Sonnet 3.5"
-    );
-    assert_eq!(
-        CostUsagePricing::format_model_name("claude-opus-4"),
-        "Opus 4"
-    );
-    assert_eq!(CostUsagePricing::format_model_name("gpt-5"), "GPT-5");
-}
-
-#[test]
-fn test_gpt54_mini_cost() {
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5.4-mini", 1000, 0, 500).unwrap();
-    assert!((cost - 0.003).abs() < 1e-10);
-}
-
-#[test]
-fn test_gpt54_nano_cost() {
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5.4-nano", 1000, 0, 500).unwrap();
-    assert!((cost - 0.000825).abs() < 1e-10);
-}
-
-#[test]
-fn test_normalize_gpt54_codex() {
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-5.4-mini-codex"),
-        "gpt-5.4-mini"
-    );
-}
-
-#[test]
-fn test_gpt55_pricing() {
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("openai/gpt-5.5-2026-04-23"),
-        "gpt-5.5"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-5.5-pro-2026-04-23"),
-        "gpt-5.5-pro"
-    );
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5.5", 1000, 500, 500).unwrap();
-    assert!((cost - 0.01775).abs() < 1e-10);
-}
-
-#[test]
-fn test_format_gpt54_mini() {
-    assert_eq!(
-        CostUsagePricing::format_model_name("gpt-5.4-mini"),
-        "GPT-5.4 Mini"
-    );
-}
-
-#[test]
-fn test_opus_4_7_cost() {
-    assert!(CostUsagePricing::claude_cost_usd("claude-opus-4-7", 1000, 0, 0, 500).is_some());
-}
-
-#[test]
-fn test_sonnet_4_6_cost() {
-    assert!(CostUsagePricing::claude_cost_usd("claude-sonnet-4-6", 1000, 0, 0, 500).is_some());
-}
-
-#[test]
-fn test_gpt5_pro_cost() {
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5-pro", 1000, 0, 500).unwrap();
-    assert!((cost - 0.075).abs() < 1e-10);
-}
-
-#[test]
-fn test_gpt56_standard_pricing() {
+fn formats_model_names() {
     for (model, expected) in [
-        ("gpt-5.6-sol", 0.02256),
-        ("gpt-5.6-terra", 0.01328),
-        ("gpt-5.6-luna", 0.001328),
+        ("claude-3.5-sonnet", "Sonnet 3.5"),
+        ("claude-opus-4", "Opus 4"),
+        ("gpt-5", "GPT-5"),
+        ("gpt-5.4-mini", "GPT-5.4 Mini"),
     ] {
-        let cost = CostUsagePricing::codex_cost_usd(model, 1_000, 400, 1_000);
-        assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
+        assert_eq!(CostUsagePricing::format_model_name(model), expected);
     }
 }
 
@@ -304,23 +231,6 @@ fn test_gpt56_context_threshold_is_exclusive() {
     ] {
         let cost = CostUsagePricing::codex_cost_usd(model, 272_000, 272_000, 0);
         assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
-    }
-}
-
-#[test]
-fn test_normalize_gpt56_aliases() {
-    for model in [
-        "gpt-5.6",
-        "openai/gpt-5.6",
-        "gpt-5.6-codex",
-        "gpt-5.6-2099-01-01",
-        "openai/gpt-5.6-codex-2099-01-01",
-    ] {
-        assert_eq!(
-            CostUsagePricing::normalize_codex_model(model),
-            "gpt-5.6-sol",
-            "{model}"
-        );
     }
 }
 
