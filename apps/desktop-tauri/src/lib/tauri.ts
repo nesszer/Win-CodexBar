@@ -550,19 +550,9 @@ export function revealTrayPanelWindow(): Promise<void> {
   return invoke<void>("reveal_tray_panel_window");
 }
 
-/** Persist the user's manually-chosen flyout (Pop Out Dashboard) size. */
-export function setFlyoutSize(width: number, height: number): Promise<void> {
-  return invoke<void>("set_flyout_size", { width, height });
-}
-
-/** Forget where the user dragged the flyout and anchor it to the tray again. */
-export function resetFlyoutPosition(): Promise<void> {
-  return invoke<void>("reset_flyout_position");
-}
-
-/** The remembered flyout size ([w, h]) if the user has resized it, else null. */
-export function flyoutStoredSize(): Promise<[number, number] | null> {
-  return invoke<[number, number] | null>("flyout_stored_size");
+/** The Windows accent color as `#rrggbb`, or null when Windows has none. */
+export function getSystemAccentColor(): Promise<string | null> {
+  return invoke<string | null>("get_system_accent_color");
 }
 
 export function quitApp(): Promise<void> {

@@ -445,7 +445,11 @@ locale_keys! {
     // Main popup - Bottom menu (Actions)
     MenuSettings,
     MenuAbout,
+    MenuAboutVersion,
     MenuQuit,
+    TrayMenuSwitchAccount,
+    TrayMenuUsageDashboard,
+    TrayMenuStatusPage,
 
     // Main popup - Status strings
     StatusJustUpdated,
@@ -964,7 +968,6 @@ locale_keys! {
     DisplayModeMinimal,
     TrayPanelAlwaysOnTopLabel,
     TrayPanelAlwaysOnTopHelper,
-    TrayMoveHandleHint,
     WindowMinimize,
     WindowRestore,
     WindowClose,
@@ -1062,7 +1065,6 @@ locale_keys! {
     PanelAllProvidersShort,
     PanelShowAllProviders,
     PanelShowFewerProviders,
-    PanelZoom,
     PanelMenu,
     PanelCopied,
     PanelToday,

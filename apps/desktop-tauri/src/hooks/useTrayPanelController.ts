@@ -1,17 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
+import type { BootstrapState } from "../types/bridge";
 import {
   beginFlyoutGesture,
   dismissTrayPanel,
   endFlyoutGesture,
-  flyoutStoredSize,
+  getAppInfo,
+  getProviderDetail,
+  getSystemAccentColor,
+  openProviderDashboard,
+  openProviderStatusPage,
   openSettingsWindow,
   quitApp as quitApplication,
-  reanchorTrayPanel,
   reorderProviders,
-  setFlyoutSize,
-  updateSettings,
 } from "../lib/tauri";
 import { useProviders } from "./useProviders";
 import { useSettings } from "./useSettings";
@@ -21,7 +22,9 @@ import { useProviderSwitcherKeys } from "./useProviderSwitcherKeys";
 import { useSurfaceTarget } from "./useSurfaceMode";
 import { useTrayPanelLayout } from "./useTrayPanelLayout";
 import type { MenuFooterRow } from "../components/MenuSurface";
+import { hasSuccessfulClaudeCliQuota } from "../lib/claudeAccountActions";
 import { orderProviderSnapshots } from "../lib/providerOrder";
+import { clampTrayScalePercent } from "../lib/trayScale";
 import {
   hydrateProviderSlots,
   orderedEnabledProviderSlots,
@@ -30,18 +33,11 @@ import {
 const TRAY_INITIAL_REFRESH_DELAY_MS = 250;
 const DENSE_OVERVIEW_THRESHOLD = 32;
 
-// ── Tray flyout zoom (footer slider, above Refresh) ───────────────────
-// Applied via CSS `zoom` on the MenuSurface root (see TrayPanel render).
-export const TRAY_SCALE_MIN = 100;
-export const TRAY_SCALE_MAX = 200;
-export const TRAY_SCALE_STEP = 5;
-const TRAY_SCALE_COMMIT_DEBOUNCE_MS = 250;
-
-function clampTrayScalePercent(value: number): number {
-  return Math.min(
-    TRAY_SCALE_MAX,
-    Math.max(TRAY_SCALE_MIN, Number.isFinite(value) ? value : 100),
-  );
+/** Which of a provider's web pages the backend can open. */
+interface ProviderLinks {
+  providerId: string;
+  dashboard: boolean;
+  statusPage: boolean;
 }
 
 /**
@@ -67,46 +63,29 @@ export function useTrayPanelController(state: BootstrapState) {
   const { t } = useLocale();
   const surfaceTarget = useSurfaceTarget("trayPanel");
 
-  // Zoom slider: LOCAL draft state drives both the thumb and the live CSS
-  // zoom preview while dragging; persistence trails behind a ~250ms debounce
-  // (fire-and-forget updateSettings). The settings_changed echo — from our
-  // own commit round-trip or another window — only re-syncs the draft when
-  // no debounce is pending, so it can't fight the thumb mid-drag.
-  const settingsTrayScalePercent = clampTrayScalePercent(
-    settings.trayScalePercent,
-  );
-  const [trayScaleDraft, setTrayScaleDraft] = useState(
-    settingsTrayScalePercent,
-  );
-  const trayScaleCommitTimerRef = useRef<number | undefined>(undefined);
+  // Settings > Menu > Panel scale, applied as CSS zoom on the panel.
+  const trayScale = clampTrayScalePercent(settings.trayScalePercent) / 100;
+
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [accentColor, setAccentColor] = useState<string | null>(null);
   useEffect(() => {
-    if (trayScaleCommitTimerRef.current === undefined) {
-      setTrayScaleDraft(settingsTrayScalePercent);
-    }
-  }, [settingsTrayScalePercent]);
-  useEffect(
-    () => () => {
-      if (trayScaleCommitTimerRef.current !== undefined) {
-        window.clearTimeout(trayScaleCommitTimerRef.current);
-      }
-    },
-    [],
-  );
-  const handleTrayScaleChange = useCallback((value: number) => {
-    const next = clampTrayScalePercent(value);
-    setTrayScaleDraft(next);
-    if (trayScaleCommitTimerRef.current !== undefined) {
-      window.clearTimeout(trayScaleCommitTimerRef.current);
-    }
-    trayScaleCommitTimerRef.current = window.setTimeout(() => {
-      trayScaleCommitTimerRef.current = undefined;
-      void updateSettings({ trayScalePercent: next }).catch(() => {});
-    }, TRAY_SCALE_COMMIT_DEBOUNCE_MS);
+    let cancelled = false;
+    void getAppInfo().then(
+      (info) => {
+        if (!cancelled) setAppVersion(info.version);
+      },
+      () => {},
+    );
+    void getSystemAccentColor().then(
+      (color) => {
+        if (!cancelled) setAccentColor(color);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
   }, []);
-  const trayScale = trayScaleDraft / 100;
-  const trayScaleFillPercent =
-    ((trayScaleDraft - TRAY_SCALE_MIN) / (TRAY_SCALE_MAX - TRAY_SCALE_MIN)) *
-    100;
 
   const sorted = useMemo(
     () =>
@@ -176,124 +155,40 @@ export function useTrayPanelController(state: BootstrapState) {
     return [match];
   }, [denseTrayProviders, sorted, selectedProviderId, gridExpanded]);
 
-  const layoutKey = useMemo(
-    () =>
-      [
-        selectedProviderId ?? "overview",
-        gridExpanded ? "expanded" : "collapsed",
-        isRefreshing ? "refreshing" : "idle",
-        updateState.status,
-        updateState.version ?? "",
-        updateState.error ?? "",
-        expectsDenseOverview ? "dense" : "normal",
-        hasLoadedCache ? "cache-ready" : "cache-pending",
-        visibleProviders.map((provider) => provider.providerId).join(","),
-        trayScaleDraft,
-      ].join("|"),
-    [
-      selectedProviderId,
-      gridExpanded,
-      isRefreshing,
-      updateState.status,
-      updateState.version,
-      updateState.error,
-      expectsDenseOverview,
-      hasLoadedCache,
-      visibleProviders,
-      trayScaleDraft,
-    ],
-  );
-
-  // Flyout sizing: auto-fit to content until the user manually drags the border,
-  // then remember + honor their size (position always re-anchors above the tray).
-  // `flyoutSize`: undefined = loading, null = auto-fit, [w,h] = user's fixed size.
-  const [flyoutSize, setFlyoutSizeState] = useState<
-    [number, number] | null | undefined
-  >(undefined);
-  const [autoFitKilled, setAutoFitKilled] = useState(false);
+  // The account and link rows act on the selected provider, or on the only
+  // one: macOS shows them on a provider tab, and with a single provider there
+  // is no overview tab.
+  const actionProvider =
+    selectedProviderId !== null
+      ? (providersById.get(selectedProviderId) ?? null)
+      : sorted.length === 1
+        ? sorted[0]
+        : null;
+  const actionProviderId = actionProvider?.providerId ?? null;
+  const [providerLinks, setProviderLinks] = useState<ProviderLinks | null>(null);
   useEffect(() => {
-    let active = true;
-    void flyoutStoredSize()
-      .then((size) => {
-        if (active) setFlyoutSizeState(size);
-      })
-      .catch(() => {
-        if (active) setFlyoutSizeState(null);
+    if (actionProviderId === null) return;
+    let cancelled = false;
+    void getProviderDetail(actionProviderId)
+      .then(
+        (detail) => ({
+          dashboard: Boolean(detail.dashboardUrl),
+          statusPage: Boolean(detail.statusPageUrl),
+        }),
+        () => ({ dashboard: false, statusPage: false }),
+      )
+      .then((links) => {
+        if (!cancelled) setProviderLinks({ providerId: actionProviderId, ...links });
       });
     return () => {
-      active = false;
+      cancelled = true;
     };
-  }, []);
-
-  const saveSizeTimerRef = useRef<number | undefined>(undefined);
-  const handleUserResize = useCallback((width: number, height: number) => {
-    // Stop auto-fit immediately so it can't fight the drag; commit the size
-    // (state + persistence) after the drag settles.
-    setAutoFitKilled(true);
-    if (saveSizeTimerRef.current !== undefined) {
-      window.clearTimeout(saveSizeTimerRef.current);
-    }
-    saveSizeTimerRef.current = window.setTimeout(() => {
-      // The drag reports physical px. Keep logical px so the size holds on a
-      // monitor with another DPI; the scale is read once the window settled,
-      // so a resize caused by such a move converts with the new scale.
-      void getCurrentWindow()
-        .scaleFactor()
-        .then((scale) => {
-          const logical: [number, number] = [
-            Math.round(width / scale),
-            Math.round(height / scale),
-          ];
-          setFlyoutSizeState(logical);
-          // Re-anchor at the new size like every other resize, so a panel
-          // widened from its tray-facing edge doesn't stay past the taskbar.
-          void Promise.resolve(reanchorTrayPanel()).catch(() => {});
-          return setFlyoutSize(logical[0], logical[1]);
-        })
-        .catch(() => {});
-    }, 300);
-  }, []);
-  useEffect(
-    () => () => {
-      if (saveSizeTimerRef.current !== undefined) {
-        window.clearTimeout(saveSizeTimerRef.current);
-      }
-    },
-    [],
-  );
-
-  // TrayPanel now renders exclusively inside its own dedicated "flyout" OS
-  // window (see App.tsx's isFlyoutWindow() routing) — it is no longer a
-  // state of the shared `main` window's surface-mode machine. The old
-  // `useSurfaceMode() === "trayPanel"` check would be permanently false
-  // here (outside proof mode that machine only tracks Hidden/Settings),
-  // which would silently gate off the fixed-size restore + reveal below
-  // (useTrayPanelLayout's `isOpen` gate) — a user-resized flyout would never
-  // reveal itself. Hardcoded true: being mounted IS "the flyout is open".
-  const isFlyoutOpen = true;
-  const fixedFlyoutSize = Array.isArray(flyoutSize) ? flyoutSize : null;
-  const useWideColumns =
-    selectedProviderId === null &&
-    fixedFlyoutSize !== null &&
-    fixedFlyoutSize[0] >= 640;
-  const wideColumns = useMemo(() => {
-    const columns: ProviderUsageSnapshot[][] = [[], []];
-    visibleProviders.forEach((provider, index) => {
-      columns[index % 2].push(provider);
-    });
-    return columns;
-  }, [visibleProviders]);
-  const { layoutReady, requestLayout } = useTrayPanelLayout({
-    canMeasure: hasLoadedCache || sorted.length > 0,
-    denseOverview: expectsDenseOverview,
-    detailMode: selectedProviderId !== null,
-    layoutKey,
-    autoFit: flyoutSize === null && !autoFitKilled,
-    fixedSize: fixedFlyoutSize,
-    isOpen: isFlyoutOpen,
-    zoom: trayScale,
-    onUserResize: handleUserResize,
-  });
+  }, [actionProviderId]);
+  // Links resolved for a previously selected provider never show.
+  const links =
+    providerLinks !== null && providerLinks.providerId === actionProviderId
+      ? providerLinks
+      : null;
 
   const openSettings = useCallback(() => {
     void openSettingsWindow("general").finally(() => {
@@ -309,12 +204,84 @@ export function useTrayPanelController(state: BootstrapState) {
     void quitApplication();
   }, []);
 
-  const footerRows: MenuFooterRow[] = [
-    { icon: "↻", label: t("ActionRefresh"), shortcut: "Ctrl+R", onClick: refresh },
-    { icon: "⚙", label: t("MenuSettings"), shortcut: "Ctrl+,", onClick: openSettings },
-    { icon: "ⓘ", label: t("MenuAbout"), onClick: openAbout },
-    { icon: "⌧", label: t("MenuQuit"), shortcut: "Ctrl+Q", onClick: quitApp },
+  const actionRows: MenuFooterRow[] = [];
+  if (actionProvider !== null && hasSuccessfulClaudeCliQuota(actionProvider)) {
+    actionRows.push({
+      id: "switchAccount",
+      label: t("TrayMenuSwitchAccount"),
+      onClick: () => void openSettingsWindow("providers").catch(() => {}),
+    });
+  }
+  if (links?.dashboard) {
+    const { providerId } = links;
+    actionRows.push({
+      id: "dashboard",
+      label: t("TrayMenuUsageDashboard"),
+      onClick: () => void openProviderDashboard(providerId).catch(() => {}),
+    });
+  }
+  if (links?.statusPage) {
+    const { providerId } = links;
+    actionRows.push({
+      id: "statusPage",
+      label: t("TrayMenuStatusPage"),
+      onClick: () => void openProviderStatusPage(providerId).catch(() => {}),
+    });
+  }
+  const footerGroups: MenuFooterRow[][] = [
+    actionRows,
+    [
+      { id: "refresh", label: t("ActionRefresh"), shortcut: "Ctrl+R", onClick: refresh },
+      { id: "settings", label: t("MenuSettings"), shortcut: "Ctrl+,", onClick: openSettings },
+      {
+        id: "about",
+        label: appVersion
+          ? t("MenuAboutVersion").replace("{}", appVersion)
+          : t("MenuAbout"),
+        onClick: openAbout,
+      },
+      { id: "quit", label: t("MenuQuit"), shortcut: "Ctrl+Q", onClick: quitApp },
+    ],
   ];
+  const actionRowIds = actionRows.map((row) => row.id).join(",");
+
+  const layoutKey = useMemo(
+    () =>
+      [
+        selectedProviderId ?? "overview",
+        gridExpanded ? "expanded" : "collapsed",
+        isRefreshing ? "refreshing" : "idle",
+        updateState.status,
+        updateState.version ?? "",
+        updateState.error ?? "",
+        expectsDenseOverview ? "dense" : "normal",
+        hasLoadedCache ? "cache-ready" : "cache-pending",
+        visibleProviders.map((provider) => provider.providerId).join(","),
+        actionRowIds,
+        trayScale,
+      ].join("|"),
+    [
+      selectedProviderId,
+      gridExpanded,
+      isRefreshing,
+      updateState.status,
+      updateState.version,
+      updateState.error,
+      expectsDenseOverview,
+      hasLoadedCache,
+      visibleProviders,
+      actionRowIds,
+      trayScale,
+    ],
+  );
+
+  const { layoutReady, requestLayout } = useTrayPanelLayout({
+    canMeasure: hasLoadedCache || sorted.length > 0,
+    denseOverview: expectsDenseOverview,
+    detailMode: selectedProviderId !== null,
+    layoutKey,
+    zoom: trayScale,
+  });
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -376,7 +343,7 @@ export function useTrayPanelController(state: BootstrapState) {
     void endFlyoutGesture().catch(() => {});
   }, []);
 
-  const revealClassName = `tray-panel-reveal${layoutReady ? " tray-panel-reveal--ready" : ""}${expectsDenseOverview ? " tray-panel-reveal--dense" : ""}${fixedFlyoutSize ? " tray-panel-reveal--usersized" : ""}`;
+  const revealClassName = `tray-panel-reveal${layoutReady ? " tray-panel-reveal--ready" : ""}`;
 
   return {
     t,
@@ -385,21 +352,17 @@ export function useTrayPanelController(state: BootstrapState) {
     refreshingProviderIds,
     refresh,
     hasCachedData,
-    trayScaleDraft,
     trayScale,
-    trayScaleFillPercent,
-    handleTrayScaleChange,
+    accentColor,
     sorted,
     gridProviders,
     selectedProviderId,
     gridExpanded,
     setGridExpanded,
     visibleProviders,
-    wideColumns,
-    useWideColumns,
     layoutReady,
     requestLayout,
-    footerRows,
+    footerGroups,
     updateState,
     checkNow,
     download,

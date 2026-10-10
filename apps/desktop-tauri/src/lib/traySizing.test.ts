@@ -8,7 +8,7 @@ import {
   type TraySizingInput,
 } from "./traySizing";
 
-const TRAY_WIDTH = 328;
+const TRAY_WIDTH = 310;
 const MIN = 420;
 const MAX = 920;
 

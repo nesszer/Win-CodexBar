@@ -1046,181 +1046,32 @@ html {
 /* Hide the panel during the initial resize + reposition dance so the
    user never sees the window jump around.  Once layout is measured and
    the window is anchored in its final position, .tray-panel-reveal--ready
-   fades the content in smoothly. */
+   fades the content in smoothly.  The page behind the panel carries the
+   panel fill (--mac-panel-bg, and PANEL_FILL in shell/flyout_window.rs) so
+   no other color shows while the panel is hidden. */
 html:has(.tray-panel-reveal),
-body:has(.tray-panel-reveal) {
-  background: var(--menu-popover-bg);
+body:has(.tray-panel-reveal),
+.tray-panel-reveal {
+  background: #dedee2;
 }
 .tray-panel-reveal {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: var(--menu-popover-bg);
   opacity: 0;
 }
 .tray-panel-reveal--ready {
   opacity: 1;
   transition: opacity 80ms ease-out;
 }
-
-.tray-panel-reveal--dense .menu-surface--tray {
-  min-height: 100vh;
-}
-
-/* User-resized flyout: the window is a fixed (remembered) size, so the surface
-   fills the viewport height and its body scrolls instead of the window growing
-   to fit content. */
-.tray-panel-reveal--usersized {
-  height: 100vh;
-  min-height: 0;
-}
-.tray-panel-reveal--usersized .menu-surface--tray {
-  flex: 1 1 auto;
-  min-height: 0;
-  height: auto;
-  max-height: 100%;
-}
-
-/* User-sized flyout body must scroll vertically when content overflows the
-   remembered window height — the base `.menu-surface--tray .menu-surface__body`
-   rule (below) uses `overflow-y: visible` because auto-fit sizes the window to
-   content instead of scrolling. Usersized mode is a fixed window, so it needs
-   the opposite: clip + scroll. The body also flex-grows to absorb any free
-   space so the footer (Zoom/Refresh/Settings/About/Quit) pins to the bottom
-   edge instead of floating mid-panel after the user widens the flyout.
-   Scoped to `--usersized` only; auto-fit path is untouched. Applies in both
-   narrow (single column) and wide (side-by-side, see the 640px media query
-   below) layouts. */
-.tray-panel-reveal--usersized .menu-surface--tray .menu-surface__body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* Side-by-side provider cards once the user has widened the flyout enough to
-   fit two columns. The columns are independent so a tall card in one column
-   doesn't force empty space under the shorter card beside it. */
-@media (min-width: 640px) {
-  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack {
-    display: flex;
-    flex-direction: row;
-    align-content: flex-start;
-    align-items: flex-start;
-    gap: 12px 16px;
-    width: 100%;
-  }
-
-  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__column {
-    flex: 1 1 0;
-    min-width: min(300px, 100%);
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__sep {
-    display: none;
-  }
-}
-
-/* Flyout window handles. Resize grips are invisible strips on every edge and
-   corner (a moved flyout can face open screen on any side); the cursor change
-   signals they're draggable. The move strip spans the top between the corner
-   grips, under the top edge grip, and shows a small grab bar. */
-.tray-resize {
-  position: fixed;
-  z-index: 50;
-}
-.tray-resize--top,
-.tray-resize--bottom {
-  left: 0;
-  right: 0;
-  height: 6px;
-  cursor: ns-resize;
-}
-.tray-resize--top {
-  top: 0;
-}
-.tray-resize--bottom {
-  bottom: 0;
-}
-.tray-resize--left,
-.tray-resize--right {
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  cursor: ew-resize;
-}
-.tray-resize--left {
-  left: 0;
-}
-.tray-resize--right {
-  right: 0;
-}
-.tray-resize--topleft,
-.tray-resize--topright,
-.tray-resize--bottomleft,
-.tray-resize--bottomright {
-  width: 14px;
-  height: 14px;
-  z-index: 51;
-}
-.tray-resize--topleft {
-  top: 0;
-  left: 0;
-  cursor: nwse-resize;
-}
-.tray-resize--bottomright {
-  bottom: 0;
-  right: 0;
-  cursor: nwse-resize;
-}
-.tray-resize--topright {
-  top: 0;
-  right: 0;
-  cursor: nesw-resize;
-}
-.tray-resize--bottomleft {
-  bottom: 0;
-  left: 0;
-  cursor: nesw-resize;
-}
-.tray-move-handle {
-  position: fixed;
-  top: 0;
-  left: 14px;
-  right: 14px;
-  height: 12px;
-  z-index: 49;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: move;
-}
-.tray-move-handle__grip {
-  width: 32px;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.16);
-  transition: background 120ms ease-out;
-}
-.tray-move-handle:hover .tray-move-handle__grip {
-  background: rgba(255, 255, 255, 0.36);
-}
-[data-theme="light"] .tray-move-handle__grip {
-  background: rgba(0, 0, 0, 0.14);
-}
-[data-theme="light"] .tray-move-handle:hover .tray-move-handle__grip {
-  background: rgba(0, 0, 0, 0.32);
-}
-/* Keep the tray surface's first row clear of the move strip. */
+/* The window keeps a height floor, so it can be taller than the content.
+   The panel fills the window and parks the spare height above the footer,
+   which keeps the footer rows next to the tray. */
 .tray-panel-reveal .menu-surface--tray {
-  padding-top: 12px;
+  flex-grow: 1;
 }
-
-.shell--tray-panel {
-  max-width: 320px;
-  padding: 8px 10px 12px;
+.tray-panel-reveal .menu-surface--tray .menu-surface__footer {
+  margin-top: auto;
 }
 
 /* spin animation for refresh */
@@ -3529,20 +3380,124 @@ html:has(.menu-surface--tray) {
   overflow: visible;
 }
 
-/* Tray variant — auto-sized by JS, no forced min-height. */
+/* Tray panel: a fixed light panel after the macOS 0.70 menu material
+   (tray-card-spec.md section 1) under every app theme.  The wrapper sets
+   data-theme="light"; tokens that only the dark theme block defines get
+   tray values here so theme dark, light and auto render the same panel. */
 .menu-surface--tray {
-  min-height: 0;
-  border-radius: 10px;
-  overflow: clip;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  padding: 4px 0;
+  --mac-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --mac-text-headline: 600 13px/16px var(--mac-font);
+  --mac-text-body-medium: 500 13px/16px var(--mac-font);
+  --mac-text-subheadline: 400 11px/14px var(--mac-font);
+  --mac-text-footnote: 400 10px/13px var(--mac-font);
+  --mac-text-caption: 400 10px/13px var(--mac-font);
+  --mac-text-section: 600 10px/13px var(--mac-font);
+  --mac-text-caption2: 400 10px/13px var(--mac-font);
+  --mac-text-menu: 400 13px/16px var(--mac-font);
+  --mac-text-shortcut: 400 13px/16px var(--mac-font);
+
+  --mac-panel-bg: #dedee2;
+  --mac-panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --mac-panel-border: rgba(0, 0, 0, 0.38);
+  --mac-text: rgba(0, 0, 0, 0.85);
+  --mac-text-2: rgba(0, 0, 0, 0.5);
+  --mac-text-3: rgba(0, 0, 0, 0.26);
+  --mac-track: rgba(0, 0, 0, 0.057);
+  --mac-divider: rgba(0, 0, 0, 0.15);
+  --mac-separator: rgba(0, 0, 0, 0.1);
+  --mac-error: #ff3b30;
+  --mac-pace-ok: #34c759;
+  --mac-pace-bad: #ff3b30;
+  --mac-marker: rgba(0, 0, 0, 0.58);
+  --mac-accent: #007aff;
+  /* TrayPanel overrides this inline with the Windows accent color. */
+  --mac-selection-bg: #0078d4;
+  --mac-selection-text: #fff;
+
+  --mac-panel-width: 310px;
+  --mac-panel-radius: 6px;
+  --mac-bar-h: 6px;
+  --mac-bar-r: 3px;
+  --mac-pace-punch: 6px;
+  --mac-pace-stripe: 2px;
+  --mac-warn-punch: 5px;
+  --mac-warn-stripe: 1px;
+  --mac-metric-card-bg: rgba(0, 0, 0, 0.04);
+  --mac-metric-card-r: 10px;
+  --mac-icon-btn-r: 4px;
+  --mac-chart-h: 58px;
+  --mac-chart-bar-r: 1.5px;
+  --mac-sel-inset-x: 6px;
+  --mac-sel-inset-y: 2px;
+  --mac-sel-r: 6px;
+  --mac-sel-fade: 60ms;
+  --mac-sel-r-refresh: 7px;
+
+  --mac-pad-x: 20px;
+  --mac-pad-header-y: 6px;
+  --mac-gap-header: 6px;
+  --mac-section-pt: 6px;
+  --mac-usage-pt: 10px;
+  --mac-section-pb: 6px;
+  --mac-header-line-gap: 4px;
+  --mac-header-col-gap: 12px;
+  --mac-after-divider: 16px;
+  --mac-metric-gap: 12px;
+  --mac-metric-inner: 6px;
+  --mac-inline-gap: 8px;
+  --mac-kv-section: 6px;
+  --mac-kv-row: 3px;
+  --mac-kv-value: 1px;
+  --mac-kv-gap: 12px;
+  --mac-dash-gap: 10px;
+  --mac-kpi-gap: 6px;
+  --mac-row-h: 24px;
+  --mac-menu-row-h: 22px;
+  --mac-row-pl: 15px;
+  --mac-row-icon: 16px;
+  /* The Mac code says 4.5pt, but the 0.70 shots put footer labels 38px from
+     the panel edge, which a 6px gap after the 16px icon reproduces. */
+  --mac-row-icon-gap: 6px;
+  --mac-shortcut-w: 44px;
+
+  --font-subheadline: 11px;
+  --font-footnote: 10px;
+  --font-caption: 10px;
+
+  --menu-popover-bg: var(--mac-panel-bg);
+  --text-primary: var(--mac-text);
+  --text-secondary: var(--mac-text-2);
+  --text-muted: var(--mac-text-3);
+  --panel-border: var(--mac-divider);
+
+  --usage-bar-track: var(--mac-track);
+  --pace-slow-bg: rgba(0, 122, 255, 0.12);
+  --pace-slow-fg: #007aff;
+  --pace-steady-bg: rgba(21, 128, 61, 0.12);
+  --pace-steady-fg: #15803d;
+  --pace-racing-bg: rgba(180, 83, 9, 0.14);
+  --pace-racing-fg: #b45309;
+  --pace-burning-bg: rgba(185, 28, 28, 0.12);
+  --pace-burning-fg: #b91c1c;
+  --pace-track-expected-fg: rgba(0, 122, 255, 0.45);
+  --chart-cost-fg: #007aff;
+  --chart-credits-fg: var(--chart-credits);
+
+  color-scheme: light;
   display: flex;
   flex-direction: column;
-  /* Auto-size to content; JS resizes the Tauri window to match.
-     No max-height here — JS sets an explicit pixel cap after measuring. */
-  height: auto;
+  gap: 0;
   box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  padding: 4px 0;
+  overflow: clip;
+  border: 1px solid var(--mac-panel-border);
+  border-radius: var(--mac-panel-radius);
+  background: var(--mac-panel-bg);
+  box-shadow: var(--mac-panel-highlight);
+  color: var(--mac-text);
 }
 .menu-surface--tray .menu-surface__body {
   flex: 0 1 auto;
@@ -3586,22 +3541,34 @@ html:has(.menu-surface--tray) {
   border-radius: 6px;
   padding: 4px 4px;
 }
-/* Tray separators — subtle hairlines matching macOS card dividers */
-.menu-surface--tray .menu-stack__sep {
-  height: 0.5px;
-  margin: 2px 16px;
-  background: rgba(255, 255, 255, 0.08);
-}
-[data-theme="light"] .menu-surface--tray .menu-stack__sep {
-  background: rgba(0, 0, 0, 0.08);
-}
-[data-theme="light"] .menu-surface--tray .menu-stack__item {
-  background: rgba(0, 0, 0, 0.03);
-  border: 0.5px solid rgba(0, 0, 0, 0.04);
-}
-[data-theme="light"] .menu-surface--tray .menu-stack__item--selected {
+/* The panel is light under every app theme.  These base rules paint white
+   tints meant for a dark surface, so the tray gets dark tints instead. */
+.menu-surface--tray .menu-card__copy-btn:hover {
   background: rgba(0, 0, 0, 0.06);
-  border: none;
+}
+.menu-surface--tray .provider-grid__item .provider-icon {
+  filter: brightness(0);
+}
+.menu-surface--tray .provider-grid__item--more .provider-grid__icon-overview {
+  background: rgba(0, 0, 0, 0.06);
+}
+.menu-surface--tray .provider-grid__item--more:hover .provider-grid__icon-overview {
+  background: rgba(0, 0, 0, 0.1);
+}
+.menu-surface--tray .update-banner__action:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.menu-surface--tray .update-banner--available,
+.menu-surface--tray .update-banner--ready {
+  color: var(--provider-status-ok);
+}
+.menu-surface--tray .credential-btn {
+  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.05);
+}
+.menu-surface--tray .credential-btn:hover:not(:disabled) {
+  border-color: rgba(0, 0, 0, 0.18);
+  background: rgba(0, 0, 0, 0.08);
 }
 /* Tray grid — flush with no background container, matching macOS */
 .menu-surface--tray .provider-grid {
@@ -3626,12 +3593,6 @@ html:has(.menu-surface--tray) {
 
 .menu-surface--tray .provider-grid--sparse .provider-grid__label {
   display: none;
-}
-/* Divider between provider grid and card stack */
-.menu-surface--tray .provider-grid__divider {
-  height: 1px;
-  margin: 2px 0;
-  background: rgba(255, 255, 255, 0.08);
 }
 
 /* Tray font sizing — match macOS: .headline=13pt, .footnote=10pt */
@@ -3726,52 +3687,6 @@ html:has(.menu-surface--tray) {
   display: none;
 }
 
-/* ── Context actions (detail mode) ──────────────────────────────────
-   Matches macOS actionsSection: "Usage Dashboard" + "Status Page"
-   with SF Symbol–style icons. Shown only in detail (single provider) mode. */
-.context-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex: 0 0 auto;
-  margin-top: 4px;
-  padding: 0 10px;
-}
-.context-actions__divider {
-  height: 1px;
-  margin: 4px 0;
-  background: rgba(255, 255, 255, 0.10);
-}
-[data-theme="light"] .context-actions__divider {
-  background: rgba(0, 0, 0, 0.10);
-}
-.context-actions__btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 2px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-primary, #f5f5f7);
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
-}
-.context-actions__btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-[data-theme="light"] .context-actions__btn:hover {
-  background: rgba(0, 0, 0, 0.06);
-}
-.context-actions__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  font-size: 13px;
-}
-
 /* Tray card content — match macOS spacing values from SwiftUI source */
 .menu-surface--tray .menu-card__divider {
   margin: 3px 0;
@@ -3818,11 +3733,6 @@ html:has(.menu-surface--tray) {
   font-size: 10px;
   line-height: 1.25;
 }
-/* Hide cost section in tray — macOS compact popover only shows usage metrics */
-.menu-surface--tray .menu-card__cost,
-.menu-surface--tray .menu-card__content > .menu-card__divider:has(+ .menu-card__cost) {
-  display: none;
-}
 
 .menu-card__local-grid {
   display: grid;
@@ -3867,38 +3777,6 @@ html:has(.menu-surface--tray) {
   text-overflow: initial;
   white-space: normal;
   line-height: 1.3;
-}
-
-/* Tray footer — match macOS NSMenuItem native look (10pt, ~16px row height) */
-.menu-surface--tray .menu-surface__footer {
-  padding: 4px 0 3px;
-  margin-top: 2px;
-  border-top: 0.5px solid rgba(255, 255, 255, 0.12);
-}
-.menu-surface--tray .menu-surface__footer-row {
-  padding: 3px 16px;
-  font-size: 11px;
-  line-height: 1.3;
-  min-height: 18px;
-}
-/* Indent must override the tray padding above so iconless rows (Settings /
-   About / Quit) align with the iconified Refresh row. */
-.menu-surface--tray .menu-surface__footer-row--no-icon {
-  padding-left: calc(16px + 14px + 8px);
-}
-.menu-surface--tray .menu-surface__footer-icon {
-  font-size: 11px;
-  width: 14px;
-  opacity: 0.7;
-}
-/* Zoom row keeps a taller (16px) slider hit area even though the tray
-   footer's row padding/font-size are otherwise compacted. */
-.menu-surface--tray .menu-surface__footer-zoom {
-  padding-top: 4px;
-  padding-bottom: 4px;
-}
-.menu-surface--tray .menu-surface__footer-zoom-value {
-  font-size: 10px;
 }
 
 /* ── Provider card — direct mirror of UsageMenuCardView ─────────────── */
@@ -4625,46 +4503,6 @@ html:has(.menu-surface--tray) {
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
-/* ── Menu surface: rounded NSMenu-style panel matching macOS popover ── */
-.menu-surface {
-  width: 100%;
-  min-width: 260px;
-  background: var(--menu-popover-bg);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.3);
-  font-size: var(--font-body);
-  line-height: var(--line-tight);
-}
-/* Re-assert tray overrides after the second .menu-surface rule (cascade order) */
-.menu-surface--tray {
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
-  /* #265: TrayPanel applies CSS `zoom` on this surface, so it lays out in
-     windowWidth/zoom local px; the 260px `min-width` floor from .menu-surface
-     would be multiplied by the zoom on render (→ 390px at 150%) and force a
-     horizontal scrollbar in the 328px tray window. The window's own 300px
-     minimum already covers the floor — let the zoomed surface wrap instead. */
-  min-width: 0;
-}
-.menu-surface--tray {
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-}
-[data-theme="light"] .menu-surface {
-  background: var(--menu-popover-bg);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 0 1px rgba(0, 0, 0, 0.12);
-}
-[data-theme="light"] .menu-surface--tray {
-  border: none;
-  box-shadow: none;
-}
-
 .menu-surface__header {
   min-height: 20px;
   padding: 0;
@@ -4690,148 +4528,87 @@ html:has(.menu-surface--tray) {
   font-size: 13px;
 }
 
-/* Footer of native-style menu rows (Settings… / About / Quit).
-   Sits flush with the surface's 10/6 padding and reads like an NSMenu
-   item: full-width row, 18px icon column, subtle hover highlight. */
+/* Footer rows follow the macOS menu: 22px rows (24px for Refresh), a 16px
+   icon column, a 44px shortcut column, and an inset selection plate. */
 .menu-surface__footer {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  padding: 8px 0 4px;
-  margin-top: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border-top: none;
+}
+.menu-surface__footer-sep {
+  height: 1px;
+  margin: 5px 14px;
+  background: var(--mac-separator);
 }
 .menu-surface__footer-row {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--mac-row-icon-gap);
   width: 100%;
-  padding: 4px 6px;
+  min-height: var(--mac-menu-row-h);
+  padding: 0 var(--mac-row-pl);
   border: 0;
-  border-radius: 4px;
   background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-body);
-  font-weight: 400;
+  color: var(--mac-text);
+  font: var(--mac-text-menu);
   text-align: left;
   cursor: pointer;
-  transition: background 0.08s ease;
 }
-/* Footer rows without an SF Symbol icon (Settings / About / Quit on
-   macOS): indent by the same 18px the icon column would occupy so the
-   text aligns with iconified rows above. */
-.menu-surface__footer-row--no-icon {
-  padding-left: calc(6px + 18px + 8px);
+.menu-surface__footer-row--refresh {
+  min-height: var(--mac-row-h);
 }
-.menu-surface__footer-row:hover,
+.menu-surface__footer-row::before {
+  content: "";
+  position: absolute;
+  inset: var(--mac-sel-inset-y) var(--mac-sel-inset-x);
+  z-index: -1;
+  border-radius: var(--mac-sel-r);
+  background: transparent;
+  transition: background-color var(--mac-sel-fade) ease-out;
+}
+.menu-surface__footer-row--refresh::before {
+  inset: 0 5px;
+  border-radius: var(--mac-sel-r-refresh);
+}
+.menu-surface__footer-row:hover:not(:disabled),
 .menu-surface__footer-row:focus-visible {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--text-primary);
+  color: var(--mac-selection-text);
   outline: none;
 }
-[data-theme="light"] .menu-surface__footer-row:hover,
-[data-theme="light"] .menu-surface__footer-row:focus-visible {
-  background: rgba(0, 0, 0, 0.06);
+.menu-surface__footer-row:hover:not(:disabled)::before,
+.menu-surface__footer-row:focus-visible::before {
+  background: var(--mac-selection-bg);
 }
-.menu-surface__footer-row .menu-surface__footer-icon {
-  width: 18px;
-  display: inline-flex;
-  justify-content: center;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.menu-surface__footer-row:hover .menu-surface__footer-icon,
-.menu-surface__footer-row:focus-visible .menu-surface__footer-icon {
-  color: var(--text-primary);
-}
-.menu-surface__footer-shortcut {
-  margin-left: auto;
-  font-size: var(--font-caption2);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.menu-surface__footer-row:hover .menu-surface__footer-shortcut,
-.menu-surface__footer-row:focus-visible .menu-surface__footer-shortcut {
-  color: var(--text-secondary);
-}
-
-/* Tray flyout zoom row — sits above Refresh in the footer. A plain `div`
-   (not a nav button), so it opts out of the button hover highlight and
-   instead hosts a Win11-volume-style slider with a fixed-width % readout
-   on the right (tabular nums + fixed width = no jitter while dragging). */
-.menu-surface__footer-zoom {
+.menu-surface__footer-row:disabled {
+  color: var(--mac-text-3);
   cursor: default;
 }
-.menu-surface__footer-zoom:hover,
-.menu-surface__footer-zoom:focus-visible {
-  background: transparent;
-}
-.menu-surface__footer-zoom-value {
-  width: 34px;
+.menu-surface__footer-icon {
+  display: inline-flex;
   flex-shrink: 0;
-  text-align: right;
-  font-size: var(--font-caption2);
-  color: var(--text-muted);
+  width: var(--mac-row-icon);
+  height: var(--mac-row-icon);
+}
+.menu-surface__footer-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.menu-surface__footer-shortcut {
+  min-width: var(--mac-shortcut-w);
+  margin-left: auto;
+  color: var(--mac-text-3);
+  font: var(--mac-text-shortcut);
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
-/* Win11-style range input: thin rounded 4px track, accent fill left of the
-   thumb (painted via the `--zoom-fill` custom property set inline from
-   React — WebKit has no ::fill pseudo), round accent thumb. WebView2 is
-   Chromium-only, so ::-webkit-* pseudos are sufficient. */
-.menu-surface__footer-zoom-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 16px;
-  margin: 0 2px;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-}
-.menu-surface__footer-zoom-slider::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 2px;
-  background: linear-gradient(
-    to right,
-    var(--accent, #0a84ff) 0%,
-    var(--accent, #0a84ff) var(--zoom-fill, 0%),
-    rgba(255, 255, 255, 0.2) var(--zoom-fill, 0%)
-  );
-}
-.menu-surface__footer-zoom-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  margin-top: -4px; /* centres the 12px thumb on the 4px track */
-  border-radius: 50%;
-  background: var(--accent, #0a84ff);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.35),
-    0 1px 2px rgba(0, 0, 0, 0.4);
-}
-.menu-surface__footer-zoom-slider:focus-visible {
-  outline: none;
-}
-.menu-surface__footer-zoom-slider:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 2px var(--accent-muted, rgba(10, 132, 255, 0.25)),
-    0 0 0 1px rgba(255, 255, 255, 0.35);
-}
-[data-theme="light"]
-  .menu-surface__footer-zoom-slider::-webkit-slider-runnable-track {
-  background: linear-gradient(
-    to right,
-    var(--accent, #007aff) 0%,
-    var(--accent, #007aff) var(--zoom-fill, 0%),
-    rgba(0, 0, 0, 0.15) var(--zoom-fill, 0%)
-  );
-}
-[data-theme="light"] .menu-surface__footer-zoom-slider::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.15),
-    0 1px 2px rgba(0, 0, 0, 0.2);
+.menu-surface__footer-row:hover:not(:disabled) .menu-surface__footer-shortcut,
+.menu-surface__footer-row:focus-visible .menu-surface__footer-shortcut {
+  color: var(--mac-selection-text);
 }
 
 /* ── Provider icon grid ──────────────────────────────────────────────
@@ -5836,14 +5613,6 @@ html:has(.menu-surface--tray) {
 
 .menu-card__content {
   padding-bottom: 6px;
-}
-
-.menu-surface__footer-icon {
-  opacity: 0.5;
-}
-.menu-surface__footer-row:hover .menu-surface__footer-icon,
-.menu-surface__footer-row:focus-visible .menu-surface__footer-icon {
-  opacity: 0.8;
 }
 
 /* ── Provider tab status dots removed (replaced by .provider-grid__dot) */
