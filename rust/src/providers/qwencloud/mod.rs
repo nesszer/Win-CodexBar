@@ -417,25 +417,23 @@ fn build_params_json(
     mut data_parameters: Map<String, Value>,
     cookie_header: &str,
 ) -> String {
-    let mut cornerstone = Map::new();
-    cornerstone.insert(
-        "feTraceId".into(),
-        Value::String(Uuid::new_v4().to_string().to_lowercase()),
-    );
-    cornerstone.insert("feURL".into(), Value::String(DASHBOARD_URL.to_string()));
-    cornerstone.insert("protocol".into(), Value::String("V2".into()));
-    cornerstone.insert("console".into(), Value::String("ONE_CONSOLE".into()));
-    cornerstone.insert("productCode".into(), Value::String("p_efm".into()));
-    cornerstone.insert("domain".into(), Value::String("home.qwencloud.com".into()));
-    cornerstone.insert("consoleSite".into(), Value::String("QWENCLOUD".into()));
-    cornerstone.insert("userNickName".into(), Value::String(String::new()));
-    cornerstone.insert("userPrincipalName".into(), Value::String(String::new()));
-    cornerstone.insert("xsp_lang".into(), Value::String(LANGUAGE.into()));
+    let mut cornerstone = json!({
+        "feTraceId": Uuid::new_v4().to_string().to_lowercase(),
+        "feURL": DASHBOARD_URL,
+        "protocol": "V2",
+        "console": "ONE_CONSOLE",
+        "productCode": "p_efm",
+        "domain": "home.qwencloud.com",
+        "consoleSite": "QWENCLOUD",
+        "userNickName": "",
+        "userPrincipalName": "",
+        "xsp_lang": LANGUAGE,
+    });
     if let Some(cna) = cookie_value("cna", cookie_header) {
-        cornerstone.insert("X-Anonymous-Id".into(), Value::String(cna));
+        cornerstone["X-Anonymous-Id"] = Value::String(cna);
     }
 
-    data_parameters.insert("cornerstoneParam".into(), Value::Object(cornerstone));
+    data_parameters.insert("cornerstoneParam".into(), cornerstone);
 
     json!({
         "Api": api,

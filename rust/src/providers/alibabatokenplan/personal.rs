@@ -204,31 +204,26 @@ fn build_personal_params_json(
         .next()
         .unwrap_or_default();
 
-    let mut cornerstone = Map::new();
-    cornerstone.insert(
-        "feTraceId".into(),
-        Value::String(Uuid::new_v4().to_string().to_lowercase()),
-    );
-    cornerstone.insert("feURL".into(), Value::String(dashboard.to_string()));
-    cornerstone.insert("protocol".into(), Value::String("V2".into()));
-    cornerstone.insert("console".into(), Value::String("ONE_CONSOLE".into()));
-    cornerstone.insert("productCode".into(), Value::String("p_efm".into()));
-    // Let the gateway resolve the Personal/Solo session workspace. A captured
-    // Teams switchAgent is workspace-bound and rejects other accounts.
-    cornerstone.insert("switchUserType".into(), json!(3));
-    cornerstone.insert("domain".into(), Value::String(domain.to_string()));
-    cornerstone.insert(
-        "consoleSite".into(),
-        Value::String(region.personal_console_site().to_string()),
-    );
-    cornerstone.insert("userNickName".into(), Value::String(String::new()));
-    cornerstone.insert("userPrincipalName".into(), Value::String(String::new()));
-    cornerstone.insert("xsp_lang".into(), Value::String(LANGUAGE.into()));
+    let mut cornerstone = json!({
+        "feTraceId": Uuid::new_v4().to_string().to_lowercase(),
+        "feURL": dashboard,
+        "protocol": "V2",
+        "console": "ONE_CONSOLE",
+        "productCode": "p_efm",
+        // Let the gateway resolve the Personal/Solo session workspace. A captured
+        // Teams switchAgent is workspace-bound and rejects other accounts.
+        "switchUserType": 3,
+        "domain": domain,
+        "consoleSite": region.personal_console_site(),
+        "userNickName": "",
+        "userPrincipalName": "",
+        "xsp_lang": LANGUAGE,
+    });
     if let Some(cna) = cookie_value("cna", cookie_header) {
-        cornerstone.insert("X-Anonymous-Id".into(), Value::String(cna));
+        cornerstone["X-Anonymous-Id"] = Value::String(cna);
     }
 
-    data_parameters.insert("cornerstoneParam".into(), Value::Object(cornerstone));
+    data_parameters.insert("cornerstoneParam".into(), cornerstone);
 
     json!({
         "Api": api,
