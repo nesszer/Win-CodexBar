@@ -211,7 +211,6 @@ fn parse_row(
     })
 }
 
-/// Strictly parse the schema-v1 `cswap --list --json` envelope.
 /// Parse a schema-v1 object and surface a reported `error` envelope before
 /// any command-specific field is read.
 fn parse_envelope(raw: &str) -> Result<serde_json::Map<String, Value>, ClaudeSwapError> {
@@ -254,6 +253,7 @@ fn parse_envelope(raw: &str) -> Result<serde_json::Map<String, Value>, ClaudeSwa
     Ok(object)
 }
 
+/// Strictly parse the schema-v1 `cswap --list --json` envelope.
 pub fn parse_account_list(raw: &str) -> Result<ClaudeSwapAccountList, ClaudeSwapError> {
     let object = parse_envelope(raw)?;
 
