@@ -56,10 +56,39 @@ const tsBlockMatch = tsSrc.match(
 if (!tsBlockMatch) {
   die(2, "could not locate `export const ALL_LOCALE_KEYS` in keys.ts");
 }
+// The block holds `"Key"` literals and `...TOPIC_KEYS` spreads of arrays
+// imported from i18n/keyGroups/*.ts; resolve both in order.
 const tsKeys = [];
 const tsKeyRe = /"(\w+)"/g;
-while ((m = tsKeyRe.exec(tsBlockMatch[1])) !== null) {
-  tsKeys.push(m[1]);
+const entryRe = /"(\w+)"|\.\.\.([A-Z_]+)/g;
+while ((m = entryRe.exec(tsBlockMatch[1])) !== null) {
+  if (m[1]) {
+    tsKeys.push(m[1]);
+    continue;
+  }
+  const name = m[2];
+  const importMatch = tsSrc.match(
+    new RegExp(`import\\s*\\{\\s*${name}\\s*\\}\\s*from\\s*"(\\./[^"]+)"`),
+  );
+  if (!importMatch) {
+    die(2, `could not resolve the import of ${name} in keys.ts`);
+  }
+  let groupSrc;
+  try {
+    groupSrc = readFileSync(resolve(dirname(tsPath), `${importMatch[1]}.ts`), "utf8");
+  } catch (err) {
+    die(2, `failed to read ${importMatch[1]}.ts: ${err.message}`);
+  }
+  const groupMatch = groupSrc.match(
+    new RegExp(`export const ${name}\\s*=\\s*\\[([\\s\\S]*?)\\]\\s*as const;`),
+  );
+  if (!groupMatch) {
+    die(2, `could not locate \`export const ${name}\` in ${importMatch[1]}.ts`);
+  }
+  let k;
+  while ((k = tsKeyRe.exec(groupMatch[1])) !== null) {
+    tsKeys.push(k[1]);
+  }
 }
 if (tsKeys.length === 0) {
   die(2, "parsed zero entries from ALL_LOCALE_KEYS");
