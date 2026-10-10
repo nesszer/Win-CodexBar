@@ -114,25 +114,16 @@ impl ZaiSettingsReader {
     /// `InvalidEndpointOverride` for non-HTTPS values so a broken override
     /// never silently downgrades the transfer.
     pub fn quota_url_override(env: &EnvMap) -> Result<Option<Url>, ZaiSettingsError> {
-        env_get(env, ZAI_QUOTA_URL_ENV)
-            .and_then(cleaned)
-            .map(|raw| {
-                normalized_https_url(&raw)
-                    .ok_or(ZaiSettingsError::InvalidEndpointOverride(ZAI_QUOTA_URL_ENV))
-            })
-            .transpose()
+        override_url(env, ZAI_QUOTA_URL_ENV)
     }
 
     /// `Z_AI_API_HOST` override expanded to the quota endpoint.
     pub fn quota_url_from_api_host(env: &EnvMap) -> Result<Option<Url>, ZaiSettingsError> {
-        let Some(raw) = env_get(env, ZAI_API_HOST_ENV).and_then(cleaned) else {
-            return Ok(None);
-        };
-        let mut url = normalized_https_url(&raw)
-            .ok_or(ZaiSettingsError::InvalidEndpointOverride(ZAI_API_HOST_ENV))?;
-        url.set_path("api/monitor/usage/quota/limit");
-        url.set_query(None);
-        Ok(Some(url))
+        Ok(override_url(env, ZAI_API_HOST_ENV)?.map(|mut url| {
+            url.set_path("api/monitor/usage/quota/limit");
+            url.set_query(None);
+            url
+        }))
     }
 
     /// Validate all endpoint overrides against the selected region *before*
@@ -149,8 +140,7 @@ impl ZaiSettingsReader {
         env: &EnvMap,
         region: ZaiRegion,
     ) -> Result<(), ZaiSettingsError> {
-        if env_get(env, ZAI_QUOTA_URL_ENV).and_then(cleaned).is_some() {
-            let url = Self::quota_url_override(env)?.expect("override present");
+        if let Some(url) = Self::quota_url_override(env)? {
             return validate_known_host(&url, region, ZAI_QUOTA_URL_ENV);
         }
         Self::validate_api_host_endpoint_override(env, region)
@@ -160,13 +150,20 @@ impl ZaiSettingsReader {
         env: &EnvMap,
         region: ZaiRegion,
     ) -> Result<(), ZaiSettingsError> {
-        let Some(raw) = env_get(env, ZAI_API_HOST_ENV).and_then(cleaned) else {
-            return Ok(());
-        };
-        let url = normalized_https_url(&raw)
-            .ok_or(ZaiSettingsError::InvalidEndpointOverride(ZAI_API_HOST_ENV))?;
-        validate_known_host(&url, region, ZAI_API_HOST_ENV)
+        match override_url(env, ZAI_API_HOST_ENV)? {
+            Some(url) => validate_known_host(&url, region, ZAI_API_HOST_ENV),
+            None => Ok(()),
+        }
     }
+}
+
+/// A set endpoint-override env var as an HTTPS URL; `InvalidEndpointOverride`
+/// for non-HTTPS values so a broken override never silently downgrades.
+fn override_url(env: &EnvMap, key: &'static str) -> Result<Option<Url>, ZaiSettingsError> {
+    env_get(env, key)
+        .and_then(cleaned)
+        .map(|raw| normalized_https_url(&raw).ok_or(ZaiSettingsError::InvalidEndpointOverride(key)))
+        .transpose()
 }
 
 /// Canonical cross-region override rejection (upstream `validateKnownHost`).
