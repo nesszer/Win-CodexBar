@@ -9,14 +9,15 @@
 
     1. Budget gate    - CI_BUDGET_MODE=off is the emergency stop
                         (unset/empty = normal).
-    2. Scope gate     - PR pipelines and main/master pushes run the checks;
-                        any other branch push skips.
+    2. Scope gate     - PR pipelines, main/master pushes and merge-queue
+                        pushes (gh-readonly-queue/...) run the checks; any
+                        other branch push skips.
     3. Docs-only gate - PRs whose diff touches only docs/**, **/*.md,
                         CONTEXT.md, and .github/CI.md skip.
 
-    Each true skip calls `circleci-agent step halt`. main/master pushes never
-    reach the docs-only gate, so they can never be skipped by a multi-commit
-    docs-only diff. Unknown bases fail open (the checks run).
+    Each true skip calls `circleci-agent step halt`. main/master and
+    merge-queue pushes never reach the docs-only gate, so they can never be
+    skipped by a multi-commit docs-only diff. Unknown bases fail open (the checks run).
 
     Pure decision logic lives in scripts\circleci-pr-common.ps1 and is
     exercised by scripts\circleci-pr.tests.ps1 without CircleCI.
@@ -83,13 +84,13 @@ Write-Host "CI_BUDGET_MODE is '$BudgetMode': hosted pr-check passes budget gate.
 Write-Host $trigger.Reason
 
 # Gate 3 - docs-only: mirror paths-ignore (docs/**, **/*.md, CONTEXT.md,
-# .github/CI.md). Applies to PR pipelines only; main/master pushes always
-# run the checks, so a multi-commit docs-only history can never suppress
-# them. When the base cannot be determined the gate fails open.
-$isMainPush = $Branch -in @('main', 'master')
+# .github/CI.md). Applies to PR pipelines only; main/master and merge-queue
+# pushes always run the checks, so a multi-commit docs-only history can never
+# suppress them. When the base cannot be determined the gate fails open.
+$isMainPush = Test-MainLikePushBranch -Branch $Branch
 $base = $PrBaseSha
 if ($isMainPush) {
-    Write-Host "Push to '$Branch' runs the full checks (docs-only skip never applies to main/master)."
+    Write-Host "Push to '$Branch' runs the full checks (docs-only skip never applies to main, master or merge-queue pushes)."
 } elseif ([string]::IsNullOrWhiteSpace($base)) {
     # PR association without a populated event value (e.g. api trigger):
     # resolve the base from the public GitHub pulls API.
