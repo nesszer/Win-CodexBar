@@ -723,6 +723,25 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn timestamps_are_utc_seconds_with_z_and_clamp_before_epoch() {
+        let at = |secs: i64, nanos: u32| {
+            HookEvent::new(HookEventType::QuotaLow, "codex")
+                .with_timestamp(chrono::DateTime::from_timestamp(secs, nanos).unwrap())
+                .timestamp
+        };
+        assert_eq!(at(0, 0), "1970-01-01T00:00:00Z");
+        assert_eq!(at(-5, 0), "1970-01-01T00:00:00Z");
+        assert_eq!(at(-1, 500_000_000), "1970-01-01T00:00:00Z");
+        assert_eq!(at(951_782_400, 0), "2000-02-29T00:00:00Z");
+        assert_eq!(at(1_760_000_000, 999_000_000), "2025-10-09T08:53:20Z");
+        assert_eq!(at(4_102_444_799, 0), "2099-12-31T23:59:59Z");
+        let now = HookEvent::new(HookEventType::QuotaLow, "codex").timestamp;
+        assert_eq!(now.len(), 20);
+        assert!(now.ends_with('Z'));
+        assert!(chrono::DateTime::parse_from_rfc3339(&now).is_ok());
+    }
+
+    #[test]
     fn payload_env_includes_event_and_remaining() {
         let event = HookEvent::new(HookEventType::QuotaLow, "claude")
             .with_used_percent(80.0)
