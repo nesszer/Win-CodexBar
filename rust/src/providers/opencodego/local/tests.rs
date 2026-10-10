@@ -1,3 +1,4 @@
+use super::test_db::{insert_message, insert_step_finish, iso_ms, open_db, write_message_db};
 use super::*;
 use crate::core::RateWindow;
 use chrono::Weekday;
@@ -66,104 +67,6 @@ fn temp_db_path(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("opencodego-local-{label}-{nanos}.db"))
 }
 
-fn write_message_db(path: &Path, rows: &[(i64, f64)]) {
-    let conn = Connection::open(path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (
-            id TEXT PRIMARY KEY,
-            data TEXT,
-            time_created INTEGER
-        );",
-    )
-    .unwrap();
-    for (i, (created_ms, cost)) in rows.iter().enumerate() {
-        let data = format!(
-            r#"{{"providerID":"opencode-go","role":"assistant","cost":{cost},"time":{{"created":{created_ms}}}}}"#
-        );
-        conn.execute(
-            "INSERT INTO message (id, data, time_created) VALUES (?1, ?2, ?3)",
-            rusqlite::params![format!("m{i}"), data, created_ms],
-        )
-        .unwrap();
-    }
-}
-
-/// Build a message-only DB with optional per-row `modelID` (upstream #2649 fixtures).
-fn write_message_db_with_model(path: &Path, rows: &[(i64, f64, Option<&str>)]) {
-    let conn = Connection::open(path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (
-            id TEXT PRIMARY KEY,
-            data TEXT,
-            time_created INTEGER
-        );",
-    )
-    .unwrap();
-    for (i, (created_ms, cost, model)) in rows.iter().enumerate() {
-        let model_json = match model {
-            Some(m) => format!(r#","modelID":"{m}""#),
-            None => String::new(),
-        };
-        let data = format!(
-            r#"{{"providerID":"opencode-go","role":"assistant","cost":{cost}{model_json},"time":{{"created":{created_ms}}}}}"#
-        );
-        conn.execute(
-            "INSERT INTO message (id, data, time_created) VALUES (?1, ?2, ?3)",
-            rusqlite::params![format!("m{i}"), data, created_ms],
-        )
-        .unwrap();
-    }
-}
-
-/// Insert one assistant message and return its id, optionally with a modelID.
-fn insert_message(
-    conn: &Connection,
-    id: &str,
-    created_ms: i64,
-    cost: Option<f64>,
-    model: Option<&str>,
-) {
-    let cost_json = match cost {
-        Some(c) => format!(r#","cost":{c}"#),
-        None => String::new(),
-    };
-    let model_json = match model {
-        Some(m) => format!(r#","modelID":"{m}""#),
-        None => String::new(),
-    };
-    let data = format!(
-        r#"{{"providerID":"opencode-go","role":"assistant"{cost_json}{model_json},"time":{{"created":{created_ms}}}}}"#
-    );
-    conn.execute(
-        "INSERT INTO message (id, data, time_created) VALUES (?1, ?2, ?3)",
-        rusqlite::params![id, data, created_ms],
-    )
-    .unwrap();
-}
-
-/// Insert a step-finish part carrying a cost, attached to `message_id`.
-fn insert_step_finish_part(
-    conn: &Connection,
-    id: &str,
-    message_id: &str,
-    created_ms: i64,
-    cost: f64,
-) {
-    let data =
-        format!(r#"{{"type":"step-finish","cost":{cost},"time":{{"created":{created_ms}}}}}"#);
-    conn.execute(
-        "INSERT INTO part (id, message_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![id, message_id, data, created_ms],
-    )
-    .unwrap();
-}
-
-fn iso_ms(iso: &str) -> i64 {
-    chrono::DateTime::parse_from_rfc3339(iso)
-        .unwrap()
-        .timestamp_millis()
-}
-
 #[test]
 fn unreadable_database_reports_the_sqlite_error_prefix() {
     let db = temp_db_path("garbage");
@@ -215,9 +118,9 @@ fn sums_session_weekly_monthly_costs() {
     write_message_db(
         &db,
         &[
-            (session_ms, 6.0),
-            (week_ms, 9.0), // plus session = 15 in week if session also in week
-            (month_anchor_ms, 15.0),
+            (session_ms, 6.0, None),
+            (week_ms, 9.0, None), // plus session = 15 in week if session also in week
+            (month_anchor_ms, 15.0, None),
         ],
     );
 
@@ -241,36 +144,12 @@ fn sums_session_weekly_monthly_costs() {
 #[test]
 fn prefers_step_finish_parts_when_present() {
     let db = temp_db_path("parts");
-    let conn = Connection::open(&db).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT, time_created INTEGER);
-         CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT, time_created INTEGER);",
-    )
-    .unwrap();
+    let conn = open_db(&db, true);
     let now = Utc.with_ymd_and_hms(2026, 3, 18, 12, 0, 0).unwrap();
     let created = now.timestamp_millis() - 1_000;
     // Message cost would be $12 (100%), but step-finish parts sum to $3 (25%).
-    conn.execute(
-        "INSERT INTO message (id, data, time_created) VALUES (?1, ?2, ?3)",
-        rusqlite::params![
-            "m1",
-            format!(
-                r#"{{"providerID":"opencode-go","role":"assistant","cost":12,"time":{{"created":{created}}}}}"#
-            ),
-            created
-        ],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO part (id, message_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![
-            "p1",
-            "m1",
-            format!(r#"{{"type":"step-finish","cost":3,"time":{{"created":{created}}}}}"#),
-            created
-        ],
-    )
-    .unwrap();
+    insert_message(&conn, "m1", created, Some(12.0), None, None);
+    insert_step_finish(&conn, "p1", "m1", created, 3.0, None);
     drop(conn);
 
     let auth = db.with_extension("auth.json");
@@ -472,7 +351,7 @@ fn daily_entries_group_cost_by_model_within_a_day() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
     let now = a14_now_afternoon();
-    write_message_db_with_model(
+    write_message_db(
         &db,
         &[
             (
@@ -509,15 +388,10 @@ fn daily_entries_group_cost_by_model_within_a_day() {
 fn step_finish_parts_inherit_their_model_from_the_parent_message() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    let conn = Connection::open(&db).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT, time_created INTEGER);
-         CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT, time_created INTEGER);",
-    )
-    .unwrap();
+    let conn = open_db(&db, true);
     let created = iso_ms("2026-03-06T11:00:00.000Z");
-    insert_message(&conn, "m1", created, None, Some("grok-code-fast-1"));
-    insert_step_finish_part(&conn, "p1", "m1", created, 3.0);
+    insert_message(&conn, "m1", created, None, Some("grok-code-fast-1"), None);
+    insert_step_finish(&conn, "p1", "m1", created, 3.0, None);
     drop(conn);
 
     let rows = read_rows(&db).unwrap();
@@ -531,7 +405,7 @@ fn step_finish_parts_inherit_their_model_from_the_parent_message() {
 fn messages_without_a_model_fall_back_to_the_unknown_bucket() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    write_message_db_with_model(&db, &[(iso_ms("2026-03-06T11:00:00.000Z"), 4.0, None)]);
+    write_message_db(&db, &[(iso_ms("2026-03-06T11:00:00.000Z"), 4.0, None)]);
     let rows = read_rows(&db).unwrap();
     let buckets = daily_model_costs(&rows, a14_now(), 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
@@ -543,7 +417,7 @@ fn messages_without_a_model_fall_back_to_the_unknown_bucket() {
 fn whitespace_only_model_ids_fall_back_to_the_unknown_bucket() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    write_message_db_with_model(
+    write_message_db(
         &db,
         &[(iso_ms("2026-03-06T11:00:00.000Z"), 5.0, Some("   "))],
     );
@@ -558,7 +432,7 @@ fn whitespace_only_model_ids_fall_back_to_the_unknown_bucket() {
 fn model_ids_with_incidental_whitespace_merge_with_the_trimmed_bucket() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    write_message_db_with_model(
+    write_message_db(
         &db,
         &[
             (
@@ -585,7 +459,7 @@ fn model_ids_with_incidental_whitespace_merge_with_the_trimmed_bucket() {
 fn multiple_days_bucket_separately_and_sort_deterministically() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    write_message_db_with_model(
+    write_message_db(
         &db,
         &[
             (iso_ms("2026-03-05T11:00:00.000Z"), 1.0, Some("a")),
@@ -616,7 +490,7 @@ fn multiple_days_bucket_separately_and_sort_deterministically() {
 fn zero_cost_rows_are_kept_and_aggregated() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    write_message_db_with_model(
+    write_message_db(
         &db,
         &[
             (iso_ms("2026-03-06T11:00:00.000Z"), 0.0, Some("a")),
@@ -634,11 +508,7 @@ fn zero_cost_rows_are_kept_and_aggregated() {
 fn malformed_rows_are_dropped() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    let conn = Connection::open(&db).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT, time_created INTEGER);",
-    )
-    .unwrap();
+    let conn = open_db(&db, false);
     conn.execute(
         "INSERT INTO message (id, data, time_created) VALUES (?1, ?2, ?3)",
         rusqlite::params![
@@ -679,7 +549,7 @@ fn rows_outside_history_window_are_dropped() {
     let db = dir.path().join("opencode.db");
     let far_past = iso_ms("2025-01-01T00:00:00.000Z");
     let recent = a14_now().timestamp_millis();
-    write_message_db_with_model(
+    write_message_db(
         &db,
         &[(far_past, 1.0, Some("old")), (recent, 2.0, Some("new"))],
     );
@@ -697,7 +567,7 @@ fn day_boundary_keys_by_local_calendar_day() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
     let just_after_utc_midnight = iso_ms("2026-03-06T00:30:00.000Z");
-    write_message_db_with_model(&db, &[(just_after_utc_midnight, 1.5, Some("edge"))]);
+    write_message_db(&db, &[(just_after_utc_midnight, 1.5, Some("edge"))]);
     let rows = read_rows(&db).unwrap();
     let buckets = daily_model_costs(&rows, a14_now_afternoon(), 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
@@ -712,7 +582,7 @@ fn day_boundary_keys_by_local_calendar_day() {
 fn model_cost_summary_aggregates_total_and_by_model() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    write_message_db_with_model(
+    write_message_db(
         &db,
         &[
             (iso_ms("2026-03-06T11:00:00.000Z"), 3.0, Some("a")),
@@ -734,7 +604,7 @@ fn model_cost_summary_aggregates_total_and_by_model() {
 fn daily_series_sums_models_per_day_via_pure_aggregation() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    write_message_db_with_model(
+    write_message_db(
         &db,
         &[
             (iso_ms("2026-03-06T11:00:00.000Z"), 3.0, Some("a")),
@@ -756,7 +626,7 @@ fn daily_series_sums_models_per_day_via_pure_aggregation() {
 fn daily_aggregation_is_independent_of_zen_wait() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
-    write_message_db_with_model(&db, &[(iso_ms("2026-03-06T11:00:00.000Z"), 2.0, Some("a"))]);
+    write_message_db(&db, &[(iso_ms("2026-03-06T11:00:00.000Z"), 2.0, Some("a"))]);
     let rows = read_rows(&db).unwrap();
     let now = a14_now();
     let b1 = daily_model_costs(&rows, now, 30);

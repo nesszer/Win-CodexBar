@@ -606,6 +606,8 @@ fn anchored_month(year: i32, month: u32, anchor: &DateTime<Utc>) -> DateTime<Utc
 }
 
 #[cfg(test)]
+mod test_db;
+#[cfg(test)]
 mod tokens_tests;
 
 #[cfg(test)]

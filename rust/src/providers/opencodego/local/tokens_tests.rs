@@ -1,5 +1,6 @@
 //! Recorded-token coverage for the OpenCode Go local reader (upstream 0.67.0).
 
+use super::test_db::{insert_message, insert_step_finish, iso_ms, open_db};
 use super::*;
 
 const FULL: &str =
@@ -7,53 +8,8 @@ const FULL: &str =
 /// Older OpenCode rows record no `total`; the five components sum to 20.
 const NO_TOTAL: &str = r#"{"input":10,"output":5,"reasoning":1,"cache":{"read":4,"write":0}}"#;
 
-fn iso_ms(iso: &str) -> i64 {
-    chrono::DateTime::parse_from_rfc3339(iso)
-        .unwrap()
-        .timestamp_millis()
-}
-
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 3, 8, 0, 0, 0).unwrap()
-}
-
-fn open_db(path: &Path, with_part_table: bool) -> Connection {
-    let conn = Connection::open(path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT, time_created INTEGER);",
-    )
-    .unwrap();
-    if with_part_table {
-        conn.execute_batch(
-            "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT, time_created INTEGER);",
-        )
-        .unwrap();
-    }
-    conn
-}
-
-/// `tokens` is spliced in as raw JSON so malformed shapes can be exercised.
-fn insert_message(conn: &Connection, id: &str, created_ms: i64, model: &str, tokens: Option<&str>) {
-    let tokens_json = tokens.map_or_else(String::new, |t| format!(r#","tokens":{t}"#));
-    let data = format!(
-        r#"{{"providerID":"opencode-go","role":"assistant","cost":1.5,"modelID":"{model}"{tokens_json},"time":{{"created":{created_ms}}}}}"#
-    );
-    conn.execute(
-        "INSERT INTO message (id, data, time_created) VALUES (?1, ?2, ?3)",
-        rusqlite::params![id, data, created_ms],
-    )
-    .unwrap();
-}
-
-fn insert_step_finish(conn: &Connection, id: &str, message_id: &str, ms: i64, tokens: &str) {
-    let data = format!(
-        r#"{{"type":"step-finish","cost":0.5,"tokens":{tokens},"time":{{"created":{ms}}}}}"#
-    );
-    conn.execute(
-        "INSERT INTO part (id, message_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![id, message_id, data, ms],
-    )
-    .unwrap();
 }
 
 fn parse(json: &str) -> Option<RowTokens> {
@@ -147,8 +103,15 @@ fn daily_entries_carry_message_token_counts_per_day_and_model() {
         iso_ms("2026-03-06T11:00:00.000Z"),
         iso_ms("2026-03-06T11:30:00.000Z"),
     );
-    insert_message(&conn, "m1", first, "kimi-k2", Some(FULL));
-    insert_message(&conn, "m2", second, "kimi-k2", Some(NO_TOTAL));
+    insert_message(&conn, "m1", first, Some(1.5), Some("kimi-k2"), Some(FULL));
+    insert_message(
+        &conn,
+        "m2",
+        second,
+        Some(1.5),
+        Some("kimi-k2"),
+        Some(NO_TOTAL),
+    );
     drop(conn);
 
     let rows = read_rows(&db).unwrap();
@@ -173,14 +136,21 @@ fn step_finish_tokens_replace_the_parent_message_tokens() {
     let conn = open_db(&db, true);
     let created = iso_ms("2026-03-06T11:00:00.000Z");
     // The parent message records the session total; the steps record each call.
-    insert_message(&conn, "m1", created, "kimi-k2", Some(FULL));
+    insert_message(&conn, "m1", created, Some(1.5), Some("kimi-k2"), Some(FULL));
     let step_a =
         r#"{"total":30,"input":10,"output":5,"reasoning":5,"cache":{"read":10,"write":0}}"#;
     let step_b = r#"{"total":20,"input":8,"output":2,"reasoning":0,"cache":{"read":10,"write":0}}"#;
-    insert_step_finish(&conn, "p1", "m1", created, step_a);
-    insert_step_finish(&conn, "p2", "m1", created, step_b);
+    insert_step_finish(&conn, "p1", "m1", created, 0.5, Some(step_a));
+    insert_step_finish(&conn, "p2", "m1", created, 0.5, Some(step_b));
     // A message with no step-finish parts keeps using its own tokens.
-    insert_message(&conn, "m2", created, "kimi-k2", Some(NO_TOTAL));
+    insert_message(
+        &conn,
+        "m2",
+        created,
+        Some(1.5),
+        Some("kimi-k2"),
+        Some(NO_TOTAL),
+    );
     drop(conn);
 
     let rows = read_rows(&db).unwrap();
@@ -198,10 +168,17 @@ fn rows_without_usable_tokens_leave_the_day_incomplete_not_zero() {
     let db = dir.path().join("opencode.db");
     let conn = open_db(&db, false);
     let created = iso_ms("2026-03-06T11:00:00.000Z");
-    insert_message(&conn, "m1", created, "kimi-k2", Some(FULL));
-    insert_message(&conn, "m2", created, "kimi-k2", None);
-    insert_message(&conn, "m3", created, "kimi-k2", Some("5"));
-    insert_message(&conn, "m4", created, "kimi-k2", Some(r#"{"total":-4}"#));
+    insert_message(&conn, "m1", created, Some(1.5), Some("kimi-k2"), Some(FULL));
+    insert_message(&conn, "m2", created, Some(1.5), Some("kimi-k2"), None);
+    insert_message(&conn, "m3", created, Some(1.5), Some("kimi-k2"), Some("5"));
+    insert_message(
+        &conn,
+        "m4",
+        created,
+        Some(1.5),
+        Some("kimi-k2"),
+        Some(r#"{"total":-4}"#),
+    );
     drop(conn);
 
     let rows = read_rows(&db).unwrap();
@@ -223,14 +200,22 @@ fn model_summary_carries_per_model_tokens_and_marks_partial_models() {
     let db = dir.path().join("opencode.db");
     let conn = open_db(&db, false);
     let created = iso_ms("2026-03-06T11:00:00.000Z");
-    insert_message(&conn, "m1", created, "kimi-k2", Some(FULL));
-    insert_message(&conn, "m2", created, "kimi-k2", Some(NO_TOTAL));
-    insert_message(&conn, "m3", created, "glm-5", None);
+    insert_message(&conn, "m1", created, Some(1.5), Some("kimi-k2"), Some(FULL));
+    insert_message(
+        &conn,
+        "m2",
+        created,
+        Some(1.5),
+        Some("kimi-k2"),
+        Some(NO_TOTAL),
+    );
+    insert_message(&conn, "m3", created, Some(1.5), Some("glm-5"), None);
     insert_message(
         &conn,
         "m4",
         created,
-        "mimo",
+        Some(1.5),
+        Some("mimo"),
         Some(r#"{"total":9,"input":4}"#),
     );
     drop(conn);
