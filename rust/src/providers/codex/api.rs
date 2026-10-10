@@ -6,7 +6,6 @@ use super::{pat, weekly_reset};
 use crate::core::{
     CostSnapshot, NamedRateWindow, ProviderError, RateWindow, RateWindowCadence, UsageSnapshot,
 };
-use crate::providers::openai::OpenAISubscriptionFetchResult;
 use base64::Engine;
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
@@ -40,6 +39,13 @@ struct ResetCreditsCache {
     loaded_at: Option<Instant>,
     value: Option<ResetCredits>,
     confirmation_failure_at: Option<Instant>,
+}
+
+impl ResetCreditsCache {
+    fn confirmation_failed_recently(&self) -> bool {
+        self.confirmation_failure_at
+            .is_some_and(|failed| failed.elapsed() < RESET_CREDITS_CACHE_TTL)
+    }
 }
 
 /// Codex API client
@@ -110,14 +116,14 @@ impl CodexApi {
         {
             usage = usage.with_login_method(format_plan_type(&plan_type));
         }
-        let usage = self
-            .enrich_subscription_metadata(
-                &self.resolve_base_url(),
-                &token,
-                account_id.as_deref(),
-                usage,
-            )
-            .await;
+        let usage = subscription::enrich_subscription_metadata(
+            self,
+            &self.resolve_base_url(),
+            &token,
+            account_id.as_deref(),
+            usage,
+        )
+        .await;
         Ok((usage, cost, account_identity))
     }
 
@@ -198,22 +204,22 @@ impl CodexApi {
                             %error,
                             "Codex weekly reset confirmation failed; preserving first successful usage"
                         );
-                        let result = Self::preserve_after_confirmation_failure(
-                            &state,
-                            first_usage,
-                            first_cost,
-                        );
+                        let usage = weekly_reset::preserve_weekly(&state, first_usage);
                         weekly_reset::save(&scope, &state);
-                        let (usage, cost) = result;
-                        let usage = self
-                            .enrich_subscription_metadata(
-                                &base_url,
-                                &creds.access_token,
-                                creds.account_id.as_deref(),
-                                usage,
-                            )
-                            .await;
-                        return Ok((usage, cost, creds.account_id.clone(), displayed_credits));
+                        let usage = subscription::enrich_subscription_metadata(
+                            self,
+                            &base_url,
+                            &creds.access_token,
+                            creds.account_id.as_deref(),
+                            usage,
+                        )
+                        .await;
+                        return Ok((
+                            usage,
+                            first_cost,
+                            creds.account_id.clone(),
+                            displayed_credits,
+                        ));
                     }
                 };
                 let confirmation_credits = if initial_credits.is_some() {
@@ -256,51 +262,36 @@ impl CodexApi {
                 }
             }
         };
-        let usage = self
-            .enrich_subscription_metadata(
-                &base_url,
-                &creds.access_token,
-                creds.account_id.as_deref(),
-                usage,
-            )
-            .await;
+        let usage = subscription::enrich_subscription_metadata(
+            self,
+            &base_url,
+            &creds.access_token,
+            creds.account_id.as_deref(),
+            usage,
+        )
+        .await;
         let usage = apply_reset_credits_window(usage, displayed_credits.as_ref());
         Ok((usage, cost, creds.account_id.clone(), displayed_credits))
     }
 
-    /// Subscription metadata is optional enrichment. Usage remains usable when
-    /// the endpoint is unavailable, malformed, unauthorized, or points at a
-    /// custom backend. A successful empty cancellation response is the only
-    /// result allowed to clear dates on the fresh snapshot.
-    async fn enrich_subscription_metadata(
+    /// Bearer GET shared by the ChatGPT backend endpoints; an empty account id
+    /// sends no `ChatGPT-Account-Id` header.
+    pub(super) fn authed_get(
         &self,
-        base_url: &str,
+        url: &str,
         access_token: &str,
         account_id: Option<&str>,
-        usage: UsageSnapshot,
-    ) -> UsageSnapshot {
-        subscription::enrich_subscription_metadata(self, base_url, access_token, account_id, usage)
-            .await
-    }
-
-    async fn fetch_subscription_metadata(
-        &self,
-        base_url: &str,
-        access_token: &str,
-        account_id: Option<&str>,
-    ) -> OpenAISubscriptionFetchResult {
-        subscription::fetch_subscription_metadata(self, base_url, access_token, account_id).await
-    }
-
-    fn preserve_after_confirmation_failure(
-        state: &weekly_reset::AccountState,
-        first_usage: UsageSnapshot,
-        first_cost: Option<CostSnapshot>,
-    ) -> (UsageSnapshot, Option<CostSnapshot>) {
-        (
-            weekly_reset::preserve_weekly(state, first_usage),
-            first_cost,
-        )
+    ) -> reqwest::RequestBuilder {
+        let request = self
+            .client
+            .get(url)
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("User-Agent", "CodexBar")
+            .header("Accept", "application/json");
+        match account_id.filter(|id| !id.is_empty()) {
+            Some(account_id) => request.header("ChatGPT-Account-Id", account_id),
+            None => request,
+        }
     }
 
     async fn fetch_usage_once(
@@ -309,19 +300,11 @@ impl CodexApi {
         base_url: &str,
     ) -> Result<(UsageSnapshot, Option<CostSnapshot>, Option<ResetCredits>), ProviderError> {
         let url = format!("{}{}", base_url, USAGE_PATH);
-        let mut request = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", creds.access_token))
-            .header("User-Agent", "CodexBar")
-            .header("Accept", "application/json")
-            .timeout(std::time::Duration::from_secs(30));
-        if let Some(account_id) = &creds.account_id
-            && !account_id.is_empty()
-        {
-            request = request.header("ChatGPT-Account-Id", account_id);
-        }
-        let response = request.send().await?;
+        let response = self
+            .authed_get(&url, &creds.access_token, creds.account_id.as_deref())
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await?;
         if !response.status().is_success() {
             return Err(super::authenticated_http_error(response, "Codex API").await);
         }
@@ -413,27 +396,14 @@ impl CodexApi {
         let slot = self.reset_credits_cache_slot(creds, base_url);
         let mut cache = slot.lock().await;
         cache.value.as_ref()?;
-        if cache
-            .confirmation_failure_at
-            .is_some_and(|failed| failed.elapsed() < RESET_CREDITS_CACHE_TTL)
-        {
+        if cache.confirmation_failed_recently() {
             return None;
         }
         if cache.loaded_at.is_some_and(|loaded| loaded >= started) {
             return cache.value.clone();
         }
-        let fresh = self
-            .fetch_rate_limit_reset_credits(creds, base_url)
+        self.refetch_reset_credits_into(&mut cache, creds, base_url)
             .await
-            .ok();
-        if let Some(value) = fresh.as_ref() {
-            cache.value = Some(value.clone());
-            cache.loaded_at = Some(Instant::now());
-            cache.confirmation_failure_at = None;
-        } else {
-            cache.confirmation_failure_at = Some(Instant::now());
-        }
-        fresh
     }
 
     async fn fetch_rate_limit_reset_credits_fresh(
@@ -443,12 +413,21 @@ impl CodexApi {
     ) -> Option<ResetCredits> {
         let slot = self.reset_credits_cache_slot(creds, base_url);
         let mut cache = slot.lock().await;
-        if cache
-            .confirmation_failure_at
-            .is_some_and(|failed| failed.elapsed() < RESET_CREDITS_CACHE_TTL)
-        {
+        if cache.confirmation_failed_recently() {
             return None;
         }
+        self.refetch_reset_credits_into(&mut cache, creds, base_url)
+            .await
+    }
+
+    /// A failed read keeps the cached inventory but blocks further
+    /// confirmation reads for one cache TTL.
+    async fn refetch_reset_credits_into(
+        &self,
+        cache: &mut ResetCreditsCache,
+        creds: &CodexCredentials,
+        base_url: &str,
+    ) -> Option<ResetCredits> {
         let fresh = self
             .fetch_rate_limit_reset_credits(creds, base_url)
             .await
@@ -468,18 +447,14 @@ impl CodexApi {
         creds: &CodexCredentials,
         base_url: &str,
     ) -> Result<ResetCredits, ProviderError> {
-        let mut request = self
-            .client
-            .get(format!("{}{}", base_url, RESET_CREDITS_PATH))
-            .header("Authorization", format!("Bearer {}", creds.access_token))
-            .header("User-Agent", "CodexBar")
-            .header("Accept", "application/json");
-        if let Some(account_id) = &creds.account_id
-            && !account_id.is_empty()
-        {
-            request = request.header("ChatGPT-Account-Id", account_id);
-        }
-        let response = request.send().await?;
+        let response = self
+            .authed_get(
+                &format!("{}{}", base_url, RESET_CREDITS_PATH),
+                &creds.access_token,
+                creds.account_id.as_deref(),
+            )
+            .send()
+            .await?;
         if !response.status().is_success() {
             return Err(super::authenticated_http_error(response, "Codex reset credits").await);
         }
@@ -829,23 +804,7 @@ impl CodexApi {
                 .collect::<Vec<_>>();
             let (primary, secondary, monthly, code_review) = normalize_array_windows(windows);
             // F5 (upstream 0.48.0): route monthly to its own tertiary lane.
-            let mut usage = UsageSnapshot::new(primary);
-            if let Some(sec) = secondary {
-                usage = usage.with_secondary(sec);
-            }
-            if let Some(mo) = monthly {
-                usage = usage.with_tertiary(mo);
-            }
-            if let Some(cr) = code_review {
-                usage = usage.with_model_specific(cr);
-            }
-            return (
-                usage.primary,
-                usage.secondary,
-                usage.tertiary,
-                usage.model_specific,
-                false,
-            );
+            return (primary, secondary, monthly, code_review, false);
         }
 
         // Try direct fields
@@ -1008,14 +967,7 @@ fn normalize_named_windows(
 ) -> (RateWindow, Option<RateWindow>) {
     match (primary, secondary) {
         (None, None) => (RateWindow::no_active_session(), None),
-        (Some(window), None) => {
-            if codex_window_role(&window) == CodexWindowRole::Weekly {
-                (RateWindow::no_active_session(), Some(window))
-            } else {
-                (window, None)
-            }
-        }
-        (None, Some(window)) => {
+        (Some(window), None) | (None, Some(window)) => {
             if codex_window_role(&window) == CodexWindowRole::Weekly {
                 (RateWindow::no_active_session(), Some(window))
             } else {
@@ -1029,15 +981,12 @@ fn normalize_named_windows(
                     (RateWindow::no_active_session(), Some(primary))
                 }
                 (CodexWindowRole::Unknown, CodexWindowRole::Session) => (secondary, Some(primary)),
-                (CodexWindowRole::Session, CodexWindowRole::Weekly)
-                | (CodexWindowRole::Unknown, CodexWindowRole::Weekly) => (primary, Some(secondary)),
                 _ => (primary, Some(secondary)),
             }
         }
     }
 }
 
-/// Normalize an array of Codex windows without relying on the API's ordering.
 /// Normalize an array of Codex windows without relying on the API's ordering.
 ///
 /// Returns (session, weekly, monthly, code_review). F5 (upstream 0.48.0):
@@ -2225,6 +2174,44 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn authed_get_sends_account_header_only_when_non_empty() {
+        let mut server = mockito::Server::new_async().await;
+        let with_account = server
+            .mock("GET", "/with")
+            .match_header("authorization", "Bearer tok")
+            .match_header("user-agent", "CodexBar")
+            .match_header("accept", "application/json")
+            .match_header("chatgpt-account-id", "acct-1")
+            .with_status(200)
+            .create_async()
+            .await;
+        let without_account = server
+            .mock("GET", "/without")
+            .match_header("authorization", "Bearer tok")
+            .match_header("chatgpt-account-id", mockito::Matcher::Missing)
+            .expect(2)
+            .with_status(200)
+            .create_async()
+            .await;
+        let api = CodexApi::new();
+        for (path, account_id) in [
+            ("/with", Some("acct-1")),
+            ("/without", Some("")),
+            ("/without", None),
+        ] {
+            let status = api
+                .authed_get(&format!("{}{path}", server.url()), "tok", account_id)
+                .send()
+                .await
+                .expect("send")
+                .status();
+            assert_eq!(status.as_u16(), 200, "{path} {account_id:?}");
+        }
+        with_account.assert_async().await;
+        without_account.assert_async().await;
+    }
+
     #[test]
     fn f5_normalize_array_routes_session_weekly_monthly_to_lanes() {
         // 5h session + weekly + monthly → (session, weekly, monthly, None)
@@ -2275,7 +2262,7 @@ mod tests {
         let state = weekly_reset::AccountState::default();
         let first = UsageSnapshot::new(RateWindow::new(10.0)).with_secondary(RateWindow::new(0.5));
         let cost = Some(CostSnapshot::new(3.25, "USD", "Monthly"));
-        let (usage, kept_cost) = CodexApi::preserve_after_confirmation_failure(&state, first, cost);
+        let (usage, kept_cost) = (weekly_reset::preserve_weekly(&state, first), cost);
         assert!((usage.secondary.expect("weekly").used_percent - 0.5).abs() < f64::EPSILON);
         assert_eq!(kept_cost.expect("cost").used, 3.25);
     }
