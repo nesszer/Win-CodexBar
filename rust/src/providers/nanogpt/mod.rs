@@ -11,6 +11,7 @@ use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::http_util::StatusPolicy;
 
 /// NanoGPT API base URL
 const NANOGPT_API_BASE: &str = "https://nano-gpt.com/api/subscription/v1";
@@ -87,21 +88,14 @@ impl NanoGPTProvider {
             return Ok(key.to_string());
         }
 
-        match keyring::Entry::new(NANOGPT_CREDENTIAL_TARGET, "api_token") {
-            Ok(entry) => match entry.get_password() {
-                Ok(token) => Ok(token),
-                Err(_) => std::env::var("NANOGPT_API_KEY").map_err(|_| {
-                    ProviderError::NotInstalled(
-                        "NanoGPT API key not found. Set in Preferences → Providers or NANOGPT_API_KEY environment variable.".to_string(),
-                    )
-                }),
-            },
-            Err(_) => std::env::var("NANOGPT_API_KEY").map_err(|_| {
+        keyring::Entry::new(NANOGPT_CREDENTIAL_TARGET, "api_token")
+            .and_then(|entry| entry.get_password())
+            .or_else(|_| std::env::var("NANOGPT_API_KEY"))
+            .map_err(|_| {
                 ProviderError::NotInstalled(
                     "NanoGPT API key not found. Set in Preferences → Providers or NANOGPT_API_KEY environment variable.".to_string(),
                 )
-            }),
-        }
+            })
     }
 
     /// Convert millisecond epoch to DateTime<Utc>
@@ -183,16 +177,7 @@ impl NanoGPTProvider {
             .send()
             .await?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(ProviderError::AuthRequired);
-        }
-
-        if !resp.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "NanoGPT API returned status {}",
-                resp.status()
-            )));
-        }
+        StatusPolicy::auth_401("NanoGPT API").check(resp.status())?;
 
         let response_text = resp
             .text()
@@ -257,10 +242,11 @@ impl Provider for NanoGPTProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{Value, json};
 
-    #[test]
-    fn parses_documented_daily_and_monthly_usage() {
-        let response: UsageResponse = serde_json::from_value(serde_json::json!({
+    /// The documented response with both daily and monthly usage.
+    fn documented() -> Value {
+        json!({
             "active": true,
             "limits": {
                 "daily": 5000.0,
@@ -284,11 +270,28 @@ mod tests {
             },
             "state": "active",
             "graceUntil": null
-        }))
-        .expect("documented response should deserialize");
+        })
+    }
 
-        let usage = NanoGPTProvider::usage_snapshot_from_response(response)
-            .expect("documented response should parse");
+    fn without(mut value: Value, keys: &[&str]) -> Value {
+        for key in keys {
+            match key.split_once('.') {
+                Some((parent, child)) => value[parent].as_object_mut().unwrap().remove(child),
+                None => value.as_object_mut().unwrap().remove(*key),
+            };
+        }
+        value
+    }
+
+    fn parse(value: Value) -> Result<UsageSnapshot, ProviderError> {
+        let response: UsageResponse =
+            serde_json::from_value(value).expect("response should deserialize");
+        NanoGPTProvider::usage_snapshot_from_response(response)
+    }
+
+    #[test]
+    fn parses_documented_daily_and_monthly_usage() {
+        let usage = parse(documented()).expect("documented response should parse");
 
         assert!((usage.primary.used_percent - 2.5).abs() < 0.0001);
         assert_eq!(
@@ -310,28 +313,9 @@ mod tests {
 
     #[test]
     fn parses_monthly_usage_when_daily_is_missing() {
-        let response: UsageResponse = serde_json::from_value(serde_json::json!({
-            "active": true,
-            "limits": {
-                "monthly": 60000.0
-            },
-            "enforceDailyLimit": false,
-            "monthly": {
-                "used": 3000.0,
-                "remaining": 57000.0,
-                "percentUsed": 0.05,
-                "resetAt": 1739404800000_i64
-            },
-            "period": {
-                "currentPeriodEnd": "2025-02-13T23:59:59.000Z"
-            },
-            "state": "active",
-            "graceUntil": null
-        }))
-        .expect("monthly-only response should deserialize");
-
-        let usage = NanoGPTProvider::usage_snapshot_from_response(response)
-            .expect("monthly-only response should parse");
+        let mut value = without(documented(), &["limits.daily", "daily"]);
+        value["enforceDailyLimit"] = json!(false);
+        let usage = parse(value).expect("monthly-only response should parse");
 
         assert!((usage.primary.used_percent - 5.0).abs() < 0.0001);
         assert_eq!(
@@ -350,28 +334,8 @@ mod tests {
 
     #[test]
     fn parses_daily_usage_when_monthly_is_missing() {
-        let response: UsageResponse = serde_json::from_value(serde_json::json!({
-            "active": true,
-            "limits": {
-                "daily": 5000.0
-            },
-            "enforceDailyLimit": true,
-            "daily": {
-                "used": 125.0,
-                "remaining": 4875.0,
-                "percentUsed": 0.025,
-                "resetAt": 1738540800000_i64
-            },
-            "period": {
-                "currentPeriodEnd": "2025-02-13T23:59:59.000Z"
-            },
-            "state": "active",
-            "graceUntil": null
-        }))
-        .expect("daily-only response should deserialize");
-
-        let usage = NanoGPTProvider::usage_snapshot_from_response(response)
-            .expect("daily-only response should parse");
+        let value = without(documented(), &["limits.monthly", "monthly"]);
+        let usage = parse(value).expect("daily-only response should parse");
 
         assert!((usage.primary.used_percent - 2.5).abs() < 0.0001);
         assert_eq!(
@@ -386,35 +350,16 @@ mod tests {
 
     #[test]
     fn inactive_subscription_requires_auth() {
-        let response: UsageResponse = serde_json::from_value(serde_json::json!({
-            "active": false,
-            "limits": {
-                "daily": 5000.0,
-                "monthly": 60000.0
-            },
-            "enforceDailyLimit": true,
-            "daily": {
-                "used": 0.0,
-                "remaining": 5000.0,
-                "percentUsed": 0.0,
-                "resetAt": 1738540800000_i64
-            },
-            "monthly": {
-                "used": 0.0,
-                "remaining": 60000.0,
-                "percentUsed": 0.0,
-                "resetAt": 1739404800000_i64
-            },
-            "period": {
-                "currentPeriodEnd": "2025-02-13T23:59:59.000Z"
-            },
-            "state": "inactive",
-            "graceUntil": null
-        }))
-        .expect("inactive response should deserialize");
+        let mut value = documented();
+        value["active"] = json!(false);
+        value["state"] = json!("inactive");
+        for (window, limit) in [("daily", 5000.0), ("monthly", 60000.0)] {
+            value[window]["used"] = json!(0.0);
+            value[window]["remaining"] = json!(limit);
+            value[window]["percentUsed"] = json!(0.0);
+        }
 
-        let err = NanoGPTProvider::usage_snapshot_from_response(response)
-            .expect_err("inactive subscription should require auth");
+        let err = parse(value).expect_err("inactive subscription should require auth");
         assert!(matches!(err, ProviderError::AuthRequired));
     }
 }

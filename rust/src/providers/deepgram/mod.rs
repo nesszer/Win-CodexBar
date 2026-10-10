@@ -5,11 +5,13 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
     RateWindow, SourceMode, UsageSnapshot,
 };
+use crate::providers::http_util::{StatusPolicy, send_json};
 
 const DEEPGRAM_API_BASE: &str = "https://api.deepgram.com/v1";
 const DEEPGRAM_CREDENTIAL_TARGET: &str = "codexbar-deepgram";
@@ -111,33 +113,11 @@ impl DeepgramProvider {
     }
 
     async fn list_projects(&self, api_key: &str) -> Result<Vec<Project>, ProviderError> {
-        let response = self
-            .client
-            .get(format!("{DEEPGRAM_API_BASE}/projects"))
-            .header("Authorization", format!("Token {api_key}"))
-            .header("Accept", "application/json")
-            .send()
+        let policy = StatusPolicy::auth_401("Deepgram projects API")
+            .forbidden("Deepgram API key does not have Management API access.".to_string());
+        let body: ProjectsResponse = self
+            .get_json("/projects", api_key, &policy, "Deepgram projects")
             .await?;
-
-        match response.status() {
-            reqwest::StatusCode::UNAUTHORIZED => return Err(ProviderError::AuthRequired),
-            reqwest::StatusCode::FORBIDDEN => {
-                return Err(ProviderError::Other(
-                    "Deepgram API key does not have Management API access.".to_string(),
-                ));
-            }
-            status if !status.is_success() => {
-                return Err(ProviderError::Other(format!(
-                    "Deepgram projects API returned status {status}"
-                )));
-            }
-            _ => {}
-        }
-
-        let body: ProjectsResponse = response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(format!("Failed to parse Deepgram projects: {e}")))?;
         Ok(body.projects)
     }
 
@@ -146,38 +126,30 @@ impl DeepgramProvider {
         api_key: &str,
         project: &Project,
     ) -> Result<DeepgramUsageSummary, ProviderError> {
-        let response = self
-            .client
-            .get(format!(
-                "{DEEPGRAM_API_BASE}/projects/{}/usage/breakdown",
-                project.project_id
-            ))
-            .header("Authorization", format!("Token {api_key}"))
-            .header("Accept", "application/json")
-            .send()
+        let policy = StatusPolicy::auth_401("Deepgram usage API").forbidden(format!(
+            "Deepgram API key cannot read usage for project {}.",
+            project.project_id
+        ));
+        let path = format!("/projects/{}/usage/breakdown", project.project_id);
+        let usage: UsageResponse = self
+            .get_json(&path, api_key, &policy, "Deepgram usage")
             .await?;
-
-        match response.status() {
-            reqwest::StatusCode::UNAUTHORIZED => return Err(ProviderError::AuthRequired),
-            reqwest::StatusCode::FORBIDDEN => {
-                return Err(ProviderError::Other(format!(
-                    "Deepgram API key cannot read usage for project {}.",
-                    project.project_id
-                )));
-            }
-            status if !status.is_success() => {
-                return Err(ProviderError::Other(format!(
-                    "Deepgram usage API returned status {status}"
-                )));
-            }
-            _ => {}
-        }
-
-        let usage: UsageResponse = response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(format!("Failed to parse Deepgram usage: {e}")))?;
         Ok(summary_from_usage(project, &usage))
+    }
+
+    async fn get_json<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        api_key: &str,
+        policy: &StatusPolicy<'_>,
+        parse_label: &str,
+    ) -> Result<T, ProviderError> {
+        let request = self
+            .client
+            .get(format!("{DEEPGRAM_API_BASE}{path}"))
+            .header("Authorization", format!("Token {api_key}"))
+            .header("Accept", "application/json");
+        send_json(request, policy, parse_label).await
     }
 }
 
@@ -200,7 +172,7 @@ impl Provider for DeepgramProvider {
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::OAuth => {
-                let api_key = resolve_api_key(
+                let api_key = crate::providers::resolve_api_key(
                     ctx.api_key.as_deref(),
                     DEEPGRAM_CREDENTIAL_TARGET,
                     &["DEEPGRAM_API_KEY"],
@@ -222,35 +194,25 @@ impl Provider for DeepgramProvider {
 }
 
 fn summary_from_usage(project: &Project, usage: &UsageResponse) -> DeepgramUsageSummary {
+    let hours = |field: fn(&UsageResult) -> Option<f64>| -> f64 {
+        usage.results.iter().map(|r| field(r).unwrap_or(0.0)).sum()
+    };
+    let count = |field: fn(&UsageResult) -> Option<u64>| -> u64 {
+        usage.results.iter().map(|r| field(r).unwrap_or(0)).sum()
+    };
     DeepgramUsageSummary {
         project_id: project.project_id.clone(),
         project_name: project.name.clone(),
         project_count: 1,
         start: usage.start.clone(),
         end: usage.end.clone(),
-        hours: usage.results.iter().map(|r| r.hours.unwrap_or(0.0)).sum(),
-        total_hours: usage
-            .results
-            .iter()
-            .map(|r| r.total_hours.unwrap_or(0.0))
-            .sum(),
-        agent_hours: usage
-            .results
-            .iter()
-            .map(|r| r.agent_hours.unwrap_or(0.0))
-            .sum(),
-        tokens_in: usage.results.iter().map(|r| r.tokens_in.unwrap_or(0)).sum(),
-        tokens_out: usage
-            .results
-            .iter()
-            .map(|r| r.tokens_out.unwrap_or(0))
-            .sum(),
-        tts_characters: usage
-            .results
-            .iter()
-            .map(|r| r.tts_characters.unwrap_or(0))
-            .sum(),
-        requests: usage.results.iter().map(|r| r.requests.unwrap_or(0)).sum(),
+        hours: hours(|r| r.hours),
+        total_hours: hours(|r| r.total_hours),
+        agent_hours: hours(|r| r.agent_hours),
+        tokens_in: count(|r| r.tokens_in),
+        tokens_out: count(|r| r.tokens_out),
+        tts_characters: count(|r| r.tts_characters),
+        requests: count(|r| r.requests),
     }
 }
 
@@ -336,35 +298,6 @@ fn format_decimal(value: f64) -> String {
     } else {
         format!("{value:.1}")
     }
-}
-
-fn resolve_api_key(
-    explicit: Option<&str>,
-    credential_target: &str,
-    env_names: &[&str],
-) -> Result<String, ProviderError> {
-    if let Some(key) = explicit
-        && !key.trim().is_empty()
-    {
-        return Ok(key.trim().to_string());
-    }
-    if let Ok(entry) = keyring::Entry::new(credential_target, "api_key")
-        && let Ok(key) = entry.get_password()
-        && !key.trim().is_empty()
-    {
-        return Ok(key);
-    }
-    for env in env_names {
-        if let Ok(key) = std::env::var(env)
-            && !key.trim().is_empty()
-        {
-            return Ok(key);
-        }
-    }
-    Err(ProviderError::NotInstalled(format!(
-        "API key not found. Set {} in Preferences or environment.",
-        env_names.join(" / ")
-    )))
 }
 
 #[cfg(test)]
