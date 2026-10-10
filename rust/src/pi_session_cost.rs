@@ -17,7 +17,7 @@ use crate::agent_sessions::pi_family::roots::{
     omp_profile_selector, pi_settings_session_directory,
 };
 use crate::core::CostUsagePricing;
-use crate::cost_scanner::{CostSummary, ModelPricingCompleteness};
+use crate::cost_scanner::CostSummary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PiMappedProvider {
@@ -272,18 +272,9 @@ struct PiEntry {
 fn apply_entry(summary: &mut CostSummary, entry: &PiEntry) {
     if !entry.pricing_known {
         summary.unknown_models.insert(entry.model.clone());
-        match &mut summary.model_pricing_completeness {
-            ModelPricingCompleteness::Complete => {
-                summary.model_pricing_completeness = ModelPricingCompleteness::Partial {
-                    unpriced_models: vec![entry.model.clone()],
-                };
-            }
-            ModelPricingCompleteness::Partial { unpriced_models } => {
-                if !unpriced_models.contains(&entry.model) {
-                    unpriced_models.push(entry.model.clone());
-                }
-            }
-        }
+        summary
+            .model_pricing_completeness
+            .mark_unpriced(&entry.model);
     }
     summary.input_tokens += entry.input;
     summary.output_tokens += entry.output;

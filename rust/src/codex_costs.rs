@@ -347,18 +347,7 @@ fn add_codex_tokens_to_summary(
             tokens,
         );
         // Mark the breakdown as partial so the dashboard labels it (F18).
-        match &mut summary.model_pricing_completeness {
-            ModelPricingCompleteness::Complete => {
-                summary.model_pricing_completeness = ModelPricingCompleteness::Partial {
-                    unpriced_models: vec![model_key.clone()],
-                };
-            }
-            ModelPricingCompleteness::Partial { unpriced_models } => {
-                if !unpriced_models.contains(&model_key) {
-                    unpriced_models.push(model_key.clone());
-                }
-            }
-        }
+        summary.model_pricing_completeness.mark_unpriced(&model_key);
         return Some(0.0);
     }
 
@@ -375,18 +364,7 @@ fn add_codex_tokens_to_summary(
     });
     if uses_fallback_pricing {
         summary.unknown_models.insert(model_key.clone());
-        match &mut summary.model_pricing_completeness {
-            ModelPricingCompleteness::Complete => {
-                summary.model_pricing_completeness = ModelPricingCompleteness::Partial {
-                    unpriced_models: vec![model_key.clone()],
-                };
-            }
-            ModelPricingCompleteness::Partial { unpriced_models } => {
-                if !unpriced_models.contains(&model_key) {
-                    unpriced_models.push(model_key.clone());
-                }
-            }
-        }
+        summary.model_pricing_completeness.mark_unpriced(&model_key);
     }
 
     add_summary_tokens(summary, tokens);

@@ -79,6 +79,22 @@ impl ModelPricingCompleteness {
     pub fn is_partial(&self) -> bool {
         matches!(self, Self::Partial { .. })
     }
+
+    /// Record `model` as unpriced, which makes the breakdown partial.
+    pub(crate) fn mark_unpriced(&mut self, model: &str) {
+        match self {
+            Self::Complete => {
+                *self = Self::Partial {
+                    unpriced_models: vec![model.to_string()],
+                };
+            }
+            Self::Partial { unpriced_models } => {
+                if !unpriced_models.iter().any(|known| known == model) {
+                    unpriced_models.push(model.to_string());
+                }
+            }
+        }
+    }
 }
 
 /// Cost summary from scanning local logs
