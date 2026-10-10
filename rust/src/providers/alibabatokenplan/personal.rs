@@ -66,10 +66,12 @@ pub(super) async fn fetch_personal_usage(
         Value::String(region.product_code().to_string()),
     );
     let subscription_body =
-        post_personal_api_optional(&context, PERSONAL_SUBSCRIPTION_API, subscription_params).await;
-
-    let quota_config_body =
-        post_personal_api_optional(&context, PERSONAL_QUOTA_CONFIG_API, Map::new()).await;
+        post_personal_api(&context, PERSONAL_SUBSCRIPTION_API, subscription_params)
+            .await
+            .ok();
+    let quota_config_body = post_personal_api(&context, PERSONAL_QUOTA_CONFIG_API, Map::new())
+        .await
+        .ok();
 
     const MAX_USAGE_ATTEMPTS: usize = 3;
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
@@ -84,7 +86,7 @@ pub(super) async fn fetch_personal_usage(
             quota_config_body.as_deref(),
         ) {
             Ok(snapshot) => return Ok(snapshot),
-            Err(error) if personal_usage_success_without_windows(&usage_body) => {
+            Err(_) if personal_usage_success_without_windows(&usage_body) => {
                 tracing::info!(
                     attempt = attempt + 1,
                     max_attempts = MAX_USAGE_ATTEMPTS,
@@ -96,7 +98,6 @@ pub(super) async fn fetch_personal_usage(
                             .into(),
                     ));
                 }
-                let _ = error;
             }
             Err(error) => return Err(error),
         }
@@ -159,14 +160,6 @@ async fn post_personal_api(
         "Alibaba Token Plan Personal",
     )
     .await
-}
-
-async fn post_personal_api_optional(
-    context: &PersonalApiContext<'_>,
-    api: &str,
-    data_parameters: Map<String, Value>,
-) -> Option<Vec<u8>> {
-    post_personal_api(context, api, data_parameters).await.ok()
 }
 
 fn build_personal_form(
