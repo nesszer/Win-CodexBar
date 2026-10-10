@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::region::AlibabaTokenPlanRegion;
 use super::{
     LANGUAGE, PERSONAL_CONSOLE_PRODUCT, PERSONAL_QUOTA_CONFIG_API, PERSONAL_SUBSCRIPTION_API,
-    PERSONAL_USAGE_API, TokenPlanSnapshot, USER_AGENT, cookie_value, date_field,
+    PERSONAL_USAGE_API, TokenPlanSnapshot, USER_AGENT, cookie_value, date_field, deep_find,
     expand_json_strings, find_object_containing_any_of, is_likely_login_html, number_field,
     percentage_points, throw_if_error_payload,
 };
@@ -439,19 +439,7 @@ fn quota_totals_from_bytes(data: &[u8], plan_code: &str) -> Option<QuotaTotals> 
 }
 
 fn find_first_value_for_key(value: &Value, key: &str) -> Option<Value> {
-    match value {
-        Value::Object(map) => {
-            if let Some(nested) = map.get(key) {
-                return Some(nested.clone());
-            }
-            map.values()
-                .find_map(|nested| find_first_value_for_key(nested, key))
-        }
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_value_for_key(nested, key)),
-        _ => None,
-    }
+    deep_find(value, &|node| node.as_object()?.get(key).cloned())
 }
 
 #[cfg(test)]
