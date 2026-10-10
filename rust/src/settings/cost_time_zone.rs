@@ -4,10 +4,13 @@
 //! Day buckets, month-to-date bounds, and cost caches use one saved IANA zone
 //! so history keeps its day boundaries when the machine's zone changes. An
 //! empty value means the machine zone. There is no settings control for it,
-//! as upstream: the desktop app pins the machine zone on first launch.
+//! as upstream. The saved zone is stored but not yet applied at runtime:
+//! nothing in the desktop app or the CLI pins it on first launch or applies it
+//! to bucketing (the wiring PRs #653 and #665 were closed), so history is
+//! bucketed in the machine zone.
 
 use super::Settings;
-use crate::cost_reporting_period::{CostTimeZone, set_cost_bucket_zone};
+use crate::cost_reporting_period::CostTimeZone;
 
 /// Trim a saved bucket zone; anything but an IANA zone name reads as unpinned
 /// (`""`).
@@ -42,11 +45,6 @@ impl Settings {
             }
             None => false,
         }
-    }
-
-    /// Bucket this process's local cost history in the saved zone.
-    pub fn apply_cost_usage_bucket_zone(&self) -> CostTimeZone {
-        set_cost_bucket_zone(&self.cost_usage_bucket_time_zone)
     }
 }
 

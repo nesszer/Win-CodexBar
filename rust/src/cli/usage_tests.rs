@@ -3,8 +3,8 @@
 use super::*;
 use crate::core::{
     CostSnapshot, FetchContext, NamedRateWindow, ProviderAccountData, ProviderDisplayDetail,
-    ProviderId, ProviderInventoryItem, RateWindow, SourceMode, TokenAccount, TokenAccountKind,
-    TokenAccountSupport, UsageSnapshot,
+    ProviderFetchResult, ProviderId, ProviderInventoryItem, RateWindow, SourceMode, TokenAccount,
+    TokenAccountKind, TokenAccountSupport, UsageSnapshot,
 };
 use crate::providers::claude::claude_swap::ClaudeSwapAccount;
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel};

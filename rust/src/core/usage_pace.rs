@@ -48,22 +48,6 @@ impl PaceStage {
             PaceStage::SlightlyBehind | PaceStage::Behind | PaceStage::FarBehind => "🐢",
         }
     }
-
-    /// Whether the user is consuming faster than expected
-    pub fn is_ahead(&self) -> bool {
-        matches!(
-            self,
-            PaceStage::SlightlyAhead | PaceStage::Ahead | PaceStage::FarAhead
-        )
-    }
-
-    /// Whether the user is consuming slower than expected
-    pub fn is_behind(&self) -> bool {
-        matches!(
-            self,
-            PaceStage::SlightlyBehind | PaceStage::Behind | PaceStage::FarBehind
-        )
-    }
 }
 
 /// Usage pace prediction result
@@ -265,7 +249,10 @@ mod tests {
         let window = RateWindow::with_details(80.0, Some(10080), Some(resets_at), None);
         let pace = UsagePace::weekly(&window, Some(now), 10080).unwrap();
 
-        assert!(pace.stage.is_ahead());
+        assert!(matches!(
+            pace.stage,
+            PaceStage::SlightlyAhead | PaceStage::Ahead | PaceStage::FarAhead
+        ));
         assert!(pace.delta_percent > 0.0);
     }
 

@@ -6,9 +6,7 @@ use super::encoding::MetricsWriter;
 use super::snapshot::{MetricsSnapshot, QuotaMetric};
 use super::{CONTENT_TYPE, MetricsRenderError};
 
-pub(in crate::cli::serve::metrics) fn metrics_response(
-    snapshot: Option<&MetricsSnapshot>,
-) -> String {
+pub(in crate::cli::serve) fn metrics_response(snapshot: Option<&MetricsSnapshot>) -> String {
     let (status, body) = match snapshot {
         Some(snapshot) => match render(snapshot) {
             Ok(body) => (200, body),

@@ -561,6 +561,12 @@ async fn route_request(request: &ServeRequest, config: &ServeConfig) -> String {
         return json_response(404, serde_json::json!({ "error": "not found" }));
     };
 
+    let authorized = || {
+        authorize_request(
+            request.authorization.as_deref(),
+            config.token_digest.as_ref(),
+        )
+    };
     match route {
         ServeRoute::DashboardHome => match &config.dashboard {
             Some(state) => dashboard::home_response(state),
@@ -572,10 +578,7 @@ async fn route_request(request: &ServeRequest, config: &ServeConfig) -> String {
             serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }),
         ),
         ServeRoute::Usage { provider } => {
-            if !authorize_request(
-                request.authorization.as_deref(),
-                config.token_digest.as_ref(),
-            ) {
+            if !authorized() {
                 return unauthorized_response();
             }
             let budget = data::RequestBudget::start(config.request_timeout);
@@ -586,10 +589,7 @@ async fn route_request(request: &ServeRequest, config: &ServeConfig) -> String {
             .await
         }
         ServeRoute::Cost { provider } => {
-            if !authorize_request(
-                request.authorization.as_deref(),
-                config.token_digest.as_ref(),
-            ) {
+            if !authorized() {
                 return unauthorized_response();
             }
             let budget = data::RequestBudget::start(config.request_timeout);
@@ -603,10 +603,7 @@ async fn route_request(request: &ServeRequest, config: &ServeConfig) -> String {
             if !config.metrics_enabled {
                 return json_response(404, serde_json::json!({ "error": "not found" }));
             }
-            if !authorize_request(
-                request.authorization.as_deref(),
-                config.token_digest.as_ref(),
-            ) {
+            if !authorized() {
                 return unauthorized_dashboard_response();
             }
             match &config.dashboard {
@@ -621,10 +618,7 @@ async fn route_request(request: &ServeRequest, config: &ServeConfig) -> String {
             }
         }
         ServeRoute::DashboardSnapshot => {
-            if !authorize_request(
-                request.authorization.as_deref(),
-                config.token_digest.as_ref(),
-            ) {
+            if !authorized() {
                 return unauthorized_dashboard_response();
             }
             match &config.dashboard {

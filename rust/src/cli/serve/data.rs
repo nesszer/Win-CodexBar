@@ -29,7 +29,7 @@ use crate::cli::error_kind::{
 };
 use crate::cli::fetch_context::populate_api_region_from_settings;
 use crate::cli::usage::ProviderSelection;
-use crate::core::{CostScanOptions, FetchContext, ProviderId, SourceMode, instantiate_provider};
+use crate::core::{CostScanOptions, FetchContext, ProviderId, instantiate_provider};
 use crate::cost_reporting_period::CostReportingPeriod;
 use crate::cost_scanner::{self, CostScanner};
 use crate::settings::Settings;
@@ -127,26 +127,12 @@ pub(super) async fn usage_response(
         }
     };
     let ctx = FetchContext {
-        source_mode: SourceMode::Auto,
-        include_credits: true,
         web_timeout: budget.web_timeout_secs(),
-        verbose: false,
-        manual_cookie_header: None,
-        manual_cookie_missing: false,
-        api_key: None,
-        token_account_kind: None,
-        token_account_isolated: false,
-        workspace_id: None,
-        seat_credit_entitlement: None,
-        api_region: None,
-        gateway_url: None,
-        auto_prefer_web: false,
-        browser_cookie_import: false,
         // Serve `/usage` is a background poll read: keep the short optional-
         // join grace (upstream #2583), unlike `codexbar usage` which blocks
         // for the full completeness window.
         requires_optional_usage_completeness: false,
-        optional_details_enabled: false,
+        ..FetchContext::default()
     };
 
     let rows = collect_usage_rows(

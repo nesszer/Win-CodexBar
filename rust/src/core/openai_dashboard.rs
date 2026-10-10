@@ -2,14 +2,6 @@
 //!
 //! Data structures for OpenAI/Codex dashboard usage breakdown and credits tracking.
 
-// Serde data model mirroring the OpenAI dashboard payload plus its cache
-// store; several fields and helpers have no consumer yet but must survive
-// (de)serialization round-trips.
-#![allow(
-    dead_code,
-    reason = "dashboard snapshot fields mirror the upstream OpenAI payload; not all are consumed yet"
-)]
-
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -124,36 +116,6 @@ impl OpenAIDashboardSnapshot {
             .collect()
     }
 
-    /// Set usage breakdown data
-    pub fn with_usage_breakdown(mut self, breakdown: Vec<OpenAIDashboardDailyBreakdown>) -> Self {
-        self.usage_breakdown = breakdown;
-        self
-    }
-
-    /// Set primary limit
-    pub fn with_primary_limit(mut self, limit: RateWindow) -> Self {
-        self.primary_limit = Some(limit);
-        self
-    }
-
-    /// Set secondary limit
-    pub fn with_secondary_limit(mut self, limit: RateWindow) -> Self {
-        self.secondary_limit = Some(limit);
-        self
-    }
-
-    /// Set credits remaining
-    pub fn with_credits_remaining(mut self, credits: f64) -> Self {
-        self.credits_remaining = Some(credits);
-        self
-    }
-
-    /// Set account plan
-    pub fn with_account_plan(mut self, plan: impl Into<String>) -> Self {
-        self.account_plan = Some(plan.into());
-        self
-    }
-
     /// Set explicitly observed subscription lifecycle dates.
     pub fn with_subscription(mut self, subscription: Option<SubscriptionMetadata>) -> Self {
         self.subscription = subscription;
@@ -182,11 +144,6 @@ impl CreditEvent {
             credits_used,
             description: None,
         }
-    }
-
-    pub fn with_description(mut self, description: impl Into<String>) -> Self {
-        self.description = Some(description.into());
-        self
     }
 }
 

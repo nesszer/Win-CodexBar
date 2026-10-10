@@ -1,5 +1,20 @@
 use super::*;
 
+mod language_theme;
+mod provider_configs;
+
+/// Settings parsed from a document that omits every optional field.
+fn defaulted() -> Settings {
+    serde_json::from_str(r#"{ "enabled_providers": [] }"#).expect("minimal settings parse")
+}
+
+/// Serialize then parse back; the JSON is returned for field-name checks.
+fn round_trip(settings: &Settings) -> (String, Settings) {
+    let json = serde_json::to_string(settings).expect("serialize settings");
+    let loaded = serde_json::from_str(&json).expect("deserialize settings");
+    (json, loaded)
+}
+
 #[test]
 fn test_settings_default() {
     let settings = Settings::default();
@@ -60,8 +75,7 @@ fn groq_cookie_source_defaults_to_automatic_session_import() {
 
 #[test]
 fn preferred_currency_defaults_validates_and_round_trips() {
-    let legacy: Settings = serde_json::from_str(r#"{"enabled_providers": []}"#)
-        .expect("legacy settings without a preferred currency remain valid");
+    let legacy = defaulted();
     assert_eq!(legacy.preferred_currency_code, "AUTO");
 
     let selected: Settings =
@@ -79,16 +93,14 @@ fn preferred_currency_defaults_validates_and_round_trips() {
 
 #[test]
 fn overview_layout_defaults_to_detailed_and_round_trips() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing overview layout defaults to detailed");
+    let defaulted = defaulted();
     assert_eq!(defaulted.overview_layout, "detailed");
 
     let compact = Settings {
         overview_layout: "compact".to_string(),
         ..Settings::default()
     };
-    let json = serde_json::to_string(&compact).expect("serialize overview layout");
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize overview layout");
+    let (_, loaded) = round_trip(&compact);
     assert_eq!(loaded.overview_layout, "compact");
 
     let unknown: Settings =
@@ -99,26 +111,22 @@ fn overview_layout_defaults_to_detailed_and_round_trips() {
 
 #[test]
 fn tray_panel_always_on_top_defaults_off_and_round_trips() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing tray panel topmost field defaults off");
+    let defaulted = defaulted();
     assert!(!defaulted.tray_panel_always_on_top);
 
     let enabled = Settings {
         tray_panel_always_on_top: true,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&enabled).expect("serialize tray panel topmost setting");
+    let (json, loaded) = round_trip(&enabled);
     assert!(json.contains(r#""tray_panel_always_on_top":true"#));
 
-    let loaded: Settings =
-        serde_json::from_str(&json).expect("deserialize tray panel topmost setting");
     assert!(loaded.tray_panel_always_on_top);
 }
 
 #[test]
 fn low_power_mode_migrates_legacy_boolean_and_round_trips_preference() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing low power fields defaults off");
+    let defaulted = defaulted();
     assert_eq!(
         defaulted.low_power_mode_preference,
         LowPowerModePreference::Off
@@ -133,9 +141,8 @@ fn low_power_mode_migrates_legacy_boolean_and_round_trips_preference() {
         low_power_mode_preference: LowPowerModePreference::Automatic,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&automatic).expect("serialize low power preference");
+    let (json, loaded) = round_trip(&automatic);
     assert!(json.contains(r#""low_power_mode_preference":"automatic""#));
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize low power preference");
     assert_eq!(
         loaded.low_power_mode_preference,
         LowPowerModePreference::Automatic
@@ -144,8 +151,7 @@ fn low_power_mode_migrates_legacy_boolean_and_round_trips_preference() {
 
 #[test]
 fn open_codex_usage_logs_default_off_and_round_trip() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing open_codex_usage_logs_enabled defaults false");
+    let defaulted = defaulted();
     assert!(!defaulted.open_codex_usage_logs_enabled);
 
     let enabled = Settings {
@@ -153,35 +159,31 @@ fn open_codex_usage_logs_default_off_and_round_trip() {
         hide_native_codex_cost_when_open_codex_present: true,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&enabled).expect("serialize OpenCodex usage opt-in");
+    let (json, loaded) = round_trip(&enabled);
     assert!(json.contains(r#""open_codex_usage_logs_enabled":true"#));
 
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize OpenCodex usage opt-in");
     assert!(loaded.open_codex_usage_logs_enabled);
     assert!(loaded.hide_native_codex_cost_when_open_codex_present);
 }
 
 #[test]
 fn tray_pace_color_defaults_off_and_round_trips() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing tray pace color defaults false");
+    let defaulted = defaulted();
     assert!(!defaulted.menu_bar_color_pace);
 
     let enabled = Settings {
         menu_bar_color_pace: true,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&enabled).expect("serialize tray pace color");
+    let (json, loaded) = round_trip(&enabled);
     assert!(json.contains(r#""menu_bar_color_pace":true"#));
 
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize tray pace color");
     assert!(loaded.menu_bar_color_pace);
 }
 
 #[test]
 fn cost_reporting_period_defaults_to_thirty_days_and_round_trips() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing cost_reporting_period defaults");
+    let defaulted = defaulted();
     assert_eq!(
         defaulted.cost_reporting_period,
         CostReportingPeriod::Rolling(30)
@@ -196,9 +198,8 @@ fn cost_reporting_period_defaults_to_thirty_days_and_round_trips() {
             cost_reporting_period: period,
             ..Settings::default()
         };
-        let json = serde_json::to_string(&settings).expect("serialize cost period");
+        let (json, loaded) = round_trip(&settings);
         assert!(json.contains(&format!(r#""cost_reporting_period":"{}""#, period.raw())));
-        let loaded: Settings = serde_json::from_str(&json).expect("deserialize cost period");
         assert_eq!(loaded.cost_reporting_period, period);
     }
 }
@@ -224,11 +225,9 @@ fn notification_sound_paths_round_trip_and_default_for_existing_settings() {
         },
         ..Settings::default()
     };
-    let json = serde_json::to_string(&settings).expect("serialize notification sound paths");
+    let (json, loaded) = round_trip(&settings);
     assert!(json.contains("\"criticalUsage\":\"C:\\\\sounds\\\\critical.wav\""));
 
-    let loaded: Settings =
-        serde_json::from_str(&json).expect("deserialize notification sound paths");
     assert_eq!(
         loaded.notification_sound_paths,
         settings.notification_sound_paths
@@ -238,8 +237,7 @@ fn notification_sound_paths_round_trip_and_default_for_existing_settings() {
         NotificationSoundTheme::CodexBar
     );
 
-    let legacy: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("deserialize settings without notification sound paths");
+    let legacy = defaulted();
     assert_eq!(
         legacy.notification_sound_paths,
         NotificationSoundPaths::default()
@@ -362,14 +360,61 @@ fn main_window_scale_defaults_to_100_percent() {
 }
 
 #[test]
-fn main_window_scale_clamp_pins_to_supported_range() {
-    assert_eq!(clamp_window_scale_percent(0), 100);
-    assert_eq!(clamp_window_scale_percent(99), 100);
-    assert_eq!(clamp_window_scale_percent(100), 100);
-    assert_eq!(clamp_window_scale_percent(125), 125);
-    assert_eq!(clamp_window_scale_percent(180), 180);
-    assert_eq!(clamp_window_scale_percent(250), 250);
-    assert_eq!(clamp_window_scale_percent(251), 250);
+fn clamp_helpers_pin_to_supported_ranges() {
+    // (input, expected) per helper: below range lifts to the floor, in range
+    // passes through, above range drops to the ceiling.
+    for (input, expected) in [
+        (0, 100),
+        (99, 100),
+        (100, 100),
+        (125, 125),
+        (180, 180),
+        (250, 250),
+        (251, 250),
+    ] {
+        assert_eq!(
+            clamp_window_scale_percent(input),
+            expected,
+            "window scale {input}"
+        );
+    }
+    for (input, expected) in [
+        (0, 100),
+        (99, 100),
+        (100, 100),
+        (125, 125),
+        (180, 180),
+        (200, 200),
+        (201, 200),
+    ] {
+        assert_eq!(
+            clamp_tray_scale_percent(input),
+            expected,
+            "tray scale {input}"
+        );
+    }
+    // Opacity floors at 30 so the bar isn't accidentally invisible.
+    for (input, expected) in [
+        (0, 30),
+        (29, 30),
+        (45, 45),
+        (80, 80),
+        (150, 100),
+        (255, 100),
+    ] {
+        assert_eq!(
+            clamp_float_bar_opacity(input),
+            expected,
+            "float bar opacity {input}"
+        );
+    }
+    for (input, expected) in [(0, 75), (74, 75), (100, 100), (150, 150), (250, 200)] {
+        assert_eq!(
+            clamp_float_bar_scale(input),
+            expected,
+            "float bar scale {input}"
+        );
+    }
 }
 
 #[test]
@@ -390,17 +435,6 @@ fn tray_scale_defaults_to_100_percent() {
 }
 
 #[test]
-fn tray_scale_clamp_pins_to_supported_range() {
-    assert_eq!(clamp_tray_scale_percent(0), 100);
-    assert_eq!(clamp_tray_scale_percent(99), 100);
-    assert_eq!(clamp_tray_scale_percent(100), 100);
-    assert_eq!(clamp_tray_scale_percent(125), 125);
-    assert_eq!(clamp_tray_scale_percent(180), 180);
-    assert_eq!(clamp_tray_scale_percent(200), 200);
-    assert_eq!(clamp_tray_scale_percent(201), 200);
-}
-
-#[test]
 fn raw_settings_clamps_tray_scale_on_load() {
     let json = r#"{
             "enabled_providers": ["claude", "codex"],
@@ -409,28 +443,6 @@ fn raw_settings_clamps_tray_scale_on_load() {
         }"#;
     let loaded: Settings = serde_json::from_str(json).expect("parse settings");
     assert_eq!(loaded.tray_scale_percent, 200);
-}
-
-#[test]
-fn float_bar_opacity_clamp_pins_to_supported_range() {
-    // Below 30 → 30 so the bar isn't accidentally invisible.
-    assert_eq!(clamp_float_bar_opacity(0), 30);
-    assert_eq!(clamp_float_bar_opacity(29), 30);
-    // Within range → unchanged.
-    assert_eq!(clamp_float_bar_opacity(45), 45);
-    assert_eq!(clamp_float_bar_opacity(80), 80);
-    // Above 100 → 100.
-    assert_eq!(clamp_float_bar_opacity(150), 100);
-    assert_eq!(clamp_float_bar_opacity(255), 100);
-}
-
-#[test]
-fn float_bar_scale_clamp_pins_to_supported_range() {
-    assert_eq!(clamp_float_bar_scale(0), 75);
-    assert_eq!(clamp_float_bar_scale(74), 75);
-    assert_eq!(clamp_float_bar_scale(100), 100);
-    assert_eq!(clamp_float_bar_scale(150), 150);
-    assert_eq!(clamp_float_bar_scale(250), 200);
 }
 
 #[test]
@@ -472,8 +484,7 @@ fn float_bar_settings_round_trip_through_raw() {
         ..Settings::default()
     };
 
-    let json = serde_json::to_string(&s).expect("serialize");
-    let back: Settings = serde_json::from_str(&json).expect("deserialize");
+    let (_, back) = round_trip(&s);
     assert!(back.float_bar_enabled);
     assert_eq!(back.float_bar_opacity, 65);
     assert_eq!(back.float_bar_scale, 140);
@@ -548,8 +559,7 @@ fn wayfinder_gateway_round_trips_without_changing_settings_paths() {
         "https://gateway.example.test/wayfinder/",
     );
 
-    let json = serde_json::to_string(&settings).expect("serialize settings");
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize settings");
+    let (_, loaded) = round_trip(&settings);
     assert_eq!(
         loaded.gateway_url(ProviderId::Wayfinder),
         "https://gateway.example.test/wayfinder/"
@@ -619,20 +629,6 @@ fn enabled_provider_ids_follow_custom_provider_order() {
 }
 
 #[test]
-fn test_settings_get_all_providers_status() {
-    let settings = Settings::default();
-    let status = settings.get_all_providers_status();
-    assert_eq!(status.len(), ProviderId::all().len());
-
-    let claude_status = status.iter().find(|s| s.id == "claude").unwrap();
-    assert_eq!(claude_status.name, "Claude");
-    assert!(claude_status.enabled);
-
-    let gemini_status = status.iter().find(|s| s.id == "gemini").unwrap();
-    assert!(!gemini_status.enabled);
-}
-
-#[test]
 fn test_api_key_provider_catalog_includes_token_providers() {
     let providers = get_api_key_providers();
     for id in [
@@ -698,14 +694,6 @@ fn test_t3_chat_is_cookie_configured_not_api_key_configured() {
 }
 
 #[test]
-fn test_refresh_interval_options() {
-    let options = get_refresh_interval_options();
-    assert!(!options.is_empty());
-    assert!(options.iter().any(|o| o.value == 60));
-    assert!(options.iter().any(|o| o.value == 300));
-}
-
-#[test]
 fn test_manual_cookies_default() {
     let cookies = ManualCookies::default();
     assert!(cookies.cookies.is_empty());
@@ -735,782 +723,38 @@ fn api_key_display_mask_is_utf8_safe() {
     assert_eq!(display[0].masked_key, "🔑🔒漢字...fgh🔐");
 }
 
+/// Characterization pin for the parse errors `codexbar config validate` shows: the message and the
+/// line/column must not change when the deserializer is restructured.
 #[test]
-fn test_start_at_login_command_uses_only_the_executable_path() {
-    let path = std::path::PathBuf::from(r"C:\Program Files\CodexBar\codexbar-desktop-tauri.exe");
-    let command = Settings::start_at_login_command(&path);
+fn settings_parse_errors_are_pinned() {
+    let cases = [
+        // Wrongly typed canonical field.
+        "{\n  \"refresh_interval_secs\": \"soon\"\n}",
+        // Wrongly typed legacy flat field.
+        "{\n  \"codex_cookie_source\": 5\n}",
+        // Wrong type inside provider_configs.
+        "{\n  \"provider_configs\": { \"codex\": { \"cookie_source\": 5 } }\n}",
+        // Canonical field error after legacy and unknown keys.
+        "{\n  \"claude_cookie_source\": \"auto\",\n  \"not_a_setting\": 1,\n  \"theme\": 7\n}",
+        // Truncated document.
+        "{\n  \"theme\": \"dark\",",
+    ];
+    let errors: Vec<String> = cases
+        .iter()
+        .map(|json| {
+            serde_json::from_str::<Settings>(json)
+                .unwrap_err()
+                .to_string()
+        })
+        .collect();
     assert_eq!(
-        command,
-        "\"C:\\Program Files\\CodexBar\\codexbar-desktop-tauri.exe\""
-    );
-    assert!(!command.contains("menubar"));
-}
-
-#[test]
-fn test_start_at_login_prefers_desktop_sibling_when_called_from_cli() {
-    let temp = tempfile::tempdir().expect("temp dir");
-    let cli_path = temp.path().join("codexbar-cli.exe");
-    let desktop_path = temp.path().join("codexbar.exe");
-    std::fs::write(&cli_path, b"cli").expect("write cli");
-    std::fs::write(&desktop_path, b"desktop").expect("write desktop");
-
-    let command = Settings::start_at_login_command(&cli_path);
-
-    assert_eq!(command, format!("\"{}\"", desktop_path.display()));
-}
-
-#[test]
-fn test_start_at_login_keeps_current_exe_when_desktop_sibling_missing() {
-    let temp = tempfile::tempdir().expect("temp dir");
-    let cli_path = temp.path().join("codexbar-cli.exe");
-    std::fs::write(&cli_path, b"cli").expect("write cli");
-
-    let command = Settings::start_at_login_command(&cli_path);
-
-    assert_eq!(command, format!("\"{}\"", cli_path.display()));
-}
-
-#[test]
-fn test_start_at_login_repairs_stale_cli_command_after_update() {
-    let temp = tempfile::tempdir().expect("temp dir");
-    let cli_path = temp.path().join("codexbar-cli.exe");
-    let desktop_path = temp.path().join("codexbar.exe");
-    std::fs::write(&cli_path, b"cli").expect("write cli");
-    std::fs::write(&desktop_path, b"desktop").expect("write desktop");
-    let stale_command = format!("\"{}\"", cli_path.display());
-
-    assert!(Settings::start_at_login_command_needs_repair(
-        &stale_command,
-        &desktop_path
-    ));
-}
-
-#[test]
-fn test_start_at_login_keeps_current_desktop_command_after_update() {
-    let temp = tempfile::tempdir().expect("temp dir");
-    let desktop_path = temp.path().join("codexbar.exe");
-    std::fs::write(&desktop_path, b"desktop").expect("write desktop");
-    let current_command = format!("\"{}\"", desktop_path.display());
-
-    assert!(!Settings::start_at_login_command_needs_repair(
-        &current_command,
-        &desktop_path
-    ));
-}
-
-#[test]
-fn test_start_at_login_repairs_legacy_desktop_command_after_update() {
-    let temp = tempfile::tempdir().expect("temp dir");
-    let desktop_path = temp.path().join("codexbar.exe");
-    let legacy_desktop_path = temp.path().join("codexbar-desktop.exe");
-    std::fs::write(&desktop_path, b"desktop").expect("write desktop");
-    std::fs::write(&legacy_desktop_path, b"legacy desktop").expect("write legacy desktop");
-    let stale_command = format!("\"{}\"", legacy_desktop_path.display());
-
-    assert!(Settings::start_at_login_command_needs_repair(
-        &stale_command,
-        &legacy_desktop_path
-    ));
-}
-
-#[test]
-fn test_language_defaults_to_english() {
-    let settings = Settings::default();
-    assert_eq!(settings.ui_language, Language::English);
-}
-
-#[test]
-fn test_language_all_variants_available() {
-    let languages = Language::all();
-    assert_eq!(languages.len(), 10);
-    assert!(languages.contains(&Language::English));
-    assert!(languages.contains(&Language::Chinese));
-    assert!(languages.contains(&Language::ChineseTraditional));
-    assert!(languages.contains(&Language::Japanese));
-    assert!(languages.contains(&Language::Korean));
-    assert!(languages.contains(&Language::Spanish));
-    assert!(languages.contains(&Language::PortugueseBrazil));
-    assert!(languages.contains(&Language::Russian));
-    assert!(languages.contains(&Language::Turkish));
-    assert!(languages.contains(&Language::Ukrainian));
-}
-
-#[test]
-fn test_language_display_names() {
-    assert_eq!(Language::English.display_name(), "English");
-    assert_eq!(Language::Chinese.display_name(), "中文");
-    assert_eq!(Language::ChineseTraditional.display_name(), "繁體中文");
-    assert_eq!(Language::Japanese.display_name(), "日本語");
-    assert_eq!(Language::Russian.display_name(), "Русский");
-    assert_eq!(Language::Turkish.display_name(), "Türkçe");
-    assert_eq!(Language::Ukrainian.display_name(), "Українська");
-    assert_eq!(
-        Language::PortugueseBrazil.display_name(),
-        "Português (Brasil)"
-    );
-}
-
-#[test]
-fn test_language_resolves_brazilian_portuguese_aliases() {
-    for alias in [
-        "portuguesebrazil",
-        "pt",
-        "pt-BR",
-        "Portuguese",
-        "Português",
-        "portugues",
-        "Português (Brasil)",
-    ] {
-        assert_eq!(
-            Language::resolve(alias),
-            Some(Language::PortugueseBrazil),
-            "failed to resolve {alias}"
-        );
-    }
-}
-
-#[test]
-fn test_language_resolves_russian_aliases() {
-    assert_eq!(Language::resolve("russian"), Some(Language::Russian));
-    assert_eq!(Language::resolve("ru-RU"), Some(Language::Russian));
-    assert_eq!(Language::resolve("Русский"), Some(Language::Russian));
-}
-
-#[test]
-fn test_language_resolves_turkish_aliases() {
-    assert_eq!(Language::resolve("turkish"), Some(Language::Turkish));
-    assert_eq!(Language::resolve("tr-TR"), Some(Language::Turkish));
-    assert_eq!(Language::resolve("Türkçe"), Some(Language::Turkish));
-    assert_eq!(Language::resolve("turkce"), Some(Language::Turkish));
-}
-
-#[test]
-fn test_language_resolves_ukrainian_aliases() {
-    assert_eq!(Language::resolve("ukrainian"), Some(Language::Ukrainian));
-    assert_eq!(Language::resolve("uk"), Some(Language::Ukrainian));
-    assert_eq!(Language::resolve("uk-UA"), Some(Language::Ukrainian));
-    assert_eq!(Language::resolve("Українська"), Some(Language::Ukrainian));
-}
-
-#[test]
-fn test_settings_load_missing_language_field_defaults_to_english() {
-    // Simulate loading legacy settings JSON without ui_language field
-    let legacy_json = r#"{
-            "enabled_providers": ["claude", "codex"],
-            "refresh_interval_secs": 300,
-            "start_minimized": false,
-            "ui_language": "english"
-        }"#;
-
-    let settings: Result<Settings, _> = serde_json::from_str(legacy_json);
-    assert!(settings.is_ok());
-    let settings = settings.unwrap();
-    assert_eq!(settings.ui_language, Language::English);
-}
-
-#[test]
-fn test_settings_roundtrip_with_language() {
-    use std::io::Write;
-    use tempfile::NamedTempFile;
-
-    // Create settings with Chinese language
-    let settings = Settings {
-        ui_language: Language::Chinese,
-        ..Settings::default()
-    };
-
-    // Save to a temp file
-    let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-    let json = serde_json::to_string_pretty(&settings).expect("Failed to serialize settings");
-    temp_file
-        .write_all(json.as_bytes())
-        .expect("Failed to write settings");
-    let path = temp_file.path().to_path_buf();
-
-    // Read back and verify
-    let content = std::fs::read_to_string(&path).expect("Failed to read settings");
-    let loaded: Settings = serde_json::from_str(&content).expect("Failed to deserialize settings");
-
-    assert_eq!(loaded.ui_language, Language::Chinese);
-}
-
-#[test]
-fn test_settings_with_utf8_bom_parses_perprovider_tray_mode() {
-    let json = "\u{feff}{\n            \"enabled_providers\": [\"claude\", \"codex\"],\n            \"refresh_interval_secs\": 300,\n            \"tray_icon_mode\": \"perprovider\"\n        }";
-
-    let settings: Settings = serde_json::from_str(json.trim_start_matches('\u{feff}')).unwrap();
-
-    assert_eq!(settings.tray_icon_mode, TrayIconMode::PerProvider);
-}
-
-#[test]
-fn stacked_tray_mode_preserves_provider_preferences() {
-    let json = r#"{
-        "tray_icon_mode": "stacked",
-        "stacked_tray_top_provider": "claude",
-        "stacked_tray_bottom_provider": "codex"
-    }"#;
-
-    let settings: Settings = serde_json::from_str(json).unwrap();
-
-    assert_eq!(settings.tray_icon_mode, TrayIconMode::Stacked);
-    assert_eq!(
-        settings.stacked_tray_top_provider.as_deref(),
-        Some("claude")
-    );
-    assert_eq!(
-        settings.stacked_tray_bottom_provider.as_deref(),
-        Some("codex")
-    );
-
-    let saved = serde_json::to_string(&settings).unwrap();
-    let reloaded: Settings = serde_json::from_str(&saved).unwrap();
-    assert_eq!(
-        reloaded.stacked_tray_top_provider.as_deref(),
-        Some("claude")
-    );
-    assert_eq!(
-        reloaded.stacked_tray_bottom_provider.as_deref(),
-        Some("codex")
-    );
-}
-
-#[test]
-fn test_language_serde_serialization() {
-    // Test that Language serializes to lowercase string
-    let english = Language::English;
-    let chinese = Language::Chinese;
-    let chinese_traditional = Language::ChineseTraditional;
-
-    let english_json = serde_json::to_string(&english).unwrap();
-    let chinese_json = serde_json::to_string(&chinese).unwrap();
-    let chinese_traditional_json = serde_json::to_string(&chinese_traditional).unwrap();
-
-    assert_eq!(english_json, "\"english\"");
-    assert_eq!(chinese_json, "\"chinese\"");
-    assert_eq!(chinese_traditional_json, "\"chinesetraditional\"");
-}
-
-#[test]
-fn test_language_serde_deserialization() {
-    // Test that lowercase strings deserialize correctly
-    let english: Language = serde_json::from_str("\"english\"").unwrap();
-    let chinese: Language = serde_json::from_str("\"chinese\"").unwrap();
-    let chinese_traditional: Language = serde_json::from_str("\"chinesetraditional\"").unwrap();
-
-    assert_eq!(english, Language::English);
-    assert_eq!(chinese, Language::Chinese);
-    assert_eq!(chinese_traditional, Language::ChineseTraditional);
-}
-
-#[test]
-fn test_language_resolves_traditional_chinese_aliases() {
-    assert_eq!(
-        Language::resolve("chinesetraditional"),
-        Some(Language::ChineseTraditional)
-    );
-    assert_eq!(
-        Language::resolve("zh-tw"),
-        Some(Language::ChineseTraditional)
-    );
-    assert_eq!(
-        Language::resolve("zh-hant-tw"),
-        Some(Language::ChineseTraditional)
-    );
-    assert_eq!(
-        Language::resolve("繁體中文"),
-        Some(Language::ChineseTraditional)
-    );
-}
-
-#[test]
-fn test_theme_defaults_to_auto() {
-    let settings = Settings::default();
-    assert_eq!(settings.theme, ThemePreference::Auto);
-}
-
-#[test]
-fn test_theme_all_variants_available() {
-    let themes = ThemePreference::all();
-    assert_eq!(themes.len(), 3);
-    assert!(themes.contains(&ThemePreference::Auto));
-    assert!(themes.contains(&ThemePreference::Light));
-    assert!(themes.contains(&ThemePreference::Dark));
-}
-
-#[test]
-fn test_theme_serde_roundtrip() {
-    for variant in [
-        ThemePreference::Auto,
-        ThemePreference::Light,
-        ThemePreference::Dark,
-    ] {
-        let encoded = serde_json::to_string(&variant).unwrap();
-        let decoded: ThemePreference = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded, variant);
-    }
-    assert_eq!(
-        serde_json::to_string(&ThemePreference::Light).unwrap(),
-        "\"light\""
-    );
-    assert_eq!(
-        serde_json::to_string(&ThemePreference::Dark).unwrap(),
-        "\"dark\""
-    );
-    assert_eq!(
-        serde_json::to_string(&ThemePreference::Auto).unwrap(),
-        "\"auto\""
-    );
-}
-
-#[test]
-fn test_settings_missing_theme_defaults_to_auto() {
-    // Legacy settings JSON without the theme field should still parse.
-    let legacy_json = r#"{
-            "enabled_providers": ["claude", "codex"],
-            "refresh_interval_secs": 300,
-            "ui_language": "english"
-        }"#;
-
-    let settings: Settings = serde_json::from_str(legacy_json).unwrap();
-    assert_eq!(settings.theme, ThemePreference::Auto);
-}
-
-#[test]
-fn test_settings_roundtrip_with_theme() {
-    let settings = Settings {
-        theme: ThemePreference::Dark,
-        ..Settings::default()
-    };
-    let json = serde_json::to_string(&settings).unwrap();
-    let loaded: Settings = serde_json::from_str(&json).unwrap();
-    assert_eq!(loaded.theme, ThemePreference::Dark);
-}
-
-// ── Phase 3: provider_configs migration tests ───────────────────────
-
-/// Loading a legacy `settings.json` (with flat per-provider fields)
-/// must populate `provider_configs` and surface every value through the
-/// per-provider accessors.
-#[test]
-fn test_legacy_per_provider_fields_migrate_into_provider_configs() {
-    // NOTE: placeholder values only — no real cookies/tokens.
-    let legacy_json = r#"{
-            "enabled_providers": ["claude", "codex"],
-            "refresh_interval_secs": 300,
-            "codex_cookie_source": "manual",
-            "claude_cookie_source": "browser",
-            "cursor_cookie_source": "manual",
-            "alibaba_cookie_source": "manual",
-            "alibaba_cookie_header": "ali=PLACEHOLDER",
-            "alibaba_api_region": "cn",
-            "zai_api_region": "cn",
-            "minimax_api_region": "cn",
-            "minimax_api_token": "TOK_PLACEHOLDER",
-            "claude_usage_source": "ccusage",
-            "codex_usage_source": "manual",
-            "codex_openai_web_extras": false,
-            "codex_historical_tracking": true,
-            "claude_avoid_keychain_prompts": true,
-            "opencode_workspace_id": "ws_placeholder",
-            "jetbrains_ide_base_path": "C:/JB"
-        }"#;
-
-    let settings: Settings = serde_json::from_str(legacy_json).unwrap();
-
-    // Cookie sources
-    assert_eq!(settings.cookie_source(ProviderId::Codex), "manual");
-    assert_eq!(settings.cookie_source(ProviderId::Claude), "browser");
-    assert_eq!(settings.cookie_source(ProviderId::Cursor), "manual");
-    assert_eq!(settings.cookie_source(ProviderId::Alibaba), "manual");
-    // Untouched providers fall through to the default "manual" to avoid
-    // background browser-cookie reads unless the user opts into Automatic.
-    assert_eq!(settings.cookie_source(ProviderId::Amp), "manual");
-
-    // Manual cookie headers + api regions
-    assert_eq!(
-        settings.manual_cookie_header(ProviderId::Alibaba),
-        "ali=PLACEHOLDER"
-    );
-    assert_eq!(settings.api_region(ProviderId::Alibaba), "cn");
-    assert_eq!(settings.api_region(ProviderId::Zai), "cn");
-    assert_eq!(settings.api_region(ProviderId::MiniMax), "cn");
-
-    // Usage sources
-    assert_eq!(settings.usage_source(ProviderId::Claude), "ccusage");
-    assert_eq!(settings.usage_source(ProviderId::Codex), "manual");
-
-    // Codex booleans
-    assert!(!settings.openai_web_extras(ProviderId::Codex));
-    assert!(settings.historical_tracking(ProviderId::Codex));
-
-    // Claude per-provider boolean
-    assert!(settings.avoid_keychain_prompts(ProviderId::Claude));
-
-    // Misc per-provider strings
-    assert_eq!(
-        settings.workspace_id(ProviderId::OpenCode),
-        "ws_placeholder"
-    );
-    assert_eq!(settings.api_token(ProviderId::MiniMax), "TOK_PLACEHOLDER");
-    assert_eq!(settings.ide_base_path(ProviderId::JetBrains), "C:/JB");
-
-    // Legacy field-name aliases agree with typed accessors.
-    assert_eq!(settings.codex_cookie_source(), "manual");
-    assert_eq!(settings.alibaba_api_region(), "cn");
-    assert!(settings.codex_historical_tracking());
-    assert!(!settings.codex_openai_web_extras());
-    assert!(settings.claude_avoid_keychain_prompts());
-}
-
-/// Round-trip: build a `Settings` programmatically via the new map +
-/// accessors, serialize, parse back, and assert equality of every
-/// per-provider field.
-#[test]
-fn test_provider_configs_roundtrip() {
-    let mut settings = Settings::default();
-    settings.set_cookie_source(ProviderId::Codex, "manual");
-    settings.set_cookie_source(ProviderId::Claude, "browser");
-    settings.set_usage_source(ProviderId::Claude, "ccusage");
-    settings.set_api_region(ProviderId::Alibaba, "cn");
-    settings.set_api_region(ProviderId::Zai, "cn");
-    settings.set_manual_cookie_header(ProviderId::Amp, "amp=PLACEHOLDER");
-    settings.set_api_token(ProviderId::MiniMax, "TOK_PLACEHOLDER");
-    settings.set_workspace_id(ProviderId::OpenCode, "ws_placeholder");
-    settings.set_ide_base_path(ProviderId::JetBrains, "C:/JB");
-    settings.set_openai_web_extras(ProviderId::Codex, false);
-    settings.set_historical_tracking(ProviderId::Codex, true);
-    settings.set_avoid_keychain_prompts(ProviderId::Claude, true);
-    settings.set_auto_resume_after_quota_reset(ProviderId::Codex, true);
-    settings
-        .set_seat_credit_entitlement(ProviderId::Copilot, Some(300.0))
-        .expect("valid seat credit entitlement");
-
-    let json = serde_json::to_string(&settings).unwrap();
-    // The legacy flat fields must NOT appear in serialized output.
-    assert!(!json.contains("\"codex_cookie_source\""), "json: {json}");
-    assert!(!json.contains("\"alibaba_api_region\""), "json: {json}");
-    assert!(
-        !json.contains("\"claude_avoid_keychain_prompts\""),
-        "json: {json}"
-    );
-    assert!(json.contains("\"provider_configs\""), "json: {json}");
-
-    let loaded: Settings = serde_json::from_str(&json).unwrap();
-    assert_eq!(loaded.cookie_source(ProviderId::Codex), "manual");
-    assert_eq!(loaded.cookie_source(ProviderId::Claude), "browser");
-    assert_eq!(loaded.usage_source(ProviderId::Claude), "ccusage");
-    assert_eq!(loaded.api_region(ProviderId::Alibaba), "cn");
-    assert_eq!(loaded.api_region(ProviderId::Zai), "cn");
-    assert_eq!(
-        loaded.manual_cookie_header(ProviderId::Amp),
-        "amp=PLACEHOLDER"
-    );
-    assert_eq!(loaded.api_token(ProviderId::MiniMax), "TOK_PLACEHOLDER");
-    assert_eq!(loaded.workspace_id(ProviderId::OpenCode), "ws_placeholder");
-    assert_eq!(loaded.ide_base_path(ProviderId::JetBrains), "C:/JB");
-    assert!(!loaded.openai_web_extras(ProviderId::Codex));
-    assert!(loaded.historical_tracking(ProviderId::Codex));
-    assert!(loaded.avoid_keychain_prompts(ProviderId::Claude));
-    assert!(loaded.auto_resume_after_quota_reset(ProviderId::Codex));
-    assert_eq!(
-        loaded.seat_credit_entitlement(ProviderId::Copilot),
-        Some(300.0)
-    );
-    assert_eq!(
-        loaded.provider_configs.get(&ProviderId::Codex),
-        settings.provider_configs.get(&ProviderId::Codex)
-    );
-}
-
-/// New-format files (no legacy flat fields, only `provider_configs`)
-/// must load identically.
-#[test]
-fn test_new_format_provider_configs_only() {
-    let json = r#"{
-            "enabled_providers": ["claude"],
-            "refresh_interval_secs": 300,
-            "provider_configs": {
-                "codex": { "cookie_source": "manual", "openai_web_extras": false },
-                "alibaba": { "api_region": "cn", "manual_cookie_header": "ali=PLACEHOLDER" }
-            }
-        }"#;
-
-    let settings: Settings = serde_json::from_str(json).unwrap();
-    assert_eq!(settings.cookie_source(ProviderId::Codex), "manual");
-    assert!(!settings.openai_web_extras(ProviderId::Codex));
-    assert_eq!(settings.api_region(ProviderId::Alibaba), "cn");
-    assert_eq!(
-        settings.manual_cookie_header(ProviderId::Alibaba),
-        "ali=PLACEHOLDER"
-    );
-    // Untouched providers still get their defaults.
-    assert_eq!(settings.cookie_source(ProviderId::Claude), "manual");
-    assert_eq!(settings.api_region(ProviderId::Zai), "global");
-}
-
-#[test]
-fn retired_provider_config_is_ignored_until_explicit_save() {
-    let original = r#"{
-            "enabled_providers": ["codex", "crof"],
-            "refresh_interval_secs": 300,
-            "provider_metrics": { "codex": "weekly", "crof": "session" },
-            "float_bar_provider_ids": ["codex", "crof"],
-            "stacked_tray_top_provider": "crof",
-            "stacked_tray_bottom_provider": "crof",
-            "provider_configs": {
-                "crof": { "api_token": "retired-fixture-key" },
-                "codex": { "cookie_source": "manual", "openai_web_extras": false },
-                "alibaba": { "api_region": "cn", "manual_cookie_header": "ali=PLACEHOLDER" }
-            }
-        }"#;
-    let original_bytes = original.as_bytes().to_vec();
-
-    let settings: Settings =
-        serde_json::from_str(original).expect("load settings with retired key");
-
-    assert_eq!(original.as_bytes(), original_bytes);
-    assert_eq!(settings.cookie_source(ProviderId::Codex), "manual");
-    assert!(!settings.openai_web_extras(ProviderId::Codex));
-    assert_eq!(
-        settings.enabled_providers,
-        HashSet::from(["codex".to_string()])
-    );
-    assert_eq!(settings.provider_metrics.len(), 1);
-    assert_eq!(settings.float_bar_provider_ids, ["codex"]);
-    assert_eq!(settings.stacked_tray_top_provider, None);
-    assert_eq!(settings.stacked_tray_bottom_provider, None);
-    assert_eq!(settings.api_region(ProviderId::Alibaba), "cn");
-    assert_eq!(
-        settings.manual_cookie_header(ProviderId::Alibaba),
-        "ali=PLACEHOLDER"
-    );
-
-    let saved = serde_json::to_string(&settings).expect("serialize sanitized settings");
-    let saved_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
-    let saved_configs = saved_value["provider_configs"].as_object().unwrap();
-    assert!(!saved_configs.contains_key("crof"));
-    assert!(saved_configs.contains_key("codex"));
-    assert!(saved_configs.contains_key("alibaba"));
-    assert!(
-        !saved.contains("\"crof\""),
-        "saved settings retained Crof: {saved}"
-    );
-}
-
-#[test]
-fn provider_aliases_are_canonicalized_at_the_load_boundary() {
-    let settings: Settings = serde_json::from_str(
-        r#"{
-            "enabled_providers": ["openai", "ClAuDe", "not-a-provider"],
-            "provider_metrics": {
-                "openai": "weekly",
-                "CoDeX": "session",
-                "not-a-provider": "weekly"
-            },
-            "float_bar_provider_ids": ["OPENAI", "codex", "ClAuDe", "unknown"],
-            "stacked_tray_top_provider": "OPENAI",
-            "stacked_tray_bottom_provider": "ClAuDe"
-        }"#,
-    )
-    .expect("load settings containing provider aliases");
-
-    assert_eq!(
-        settings.enabled_providers,
-        HashSet::from(["claude".to_string(), "codex".to_string()])
-    );
-    assert_eq!(
-        settings.provider_metrics.get("codex"),
-        Some(&MetricPreference::Session)
-    );
-    assert_eq!(settings.provider_metrics.len(), 1);
-    assert_eq!(settings.float_bar_provider_ids, ["codex", "claude"]);
-    assert_eq!(settings.stacked_tray_top_provider.as_deref(), Some("codex"));
-    assert_eq!(
-        settings.stacked_tray_bottom_provider.as_deref(),
-        Some("claude")
-    );
-}
-
-#[test]
-fn stacked_preferences_preserve_known_disabled_providers() {
-    let settings: Settings = serde_json::from_str(
-        r#"{
-            "enabled_providers": ["claude"],
-            "stacked_tray_top_provider": "OPENAI",
-            "stacked_tray_bottom_provider": "not-a-provider"
-        }"#,
-    )
-    .expect("load stacked preferences independently of enablement");
-
-    assert_eq!(settings.stacked_tray_top_provider.as_deref(), Some("codex"));
-    assert_eq!(settings.stacked_tray_bottom_provider, None);
-    assert_eq!(
-        settings.enabled_providers,
-        HashSet::from(["claude".to_string()])
-    );
-}
-
-/// Default `Settings` should serialize WITHOUT a `provider_configs`
-/// field (empty map skipped).
-#[test]
-fn test_default_settings_skip_empty_provider_configs() {
-    let settings = Settings::default();
-    let json = serde_json::to_string(&settings).unwrap();
-    assert!(
-        !json.contains("\"provider_configs\""),
-        "empty map should be skipped, json: {json}"
-    );
-}
-
-/// Per-provider defaults are applied even when the entry is absent.
-#[test]
-fn test_per_provider_defaults_applied() {
-    let settings = Settings::default();
-    assert_eq!(settings.cookie_source(ProviderId::Codex), "manual");
-    assert_eq!(settings.usage_source(ProviderId::Codex), "auto");
-    assert_eq!(settings.api_region(ProviderId::Alibaba), "singapore");
-    assert_eq!(settings.api_region(ProviderId::Zai), "global");
-    assert_eq!(settings.api_region(ProviderId::MiniMax), "global");
-    assert!(settings.openai_web_extras(ProviderId::Codex));
-    assert!(!settings.historical_tracking(ProviderId::Codex));
-    assert!(!settings.avoid_keychain_prompts(ProviderId::Claude));
-    assert!(!settings.auto_resume_after_quota_reset(ProviderId::Codex));
-    assert!(!settings.auto_resume_after_quota_reset(ProviderId::Claude));
-}
-
-#[test]
-fn codex_spark_usage_visibility_defaults_to_visible_and_roundtrips() {
-    let mut settings = Settings::default();
-    assert!(settings.codex_spark_usage_visible());
-
-    settings.set_codex_spark_usage_visible(false);
-    let serialized = serde_json::to_string(&settings).unwrap();
-    let loaded: Settings = serde_json::from_str(&serialized).unwrap();
-
-    assert!(!loaded.codex_spark_usage_visible());
-}
-
-#[test]
-fn migrate_legacy_visibility_flags_materializes_hidden_usage_item_ids() {
-    let mut settings = Settings::default();
-    settings.set_spark_usage_visible(ProviderId::Codex, false);
-    settings.claude_daily_routines_usage_visible = false;
-
-    settings.migrate_legacy_usage_item_flags();
-
-    assert_eq!(
-        settings.hidden_usage_item_ids(ProviderId::Codex),
-        CODEX_SPARK_USAGE_ITEM_IDS
-            .iter()
-            .map(|id| (*id).to_string())
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(
-        settings.hidden_usage_item_ids(ProviderId::Claude),
-        vec![CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string()]
-    );
-}
-
-#[test]
-fn generic_claude_visibility_writes_only_the_usage_item_list() {
-    let mut settings = Settings::default();
-
-    settings.set_hidden_usage_item_ids(
-        ProviderId::Claude,
-        vec![CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string()],
-    );
-
-    assert!(settings.claude_daily_routines_usage_visible);
-    assert_eq!(
-        settings.hidden_usage_item_ids(ProviderId::Claude),
-        vec![CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID.to_string()]
-    );
-
-    settings.set_hidden_usage_item_ids(ProviderId::Claude, Vec::new());
-
-    assert!(settings.claude_daily_routines_usage_visible);
-    assert!(
-        settings
-            .hidden_usage_item_ids(ProviderId::Claude)
-            .is_empty()
-    );
-}
-
-#[test]
-fn explicit_hidden_usage_item_ids_roundtrip_and_restore_defaults() {
-    let mut settings = Settings::default();
-    settings.set_hidden_usage_item_ids(
-        ProviderId::Codex,
-        vec![
-            "metric:secondary".to_string(),
-            "metric:secondary".to_string(),
-            "not-a-metric".to_string(),
-        ],
-    );
-
-    assert_eq!(
-        settings.hidden_usage_item_ids(ProviderId::Codex),
-        vec!["metric:secondary".to_string()]
-    );
-    assert!(settings.codex_spark_usage_visible());
-
-    let serialized = serde_json::to_string(&settings).unwrap();
-    let loaded: Settings = serde_json::from_str(&serialized).unwrap();
-    assert_eq!(
-        loaded.hidden_usage_item_ids(ProviderId::Codex),
-        vec!["metric:secondary".to_string()]
-    );
-
-    settings.set_hidden_usage_item_ids(ProviderId::Codex, Vec::new());
-    settings.set_hidden_usage_item_ids(ProviderId::Claude, Vec::new());
-    assert!(settings.hidden_usage_item_ids(ProviderId::Codex).is_empty());
-    assert!(settings.codex_spark_usage_visible());
-}
-
-#[test]
-fn legacy_visibility_setters_preserve_other_explicit_hidden_items() {
-    let mut settings = Settings::default();
-    settings.set_hidden_usage_item_ids(ProviderId::Claude, vec!["metric:secondary".to_string()]);
-
-    settings.toggle_hidden_items(
-        ProviderId::Claude,
-        &[CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID],
-        false,
-    );
-    assert_eq!(
-        settings.hidden_usage_item_ids(ProviderId::Claude),
-        vec![
-            "metric:extra-claude-routines".to_string(),
-            "metric:secondary".to_string(),
+        errors,
+        [
+            "invalid type: string \"soon\", expected u64 at line 2 column 33",
+            "invalid type: integer `5`, expected a string at line 2 column 26",
+            "invalid type: integer `5`, expected a string at line 2 column 53",
+            "expected value at line 4 column 12",
+            "EOF while parsing a value at line 2 column 18",
         ]
     );
-
-    settings.toggle_hidden_items(
-        ProviderId::Claude,
-        &[CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID],
-        true,
-    );
-    assert_eq!(
-        settings.hidden_usage_item_ids(ProviderId::Claude),
-        vec!["metric:secondary".to_string()]
-    );
-}
-
-/// Cookie-denial settings must survive the same path-based persistence used by
-/// `Settings::save` and `Settings::load`, including the secure-file wrapper
-/// shared by desktop and CLI settings.
-#[test]
-fn cookie_denial_round_trips_through_settings_persistence() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("settings.json");
-    let mut settings = Settings::default();
-    settings.set_cookie_source(ProviderId::Codex, "off");
-    settings.set_openai_web_extras(ProviderId::Codex, false);
-
-    settings.save_to_path(&path).unwrap();
-    let loaded = Settings::load_from_path(Some(&path));
-
-    assert_eq!(loaded.cookie_source(ProviderId::Codex), "off");
-    assert!(!loaded.openai_web_extras(ProviderId::Codex));
 }

@@ -1,9 +1,8 @@
 //! Usage command implementation
 
 use clap::Args;
-use serde::Serialize;
 
-use crate::core::{FetchContext, ProviderFetchResult, ProviderId, SourceMode};
+use crate::core::{FetchContext, ProviderId, SourceMode};
 use crate::settings::Settings;
 
 mod claude_swap;
@@ -11,11 +10,14 @@ mod fetch_helpers;
 mod render;
 
 use fetch_helpers::{fetch_provider_json_output, fetch_provider_text_output};
+#[cfg(test)]
+use render::render_text;
+use render::status_json;
 pub(super) use render::{
     append_status_line, format_percent, render_status_indicator, render_text_error,
 };
 use render::{is_terminal, print_usage_output};
-pub use render::{render_brief_text, render_text, render_text_with_status};
+pub use render::{render_brief_text, render_text_with_status};
 
 pub(super) enum UsageOutput {
     Text(Vec<String>),
@@ -192,24 +194,6 @@ impl ProviderSelection {
     }
 }
 
-/// JSON output payload
-#[derive(Debug, Serialize)]
-pub struct ProviderPayload {
-    pub provider: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    pub source: String,
-    #[serde(flatten)]
-    pub result: ProviderFetchResult,
-}
-
-/// Error payload for JSON output
-#[derive(Debug, Serialize)]
-struct ErrorPayload {
-    provider: String,
-    error: String,
-}
-
 /// Run the usage command
 pub async fn run(args: UsageArgs) -> anyhow::Result<()> {
     let command = UsageCommand::from_args(args)?;
@@ -301,24 +285,13 @@ fn build_usage_fetch_context(args: &UsageArgs, source_mode: SourceMode) -> Fetch
         source_mode,
         include_credits: !args.no_credits,
         web_timeout: args.web_timeout,
-        verbose: false,
-        manual_cookie_header: None,
-        manual_cookie_missing: false,
-        api_key: None,
-        token_account_kind: None,
-        token_account_isolated: false,
-        workspace_id: None,
-        seat_credit_entitlement: None,
-        api_region: None,
-        gateway_url: None,
-        auto_prefer_web: false,
-        browser_cookie_import: false,
         // `codexbar usage` is a foreground read: optional enrichment (e.g. the
         // OpenCode Go Zen balance) is worth its full bounded wait (#2583).
         requires_optional_usage_completeness: true,
         // Per-provider opt-ins live in settings, which this shared context
         // does not load; the optional breakdowns stay off here.
         optional_details_enabled: false,
+        ..FetchContext::default()
     }
 }
 

@@ -3,11 +3,6 @@
 //! Executes interactive CLI commands using the platform pseudo-console.
 //! Provides PTY-like functionality for capturing output from interactive TUI programs.
 
-#![allow(
-    dead_code,
-    reason = "TTY runner types reserved for future interactive session management"
-)]
-
 use super::tty_responder::{ResponderState, ScreenResponder};
 use crate::process_environment::ProcessEnvironment;
 use regex_lite::Regex;
@@ -40,171 +35,8 @@ impl TtyCommandResult {
     }
 }
 
-/// Options for running TTY commands
-#[derive(Debug, Clone)]
-pub struct TtyCommandOptions {
-    /// Terminal rows (default: 50)
-    pub rows: u16,
-    /// Terminal columns (default: 160)
-    pub cols: u16,
-    /// Overall timeout in seconds (default: 20)
-    pub timeout_secs: f64,
-    /// Idle timeout - stop if no output for this duration (optional)
-    pub idle_timeout_secs: Option<f64>,
-    /// Working directory
-    pub working_directory: Option<PathBuf>,
-    /// Extra arguments to pass to the command
-    pub extra_args: Vec<String>,
-    /// Initial delay before sending script (default: 0.4s)
-    pub initial_delay_secs: f64,
-    /// Delay between script characters (default: 0s)
-    pub script_char_delay_secs: f64,
-    /// Delay between script lines (default: 0s)
-    pub script_line_delay_secs: f64,
-    /// Send enter/return every N seconds (optional)
-    pub send_enter_every_secs: Option<f64>,
-    /// Map of substrings to keys to send when detected
-    pub send_on_substrings: HashMap<String, String>,
-    /// Screen-aware responder, consulted on all output since its last answer
-    pub screen_responder: Option<ScreenResponder>,
-    /// Stop early when a URL is detected
-    pub stop_on_url: bool,
-    /// Stop early when any of these substrings are detected
-    pub stop_on_substrings: Vec<String>,
-    /// Settle time after stopping (default: 0.25s)
-    pub settle_after_stop_secs: f64,
-    /// Re-send the script at these offsets (seconds since launch) while none
-    /// of `script_done_substrings` has appeared in the output yet. Interactive
-    /// CLIs such as Claude Code drop keystrokes that arrive before their input
-    /// widget is mounted, and that readiness delay varies between machines.
-    pub script_retry_delays_secs: Vec<f64>,
-    /// Case-insensitive markers that show the script was accepted (stops retries).
-    pub script_done_substrings: Vec<String>,
-    /// Case-insensitive markers that show the script text was at least echoed
-    /// into the input widget; a retry is skipped while one is visible so the
-    /// same text is not typed twice into a half-processed line.
-    pub script_echo_substrings: Vec<String>,
-    /// Shorter idle timeout used once a done marker is visible: the answer
-    /// is on screen, so only trailing output is awaited (optional).
-    pub idle_timeout_after_done_secs: Option<f64>,
-    /// Environment variables to set (`Debug` renders only the entry count)
-    pub env: ProcessEnvironment<HashMap<String, String>>,
-}
-
-impl Default for TtyCommandOptions {
-    fn default() -> Self {
-        Self {
-            rows: 50,
-            cols: 160,
-            timeout_secs: 20.0,
-            idle_timeout_secs: None,
-            working_directory: None,
-            extra_args: Vec::new(),
-            initial_delay_secs: 0.4,
-            script_char_delay_secs: 0.0,
-            script_line_delay_secs: 0.0,
-            send_enter_every_secs: None,
-            send_on_substrings: HashMap::new(),
-            screen_responder: None,
-            stop_on_url: false,
-            stop_on_substrings: Vec::new(),
-            settle_after_stop_secs: 0.25,
-            script_retry_delays_secs: Vec::new(),
-            script_done_substrings: Vec::new(),
-            script_echo_substrings: Vec::new(),
-            idle_timeout_after_done_secs: None,
-            env: ProcessEnvironment::default(),
-        }
-    }
-}
-
-impl TtyCommandOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_timeout(mut self, secs: f64) -> Self {
-        self.timeout_secs = secs;
-        self
-    }
-
-    pub fn with_idle_timeout(mut self, secs: f64) -> Self {
-        self.idle_timeout_secs = Some(secs);
-        self
-    }
-
-    pub fn with_initial_delay(mut self, secs: f64) -> Self {
-        self.initial_delay_secs = secs;
-        self
-    }
-
-    pub fn with_script_char_delay(mut self, secs: f64) -> Self {
-        self.script_char_delay_secs = secs;
-        self
-    }
-
-    pub fn with_script_line_delay(mut self, secs: f64) -> Self {
-        self.script_line_delay_secs = secs;
-        self
-    }
-
-    pub fn with_working_directory(mut self, dir: PathBuf) -> Self {
-        self.working_directory = Some(dir);
-        self
-    }
-
-    pub fn with_extra_args(mut self, args: Vec<String>) -> Self {
-        self.extra_args = args;
-        self
-    }
-
-    pub fn with_stop_on_url(mut self, stop: bool) -> Self {
-        self.stop_on_url = stop;
-        self
-    }
-
-    pub fn with_stop_on_substring(mut self, substring: impl Into<String>) -> Self {
-        self.stop_on_substrings.push(substring.into());
-        self
-    }
-
-    pub fn with_script_retries(
-        mut self,
-        delays_secs: Vec<f64>,
-        done_substrings: Vec<String>,
-        echo_substrings: Vec<String>,
-    ) -> Self {
-        self.script_retry_delays_secs = delays_secs;
-        self.script_done_substrings = done_substrings
-            .into_iter()
-            .map(|marker| marker.to_lowercase())
-            .collect();
-        self.script_echo_substrings = echo_substrings
-            .into_iter()
-            .map(|marker| marker.to_lowercase())
-            .collect();
-        self
-    }
-
-    pub fn with_idle_timeout_after_done(mut self, secs: f64) -> Self {
-        self.idle_timeout_after_done_secs = Some(secs);
-        self
-    }
-
-    pub fn with_screen_responder(mut self, responder: ScreenResponder) -> Self {
-        self.screen_responder = Some(responder);
-        self
-    }
-
-    pub fn with_send_on_substring(
-        mut self,
-        trigger: impl Into<String>,
-        keys: impl Into<String>,
-    ) -> Self {
-        self.send_on_substrings.insert(trigger.into(), keys.into());
-        self
-    }
-}
+mod options;
+pub use options::TtyCommandOptions;
 
 /// Errors from TTY command execution
 #[derive(Debug, Error)]
@@ -415,22 +247,19 @@ impl TtyCommandRunner {
             match rx.recv_timeout(remaining.min(Duration::from_millis(50))) {
                 Ok(chunk) => {
                     tracing::trace!(
-                        elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        elapsed_ms = elapsed_ms(start),
                         bytes = chunk.len(),
                         "tty session: startup chunk"
                     );
                     buffer.push_str(&chunk);
-                    if chunk.contains("\x1b[6n") {
-                        let _cursor_reply = write!(writer, "\x1b[1;1R");
-                        let _cursor_flushed = writer.flush();
-                    }
+                    answer_cursor_query(&chunk, &mut writer);
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
         }
         tracing::trace!(
-            elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+            elapsed_ms = elapsed_ms(start),
             buffered = buffer.len(),
             "tty session: sending script"
         );
@@ -522,22 +351,13 @@ impl TtyCommandRunner {
             while let Ok(chunk) = rx.try_recv() {
                 received_output = true;
                 tracing::trace!(
-                    elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    elapsed_ms = elapsed_ms(start),
                     bytes = chunk.len(),
                     "tty session: output chunk"
                 );
                 buffer.push_str(&chunk);
                 last_output_time = Instant::now();
-
-                // Some Windows ConPTY-backed shells issue an ANSI Device
-                // Status Report request and wait for a terminal cursor
-                // position response before processing scripted input.
-                if chunk.contains("\x1b[6n") {
-                    // Best-effort cursor-position reply; a dead PTY ignores it.
-                    let _cursor_reply = write!(writer, "\x1b[1;1R");
-                    // Best-effort flush of the cursor reply.
-                    let _cursor_flushed = writer.flush();
-                }
+                answer_cursor_query(&chunk, &mut writer);
 
                 // Check for URLs
                 if let Some(ref regex) = url_regex {
@@ -636,7 +456,7 @@ impl TtyCommandRunner {
 
         if child.try_wait().ok().flatten().is_none() {
             tracing::trace!(
-                elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                elapsed_ms = elapsed_ms(start),
                 "tty session: killing child tree"
             );
             // On Windows several CLIs (claude.exe, npm shims) are launchers
@@ -649,10 +469,7 @@ impl TtyCommandRunner {
             let _killed = child.kill();
             // Best-effort reap; the exit status is intentionally discarded.
             let _reaped = child.wait();
-            tracing::trace!(
-                elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
-                "tty session: child reaped"
-            );
+            tracing::trace!(elapsed_ms = elapsed_ms(start), "tty session: child reaped");
         }
 
         if buffer.is_empty() && !stopped_early {
@@ -723,44 +540,18 @@ impl Default for TtyCommandRunner {
     }
 }
 
-/// Rolling buffer for pattern matching across chunks
-#[derive(Debug)]
-pub struct RollingBuffer {
-    max_needle: usize,
-    tail: String,
+/// Milliseconds since `start`, saturating, for trace fields.
+fn elapsed_ms(start: Instant) -> u64 {
+    u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-impl RollingBuffer {
-    pub fn new(max_needle: usize) -> Self {
-        Self {
-            max_needle: max_needle.max(1),
-            tail: String::new(),
-        }
-    }
-
-    /// Append new data and return combined data for scanning
-    pub fn append(&mut self, data: &str) -> String {
-        if data.is_empty() {
-            return String::new();
-        }
-
-        let mut combined = String::with_capacity(self.tail.len() + data.len());
-        combined.push_str(&self.tail);
-        combined.push_str(data);
-
-        // Keep only the tail portion for next scan
-        if combined.len() >= self.max_needle - 1 {
-            let start = combined.len() - (self.max_needle - 1);
-            self.tail = combined[start..].to_string();
-        } else {
-            self.tail = combined.clone();
-        }
-
-        combined
-    }
-
-    pub fn reset(&mut self) {
-        self.tail.clear();
+/// Some Windows ConPTY-backed shells issue an ANSI Device Status Report
+/// request and wait for a cursor position response before processing input;
+/// answer it best-effort (a dead PTY ignores the write).
+fn answer_cursor_query(chunk: &str, writer: &mut impl Write) {
+    if chunk.contains("\x1b[6n") {
+        let _cursor_reply = write!(writer, "\x1b[1;1R");
+        let _cursor_flushed = writer.flush();
     }
 }
 
@@ -886,265 +677,4 @@ fn contains_any_marker(buffer: &str, markers: &[String]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn script_accepted_matches_markers_case_insensitively_through_ansi() {
-        let opts = TtyCommandOptions::new().with_script_retries(
-            vec![1.0],
-            vec!["Current session".to_string()],
-            vec!["/usage".to_string()],
-        );
-        assert!(script_accepted(
-            "\x1b[1mCURRENT\x1b[0m session 12% used",
-            &opts
-        ));
-        assert!(!script_accepted("Try \"fix lint errors\"", &opts));
-        assert!(!script_accepted(
-            "Current session",
-            &TtyCommandOptions::new()
-        ));
-        assert!(script_echoed("❯ /usa\x1b[0mge", &opts));
-        assert!(!script_echoed("❯ Try \"fix lint errors\"", &opts));
-        assert!(script_echoed("❯ /usage", &opts));
-    }
-
-    /// The trigger text is printed at startup, inside the initial delay, and
-    /// nothing is printed afterwards: the key must still be sent.
-    #[cfg(windows)]
-    #[test]
-    fn trigger_printed_inside_initial_delay_is_still_sent() {
-        let opts = TtyCommandOptions::new()
-            .with_timeout(10.0)
-            .with_idle_timeout(3.0)
-            .with_initial_delay(1.5)
-            .with_send_on_substring("Microsoft Windows", "echo LATE_%OS%\nexit\n");
-        let result = TtyCommandRunner::new()
-            .run("cmd", "", opts)
-            .expect("pty command should run");
-        assert!(result.text.contains("LATE_Windows_NT"), "{}", result.text);
-    }
-
-    /// Same startup timing for the screen responder: the banner is drawn inside
-    /// the initial delay and nothing is printed afterwards.
-    #[cfg(windows)]
-    #[test]
-    fn screen_responder_fires_on_output_buffered_during_initial_delay() {
-        use crate::cli::tty_responder::ScreenReading;
-
-        fn on_banner(screen: &str) -> ScreenReading {
-            if screen.contains("Microsoft Windows") {
-                ScreenReading::Answer(vec!["echo LATE_%OS%\r", "exit\r"])
-            } else {
-                ScreenReading::Absent
-            }
-        }
-        let opts = TtyCommandOptions::new()
-            .with_timeout(10.0)
-            .with_idle_timeout(3.0)
-            .with_initial_delay(1.5)
-            .with_screen_responder(ScreenResponder {
-                read: on_banner,
-                after_dialog: &[],
-            });
-        let result = TtyCommandRunner::new()
-            .run("cmd", "", opts)
-            .expect("pty command should run");
-        assert!(result.text.contains("LATE_Windows_NT"), "{}", result.text);
-    }
-
-    #[test]
-    fn substring_triggers_fire_once_on_already_buffered_output() {
-        let options = TtyCommandOptions::new().with_send_on_substring("Enter", "go\n");
-        let mut triggered = std::collections::HashSet::new();
-        let mut sent = Vec::new();
-        fire_substring_triggers(&options, "Enter to confirm", &mut triggered, &mut sent);
-        fire_substring_triggers(&options, "Enter to confirm", &mut triggered, &mut sent);
-        assert_eq!(sent, b"go\r\n");
-    }
-
-    #[test]
-    fn test_tty_options_builder() {
-        let opts = TtyCommandOptions::new()
-            .with_timeout(30.0)
-            .with_idle_timeout(5.0)
-            .with_stop_on_url(true)
-            .with_stop_on_substring("error");
-
-        assert_eq!(opts.timeout_secs, 30.0);
-        assert_eq!(opts.idle_timeout_secs, Some(5.0));
-        assert!(opts.stop_on_url);
-        assert!(opts.stop_on_substrings.contains(&"error".to_string()));
-    }
-
-    #[test]
-    fn test_rolling_buffer() {
-        let mut buf = RollingBuffer::new(10);
-
-        let result1 = buf.append("hello");
-        assert_eq!(result1, "hello");
-
-        let result2 = buf.append(" world");
-        assert!(result2.contains("hello"));
-        assert!(result2.contains(" world"));
-    }
-
-    #[test]
-    fn test_tty_result_first_url() {
-        let result = TtyCommandResult {
-            text: "Visit https://example.com for more info".to_string(),
-            stopped_early: false,
-            detected_urls: vec!["https://example.com".to_string()],
-        };
-
-        assert_eq!(result.first_url(), Some("https://example.com"));
-    }
-
-    #[test]
-    fn test_run_sends_script_through_pty() {
-        let runner = TtyCommandRunner::new();
-        let opts = TtyCommandOptions::new()
-            .with_timeout(15.0)
-            .with_idle_timeout(6.0)
-            .with_initial_delay(1.0)
-            .with_script_line_delay(0.1);
-
-        #[cfg(windows)]
-        let result = runner.run("cmd", "echo CODEXBAR_PTY_OK\nexit", opts);
-        #[cfg(not(windows))]
-        let result = runner.run("sh", "echo CODEXBAR_PTY_OK\nexit", opts);
-
-        let result = result.expect("pty command should run");
-        assert!(result.text.contains("CODEXBAR_PTY_OK"), "{}", result.text);
-    }
-
-    /// A retry is input like the first attempt: a child that stays silent
-    /// (here `ping` with its output discarded, which never reads or echoes
-    /// the typed text) must not hit the idle timeout before the last retry.
-    #[cfg(windows)]
-    #[test]
-    fn script_retry_restarts_the_idle_window() {
-        let runner = TtyCommandRunner::new();
-        let opts = TtyCommandOptions::new()
-            .with_timeout(8.0)
-            .with_idle_timeout(1.5)
-            .with_initial_delay(0.3)
-            .with_extra_args(
-                ["/d", "/c", "ping -n 10 127.0.0.1 >nul"]
-                    .map(String::from)
-                    .to_vec(),
-            )
-            .with_script_retries(
-                vec![0.8, 1.4],
-                vec!["marker that never appears".to_string()],
-                Vec::new(),
-            );
-
-        let started = Instant::now();
-        let result = runner.run("cmd", "x", opts);
-        let elapsed = started.elapsed();
-
-        let result = result.expect("silent pty command should still finish");
-        assert!(result.stopped_early, "the idle timeout should end the run");
-        // Without the restart the window closes 1.5 s after the first
-        // attempt (about 1.8 s); with it, no earlier than 1.4 s + 1.5 s.
-        assert!(
-            elapsed >= Duration::from_secs_f64(2.8),
-            "idle timeout fired {elapsed:?} after launch, inside the last retry's idle window"
-        );
-    }
-
-    /// Ending the session ends every process the PTY child started (as with a
-    /// `claude.cmd` launcher and its `node` child), not only the child. The
-    /// grandchild runs on its own hidden console, so closing the pseudoconsole
-    /// does not end it; only the session's job does. It holds an exclusive
-    /// handle on a file, so its exit is observed through that handle instead
-    /// of a PID that could be reused.
-    #[cfg(windows)]
-    #[test]
-    fn session_end_terminates_processes_started_by_the_child() {
-        use base64::Engine as _;
-        use std::os::windows::fs::OpenOptionsExt as _;
-
-        fn encoded(command: &str) -> String {
-            let utf16: Vec<u8> = command
-                .encode_utf16()
-                .flat_map(|unit| unit.to_le_bytes())
-                .collect();
-            base64::engine::general_purpose::STANDARD.encode(utf16)
-        }
-        fn quoted(path: &std::path::Path) -> String {
-            format!("'{}'", path.display().to_string().replace('\'', "''"))
-        }
-
-        let dir = tempfile::tempdir().expect("temp dir");
-        let held = dir.path().join("held-by-grandchild.lock");
-        let ready = dir.path().join("grandchild-ready");
-        let grandchild = format!(
-            "$f = [IO.File]::Open({held}, 'OpenOrCreate', 'ReadWrite', 'None'); \
-             [IO.File]::WriteAllText({ready}, 'ready'); Start-Sleep -Seconds 30",
-            held = quoted(&held),
-            ready = quoted(&ready),
-        );
-        let child = format!(
-            "$psi = New-Object System.Diagnostics.ProcessStartInfo -ArgumentList \
-             'powershell.exe', '-NoLogo -NoProfile -NonInteractive -EncodedCommand {command}'; \
-             $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; \
-             [void][System.Diagnostics.Process]::Start($psi); \
-             while (-not (Test-Path -LiteralPath {ready})) {{ Start-Sleep -Milliseconds 50 }}; \
-             Write-Output 'grandchild-holds-lock'; Start-Sleep -Seconds 30",
-            command = encoded(&grandchild),
-            ready = quoted(&ready),
-        );
-        let opts = TtyCommandOptions::new()
-            .with_timeout(30.0)
-            .with_initial_delay(0.2)
-            .with_stop_on_substring("grandchild-holds-lock")
-            .with_extra_args(
-                [
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-EncodedCommand",
-                    &encoded(&child),
-                ]
-                .map(String::from)
-                .to_vec(),
-            );
-
-        let result = TtyCommandRunner::new()
-            .run("powershell", "", opts)
-            .expect("pty command should run");
-        assert!(
-            result.text.contains("grandchild-holds-lock"),
-            "grandchild never started: {}",
-            result.text
-        );
-
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let exclusive = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .share_mode(0)
-                .open(&held);
-            if exclusive.is_ok() {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the grandchild still holds its file after the session ended"
-            );
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-
-    #[test]
-    fn test_enriched_path() {
-        let path = TtyCommandRunner::enriched_path();
-        assert!(!path.is_empty());
-        // Should contain path separator or at least a non-empty path string.
-        assert!(path.contains(';') || !path.is_empty());
-    }
-}
+mod tests;

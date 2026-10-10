@@ -52,13 +52,6 @@ impl AgentPSOutputParser {
         record.source
     }
 
-    pub fn has_codex_app_server(records: &[AgentProcessRecord]) -> bool {
-        records.iter().any(|record| {
-            record.kind == AgentProcessKind::AppServer
-                && record.provider == Some(AgentSessionProvider::Codex)
-        })
-    }
-
     fn parse_line(line: &str, seen_pids: &mut HashSet<u32>) -> Option<AgentProcessRecord> {
         let mut fields = line.split_whitespace();
         let pid = fields.next()?.parse::<u32>().ok()?;
@@ -446,10 +439,6 @@ impl ClaudeSessionProjectMapper {
                 .then_with(|| rhs.url.cmp(&lhs.url))
         });
         transcripts
-    }
-
-    pub fn newest_transcript(cwd: &str, home_directory: &Path) -> Option<ClaudeTranscript> {
-        Self::transcripts(cwd, home_directory).into_iter().next()
     }
 }
 

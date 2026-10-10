@@ -96,13 +96,18 @@ pub fn render_json_result(
     }
 
     if let Some(s) = status {
-        json_result["status"] = serde_json::json!({
-            "level": format!("{:?}", s.level).to_lowercase(),
-            "description": s.description,
-        });
+        json_result["status"] = status_json(s);
     }
 
     json_result
+}
+
+/// `{level, description}` status object shared by every usage JSON row.
+pub(super) fn status_json(status: &StatusInfo) -> serde_json::Value {
+    serde_json::json!({
+        "level": format!("{:?}", status.level).to_lowercase(),
+        "description": status.description,
+    })
 }
 
 /// Serialize a [`UsagePace`] into a compact JSON object for the `--json` output.
@@ -121,12 +126,7 @@ pub(super) fn print_usage_output(output: UsageOutput) -> anyhow::Result<()> {
             println!("{}", sections.join("\n\n"));
         }
         UsageOutput::Json { results, pretty } => {
-            let output = if pretty {
-                serde_json::to_string_pretty(&results)?
-            } else {
-                serde_json::to_string(&results)?
-            };
-            println!("{}", output);
+            crate::cli::print_json(&results, pretty)?;
         }
         UsageOutput::Toon(results) => {
             println!(
@@ -526,7 +526,12 @@ fn format_token_count(tokens: u64) -> String {
 }
 
 /// Render usage as text (backwards compatible version)
-pub fn render_text(provider: ProviderId, result: &ProviderFetchResult, use_color: bool) -> String {
+#[cfg(test)]
+pub(super) fn render_text(
+    provider: ProviderId,
+    result: &ProviderFetchResult,
+    use_color: bool,
+) -> String {
     render_text_with_status(provider, result, None, use_color)
 }
 

@@ -55,9 +55,10 @@ static COST_BUCKET_ZONE: RwLock<Option<chrono_tz::Tz>> = RwLock::new(None);
 /// The zone local cost history is bucketed in (upstream's pinned bucket
 /// calendar, `tokenCostUsageBucketTimeZone`).
 ///
-/// The desktop app and the CLI apply the saved
-/// `Settings::cost_usage_bucket_time_zone` at startup. Until then, and while
-/// nothing is pinned, history is bucketed in the machine zone.
+/// The saved `Settings::cost_usage_bucket_time_zone` is stored but not yet
+/// applied at runtime: nothing in the desktop app or the CLI calls
+/// [`set_cost_bucket_zone`] (the wiring PRs #653 and #665 were closed). Until
+/// it is wired, history is bucketed in the machine zone.
 pub fn cost_bucket_zone() -> CostTimeZone {
     let pinned = *COST_BUCKET_ZONE
         .read()

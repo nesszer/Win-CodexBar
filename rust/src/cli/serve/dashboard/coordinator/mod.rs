@@ -89,6 +89,7 @@ impl<S: Clone + Send + Sync + 'static> SnapshotCoordinator<S> {
     /// or missing cache is refreshed in the background. Concurrent callers
     /// share one refresh. When no Tokio runtime is active, this remains a pure
     /// cache lookup rather than claiming a flight that cannot be driven.
+    #[cfg(test)]
     fn latest_or_trigger_refresh(&self) -> Option<Arc<SnapshotPayload>> {
         self.latest_cached_or_trigger_refresh()
             .map(|cached| cached.payload)

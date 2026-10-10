@@ -43,11 +43,7 @@ pub async fn run(args: DashboardArgs) -> anyhow::Result<()> {
     let producer = SnapshotProducer::new(60, Some(identity)).with_fetch_timeout(fetch_timeout);
     let payload = producer.collect().await.map_err(anyhow::Error::msg)?;
 
-    let body = if args.pretty {
-        serde_json::to_string_pretty(&payload)?
-    } else {
-        serde_json::to_string(&payload)?
-    };
+    let body = super::to_json(&payload, args.pretty)?;
 
     match &args.output {
         Some(path) => {

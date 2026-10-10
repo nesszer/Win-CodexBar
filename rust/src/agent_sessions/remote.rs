@@ -338,10 +338,6 @@ impl RemoteSessionFetcher {
         })?;
         Ok(result)
     }
-
-    pub fn failed_result(host: &str, err: impl std::fmt::Display) -> AgentSessionHostResult {
-        AgentSessionHostResult::failed(host.to_string(), err)
-    }
 }
 
 impl Default for RemoteSessionFetcher {

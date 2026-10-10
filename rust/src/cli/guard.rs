@@ -224,34 +224,10 @@ struct GuardResultPayload {
 
 /// Run the guard command. Returns the process exit code.
 pub async fn run(args: GuardArgs) -> i32 {
-    let window = match GuardWindow::parse(&args.window) {
-        Some(w) => w,
-        None => {
-            eprintln!("Error: --window must be session|weekly.");
-            return exit_codes::USAGE_ERROR;
-        }
-    };
-
-    let minimum_remaining = match parse_min_remaining(args.min_remaining) {
-        Ok(v) => v,
+    let (window, minimum_remaining, timeout_secs, provider_id) = match parse_guard_args(&args) {
+        Ok(parsed) => parsed,
         Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::USAGE_ERROR;
-        }
-    };
-
-    let timeout_secs = match parse_timeout_secs(args.timeout) {
-        Ok(v) => v,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::USAGE_ERROR;
-        }
-    };
-
-    let provider_id = match resolve_guard_provider(&args.provider) {
-        Ok(id) => id,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
+            eprintln!("Error: {msg}");
             return exit_codes::USAGE_ERROR;
         }
     };
@@ -286,6 +262,16 @@ pub async fn run(args: GuardArgs) -> i32 {
     evaluation.exit_code
 }
 
+/// Validate the guard flags in order; the first failure is the usage error.
+fn parse_guard_args(args: &GuardArgs) -> Result<(GuardWindow, f64, f64, ProviderId), String> {
+    let window = GuardWindow::parse(&args.window)
+        .ok_or_else(|| "--window must be session|weekly.".to_string())?;
+    let minimum_remaining = parse_min_remaining(args.min_remaining)?;
+    let timeout_secs = parse_timeout_secs(args.timeout)?;
+    let provider_id = resolve_guard_provider(&args.provider)?;
+    Ok((window, minimum_remaining, timeout_secs, provider_id))
+}
+
 async fn run_guard_fetch<F, Fut>(timeout_secs: f64, operation: F) -> GuardFetchOutcome
 where
     F: FnOnce() -> Fut,
@@ -314,21 +300,9 @@ async fn fetch_guard_outcome(
         source_mode,
         include_credits: false,
         web_timeout,
-        verbose: false,
-        manual_cookie_header: None,
-        manual_cookie_missing: false,
-        api_key: None,
-        token_account_kind: None,
-        token_account_isolated: false,
-        workspace_id: None,
-        seat_credit_entitlement: None,
-        api_region: None,
-        gateway_url: None,
-        auto_prefer_web: false,
-        browser_cookie_import: false,
         // Guard checks keep the short optional-join grace.
         requires_optional_usage_completeness: false,
-        optional_details_enabled: false,
+        ..FetchContext::default()
     };
 
     match provider.fetch_usage(&ctx).await {
@@ -366,12 +340,7 @@ fn emit_guard_result(
                 .unavailable_reason
                 .map(|r| r.as_str().to_string()),
         };
-        let rendered = if pretty {
-            serde_json::to_string_pretty(&payload)
-        } else {
-            serde_json::to_string(&payload)
-        };
-        match rendered {
+        match super::to_json(&payload, pretty) {
             Ok(s) => println!("{}", s),
             Err(e) => eprintln!("Error: failed to encode JSON: {}", e),
         }

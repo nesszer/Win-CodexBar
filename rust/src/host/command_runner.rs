@@ -4,11 +4,6 @@
 //! On Windows, uses standard process spawning with output capture.
 //! Designed for running interactive CLI tools like `codex` and `claude`.
 
-#![allow(
-    dead_code,
-    reason = "command runner types reserved for future host management integration"
-)]
-
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 #[cfg(windows)]
@@ -513,46 +508,6 @@ enum StreamEvent {
     Closed,
 }
 
-/// Rolling buffer for substring matching across chunk boundaries
-pub struct RollingBuffer {
-    max_needle_len: usize,
-    tail: Vec<u8>,
-}
-
-impl RollingBuffer {
-    pub fn new(max_needle_len: usize) -> Self {
-        Self {
-            max_needle_len,
-            tail: Vec::with_capacity(max_needle_len),
-        }
-    }
-
-    /// Append data and return the combined buffer for searching
-    pub fn append(&mut self, data: &[u8]) -> Vec<u8> {
-        if data.is_empty() {
-            return Vec::new();
-        }
-
-        let mut combined = Vec::with_capacity(self.tail.len() + data.len());
-        combined.extend_from_slice(&self.tail);
-        combined.extend_from_slice(data);
-
-        // Keep only the tail for next search
-        if self.max_needle_len > 1 && combined.len() >= self.max_needle_len - 1 {
-            self.tail = combined[combined.len() - (self.max_needle_len - 1)..].to_vec();
-        } else {
-            self.tail = combined.clone();
-        }
-
-        combined
-    }
-
-    /// Reset the buffer
-    pub fn reset(&mut self) {
-        self.tail.clear();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,18 +518,6 @@ mod tests {
         assert_eq!(opts.rows, 50);
         assert_eq!(opts.cols, 160);
         assert_eq!(opts.timeout, Duration::from_secs(20));
-    }
-
-    #[test]
-    fn test_rolling_buffer() {
-        let mut buf = RollingBuffer::new(5);
-
-        let result = buf.append(b"hello");
-        assert_eq!(result, b"hello");
-
-        let result = buf.append(b" world");
-        // Should include tail from previous
-        assert!(result.len() > 6);
     }
 
     #[test]

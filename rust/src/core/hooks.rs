@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 /// Stable event names used in config, env vars, and the JSON payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -97,15 +97,8 @@ impl HookEvent {
             secondary_window_minutes: None,
             secondary_reset_at: None,
             status: None,
-            timestamp: utc_now_iso(),
+            timestamp: format_utc(chrono::Utc::now()),
         }
-    }
-
-    pub fn with_remaining_percent(mut self, remaining: f64) -> Self {
-        let remaining = remaining.clamp(0.0, 100.0);
-        self.remaining_percent = Some(remaining);
-        self.usage_percent = Some(((100.0 - remaining) / 100.0).clamp(0.0, 1.0));
-        self
     }
 
     pub fn with_used_percent(mut self, used: f64) -> Self {
@@ -163,7 +156,7 @@ impl HookEvent {
     }
 
     pub fn with_timestamp(mut self, ts: chrono::DateTime<chrono::Utc>) -> Self {
-        self.timestamp = format_unix_utc(ts.timestamp().max(0) as u64);
+        self.timestamp = format_utc(ts);
         self
     }
 
@@ -343,17 +336,6 @@ impl HooksConfig {
 
     pub fn matching_rules(&self, event: &HookEvent) -> Vec<&HookRule> {
         if !self.enabled || self.events.len() > Self::MAX_RULES {
-            return Vec::new();
-        }
-        self.events
-            .iter()
-            .filter(|rule| rule.matches(event))
-            .collect()
-    }
-
-    /// Rules that match the event ignoring the top-level `enabled` flag (for `hooks test`).
-    pub fn matching_rules_ignoring_master_switch(&self, event: &HookEvent) -> Vec<&HookRule> {
-        if self.events.len() > Self::MAX_RULES {
             return Vec::new();
         }
         self.events
@@ -579,54 +561,11 @@ thread_local! {
     static HOOK_RATE_LIMITER: HookRateLimiter = HookRateLimiter::default();
 }
 
-fn utc_now_iso() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    // RFC3339-ish UTC without chrono dependency in this module path.
-    // Good enough for hooks; refresh path also has chrono elsewhere.
-    format_unix_utc(secs)
-}
-
-fn format_unix_utc(secs: u64) -> String {
-    // Manual UTC formatting: YYYY-MM-DDTHH:MM:SSZ
-    const SECS_PER_DAY: u64 = 86_400;
-    let days = secs / SECS_PER_DAY;
-    let tod = secs % SECS_PER_DAY;
-    let hour = tod / 3600;
-    let min = (tod % 3600) / 60;
-    let sec = tod % 60;
-    #[allow(
-        clippy::cast_possible_wrap,
-        reason = "secs comes from duration since the UNIX epoch, so days fits i64 by a wide margin"
-    )]
-    let (year, month, day) = civil_from_days(days as i64);
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}Z")
-}
-
-/// Howard Hinnant civil_from_days (proleptic Gregorian).
-fn civil_from_days(z: i64) -> (i32, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    #[allow(
-        clippy::cast_possible_wrap,
-        reason = "yoe < 400 by the era math and era * 400 stays far inside i64 for any representable day count"
-    )]
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Hinnant's algorithm bounds m to 1..=12 and d to 1..=31; y only exceeds i32 for day offsets billions of years from real clock time"
-    )]
-    let date = (y as i32, m as u32, d as u32);
-    date
+/// `YYYY-MM-DDTHH:MM:SSZ`, clamped to the epoch for pre-1970 clocks.
+fn format_utc(ts: chrono::DateTime<chrono::Utc>) -> String {
+    ts.max(chrono::DateTime::UNIX_EPOCH)
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
 }
 
 fn format_number(value: f64) -> String {
@@ -739,6 +678,25 @@ pub(super) fn spawn_hook_dispatch(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn timestamps_are_utc_seconds_with_z_and_clamp_before_epoch() {
+        let at = |secs: i64, nanos: u32| {
+            HookEvent::new(HookEventType::QuotaLow, "codex")
+                .with_timestamp(chrono::DateTime::from_timestamp(secs, nanos).unwrap())
+                .timestamp
+        };
+        assert_eq!(at(0, 0), "1970-01-01T00:00:00Z");
+        assert_eq!(at(-5, 0), "1970-01-01T00:00:00Z");
+        assert_eq!(at(-1, 500_000_000), "1970-01-01T00:00:00Z");
+        assert_eq!(at(951_782_400, 0), "2000-02-29T00:00:00Z");
+        assert_eq!(at(1_760_000_000, 999_000_000), "2025-10-09T08:53:20Z");
+        assert_eq!(at(4_102_444_799, 0), "2099-12-31T23:59:59Z");
+        let now = HookEvent::new(HookEventType::QuotaLow, "codex").timestamp;
+        assert_eq!(now.len(), 20);
+        assert!(now.ends_with('Z'));
+        assert!(chrono::DateTime::parse_from_rfc3339(&now).is_ok());
+    }
 
     #[test]
     fn payload_env_includes_event_and_remaining() {

@@ -91,27 +91,6 @@ impl SecretRedactor {
 pub struct PersonalInfoRedactor;
 
 impl PersonalInfoRedactor {
-    /// Redact a single email address if privacy mode is enabled
-    ///
-    /// # Arguments
-    /// * `email` - The email address to potentially redact
-    /// * `is_enabled` - Whether privacy/redaction mode is enabled
-    ///
-    /// # Returns
-    /// The original email if disabled, or "Hidden" if enabled
-    pub fn redact_email(email: Option<&str>, is_enabled: bool) -> String {
-        match email {
-            Some(e) if !e.trim().is_empty() => {
-                if is_enabled {
-                    EMAIL_PLACEHOLDER.to_string()
-                } else {
-                    e.to_string()
-                }
-            }
-            _ => String::new(),
-        }
-    }
-
     /// Redact all email addresses in a text string
     ///
     /// # Arguments
@@ -160,31 +139,6 @@ impl PersonalInfoRedactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_redact_email_disabled() {
-        let email = "test@example.com";
-        assert_eq!(
-            PersonalInfoRedactor::redact_email(Some(email), false),
-            email
-        );
-    }
-
-    #[test]
-    fn test_redact_email_enabled() {
-        let email = "test@example.com";
-        assert_eq!(
-            PersonalInfoRedactor::redact_email(Some(email), true),
-            EMAIL_PLACEHOLDER
-        );
-    }
-
-    #[test]
-    fn test_redact_email_none() {
-        assert_eq!(PersonalInfoRedactor::redact_email(None, true), "");
-        assert_eq!(PersonalInfoRedactor::redact_email(Some(""), true), "");
-        assert_eq!(PersonalInfoRedactor::redact_email(Some("  "), true), "");
-    }
 
     #[test]
     fn test_redact_emails_in_text() {

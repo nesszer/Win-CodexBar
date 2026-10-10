@@ -161,14 +161,6 @@ impl DirectoryScanBudget {
         retained
     }
 
-    pub fn visit_entry(&mut self) -> bool {
-        if !self.has_time_remaining() || self.entries_seen >= self.max_entry_count {
-            return false;
-        }
-        self.entries_seen += 1;
-        true
-    }
-
     /// Resolve a path only while the shared scan deadline is live.
     ///
     /// The operation is gated before it starts. If it finishes after expiry,
