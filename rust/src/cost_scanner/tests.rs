@@ -3551,6 +3551,9 @@ mod claude_swap;
 #[path = "tests/claude_today.rs"]
 mod claude_today;
 #[cfg(test)]
+#[path = "tests/claude_walk.rs"]
+mod claude_walk;
+#[cfg(test)]
 #[path = "tests/copied_prefix.rs"]
 mod copied_prefix;
 #[cfg(test)]
