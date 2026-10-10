@@ -32,36 +32,6 @@ pub enum SurfaceTarget {
 }
 
 impl SurfaceTarget {
-    #[allow(
-        dead_code,
-        reason = "surface target type reserved for future window management integration"
-    )]
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "summary" => Some(Self::Summary),
-            "dashboard" => Some(Self::Dashboard),
-            _ => {
-                if let Some(provider_id) = s.strip_prefix("provider:")
-                    && !provider_id.is_empty()
-                {
-                    return Some(Self::Provider {
-                        provider_id: provider_id.to_string(),
-                    });
-                }
-
-                if let Some(tab) = s.strip_prefix("settings:")
-                    && !tab.is_empty()
-                {
-                    return Some(Self::Settings {
-                        tab: tab.to_string(),
-                    });
-                }
-
-                None
-            }
-        }
-    }
-
     pub fn default_for_mode(mode: SurfaceMode) -> Self {
         match mode {
             SurfaceMode::Hidden | SurfaceMode::TrayPanel => Self::Summary,
@@ -89,28 +59,6 @@ pub fn is_supported_settings_tab(tab: &str) -> bool {
 mod tests {
     use super::{SurfaceTarget, is_supported_settings_tab};
     use serde_json::json;
-
-    #[test]
-    fn parse_provider_target() {
-        let target = SurfaceTarget::parse("provider:codex").unwrap();
-        assert_eq!(
-            target,
-            SurfaceTarget::Provider {
-                provider_id: "codex".into()
-            }
-        );
-    }
-
-    #[test]
-    fn parse_settings_about_target() {
-        let target = SurfaceTarget::parse("settings:about").unwrap();
-        assert_eq!(
-            target,
-            SurfaceTarget::Settings {
-                tab: "about".into()
-            }
-        );
-    }
 
     #[test]
     fn serialize_provider_target_for_bridge() {
