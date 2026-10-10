@@ -699,3 +699,39 @@ fn api_key_display_mask_is_utf8_safe() {
     assert_eq!(display.len(), 1);
     assert_eq!(display[0].masked_key, "🔑🔒漢字...fgh🔐");
 }
+
+/// Characterization pin for the parse errors `codexbar config validate` shows: the message and the
+/// line/column must not change when the deserializer is restructured.
+#[test]
+fn settings_parse_errors_are_pinned() {
+    let cases = [
+        // Wrongly typed canonical field.
+        "{\n  \"refresh_interval_secs\": \"soon\"\n}",
+        // Wrongly typed legacy flat field.
+        "{\n  \"codex_cookie_source\": 5\n}",
+        // Wrong type inside provider_configs.
+        "{\n  \"provider_configs\": { \"codex\": { \"cookie_source\": 5 } }\n}",
+        // Canonical field error after legacy and unknown keys.
+        "{\n  \"claude_cookie_source\": \"auto\",\n  \"not_a_setting\": 1,\n  \"theme\": 7\n}",
+        // Truncated document.
+        "{\n  \"theme\": \"dark\",",
+    ];
+    let errors: Vec<String> = cases
+        .iter()
+        .map(|json| {
+            serde_json::from_str::<Settings>(json)
+                .unwrap_err()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            "invalid type: string \"soon\", expected u64 at line 2 column 33",
+            "invalid type: integer `5`, expected a string at line 2 column 26",
+            "invalid type: integer `5`, expected a string at line 2 column 53",
+            "expected value at line 4 column 12",
+            "EOF while parsing a value at line 2 column 18",
+        ]
+    );
+}
