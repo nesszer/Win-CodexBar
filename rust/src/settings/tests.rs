@@ -1,5 +1,17 @@
 use super::*;
 
+/// Settings parsed from a document that omits every optional field.
+fn defaulted() -> Settings {
+    serde_json::from_str(r#"{ "enabled_providers": [] }"#).expect("minimal settings parse")
+}
+
+/// Serialize then parse back; the JSON is returned for field-name checks.
+fn round_trip(settings: &Settings) -> (String, Settings) {
+    let json = serde_json::to_string(settings).expect("serialize settings");
+    let loaded = serde_json::from_str(&json).expect("deserialize settings");
+    (json, loaded)
+}
+
 #[test]
 fn test_settings_default() {
     let settings = Settings::default();
@@ -51,8 +63,7 @@ fn hyper_cookie_source_defaults_to_automatic_session_import() {
 
 #[test]
 fn preferred_currency_defaults_validates_and_round_trips() {
-    let legacy: Settings = serde_json::from_str(r#"{"enabled_providers": []}"#)
-        .expect("legacy settings without a preferred currency remain valid");
+    let legacy = defaulted();
     assert_eq!(legacy.preferred_currency_code, "AUTO");
 
     let selected: Settings =
@@ -70,16 +81,14 @@ fn preferred_currency_defaults_validates_and_round_trips() {
 
 #[test]
 fn overview_layout_defaults_to_detailed_and_round_trips() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing overview layout defaults to detailed");
+    let defaulted = defaulted();
     assert_eq!(defaulted.overview_layout, "detailed");
 
     let compact = Settings {
         overview_layout: "compact".to_string(),
         ..Settings::default()
     };
-    let json = serde_json::to_string(&compact).expect("serialize overview layout");
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize overview layout");
+    let (_, loaded) = round_trip(&compact);
     assert_eq!(loaded.overview_layout, "compact");
 
     let unknown: Settings =
@@ -90,26 +99,22 @@ fn overview_layout_defaults_to_detailed_and_round_trips() {
 
 #[test]
 fn tray_panel_always_on_top_defaults_off_and_round_trips() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing tray panel topmost field defaults off");
+    let defaulted = defaulted();
     assert!(!defaulted.tray_panel_always_on_top);
 
     let enabled = Settings {
         tray_panel_always_on_top: true,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&enabled).expect("serialize tray panel topmost setting");
+    let (json, loaded) = round_trip(&enabled);
     assert!(json.contains(r#""tray_panel_always_on_top":true"#));
 
-    let loaded: Settings =
-        serde_json::from_str(&json).expect("deserialize tray panel topmost setting");
     assert!(loaded.tray_panel_always_on_top);
 }
 
 #[test]
 fn low_power_mode_migrates_legacy_boolean_and_round_trips_preference() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing low power fields defaults off");
+    let defaulted = defaulted();
     assert_eq!(
         defaulted.low_power_mode_preference,
         LowPowerModePreference::Off
@@ -124,9 +129,8 @@ fn low_power_mode_migrates_legacy_boolean_and_round_trips_preference() {
         low_power_mode_preference: LowPowerModePreference::Automatic,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&automatic).expect("serialize low power preference");
+    let (json, loaded) = round_trip(&automatic);
     assert!(json.contains(r#""low_power_mode_preference":"automatic""#));
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize low power preference");
     assert_eq!(
         loaded.low_power_mode_preference,
         LowPowerModePreference::Automatic
@@ -135,8 +139,7 @@ fn low_power_mode_migrates_legacy_boolean_and_round_trips_preference() {
 
 #[test]
 fn open_codex_usage_logs_default_off_and_round_trip() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing open_codex_usage_logs_enabled defaults false");
+    let defaulted = defaulted();
     assert!(!defaulted.open_codex_usage_logs_enabled);
 
     let enabled = Settings {
@@ -144,35 +147,31 @@ fn open_codex_usage_logs_default_off_and_round_trip() {
         hide_native_codex_cost_when_open_codex_present: true,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&enabled).expect("serialize OpenCodex usage opt-in");
+    let (json, loaded) = round_trip(&enabled);
     assert!(json.contains(r#""open_codex_usage_logs_enabled":true"#));
 
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize OpenCodex usage opt-in");
     assert!(loaded.open_codex_usage_logs_enabled);
     assert!(loaded.hide_native_codex_cost_when_open_codex_present);
 }
 
 #[test]
 fn tray_pace_color_defaults_off_and_round_trips() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing tray pace color defaults false");
+    let defaulted = defaulted();
     assert!(!defaulted.menu_bar_color_pace);
 
     let enabled = Settings {
         menu_bar_color_pace: true,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&enabled).expect("serialize tray pace color");
+    let (json, loaded) = round_trip(&enabled);
     assert!(json.contains(r#""menu_bar_color_pace":true"#));
 
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize tray pace color");
     assert!(loaded.menu_bar_color_pace);
 }
 
 #[test]
 fn cost_reporting_period_defaults_to_thirty_days_and_round_trips() {
-    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing cost_reporting_period defaults");
+    let defaulted = defaulted();
     assert_eq!(
         defaulted.cost_reporting_period,
         CostReportingPeriod::Rolling(30)
@@ -187,9 +186,8 @@ fn cost_reporting_period_defaults_to_thirty_days_and_round_trips() {
             cost_reporting_period: period,
             ..Settings::default()
         };
-        let json = serde_json::to_string(&settings).expect("serialize cost period");
+        let (json, loaded) = round_trip(&settings);
         assert!(json.contains(&format!(r#""cost_reporting_period":"{}""#, period.raw())));
-        let loaded: Settings = serde_json::from_str(&json).expect("deserialize cost period");
         assert_eq!(loaded.cost_reporting_period, period);
     }
 }
@@ -215,11 +213,9 @@ fn notification_sound_paths_round_trip_and_default_for_existing_settings() {
         },
         ..Settings::default()
     };
-    let json = serde_json::to_string(&settings).expect("serialize notification sound paths");
+    let (json, loaded) = round_trip(&settings);
     assert!(json.contains("\"criticalUsage\":\"C:\\\\sounds\\\\critical.wav\""));
 
-    let loaded: Settings =
-        serde_json::from_str(&json).expect("deserialize notification sound paths");
     assert_eq!(
         loaded.notification_sound_paths,
         settings.notification_sound_paths
@@ -229,8 +225,7 @@ fn notification_sound_paths_round_trip_and_default_for_existing_settings() {
         NotificationSoundTheme::CodexBar
     );
 
-    let legacy: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("deserialize settings without notification sound paths");
+    let legacy = defaulted();
     assert_eq!(
         legacy.notification_sound_paths,
         NotificationSoundPaths::default()
@@ -353,14 +348,61 @@ fn main_window_scale_defaults_to_100_percent() {
 }
 
 #[test]
-fn main_window_scale_clamp_pins_to_supported_range() {
-    assert_eq!(clamp_window_scale_percent(0), 100);
-    assert_eq!(clamp_window_scale_percent(99), 100);
-    assert_eq!(clamp_window_scale_percent(100), 100);
-    assert_eq!(clamp_window_scale_percent(125), 125);
-    assert_eq!(clamp_window_scale_percent(180), 180);
-    assert_eq!(clamp_window_scale_percent(250), 250);
-    assert_eq!(clamp_window_scale_percent(251), 250);
+fn clamp_helpers_pin_to_supported_ranges() {
+    // (input, expected) per helper: below range lifts to the floor, in range
+    // passes through, above range drops to the ceiling.
+    for (input, expected) in [
+        (0, 100),
+        (99, 100),
+        (100, 100),
+        (125, 125),
+        (180, 180),
+        (250, 250),
+        (251, 250),
+    ] {
+        assert_eq!(
+            clamp_window_scale_percent(input),
+            expected,
+            "window scale {input}"
+        );
+    }
+    for (input, expected) in [
+        (0, 100),
+        (99, 100),
+        (100, 100),
+        (125, 125),
+        (180, 180),
+        (200, 200),
+        (201, 200),
+    ] {
+        assert_eq!(
+            clamp_tray_scale_percent(input),
+            expected,
+            "tray scale {input}"
+        );
+    }
+    // Opacity floors at 30 so the bar isn't accidentally invisible.
+    for (input, expected) in [
+        (0, 30),
+        (29, 30),
+        (45, 45),
+        (80, 80),
+        (150, 100),
+        (255, 100),
+    ] {
+        assert_eq!(
+            clamp_float_bar_opacity(input),
+            expected,
+            "float bar opacity {input}"
+        );
+    }
+    for (input, expected) in [(0, 75), (74, 75), (100, 100), (150, 150), (250, 200)] {
+        assert_eq!(
+            clamp_float_bar_scale(input),
+            expected,
+            "float bar scale {input}"
+        );
+    }
 }
 
 #[test]
@@ -381,17 +423,6 @@ fn tray_scale_defaults_to_100_percent() {
 }
 
 #[test]
-fn tray_scale_clamp_pins_to_supported_range() {
-    assert_eq!(clamp_tray_scale_percent(0), 100);
-    assert_eq!(clamp_tray_scale_percent(99), 100);
-    assert_eq!(clamp_tray_scale_percent(100), 100);
-    assert_eq!(clamp_tray_scale_percent(125), 125);
-    assert_eq!(clamp_tray_scale_percent(180), 180);
-    assert_eq!(clamp_tray_scale_percent(200), 200);
-    assert_eq!(clamp_tray_scale_percent(201), 200);
-}
-
-#[test]
 fn raw_settings_clamps_tray_scale_on_load() {
     let json = r#"{
             "enabled_providers": ["claude", "codex"],
@@ -400,28 +431,6 @@ fn raw_settings_clamps_tray_scale_on_load() {
         }"#;
     let loaded: Settings = serde_json::from_str(json).expect("parse settings");
     assert_eq!(loaded.tray_scale_percent, 200);
-}
-
-#[test]
-fn float_bar_opacity_clamp_pins_to_supported_range() {
-    // Below 30 → 30 so the bar isn't accidentally invisible.
-    assert_eq!(clamp_float_bar_opacity(0), 30);
-    assert_eq!(clamp_float_bar_opacity(29), 30);
-    // Within range → unchanged.
-    assert_eq!(clamp_float_bar_opacity(45), 45);
-    assert_eq!(clamp_float_bar_opacity(80), 80);
-    // Above 100 → 100.
-    assert_eq!(clamp_float_bar_opacity(150), 100);
-    assert_eq!(clamp_float_bar_opacity(255), 100);
-}
-
-#[test]
-fn float_bar_scale_clamp_pins_to_supported_range() {
-    assert_eq!(clamp_float_bar_scale(0), 75);
-    assert_eq!(clamp_float_bar_scale(74), 75);
-    assert_eq!(clamp_float_bar_scale(100), 100);
-    assert_eq!(clamp_float_bar_scale(150), 150);
-    assert_eq!(clamp_float_bar_scale(250), 200);
 }
 
 #[test]
@@ -463,8 +472,7 @@ fn float_bar_settings_round_trip_through_raw() {
         ..Settings::default()
     };
 
-    let json = serde_json::to_string(&s).expect("serialize");
-    let back: Settings = serde_json::from_str(&json).expect("deserialize");
+    let (_, back) = round_trip(&s);
     assert!(back.float_bar_enabled);
     assert_eq!(back.float_bar_opacity, 65);
     assert_eq!(back.float_bar_scale, 140);
@@ -539,8 +547,7 @@ fn wayfinder_gateway_round_trips_without_changing_settings_paths() {
         "https://gateway.example.test/wayfinder/",
     );
 
-    let json = serde_json::to_string(&settings).expect("serialize settings");
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize settings");
+    let (_, loaded) = round_trip(&settings);
     assert_eq!(
         loaded.gateway_url(ProviderId::Wayfinder),
         "https://gateway.example.test/wayfinder/"
@@ -775,117 +782,89 @@ fn test_language_defaults_to_english() {
 }
 
 #[test]
-fn test_language_all_variants_available() {
-    let languages = Language::all();
-    assert_eq!(languages.len(), 10);
-    assert!(languages.contains(&Language::English));
-    assert!(languages.contains(&Language::Chinese));
-    assert!(languages.contains(&Language::ChineseTraditional));
-    assert!(languages.contains(&Language::Japanese));
-    assert!(languages.contains(&Language::Korean));
-    assert!(languages.contains(&Language::Spanish));
-    assert!(languages.contains(&Language::PortugueseBrazil));
-    assert!(languages.contains(&Language::Russian));
-    assert!(languages.contains(&Language::Turkish));
-    assert!(languages.contains(&Language::Ukrainian));
-}
-
-#[test]
-fn test_language_display_names() {
-    assert_eq!(Language::English.display_name(), "English");
-    assert_eq!(Language::Chinese.display_name(), "中文");
-    assert_eq!(Language::ChineseTraditional.display_name(), "繁體中文");
-    assert_eq!(Language::Japanese.display_name(), "日本語");
-    assert_eq!(Language::Russian.display_name(), "Русский");
-    assert_eq!(Language::Turkish.display_name(), "Türkçe");
-    assert_eq!(Language::Ukrainian.display_name(), "Українська");
-    assert_eq!(
-        Language::PortugueseBrazil.display_name(),
-        "Português (Brasil)"
-    );
-}
-
-#[test]
-fn test_language_resolves_brazilian_portuguese_aliases() {
-    for alias in [
-        "portuguesebrazil",
-        "pt",
-        "pt-BR",
-        "Portuguese",
-        "Português",
-        "portugues",
-        "Português (Brasil)",
-    ] {
-        assert_eq!(
-            Language::resolve(alias),
-            Some(Language::PortugueseBrazil),
-            "failed to resolve {alias}"
-        );
+fn test_language_table_pins_display_names_serde_tags_and_aliases() {
+    // (variant, display name, serde tag, extra inputs `resolve` must accept)
+    let table: [(Language, &str, &str, &[&str]); 10] = [
+        (Language::English, "English", "english", &[]),
+        (Language::Chinese, "中文", "chinese", &[]),
+        (
+            Language::ChineseTraditional,
+            "繁體中文",
+            "chinesetraditional",
+            &["zh-tw", "zh-hant-tw", "繁體中文"],
+        ),
+        (Language::Japanese, "日本語", "japanese", &[]),
+        (Language::Korean, "한국어", "korean", &[]),
+        (Language::Spanish, "Español", "spanish", &[]),
+        (
+            Language::PortugueseBrazil,
+            "Português (Brasil)",
+            "portuguesebrazil",
+            &[
+                "pt",
+                "pt-BR",
+                "Portuguese",
+                "Português",
+                "portugues",
+                "Português (Brasil)",
+            ],
+        ),
+        (
+            Language::Russian,
+            "Русский",
+            "russian",
+            &["ru-RU", "Русский"],
+        ),
+        (
+            Language::Turkish,
+            "Türkçe",
+            "turkish",
+            &["tr-TR", "Türkçe", "turkce"],
+        ),
+        (
+            Language::Ukrainian,
+            "Українська",
+            "ukrainian",
+            &["uk", "uk-UA", "Українська"],
+        ),
+    ];
+    let listed: Vec<Language> = table.iter().map(|row| row.0).collect();
+    assert_eq!(Language::all(), listed.as_slice());
+    for (language, display_name, tag, aliases) in table {
+        assert_eq!(language.display_name(), display_name);
+        let quoted = format!("\"{tag}\"");
+        assert_eq!(serde_json::to_string(&language).unwrap(), quoted);
+        assert_eq!(serde_json::from_str::<Language>(&quoted).unwrap(), language);
+        for input in std::iter::once(tag).chain(aliases.iter().copied()) {
+            assert_eq!(
+                Language::resolve(input),
+                Some(language),
+                "failed to resolve {input}"
+            );
+        }
     }
 }
 
 #[test]
-fn test_language_resolves_russian_aliases() {
-    assert_eq!(Language::resolve("russian"), Some(Language::Russian));
-    assert_eq!(Language::resolve("ru-RU"), Some(Language::Russian));
-    assert_eq!(Language::resolve("Русский"), Some(Language::Russian));
-}
-
-#[test]
-fn test_language_resolves_turkish_aliases() {
-    assert_eq!(Language::resolve("turkish"), Some(Language::Turkish));
-    assert_eq!(Language::resolve("tr-TR"), Some(Language::Turkish));
-    assert_eq!(Language::resolve("Türkçe"), Some(Language::Turkish));
-    assert_eq!(Language::resolve("turkce"), Some(Language::Turkish));
-}
-
-#[test]
-fn test_language_resolves_ukrainian_aliases() {
-    assert_eq!(Language::resolve("ukrainian"), Some(Language::Ukrainian));
-    assert_eq!(Language::resolve("uk"), Some(Language::Ukrainian));
-    assert_eq!(Language::resolve("uk-UA"), Some(Language::Ukrainian));
-    assert_eq!(Language::resolve("Українська"), Some(Language::Ukrainian));
-}
-
-#[test]
 fn test_settings_load_missing_language_field_defaults_to_english() {
-    // Simulate loading legacy settings JSON without ui_language field
+    // Legacy settings JSON written before the ui_language field existed.
     let legacy_json = r#"{
             "enabled_providers": ["claude", "codex"],
             "refresh_interval_secs": 300,
-            "start_minimized": false,
-            "ui_language": "english"
+            "start_minimized": false
         }"#;
 
-    let settings: Result<Settings, _> = serde_json::from_str(legacy_json);
-    assert!(settings.is_ok());
-    let settings = settings.unwrap();
+    let settings: Settings = serde_json::from_str(legacy_json).expect("legacy settings parse");
     assert_eq!(settings.ui_language, Language::English);
 }
 
 #[test]
 fn test_settings_roundtrip_with_language() {
-    use std::io::Write;
-    use tempfile::NamedTempFile;
-
-    // Create settings with Chinese language
     let settings = Settings {
         ui_language: Language::Chinese,
         ..Settings::default()
     };
-
-    // Save to a temp file
-    let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-    let json = serde_json::to_string_pretty(&settings).expect("Failed to serialize settings");
-    temp_file
-        .write_all(json.as_bytes())
-        .expect("Failed to write settings");
-    let path = temp_file.path().to_path_buf();
-
-    // Read back and verify
-    let content = std::fs::read_to_string(&path).expect("Failed to read settings");
-    let loaded: Settings = serde_json::from_str(&content).expect("Failed to deserialize settings");
-
+    let (_, loaded) = round_trip(&settings);
     assert_eq!(loaded.ui_language, Language::Chinese);
 }
 
@@ -918,8 +897,7 @@ fn stacked_tray_mode_preserves_provider_preferences() {
         Some("codex")
     );
 
-    let saved = serde_json::to_string(&settings).unwrap();
-    let reloaded: Settings = serde_json::from_str(&saved).unwrap();
+    let (_, reloaded) = round_trip(&settings);
     assert_eq!(
         reloaded.stacked_tray_top_provider.as_deref(),
         Some("claude")
@@ -931,91 +909,27 @@ fn stacked_tray_mode_preserves_provider_preferences() {
 }
 
 #[test]
-fn test_language_serde_serialization() {
-    // Test that Language serializes to lowercase string
-    let english = Language::English;
-    let chinese = Language::Chinese;
-    let chinese_traditional = Language::ChineseTraditional;
-
-    let english_json = serde_json::to_string(&english).unwrap();
-    let chinese_json = serde_json::to_string(&chinese).unwrap();
-    let chinese_traditional_json = serde_json::to_string(&chinese_traditional).unwrap();
-
-    assert_eq!(english_json, "\"english\"");
-    assert_eq!(chinese_json, "\"chinese\"");
-    assert_eq!(chinese_traditional_json, "\"chinesetraditional\"");
-}
-
-#[test]
-fn test_language_serde_deserialization() {
-    // Test that lowercase strings deserialize correctly
-    let english: Language = serde_json::from_str("\"english\"").unwrap();
-    let chinese: Language = serde_json::from_str("\"chinese\"").unwrap();
-    let chinese_traditional: Language = serde_json::from_str("\"chinesetraditional\"").unwrap();
-
-    assert_eq!(english, Language::English);
-    assert_eq!(chinese, Language::Chinese);
-    assert_eq!(chinese_traditional, Language::ChineseTraditional);
-}
-
-#[test]
-fn test_language_resolves_traditional_chinese_aliases() {
-    assert_eq!(
-        Language::resolve("chinesetraditional"),
-        Some(Language::ChineseTraditional)
-    );
-    assert_eq!(
-        Language::resolve("zh-tw"),
-        Some(Language::ChineseTraditional)
-    );
-    assert_eq!(
-        Language::resolve("zh-hant-tw"),
-        Some(Language::ChineseTraditional)
-    );
-    assert_eq!(
-        Language::resolve("繁體中文"),
-        Some(Language::ChineseTraditional)
-    );
-}
-
-#[test]
 fn test_theme_defaults_to_auto() {
     let settings = Settings::default();
     assert_eq!(settings.theme, ThemePreference::Auto);
 }
 
 #[test]
-fn test_theme_all_variants_available() {
-    let themes = ThemePreference::all();
-    assert_eq!(themes.len(), 3);
-    assert!(themes.contains(&ThemePreference::Auto));
-    assert!(themes.contains(&ThemePreference::Light));
-    assert!(themes.contains(&ThemePreference::Dark));
-}
-
-#[test]
-fn test_theme_serde_roundtrip() {
-    for variant in [
-        ThemePreference::Auto,
-        ThemePreference::Light,
-        ThemePreference::Dark,
-    ] {
-        let encoded = serde_json::to_string(&variant).unwrap();
-        let decoded: ThemePreference = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded, variant);
+fn test_theme_variants_serialize_to_stable_tags() {
+    let table = [
+        (ThemePreference::Auto, "\"auto\""),
+        (ThemePreference::Light, "\"light\""),
+        (ThemePreference::Dark, "\"dark\""),
+    ];
+    let listed: Vec<ThemePreference> = table.iter().map(|row| row.0).collect();
+    assert_eq!(ThemePreference::all(), listed.as_slice());
+    for (variant, quoted) in table {
+        assert_eq!(serde_json::to_string(&variant).unwrap(), quoted);
+        assert_eq!(
+            serde_json::from_str::<ThemePreference>(quoted).unwrap(),
+            variant
+        );
     }
-    assert_eq!(
-        serde_json::to_string(&ThemePreference::Light).unwrap(),
-        "\"light\""
-    );
-    assert_eq!(
-        serde_json::to_string(&ThemePreference::Dark).unwrap(),
-        "\"dark\""
-    );
-    assert_eq!(
-        serde_json::to_string(&ThemePreference::Auto).unwrap(),
-        "\"auto\""
-    );
 }
 
 #[test]
@@ -1037,8 +951,7 @@ fn test_settings_roundtrip_with_theme() {
         theme: ThemePreference::Dark,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&settings).unwrap();
-    let loaded: Settings = serde_json::from_str(&json).unwrap();
+    let (_, loaded) = round_trip(&settings);
     assert_eq!(loaded.theme, ThemePreference::Dark);
 }
 
@@ -1147,7 +1060,7 @@ fn test_provider_configs_roundtrip() {
         .set_seat_credit_entitlement(ProviderId::Copilot, Some(300.0))
         .expect("valid seat credit entitlement");
 
-    let json = serde_json::to_string(&settings).unwrap();
+    let (json, loaded) = round_trip(&settings);
     // The legacy flat fields must NOT appear in serialized output.
     assert!(!json.contains("\"codex_cookie_source\""), "json: {json}");
     assert!(!json.contains("\"alibaba_api_region\""), "json: {json}");
@@ -1157,7 +1070,6 @@ fn test_provider_configs_roundtrip() {
     );
     assert!(json.contains("\"provider_configs\""), "json: {json}");
 
-    let loaded: Settings = serde_json::from_str(&json).unwrap();
     assert_eq!(loaded.cookie_source(ProviderId::Codex), "manual");
     assert_eq!(loaded.cookie_source(ProviderId::Claude), "browser");
     assert_eq!(loaded.usage_source(ProviderId::Claude), "ccusage");
