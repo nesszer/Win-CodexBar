@@ -377,34 +377,23 @@ fn validated_package_codes(items: &[Value]) -> Vec<String> {
         .collect()
 }
 
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var(key)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 fn codebuddy_home() -> Option<PathBuf> {
-    if let Ok(home) = std::env::var("CODEBUDDY_HOME") {
-        let p = PathBuf::from(home);
-        if !p.as_os_str().is_empty() {
-            return Some(p);
-        }
-    }
-    dirs::home_dir().map(|h| h.join(".codebuddy"))
+    env_path("CODEBUDDY_HOME").or_else(|| dirs::home_dir().map(|h| h.join(".codebuddy")))
 }
 
 fn cookie_file_path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("CB_COOKIE_FILE") {
-        let path = PathBuf::from(p);
-        if !path.as_os_str().is_empty() {
-            return Some(path);
-        }
-    }
-    codebuddy_home().map(|h| h.join("cb_cookie.txt"))
+    env_path("CB_COOKIE_FILE").or_else(|| codebuddy_home().map(|h| h.join("cb_cookie.txt")))
 }
 
 fn credits_cache_path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("CB_CREDITS_FILE") {
-        let path = PathBuf::from(p);
-        if !path.as_os_str().is_empty() {
-            return Some(path);
-        }
-    }
-    codebuddy_home().map(|h| h.join("cb_credits.json"))
+    env_path("CB_CREDITS_FILE").or_else(|| codebuddy_home().map(|h| h.join("cb_credits.json")))
 }
 
 fn read_cookie_file() -> Option<String> {
