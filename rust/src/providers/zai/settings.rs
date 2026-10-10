@@ -46,10 +46,6 @@ pub const BIGMODEL_API_KEY_RELATIVE_PATHS: [&str; 3] = [
 /// Errors mirroring upstream `ZaiSettingsError`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ZaiSettingsError {
-    #[error(
-        "z.ai API token not found. Set apiKey in CodexBar settings, Z_AI_API_KEY, or a BigModel CN credential."
-    )]
-    MissingToken,
     #[error("z.ai endpoint override {0} must use HTTPS or a bare host.")]
     InvalidEndpointOverride(&'static str),
     #[error("z.ai endpoint override {0} does not match the selected {1} region.")]
