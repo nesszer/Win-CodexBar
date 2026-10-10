@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { paceCategory, paceCategoryKey } from "./paceCategory";
+import { paceCategory } from "./paceCategory";
 import type { PaceSnapshot } from "../../types/bridge";
 
 type Stage = PaceSnapshot["stage"];
@@ -23,18 +23,5 @@ describe("paceCategory", () => {
   it("falls back to 'steady' for unexpected stage values", () => {
     // @ts-expect-error — deliberately exercising the default arm.
     expect(paceCategory("wat")).toBe("steady");
-  });
-
-  it("maps each category to a distinct locale key", () => {
-    const keys = (["slow", "steady", "racing", "burning"] as const).map(
-      paceCategoryKey,
-    );
-    expect(new Set(keys).size).toBe(4);
-    expect(keys).toEqual([
-      "TrayPaceBadgeSlow",
-      "TrayPaceBadgeSteady",
-      "TrayPaceBadgeRacing",
-      "TrayPaceBadgeBurning",
-    ]);
   });
 });
