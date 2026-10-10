@@ -153,6 +153,7 @@ mod tests {
         let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".svg"))
             .collect();
         on_disk.sort();
         let embedded: Vec<String> = ICONS
