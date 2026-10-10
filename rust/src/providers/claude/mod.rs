@@ -2156,6 +2156,54 @@ Resets Dec 24 at 3:59pm (Europe/Paris)
     }
 
     #[test]
+    fn cli_error_markers_map_to_fixed_errors() {
+        let git_bash = "Other(\"Claude CLI requires Git Bash on Windows. Install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe path.\")";
+        let cases = [
+            ("Error: Not Logged In", "AuthRequired"),
+            ("login required to continue", "AuthRequired"),
+            (
+                "TOKEN EXPIRED",
+                "OAuthExpired(\"Token expired. Run `claude login` to refresh.\")",
+            ),
+            (
+                "{\"type\":\"token_expired\"}",
+                "OAuthExpired(\"Token expired. Run `claude login` to refresh.\")",
+            ),
+            (
+                "authentication_error",
+                "OAuth(\"Authentication error. Run `claude login`.\")",
+            ),
+            ("Claude Code on Windows requires git-bash.", git_bash),
+            (
+                "Running scripts is disabled on this system",
+                "Other(\"Claude CLI could not start because PowerShell script execution is disabled. Use claude.cmd or adjust the execution policy.\")",
+            ),
+            (
+                "Cannot run a document in the middle of a pipeline",
+                "Other(\"Claude CLI resolved to a Unix shell script on Windows. Reinstall Claude Code or ensure claude.cmd is first on PATH.\")",
+            ),
+            // Auth markers win over environment markers.
+            ("requires git-bash; not logged in", "AuthRequired"),
+            (
+                "requires git-bash; token expired",
+                "OAuthExpired(\"Token expired. Run `claude login` to refresh.\")",
+            ),
+            // Login wins over the other auth markers.
+            ("token expired; not logged in", "AuthRequired"),
+            (
+                "authentication_error; token_expired",
+                "OAuthExpired(\"Token expired. Run `claude login` to refresh.\")",
+            ),
+            ("running scripts is disabled; requires git-bash", git_bash),
+        ];
+        for (output, expected) in cases {
+            let error = claude_cli_error_from_output(output).expect(output);
+            assert_eq!(format!("{error:?}"), expected, "{output}");
+        }
+        assert!(claude_cli_error_from_output("Current session 5% used").is_none());
+    }
+
+    #[test]
     fn rejects_cli_output_without_usage_markers() {
         let provider = ClaudeProvider::new();
         let output = "Claude Code on Windows requires git-bash.";
