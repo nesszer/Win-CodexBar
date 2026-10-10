@@ -462,6 +462,16 @@ locale_keys! {
     // Main popup - Pace status
     PaceOnTrack,
     PaceBehind,
+    PaceOnPace,
+    PaceInReserve,
+    PaceInDeficit,
+    PaceLastsUntilReset,
+    PaceRunsOutIn,
+    PaceRunsOutNow,
+    PaceProjectedEmptyIn,
+    PaceProjectedEmptyNow,
+    UsageBarQuotaWarnings,
+    UsageBarWorkDays,
 
     // Main popup - Reset prefix
     MetricResetsIn,
@@ -473,6 +483,7 @@ locale_keys! {
     // Main popup - Usage/reset labels
     ResetInProgress,
     TomorrowAt,
+    ResetTomorrowAt,
     UsedPercent,
     RemainingPercent,
     RemainingAmount,
@@ -533,6 +544,7 @@ locale_keys! {
     ResetsInDaysHours,
     ResetsInHoursMinutes,
     ResetsInMinutes,
+    ResetsInDaysMinutes,
     NextExpiresInDaysHours,
     NextExpiresInHoursMinutes,
     NextExpiresInMinutes,
@@ -1743,6 +1755,7 @@ locale_keys! {
     ProviderTextExpiresIn,
     ProviderTextCycleEndsIn,
     DurationDaysHours,
+    DurationDaysMinutes,
     DurationHoursMinutes,
     DurationDays,
     DurationHours,
