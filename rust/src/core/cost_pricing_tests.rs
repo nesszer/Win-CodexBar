@@ -1,49 +1,111 @@
 use super::codex_routed_pricing;
 use super::*;
 
+impl CostUsagePricing {
+    /// Get the display label for a Codex model (e.g. "Research Preview")
+    fn codex_display_label(model: &str) -> Option<&'static str> {
+        let key = Self::normalize_codex_model(model);
+        CODEX_PRICING
+            .get(key.as_str())
+            .and_then(|p| p.display_label)
+    }
+
+    /// Format model name for display (e.g., "claude-3.5-sonnet" → "Sonnet 3.5")
+    fn format_model_name(model: &str) -> String {
+        let lower = model.to_lowercase();
+
+        // GPT models: format as "GPT-{version}[ Mini| Nano]"
+        if lower.contains("gpt-") {
+            let version = regex_lite::Regex::new(r"gpt-(\d+(?:\.\d+)?)")
+                .ok()
+                .and_then(|re| re.captures(&lower))
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string());
+
+            let suffix = if lower.contains("nano") {
+                " Nano"
+            } else if lower.contains("mini") {
+                " Mini"
+            } else {
+                ""
+            };
+
+            return match version {
+                Some(v) => format!("GPT-{}{}", v, suffix),
+                None => model.to_string(),
+            };
+        }
+
+        // Claude models: extract version and family
+        let version = regex_lite::Regex::new(r"(\d+(?:\.\d+)?)")
+            .ok()
+            .and_then(|re| re.find(&lower))
+            .map(|m| m.as_str().to_string());
+
+        let family = if lower.contains("opus") {
+            "Opus"
+        } else if lower.contains("sonnet") {
+            "Sonnet"
+        } else if lower.contains("haiku") {
+            "Haiku"
+        } else {
+            return model.to_string();
+        };
+
+        match version {
+            Some(v) => format!("{} {}", family, v),
+            None => family.to_string(),
+        }
+    }
+
+    fn codex_cost_usd_with_pricing_snapshot(
+        model: &str,
+        input_tokens: u64,
+        cached_input_tokens: u64,
+        output_tokens: u64,
+        pricing_snapshot: Option<&models_dev_pricing::ModelsDevPricingSnapshot>,
+    ) -> Option<f64> {
+        Self::codex_cost_usd_with_cache_write_and_pricing_snapshot(
+            model,
+            input_tokens,
+            cached_input_tokens,
+            0,
+            output_tokens,
+            pricing_snapshot,
+        )
+    }
+}
+
 #[test]
-fn test_normalize_codex_model() {
-    assert_eq!(CostUsagePricing::normalize_codex_model("gpt-5"), "gpt-5");
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("openai/gpt-5"),
-        "gpt-5"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-5-codex"),
-        "gpt-5"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model(""),
-        CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("unknown"),
-        CostUsagePricing::CODEX_UNATTRIBUTED_MODEL
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-reserve"),
-        "gpt-5.6-luna"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model(" GPT-RESERVE "),
-        "gpt-5.6-luna"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("openai/gpt-reserve"),
-        "gpt-5.6-luna"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("OPENAI/GPT-RESERVE"),
-        "gpt-5.6-luna"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-reserve-preview"),
-        "gpt-reserve-preview"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("my-gpt-reserve"),
-        "my-gpt-reserve"
-    );
+fn normalizes_codex_model_ids() {
+    let unattributed = CostUsagePricing::CODEX_UNATTRIBUTED_MODEL;
+    for (model, expected) in [
+        ("gpt-5", "gpt-5"),
+        ("openai/gpt-5", "gpt-5"),
+        ("gpt-5-codex", "gpt-5"),
+        ("", unattributed),
+        ("unknown", unattributed),
+        ("gpt-reserve", "gpt-5.6-luna"),
+        (" GPT-RESERVE ", "gpt-5.6-luna"),
+        ("openai/gpt-reserve", "gpt-5.6-luna"),
+        ("OPENAI/GPT-RESERVE", "gpt-5.6-luna"),
+        ("gpt-reserve-preview", "gpt-reserve-preview"),
+        ("my-gpt-reserve", "my-gpt-reserve"),
+        ("gpt-5.4-mini-codex", "gpt-5.4-mini"),
+        ("openai/gpt-5.5-2026-04-23", "gpt-5.5"),
+        ("gpt-5.5-pro-2026-04-23", "gpt-5.5-pro"),
+        ("gpt-5.6", "gpt-5.6-sol"),
+        ("openai/gpt-5.6", "gpt-5.6-sol"),
+        ("gpt-5.6-codex", "gpt-5.6-sol"),
+        ("gpt-5.6-2099-01-01", "gpt-5.6-sol"),
+        ("openai/gpt-5.6-codex-2099-01-01", "gpt-5.6-sol"),
+    ] {
+        assert_eq!(
+            CostUsagePricing::normalize_codex_model(model),
+            expected,
+            "{model:?}"
+        );
+    }
 }
 
 #[test]
@@ -69,28 +131,39 @@ fn test_normalize_claude_model() {
 }
 
 #[test]
-fn test_codex_cost() {
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5", 1000, 0, 500).unwrap();
-    assert!((cost - 0.00625).abs() < 1e-10);
+fn prices_codex_models() {
+    // (model, input, cached input, output, expected USD).
+    for (model, input, cached, output, expected) in [
+        ("gpt-5", 1000, 0, 500, 0.00625),
+        ("gpt-5.4-mini", 1000, 0, 500, 0.003),
+        ("gpt-5.4-nano", 1000, 0, 500, 0.000825),
+        ("gpt-5-pro", 1000, 0, 500, 0.075),
+        ("gpt-5.5", 1000, 500, 500, 0.01775),
+        ("gpt-5.6-sol", 1_000, 400, 1_000, 0.02256),
+        ("gpt-5.6-terra", 1_000, 400, 1_000, 0.01328),
+        ("gpt-5.6-luna", 1_000, 400, 1_000, 0.001328),
+    ] {
+        let cost = CostUsagePricing::codex_cost_usd(model, input, cached, output).unwrap();
+        assert!((cost - expected).abs() < 1e-10, "{model}");
+    }
 }
 
 #[test]
-fn test_claude_cost() {
-    assert!(
-        CostUsagePricing::claude_cost_usd("claude-haiku-4-5-20251001", 1000, 0, 0, 500).is_some()
-    );
-}
-
-#[test]
-fn test_opus_4_8_cost() {
-    let cost = CostUsagePricing::claude_cost_usd("claude-opus-4-8", 1_000, 0, 0, 500).unwrap();
-    assert!((cost - 0.0175).abs() < 1e-10);
-}
-
-#[test]
-fn test_fable_5_cost() {
-    let cost = CostUsagePricing::claude_cost_usd("claude-fable-5", 1_000, 0, 0, 500).unwrap();
-    assert!((cost - 0.035).abs() < 1e-10);
+fn prices_claude_models() {
+    for (model, expected) in [("claude-opus-4-8", 0.0175), ("claude-fable-5", 0.035)] {
+        let cost = CostUsagePricing::claude_cost_usd(model, 1_000, 0, 0, 500).unwrap();
+        assert!((cost - expected).abs() < 1e-10, "{model}");
+    }
+    for model in [
+        "claude-haiku-4-5-20251001",
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+    ] {
+        assert!(
+            CostUsagePricing::claude_cost_usd(model, 1000, 0, 0, 500).is_some(),
+            "{model}"
+        );
+    }
 }
 
 #[test]
@@ -110,85 +183,14 @@ fn test_claude_input_cost_per_token() {
 }
 
 #[test]
-fn test_format_model_name() {
-    assert_eq!(
-        CostUsagePricing::format_model_name("claude-3.5-sonnet"),
-        "Sonnet 3.5"
-    );
-    assert_eq!(
-        CostUsagePricing::format_model_name("claude-opus-4"),
-        "Opus 4"
-    );
-    assert_eq!(CostUsagePricing::format_model_name("gpt-5"), "GPT-5");
-}
-
-#[test]
-fn test_gpt54_mini_cost() {
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5.4-mini", 1000, 0, 500).unwrap();
-    assert!((cost - 0.003).abs() < 1e-10);
-}
-
-#[test]
-fn test_gpt54_nano_cost() {
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5.4-nano", 1000, 0, 500).unwrap();
-    assert!((cost - 0.000825).abs() < 1e-10);
-}
-
-#[test]
-fn test_normalize_gpt54_codex() {
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-5.4-mini-codex"),
-        "gpt-5.4-mini"
-    );
-}
-
-#[test]
-fn test_gpt55_pricing() {
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("openai/gpt-5.5-2026-04-23"),
-        "gpt-5.5"
-    );
-    assert_eq!(
-        CostUsagePricing::normalize_codex_model("gpt-5.5-pro-2026-04-23"),
-        "gpt-5.5-pro"
-    );
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5.5", 1000, 500, 500).unwrap();
-    assert!((cost - 0.01775).abs() < 1e-10);
-}
-
-#[test]
-fn test_format_gpt54_mini() {
-    assert_eq!(
-        CostUsagePricing::format_model_name("gpt-5.4-mini"),
-        "GPT-5.4 Mini"
-    );
-}
-
-#[test]
-fn test_opus_4_7_cost() {
-    assert!(CostUsagePricing::claude_cost_usd("claude-opus-4-7", 1000, 0, 0, 500).is_some());
-}
-
-#[test]
-fn test_sonnet_4_6_cost() {
-    assert!(CostUsagePricing::claude_cost_usd("claude-sonnet-4-6", 1000, 0, 0, 500).is_some());
-}
-
-#[test]
-fn test_gpt5_pro_cost() {
-    let cost = CostUsagePricing::codex_cost_usd("gpt-5-pro", 1000, 0, 500).unwrap();
-    assert!((cost - 0.075).abs() < 1e-10);
-}
-
-#[test]
-fn test_gpt56_standard_pricing() {
+fn formats_model_names() {
     for (model, expected) in [
-        ("gpt-5.6-sol", 0.02256),
-        ("gpt-5.6-terra", 0.01328),
-        ("gpt-5.6-luna", 0.001328),
+        ("claude-3.5-sonnet", "Sonnet 3.5"),
+        ("claude-opus-4", "Opus 4"),
+        ("gpt-5", "GPT-5"),
+        ("gpt-5.4-mini", "GPT-5.4 Mini"),
     ] {
-        let cost = CostUsagePricing::codex_cost_usd(model, 1_000, 400, 1_000);
-        assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
+        assert_eq!(CostUsagePricing::format_model_name(model), expected);
     }
 }
 
@@ -229,23 +231,6 @@ fn test_gpt56_context_threshold_is_exclusive() {
     ] {
         let cost = CostUsagePricing::codex_cost_usd(model, 272_000, 272_000, 0);
         assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
-    }
-}
-
-#[test]
-fn test_normalize_gpt56_aliases() {
-    for model in [
-        "gpt-5.6",
-        "openai/gpt-5.6",
-        "gpt-5.6-codex",
-        "gpt-5.6-2099-01-01",
-        "openai/gpt-5.6-codex-2099-01-01",
-    ] {
-        assert_eq!(
-            CostUsagePricing::normalize_codex_model(model),
-            "gpt-5.6-sol",
-            "{model}"
-        );
     }
 }
 
@@ -802,4 +787,115 @@ fn gpt54_and_gpt55_bill_the_whole_request_at_long_context_rates_above_272k() {
     // Fast mode keeps its 272K cutoff for these models.
     assert!(CostUsagePricing::codex_fast_cost_usd("gpt-5.5-priority", 272_001, 0, 1).is_none());
     assert!(CostUsagePricing::codex_fast_cost_usd("gpt-5.4-fast", 272_000, 0, 1).is_some());
+}
+
+fn sorted_keys<P>(table: &HashMap<&'static str, P>) -> Vec<&'static str> {
+    let mut keys: Vec<_> = table.keys().copied().collect();
+    keys.sort_unstable();
+    keys
+}
+
+fn codex_pricing_rows() -> String {
+    sorted_keys(&CODEX_PRICING)
+        .into_iter()
+        .map(|key| {
+            let p = CODEX_PRICING[key];
+            let long = p.long_context.map(|l| {
+                (
+                    l.input_cost_per_token,
+                    l.output_cost_per_token,
+                    l.cache_read_input_cost_per_token,
+                    l.cache_write_input_cost_per_token,
+                )
+            });
+            format!(
+                "{key} {:?} {:?} {:?} {:?} {:?} {:?}\n",
+                p.input_cost_per_token,
+                p.output_cost_per_token,
+                p.cache_read_input_cost_per_token,
+                p.cache_write_input_cost_per_token,
+                p.display_label,
+                long,
+            )
+        })
+        .collect()
+}
+
+fn claude_pricing_rows() -> String {
+    sorted_keys(&CLAUDE_PRICING)
+        .into_iter()
+        .map(|key| {
+            let p = CLAUDE_PRICING[key];
+            format!(
+                "{key} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}\n",
+                p.input_cost_per_token,
+                p.output_cost_per_token,
+                p.cache_creation_input_cost_per_token,
+                p.cache_read_input_cost_per_token,
+                p.threshold_tokens,
+                p.input_cost_per_token_above_threshold,
+                p.output_cost_per_token_above_threshold,
+                p.cache_creation_input_cost_per_token_above_threshold,
+                p.cache_read_input_cost_per_token_above_threshold,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn bundled_pricing_tables_keep_every_model_and_rate() {
+    assert_eq!(
+        codex_pricing_rows(),
+        "\
+gpt-5 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5-codex 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5-mini 2.5e-7 2e-6 2.5e-8 None None None
+gpt-5-nano 5e-8 4e-7 5e-9 None None None
+gpt-5-pro 1.5e-5 0.00012 1.5e-5 None None None
+gpt-5.1 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5.1-codex 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5.1-codex-max 1.25e-6 1e-5 1.25e-7 None None None
+gpt-5.1-codex-mini 2.5e-7 2e-6 2.5e-8 None None None
+gpt-5.2 1.75e-6 1.4e-5 1.75e-7 None None None
+gpt-5.2-codex 1.75e-6 1.4e-5 1.75e-7 None None None
+gpt-5.2-pro 2.1e-5 0.000168 2.1e-5 None None None
+gpt-5.3-codex 1.75e-6 1.4e-5 1.75e-7 None None None
+gpt-5.3-codex-spark 0.0 0.0 0.0 None Some(\"Research Preview\") None
+gpt-5.4 2.5e-6 1.5e-5 2.5e-7 None None Some((5e-6, 2.25e-5, 5e-7, None))
+gpt-5.4-codex 2.5e-6 1.5e-5 2.5e-7 None None Some((5e-6, 2.25e-5, 5e-7, None))
+gpt-5.4-mini 7.5e-7 4.5e-6 7.5e-8 None None None
+gpt-5.4-mini-codex 7.5e-7 4.5e-6 7.5e-8 None None None
+gpt-5.4-nano 2e-7 1.25e-6 2e-8 None None None
+gpt-5.4-nano-codex 2e-7 1.25e-6 2e-8 None None None
+gpt-5.4-pro 3e-5 0.00018 3e-5 None None None
+gpt-5.5 5e-6 3e-5 5e-7 None None Some((1e-5, 4.5e-5, 1e-6, None))
+gpt-5.5-cyber 1.25e-5 7.5e-5 1.25e-6 None None None
+gpt-5.5-pro 3e-5 0.00018 3e-5 None None None
+gpt-5.6-cyber 1.25e-5 7.5e-5 1.25e-6 Some(1.5625e-5) None None
+gpt-5.6-luna 2e-7 1.2e-6 2e-8 Some(2.5e-7) None Some((4e-7, 1.8e-6, 4e-8, Some(5e-7)))
+gpt-5.6-sol 4e-6 2e-5 4e-7 Some(5e-6) None Some((8e-6, 3e-5, 8e-7, Some(1e-5)))
+gpt-5.6-terra 2e-6 1.2e-5 2e-7 Some(2.5e-6) None Some((4e-6, 1.8e-5, 4e-7, Some(5e-6)))
+gpt-6-astra 1e-5 5e-5 1e-6 Some(1.25e-5) None Some((2e-5, 7.5e-5, 2e-6, Some(2.5e-5)))
+"
+    );
+    assert_eq!(
+        claude_pricing_rows(),
+        "\
+claude-fable-5 1e-5 5e-5 1.25e-5 1e-6 None None None None None
+claude-haiku-4-5 1e-6 5e-6 1.25e-6 1e-7 None None None None None
+claude-haiku-4-5-20251001 1e-6 5e-6 1.25e-6 1e-7 None None None None None
+claude-opus-4-1 1.5e-5 7.5e-5 1.875e-5 1.5e-6 None None None None None
+claude-opus-4-20250514 1.5e-5 7.5e-5 1.875e-5 1.5e-6 None None None None None
+claude-opus-4-5 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-5-20251101 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-6 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-6-20260205 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-7 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-opus-4-8 5e-6 2.5e-5 6.25e-6 5e-7 None None None None None
+claude-sonnet-4-20250514 3e-6 1.5e-5 3.75e-6 3e-7 Some(200000) Some(6e-6) Some(2.25e-5) Some(7.5e-6) Some(6e-7)
+claude-sonnet-4-5 3e-6 1.5e-5 3.75e-6 3e-7 Some(200000) Some(6e-6) Some(2.25e-5) Some(7.5e-6) Some(6e-7)
+claude-sonnet-4-5-20250929 3e-6 1.5e-5 3.75e-6 3e-7 Some(200000) Some(6e-6) Some(2.25e-5) Some(7.5e-6) Some(6e-7)
+claude-sonnet-4-6 3e-6 1.5e-5 3.75e-6 3e-7 Some(200000) Some(6e-6) Some(2.25e-5) Some(7.5e-6) Some(6e-7)
+"
+    );
 }

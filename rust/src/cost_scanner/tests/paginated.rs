@@ -10,10 +10,7 @@ fn write_codex_paginated_subagent_fixture(
     base: DateTime<Utc>,
 ) -> PathBuf {
     let day = base.with_timezone(&Local).date_naive();
-    let day_dir = sessions_root
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(sessions_root, day);
     std::fs::create_dir_all(&day_dir).unwrap();
     let path = day_dir.join(name);
     // Desktop v2 aliases session_id to the parent, while id identifies the
@@ -80,10 +77,7 @@ fn write_codex_paginated_continuation_fixture(
     base: DateTime<Utc>,
 ) -> PathBuf {
     let day = base.with_timezone(&Local).date_naive();
-    let day_dir = sessions_root
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(sessions_root, day);
     std::fs::create_dir_all(&day_dir).unwrap();
     let path = day_dir.join(name);
     let metadata = serde_json::json!({
@@ -137,9 +131,7 @@ fn write_codex_paginated_continuation_fixture(
 
 #[test]
 fn paginated_continuation_raises_inherited_baseline_from_total_last() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = recent_codex_fixture_time();
     write_codex_fork_session_fixture(
         &sessions,
@@ -247,9 +239,7 @@ fn bounded_paginated_continuation_raises_its_baseline_once() {
 
 #[test]
 fn paginated_history_base_equal_parent_keeps_true_fork_subtraction() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = recent_codex_fixture_time();
     write_codex_fork_session_fixture(
         &sessions,
@@ -293,19 +283,14 @@ fn paginated_history_base_equal_parent_keeps_true_fork_subtraction() {
 
 #[test]
 fn paginated_v2_subagent_counts_own_usage_without_parent() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let child = write_codex_paginated_subagent_fixture(
         &sessions,
         "child.jsonl",
         "child-id",
         Utc::now() - Duration::hours(1),
     );
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
     let (summary, _, cache) = scanner.scan_codex_detailed_with_cache(None);
 
     assert_eq!(summary.input_tokens, 42_005);
@@ -328,9 +313,7 @@ fn paginated_v2_subagent_counts_own_usage_without_parent() {
 
 #[test]
 fn paginated_v2_subagent_does_not_subtract_or_double_count_continued_parent() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let parent = write_codex_fork_session_fixture(
         &sessions,
@@ -347,10 +330,7 @@ fn paginated_v2_subagent_does_not_subtract_or_double_count_continued_parent() {
         "child-id",
         base + Duration::seconds(1),
     );
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
     let (summary, _, cache) = scanner.scan_codex_detailed_with_cache(None);
 
     assert_eq!(summary.input_tokens, 1_042_005);
@@ -390,15 +370,10 @@ fn paginated_v2_subagent_does_not_subtract_or_double_count_continued_parent() {
 
 #[test]
 fn paginated_v2_subagent_recovers_unchanged_previously_unresolved_cache() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let child = write_codex_paginated_subagent_fixture(&sessions, "child.jsonl", "child-id", base);
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
     let (_, _, mut old_cache) = scanner.scan_codex_detailed_with_cache(None);
     let child_key = child.to_string_lossy().to_string();
     let old_usage = old_cache.files.get_mut(&child_key).unwrap();
@@ -447,15 +422,10 @@ fn paginated_v2_subagent_recovers_unchanged_previously_unresolved_cache() {
 
 #[test]
 fn paginated_v2_subagent_repairs_stale_complete_cache_metadata() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let child = write_codex_paginated_subagent_fixture(&sessions, "child.jsonl", "child-id", base);
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
     let (_, _, mut cache) = scanner.scan_codex_detailed_with_cache(None);
     let child_key = child.to_string_lossy().to_string();
     let usage = cache.files.get_mut(&child_key).unwrap();
@@ -474,9 +444,7 @@ fn paginated_v2_subagent_repairs_stale_complete_cache_metadata() {
 
 #[test]
 fn paginated_v2_subagent_background_refresh_adds_new_local_day_without_repair() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let today = Local::now().date_naive();
     let yesterday = today.pred_opt().unwrap();
     let local_noon = |day: chrono::NaiveDate| {
@@ -546,9 +514,7 @@ fn paginated_v2_subagent_background_refresh_adds_new_local_day_without_repair() 
 
 #[test]
 fn unresolved_legacy_fork_keeps_background_daily_usage_live() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let today = Local::now().date_naive();
     let yesterday = today.pred_opt().unwrap();
     let local_noon = |day: chrono::NaiveDate| {
@@ -670,9 +636,7 @@ fn unresolved_legacy_fork_keeps_background_daily_usage_live() {
 
 #[test]
 fn unresolved_legacy_fork_old_no_progress_pause_retains_report_in_background() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let unresolved = write_codex_fork_session_fixture(
         &sessions,
@@ -692,10 +656,7 @@ fn unresolved_legacy_fork_old_no_progress_pause_retains_report_in_background() {
         base,
         &[100],
     );
-    let initial = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions.clone()]);
+    let initial = app_scanner(7, &cache_root, &sessions);
     let (_, _, mut paused) = initial.scan_codex_detailed_with_cache(None);
     let unresolved_key = unresolved.to_string_lossy().to_string();
     let unchanged_fork = paused.files[&unresolved_key].clone();

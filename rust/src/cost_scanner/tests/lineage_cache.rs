@@ -8,10 +8,7 @@ fn write_subagent(
     timestamp: DateTime<Utc>,
 ) -> PathBuf {
     let day = timestamp.with_timezone(&Local).date_naive();
-    let day_dir = sessions_root
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(sessions_root, day);
     std::fs::create_dir_all(&day_dir).unwrap();
     let path = day_dir.join(name);
     let rows = [
@@ -70,10 +67,7 @@ fn write_missing_ordinal_subagent(
     include_owned_usage: bool,
 ) -> PathBuf {
     let day = base.with_timezone(&Local).date_naive();
-    let day_dir = sessions_root
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(sessions_root, day);
     std::fs::create_dir_all(&day_dir).unwrap();
     let path = day_dir.join(name);
     let mut missing_ordinal = lineage_token_row(base, 11, 100, 0);
@@ -141,9 +135,7 @@ fn assert_unresolved(cache: &CostUsageCache, path: &Path) {
 fn appended_owned_token_row_reinfers_locally_resolved_subagent_from_start() {
     use std::io::Write as _;
 
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let child = write_subagent(&sessions, "child.jsonl", "child-id", "missing-parent", base);
     let scanner = bounded_scanner(&sessions, &cache_root);
@@ -167,9 +159,7 @@ fn appended_owned_token_row_reinfers_locally_resolved_subagent_from_start() {
 
 #[test]
 fn replaced_parent_with_same_path_size_and_mtime_cannot_author_lineage() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let parent = write_codex_fork_session_fixture(
         &sessions,
@@ -187,10 +177,7 @@ fn replaced_parent_with_same_path_size_and_mtime_cannot_author_lineage() {
         "parent-id",
         base + Duration::seconds(10),
     );
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions.clone()]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
     let (_, _, cache) = scanner.scan_codex_detailed_with_cache(None);
     let parent_key = parent.to_string_lossy().to_string();
     let child_usage = &cache.files[&child.to_string_lossy().to_string()];
@@ -238,15 +225,10 @@ fn replaced_parent_with_same_path_size_and_mtime_cannot_author_lineage() {
 
 #[test]
 fn missing_explicit_ordinal_keeps_subagent_cache_unresolved() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let child = write_missing_ordinal_subagent(&sessions, "child.jsonl", base, true);
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
 
     let (summary, _, cache) = scanner.scan_codex_detailed_with_cache(None);
 
@@ -257,15 +239,10 @@ fn missing_explicit_ordinal_keeps_subagent_cache_unresolved() {
 
 #[test]
 fn missing_ordinal_cannot_complete_zero_usage_subagent_cache() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let child = write_missing_ordinal_subagent(&sessions, "child.jsonl", base, false);
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
 
     let (summary, _, cache) = scanner.scan_codex_detailed_with_cache(None);
 
@@ -278,9 +255,7 @@ fn missing_ordinal_cannot_complete_zero_usage_subagent_cache() {
 fn missing_ordinal_after_local_resolution_keeps_subagent_cache_unresolved() {
     use std::io::Write as _;
 
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let child = write_subagent(
         &sessions,
@@ -308,9 +283,7 @@ fn missing_ordinal_after_local_resolution_keeps_subagent_cache_unresolved() {
 
 #[test]
 fn legacy_cache_without_file_identity_is_reparsed() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let session = write_codex_fork_session_fixture(
         &sessions,
@@ -321,10 +294,7 @@ fn legacy_cache_without_file_identity_is_reparsed() {
         base,
         &[1_000],
     );
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
 
     let (_, _, _) = scanner.scan_codex_detailed_with_cache(None);
     let session_key = session.to_string_lossy().to_string();
@@ -348,9 +318,7 @@ fn legacy_cache_without_file_identity_is_reparsed() {
 
 #[test]
 fn bounded_refresh_detects_duplicate_parent_owners_across_cache_and_candidate() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let child = write_subagent(&sessions, "child.jsonl", "child-id", "parent-id", base);
     let scanner = bounded_scanner(&sessions, &cache_root);
@@ -395,9 +363,7 @@ fn bounded_refresh_detects_duplicate_parent_owners_across_cache_and_candidate() 
 
 #[test]
 fn bounded_refresh_detects_equal_timestamp_two_node_cycle() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let first = write_subagent(&sessions, "first.jsonl", "first-id", "second-id", base);
     let scanner = bounded_scanner(&sessions, &cache_root);
@@ -416,9 +382,7 @@ fn bounded_refresh_detects_equal_timestamp_two_node_cycle() {
 
 #[test]
 fn bounded_refresh_rejects_self_cycle_migration() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let session = write_subagent(&sessions, "self.jsonl", "self-id", "missing-id", base);
     let scanner = bounded_scanner(&sessions, &cache_root);
@@ -442,9 +406,7 @@ fn bounded_refresh_rejects_self_cycle_migration() {
 
 #[test]
 fn bounded_refresh_rejects_dependent_of_locally_inferred_parent() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let parent = write_subagent(&sessions, "parent.jsonl", "parent-id", "missing-id", base);
     let scanner = bounded_scanner(&sessions, &cache_root);
@@ -468,16 +430,11 @@ fn bounded_refresh_rejects_dependent_of_locally_inferred_parent() {
 
 #[test]
 fn current_refresh_scopes_unsafe_cache_invalidation_to_range_and_dependencies() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let active_time = Utc::now() - Duration::hours(1);
     let old_date = Local::now().date_naive() - Duration::days(30);
     let old_day = old_date.format("%Y-%m-%d").to_string();
-    let old_dir = sessions
-        .join(old_date.format("%Y").to_string())
-        .join(old_date.format("%m").to_string())
-        .join(old_date.format("%d").to_string());
+    let old_dir = partition_dir(&sessions, old_date);
     let mut cache = CostUsageCache::default();
 
     {
@@ -504,10 +461,7 @@ fn current_refresh_scopes_unsafe_cache_invalidation_to_range_and_dependencies() 
         active_time + Duration::seconds(1),
         &[1_000_000, 1_000_140],
     );
-    let scanner = CostScanner::new(7)
-        .with_options(CostScanOptions::app_driven())
-        .with_cache_root(&cache_root)
-        .with_sessions_dirs(vec![sessions]);
+    let scanner = app_scanner(7, &cache_root, &sessions);
 
     let (summary, _, refreshed) = scanner.scan_codex_detailed_with_cache(None);
     let cached_path = |name: &str| old_dir.join(name).to_string_lossy().to_string();

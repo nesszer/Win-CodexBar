@@ -513,3 +513,40 @@ fn nonnegative_u64_accepts_json_numbers_and_bounded_floats() {
     );
     assert_eq!(nonnegative_u64(None), None);
 }
+
+#[test]
+fn aggregate_counts_one_activity_conversation_per_kept_row() {
+    use super::super::tests::activity::{cells, counted};
+    let now = DateTime::parse_from_rfc3339("2026-08-19T12:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    let at = |timestamp: &str| {
+        DateTime::parse_from_rfc3339(timestamp)
+            .unwrap()
+            .with_timezone(&Utc)
+    };
+    let row = |request_id: &str, timestamp: DateTime<Utc>| OpenCodexEntry {
+        request_id: request_id.into(),
+        timestamp,
+        ..entry("openai", "gpt-5")
+    };
+    let first = at("2026-08-18T10:00:00Z");
+    let second = at("2026-08-18T10:10:00Z");
+    let other_day = at("2026-08-17T03:00:00Z");
+    let source = aggregate(
+        vec![
+            row("a", first),
+            row("b", second),
+            row("c", other_day),
+            row("old", at("2026-08-01T10:00:00Z")),
+        ],
+        now,
+        7,
+        &CustomPricing::default(),
+    )
+    .expect("source");
+    assert_eq!(
+        cells(&source.hourly_activity),
+        counted(&[first, second, other_day])
+    );
+}

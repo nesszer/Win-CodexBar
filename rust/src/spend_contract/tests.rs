@@ -1,4 +1,7 @@
 use super::*;
+use crate::cost_scanner::ModelTokenCounts;
+
+pub(super) mod activity;
 
 #[test]
 fn local_history_total_requires_complete_scan_and_pricing() {

@@ -41,13 +41,6 @@ fn rollout_body(day: NaiveDate, session: &str, input: u64) -> String {
     )
 }
 
-fn partition_dir(sessions: &Path, day: NaiveDate) -> PathBuf {
-    sessions
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string())
-}
-
 fn write_file(dir: &Path, name: &str, body: &str) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(name);

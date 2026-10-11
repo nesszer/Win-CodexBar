@@ -1,27 +1,14 @@
 use super::*;
+use crate::core::test_fixtures::test_file_usage;
 
 fn file_usage(day: &str, model: &str, counts: Vec<i64>) -> CostUsageFileUsage {
-    CostUsageFileUsage {
-        mtime_unix_ms: 0,
-        size: 100,
-        codex_file_identity: None,
-        days: HashMap::from([(
+    test_file_usage(
+        100,
+        HashMap::from([(
             day.to_string(),
             HashMap::from([(model.to_string(), counts)]),
         )]),
-        parsed_bytes: None,
-        codex_scan_target_size: None,
-        last_model: None,
-        last_totals: None,
-        codex_token_timestamps_monotonic: None,
-        codex_last_token_timestamp: None,
-        codex_session_id: None,
-        codex_forked_from_id: None,
-        codex_fork_accounting_state: None,
-        codex_lineage: CodexSessionLineage::Root,
-        codex_fork_timestamp: None,
-        codex_unresolved_fork_parent: false,
-    }
+    )
 }
 
 fn seeded_cache() -> CostUsageCache {

@@ -79,15 +79,10 @@ impl Chain {
 /// `child` forked at t=4. Upstream covers no parent event and events at t=3
 /// and t=8; t=2 additionally puts the parent's event at its own fork instant.
 fn write_chain(parent_event_time: Option<i64>) -> Chain {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let day = base.with_timezone(&Local).date_naive();
-    let day_dir = sessions
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(&sessions, day);
     let mut chain = Chain {
         sessions,
         cache_root,
@@ -276,15 +271,10 @@ fn changed_root_revalidates_empty_parent_descendants() {
 
 #[test]
 fn cyclic_empty_fork_ancestry_stays_unresolved() {
-    let root = tempfile::tempdir().unwrap();
-    let sessions = root.path().join("sessions");
-    let cache_root = root.path().join("cache");
+    let (_root, sessions, cache_root) = codex_scan_dirs();
     let base = Utc::now() - Duration::hours(1);
     let day = base.with_timezone(&Local).date_naive();
-    let day_dir = sessions
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(&sessions, day);
     let files = [("a", "b"), ("b", "a")].map(|(id, parent)| {
         write_rows(
             &day_dir,
@@ -312,10 +302,7 @@ fn scan_empty_fork_ladder(depth: usize) -> (CostSummary, CostUsageCache, PathBuf
     let sessions = root.path().join("sessions");
     let base = Utc::now() - Duration::hours(1);
     let day = base.with_timezone(&Local).date_naive();
-    let day_dir = sessions
-        .join(day.format("%Y").to_string())
-        .join(day.format("%m").to_string())
-        .join(day.format("%d").to_string());
+    let day_dir = partition_dir(&sessions, day);
     write_rows(
         &day_dir,
         "s000.jsonl",
