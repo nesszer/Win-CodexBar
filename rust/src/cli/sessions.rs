@@ -147,14 +147,7 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
             .map(focus_session)
             .unwrap_or_else(|| SessionFocusResult::failed("Session was not found."));
         if args.json || args.json_v2 {
-            println!(
-                "{}",
-                if args.pretty {
-                    serde_json::to_string_pretty(&outcome)?
-                } else {
-                    serde_json::to_string(&outcome)?
-                }
-            );
+            super::print_json(&outcome, args.pretty)?;
         } else {
             print_focus_result(id, &outcome);
         }
@@ -166,14 +159,7 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
             sessions: sessions_for_json(&sessions, args.json_v2),
             errors,
         };
-        println!(
-            "{}",
-            if args.pretty {
-                serde_json::to_string_pretty(&output)?
-            } else {
-                serde_json::to_string(&output)?
-            }
-        );
+        super::print_json(&output, args.pretty)?;
     } else if args.brief {
         for session in &sessions {
             println!("{}", render_brief(session));

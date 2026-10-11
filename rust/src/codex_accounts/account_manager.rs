@@ -181,15 +181,6 @@ impl CodexAccountManager {
         ))
     }
 
-    /// Identity of the currently active (ambient) account, if any.
-    pub fn load_active_identity(&self) -> Option<AuthBackedIdentity> {
-        let auth_path = ambient_codex_home().join("auth.json");
-        if !auth_path.exists() {
-            return None;
-        }
-        load_identity(&ambient_codex_home()).ok()
-    }
-
     /// Switch the ambient identity to `target`, materializing the previous
     /// ambient account as managed and preserving the desktop session.
     pub fn switch_active_account(

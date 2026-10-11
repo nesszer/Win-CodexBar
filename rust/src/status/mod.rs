@@ -2,7 +2,6 @@
 //!
 //! Fetches operational status from provider status pages
 
-#![allow(dead_code, reason = "status types reserved for future UI integration")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -231,22 +230,4 @@ fn last_cached_success(provider: &str) -> Option<ProviderStatus> {
         .lock()
         .ok()
         .and_then(|cache| cache.get(provider).cloned())
-}
-
-/// Fetch status for all providers in parallel
-pub async fn fetch_all_statuses(providers: &[&str]) -> HashMap<String, ProviderStatus> {
-    let futures: Vec<_> = providers
-        .iter()
-        .map(|&p| async move {
-            let status = fetch_provider_status(p).await;
-            (p.to_string(), status)
-        })
-        .collect();
-
-    let results = futures::future::join_all(futures).await;
-
-    results
-        .into_iter()
-        .filter_map(|(provider, status)| status.map(|s| (provider, s)))
-        .collect()
 }

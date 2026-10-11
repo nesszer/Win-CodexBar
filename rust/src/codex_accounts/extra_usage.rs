@@ -52,24 +52,7 @@ impl CodexExtraUsageCost {
     }
 }
 
-impl AccountUsageSnapshot {
-    /// Build the account-scoped credit cost while preserving a separately
-    /// fetched monthly cap, if one is available.
-    pub fn extra_usage_cost(
-        &self,
-        attached: Option<&crate::core::CostSnapshot>,
-    ) -> Option<crate::core::CostSnapshot> {
-        let attached = attached.or(self.cost.as_ref());
-        CodexExtraUsageCost::from_credits(
-            self.credits.as_ref(),
-            self.updated_at,
-            self.provider_account_id
-                .as_deref()
-                .or(self.email.as_deref()),
-            attached,
-        )
-    }
-}
+impl AccountUsageSnapshot {}
 
 #[cfg(test)]
 mod extra_usage_tests {

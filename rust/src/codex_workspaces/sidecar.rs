@@ -138,15 +138,6 @@ impl WorkspaceUsageSidecar {
         Ok(())
     }
 
-    pub fn clear_snapshots(&self) -> Result<(), SidecarError> {
-        if !self.path.exists() {
-            return Ok(());
-        }
-        let conn = self.open(false)?;
-        conn.execute("DELETE FROM snapshot_payloads", [])?;
-        Ok(())
-    }
-
     fn open(&self, read_only: bool) -> Result<Connection, SidecarError> {
         if read_only {
             let conn = Connection::open_with_flags(

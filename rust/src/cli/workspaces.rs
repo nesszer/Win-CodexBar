@@ -69,11 +69,7 @@ pub async fn run(args: WorkspacesArgs) -> anyhow::Result<()> {
     })?;
 
     if args.json {
-        if args.pretty {
-            println!("{}", serde_json::to_string_pretty(&snapshot)?);
-        } else {
-            println!("{}", serde_json::to_string(&snapshot)?);
-        }
+        super::print_json(&snapshot, args.pretty)?;
         return Ok(());
     }
 

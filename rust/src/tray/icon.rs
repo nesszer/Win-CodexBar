@@ -14,10 +14,6 @@ pub enum UsageLevel {
     /// 95-100% used - red
     Critical,
     /// Unknown/error state - gray
-    #[allow(
-        dead_code,
-        reason = "tray icon types reserved for future system tray integration"
-    )]
     Unknown,
 }
 
@@ -41,21 +37,6 @@ impl UsageLevel {
             UsageLevel::Unknown => (158, 158, 158), // Gray
         }
     }
-}
-
-/// Badge type for status indicators
-#[allow(
-    dead_code,
-    reason = "tray icon types reserved for future system tray integration"
-)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BadgeType {
-    /// Warning indicator (yellow)
-    Warning,
-    /// Error/incident indicator (red)
-    Incident,
-    /// No badge
-    None,
 }
 
 /// Loading animation patterns for tray icon
@@ -121,18 +102,6 @@ impl LoadingPattern {
         }
     }
 
-    /// Get secondary bar offset (to make it animate differently)
-    pub fn secondary_offset(&self) -> f64 {
-        match self {
-            LoadingPattern::KnightRider => 0.25,
-            LoadingPattern::Cylon => 0.15,
-            LoadingPattern::OutsideIn => 0.5,
-            LoadingPattern::Race => 0.2,
-            LoadingPattern::Pulse => 0.3,
-            LoadingPattern::Unbraid => 0.1,
-        }
-    }
-
     /// Get all available patterns
     pub fn all() -> &'static [LoadingPattern] {
         &[
@@ -182,13 +151,5 @@ mod tests {
 
         let (r, g, b) = UsageLevel::Critical.color();
         assert!(r > g && r > b); // Red should be dominant for critical
-    }
-
-    #[test]
-    fn test_badge_type_equality() {
-        assert_eq!(BadgeType::None, BadgeType::None);
-        assert_eq!(BadgeType::Warning, BadgeType::Warning);
-        assert_eq!(BadgeType::Incident, BadgeType::Incident);
-        assert_ne!(BadgeType::None, BadgeType::Warning);
     }
 }

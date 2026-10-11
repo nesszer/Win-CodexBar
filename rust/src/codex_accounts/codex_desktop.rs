@@ -14,8 +14,6 @@ use super::file_locations::{
     ensure_directories,
 };
 
-pub const DEFAULT_RESTART_DELAY_SECONDS: f64 = 0.8;
-
 /// Friendly Codex Desktop control error.
 #[derive(Debug, thiserror::Error)]
 pub enum CodexDesktopControlError {

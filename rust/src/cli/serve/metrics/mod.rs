@@ -14,16 +14,9 @@ mod snapshot;
 
 pub(crate) use snapshot::MetricsSnapshot;
 
-pub(super) fn metrics_response(snapshot: Option<&MetricsSnapshot>) -> String {
-    rendering::metrics_response(snapshot)
-}
-
-pub(super) fn render_at(
-    snapshot: &MetricsSnapshot,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<String, MetricsRenderError> {
-    rendering::render_at(snapshot, now)
-}
+pub(super) use rendering::metrics_response;
+#[cfg(test)]
+use rendering::render_at;
 
 #[cfg(test)]
 mod tests;

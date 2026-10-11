@@ -2,11 +2,6 @@
 //!
 //! Handles per-event custom WAV files, built-in CodexBar sounds, and Windows system sounds.
 
-#![allow(
-    dead_code,
-    reason = "sound playback types reserved for future alert audio integration"
-)]
-
 use crate::settings::{NotificationSoundPaths, NotificationSoundTheme, Settings};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -14,7 +9,6 @@ use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::sync::{OnceLock, mpsc};
 
-const MINIMUM_WAV_SIZE: usize = 44;
 const TAG_SIZE: usize = 4;
 const RIFF_TAG_OFFSET: usize = 0;
 const RIFF_SIZE_OFFSET: usize = 4;
@@ -414,6 +408,9 @@ fn playback_worker(receiver: mpsc::Receiver<PlaybackRequest>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A canonical PCM WAV header is 44 bytes; generated sounds must carry samples past it.
+    const MINIMUM_WAV_SIZE: usize = 44;
 
     fn find_chunk<'a>(wav: &'a [u8], tag: &[u8; TAG_SIZE]) -> Option<&'a [u8]> {
         let mut offset = RIFF_HEADER_SIZE;

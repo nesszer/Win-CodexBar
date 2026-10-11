@@ -3,6 +3,7 @@ use serde::Serialize;
 use super::{
     UsageCommand, UsageOutput, UsageOutputFormat, append_status_line, fetch_provider_json_output,
     fetch_provider_text_output, format_percent, render_status_indicator, render_text_error,
+    status_json,
 };
 use crate::core::ProviderId;
 use crate::providers::claude::claude_swap::{
@@ -97,23 +98,33 @@ pub(super) fn claude_swap_json_payload(
         "account": ClaudeSwapCliAccount::from(account),
     });
     if let Some(status) = status {
-        payload["status"] = serde_json::json!({
-            "level": format!("{:?}", status.level).to_lowercase(),
-            "description": status.description,
-        });
+        payload["status"] = status_json(status);
     }
     payload
 }
 
 fn claude_swap_windows(account: &ClaudeSwapAccount) -> Vec<String> {
+    window_labels(
+        account.five_hour.as_ref(),
+        account.seven_day.as_ref(),
+        &account.scoped,
+    )
+}
+
+/// `Session N% | Weekly N% | <scoped> N%` parts, skipping absent windows.
+fn window_labels(
+    five_hour: Option<&ClaudeSwapUsageWindowDto>,
+    seven_day: Option<&ClaudeSwapUsageWindowDto>,
+    scoped: &[ClaudeSwapScopedWindowDto],
+) -> Vec<String> {
     let mut windows = Vec::new();
-    if let Some(window) = &account.five_hour {
+    if let Some(window) = five_hour {
         windows.push(format!("Session {}", format_percent(window.used_percent)));
     }
-    if let Some(window) = &account.seven_day {
+    if let Some(window) = seven_day {
         windows.push(format!("Weekly {}", format_percent(window.used_percent)));
     }
-    for window in &account.scoped {
+    for window in scoped {
         windows.push(format!(
             "{} {}",
             window.name,
@@ -137,24 +148,12 @@ fn claude_swap_spend_line(
     })
 }
 
-fn claude_swap_historical_windows(
-    historical: &crate::providers::claude::claude_swap::ClaudeSwapHistoricalUsageDto,
-) -> Vec<String> {
-    let mut windows = Vec::new();
-    if let Some(window) = &historical.five_hour {
-        windows.push(format!("Session {}", format_percent(window.used_percent)));
-    }
-    if let Some(window) = &historical.seven_day {
-        windows.push(format!("Weekly {}", format_percent(window.used_percent)));
-    }
-    for window in &historical.scoped {
-        windows.push(format!(
-            "{} {}",
-            window.name,
-            format_percent(window.used_percent)
-        ));
-    }
-    windows
+fn claude_swap_historical_windows(historical: &ClaudeSwapHistoricalUsageDto) -> Vec<String> {
+    window_labels(
+        historical.five_hour.as_ref(),
+        historical.seven_day.as_ref(),
+        &historical.scoped,
+    )
 }
 
 pub(super) fn render_claude_swap_text(
@@ -289,10 +288,7 @@ fn claude_swap_error_payload(error: &str, status: Option<&StatusInfo>) -> serde_
         "errorKind": crate::cli::error_kind::ERROR_KIND_UNKNOWN,
     });
     if let Some(status) = status {
-        payload["status"] = serde_json::json!({
-            "level": format!("{:?}", status.level).to_lowercase(),
-            "description": status.description,
-        });
+        payload["status"] = status_json(status);
     }
     payload
 }

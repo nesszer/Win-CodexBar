@@ -111,17 +111,7 @@ async fn list_accounts(provider_name: &str) -> anyhow::Result<()> {
 
 /// Add a new account
 async fn add_account(provider_name: &str, label: &str, token: &str) -> anyhow::Result<()> {
-    let provider = parse_provider(provider_name)?;
-
-    if !TokenAccountSupport::is_supported(provider) {
-        anyhow::bail!(
-            "{} does not support token accounts.",
-            provider.display_name()
-        );
-    }
-
-    let store = TokenAccountStore::new();
-    let mut data = store.load_provider(provider)?;
+    let (provider, store, mut data) = load_supported_accounts(provider_name)?;
 
     // Check for duplicate label
     if data
@@ -142,17 +132,7 @@ async fn add_account(provider_name: &str, label: &str, token: &str) -> anyhow::R
 
 /// Remove an account
 async fn remove_account(provider_name: &str, account_ref: &str) -> anyhow::Result<()> {
-    let provider = parse_provider(provider_name)?;
-
-    if !TokenAccountSupport::is_supported(provider) {
-        anyhow::bail!(
-            "{} does not support token accounts.",
-            provider.display_name()
-        );
-    }
-
-    let store = TokenAccountStore::new();
-    let mut data = store.load_provider(provider)?;
+    let (provider, store, mut data) = load_supported_accounts(provider_name)?;
 
     let account = find_account(&data, account_ref)?;
     let label = account.label.clone();
@@ -171,17 +151,7 @@ async fn remove_account(provider_name: &str, account_ref: &str) -> anyhow::Resul
 
 /// Switch active account
 async fn switch_account(provider_name: &str, account_ref: &str) -> anyhow::Result<()> {
-    let provider = parse_provider(provider_name)?;
-
-    if !TokenAccountSupport::is_supported(provider) {
-        anyhow::bail!(
-            "{} does not support token accounts.",
-            provider.display_name()
-        );
-    }
-
-    let store = TokenAccountStore::new();
-    let mut data = store.load_provider(provider)?;
+    let (provider, store, mut data) = load_supported_accounts(provider_name)?;
 
     let account = find_account(&data, account_ref)?;
     let label = account.label.clone();
@@ -196,6 +166,22 @@ async fn switch_account(provider_name: &str, account_ref: &str) -> anyhow::Resul
         provider.display_name()
     );
     Ok(())
+}
+
+/// Resolve a provider that supports token accounts and load its stored accounts.
+fn load_supported_accounts(
+    provider_name: &str,
+) -> anyhow::Result<(ProviderId, TokenAccountStore, ProviderAccountData)> {
+    let provider = parse_provider(provider_name)?;
+    if !TokenAccountSupport::is_supported(provider) {
+        anyhow::bail!(
+            "{} does not support token accounts.",
+            provider.display_name()
+        );
+    }
+    let store = TokenAccountStore::new();
+    let data = store.load_provider(provider)?;
+    Ok((provider, store, data))
 }
 
 /// Parse provider name to ProviderId

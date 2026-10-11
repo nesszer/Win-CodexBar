@@ -105,25 +105,6 @@ fn is_system_user_dir(name: &str) -> bool {
     )
 }
 
-/// Convert a Windows path to its WSL equivalent.
-///
-/// `C:\Users\John\AppData\Local` becomes `/mnt/c/Users/John/AppData/Local`.
-#[allow(
-    dead_code,
-    reason = "WSL detection helper reserved for future cross-platform integration"
-)]
-pub fn windows_path_to_wsl(windows_path: &str) -> Option<PathBuf> {
-    let path = windows_path.replace('\\', "/");
-
-    if path.len() >= 2 && path.as_bytes()[1] == b':' {
-        let drive_letter = (path.as_bytes()[0] as char).to_lowercase().next()?;
-        let rest = path[2..].trim_start_matches('/');
-        return Some(PathBuf::from(format!("/mnt/{}/{}", drive_letter, rest)));
-    }
-
-    None
-}
-
 /// Get the Windows AppData/Local path from within WSL
 pub fn windows_appdata_local() -> Option<PathBuf> {
     let info = get_wsl_info()?;
@@ -161,18 +142,5 @@ mod tests {
         assert!(is_system_user_dir("Default User"));
         assert!(!is_system_user_dir("John"));
         assert!(!is_system_user_dir("alice"));
-    }
-
-    #[test]
-    fn test_windows_path_to_wsl() {
-        assert_eq!(
-            windows_path_to_wsl(r"C:\Users\John\AppData\Local"),
-            Some(PathBuf::from("/mnt/c/Users/John/AppData/Local"))
-        );
-        assert_eq!(
-            windows_path_to_wsl("D:\\Games"),
-            Some(PathBuf::from("/mnt/d/Games"))
-        );
-        assert_eq!(windows_path_to_wsl("/home/user"), None);
     }
 }

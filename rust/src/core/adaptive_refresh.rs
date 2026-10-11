@@ -52,9 +52,6 @@ const LONG_IDLE_DELAY: Duration = Duration::from_secs(30 * 60);
 const CONSTRAINED_DELAY: Duration = Duration::from_secs(30 * 60);
 const CODING_ACTIVITY_DELAY_CAP: Duration = Duration::from_secs(5 * 60);
 
-/// Representative cadence for consumers that need one interval but cannot access live state.
-pub const NOMINAL_INTERVAL_FOR_HEURISTICS: Duration = Duration::from_secs(5 * 60);
-
 /// Compute the next adaptive refresh delay from activity / power inputs.
 pub fn next_delay(input: AdaptiveRefreshInput) -> AdaptiveRefreshDecision {
     if input.low_power_mode_enabled || input.thermal_pressure == ThermalPressure::Constrained {

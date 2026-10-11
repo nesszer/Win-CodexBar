@@ -217,11 +217,6 @@ impl RateWindow {
         self.used_percent >= 100.0
     }
 
-    /// Check if the window is nearly exhausted (>= 90% used)
-    pub fn is_nearly_exhausted(&self) -> bool {
-        self.used_percent >= 90.0
-    }
-
     /// Format the reset time as a countdown string
     pub fn format_countdown(&self) -> Option<String> {
         Some(format_countdown_until(self.resets_at?, Utc::now()))
