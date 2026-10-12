@@ -1,178 +1,173 @@
-# Windows build proof — `feature/port-phase-13-e2e`
+# Proving UI changes on Windows
 
-This document describes how to produce the Windows installer from the
-Phase-13 desktop-shell branch and what to manually verify on the
-resulting machine. It replaces the stale macOS/Swift workflow docs for
-the purposes of the Phase-13 sign-off.
+Unit tests and `scripts/local-check.ps1` don't prove tray, Settings, float bar, theme or WebView2 behavior. For a change to any of these, rebuild the app on Windows, drive the real window, and attach the proof to the PR. This page shows how. The rule itself is in [AGENTS.md](../AGENTS.md#ui-validation-with-cua-trycuacua).
 
-**Branch:** `feature/port-phase-13-e2e`
-**Default app:** Tauri shell (`apps/desktop-tauri/src-tauri`)
+## The proof loop
 
----
+1. **Rebuild.** Build a desktop binary that includes the change:
 
-## 1. Build commands (PowerShell, from repo root)
+   ```powershell
+   pnpm --dir apps/desktop-tauri run tauri:build:debug
+   ```
 
-Run in a clean PowerShell 7 session on Windows 10 or 11 (x64). `cd` into
-the worktree root first.
+   Or run `.\scripts\dev.ps1`. A binary built before the change proves nothing.
+2. **Close CodexBar.** The app uses the single-instance plugin, so a new launch can hand off to an old process that is still running.
+3. **Launch in proof mode.** Set `CODEXBAR_PROOF_MODE` before you start the new binary. See [Proof mode](#proof-mode).
+4. **Drive the window in the background.** Use CDP for webview controls and cua-driver for native checks. See [Drive the app](#drive-the-app).
+5. **Check what you can see**, not only exit codes. For example: pixels, the window list, a toggle's checked state, the persisted setting, the theme under `auto`, or whether the float bar window exists.
+6. **Attach the proof** to the PR: CDP assertions and CUA screenshots. List what the proof doesn't cover, such as tray icon or tray menu pixels. If CUA can't run, say why and attach equivalent manual proof, as the PR template asks.
 
-```powershell
-# Prerequisites (once per machine)
-rustup target add x86_64-pc-windows-msvc
-# WiX Toolset v3 is required for the .msi artefact and is installed by the
-# Tauri bundler on first run (https://tauri.app/v2/reference/config/#bundle).
+## Proof mode
 
-# Shared backend + Rust tests
-cargo fmt --all
-cargo clippy --all-targets -- -D warnings
-cargo test
+`CODEXBAR_PROOF_MODE` opens one surface at startup and keeps it open for automation. In proof mode the app:
 
-# Desktop Tauri shell — focused
-cargo test -p codexbar-desktop-tauri
-cargo clippy -p codexbar-desktop-tauri --all-targets -- -D warnings
+- doesn't close the surface when it loses focus;
+- shows each surface without activating it, so it never takes focus from the app you are using.
 
-# Proof/CUA captures: set `CODEXBAR_PROOF_MODE` (e.g. `trayPanel`) to open a
-# surface with blur-dismiss suppressed; optionally set
-# `CODEXBAR_SEED_USAGE_JSON=<abs-path>` to plant one synthetic bridge-shaped
-# Codex ProviderUsageSnapshot into the provider cache at launch (malformed
-# files are warned about and ignored) — the seeded cache is pinned against
-# refresh eviction for the duration of the run.
+| Value | What opens |
+| --- | --- |
+| `trayPanel` | The tray panel on the `main` window, at a fixed position above the taskbar |
+| `popOut` | The tray panel flyout window, the same window a tray left-click opens |
+| `hidden` | Nothing |
+| `settings` | Settings on the General pane |
+| `settings:<tab>` | Settings on one pane, for example `settings:menuBar` |
+| `settings:providers:<cli_name>` | Settings on one provider, for example `settings:providers:codex` |
 
-# Frontend unit tests + bundle
-cd apps\desktop-tauri
-pnpm install --frozen-lockfile
-pnpm run check-locale      # exits non-zero on Rust/TS locale-key drift
-pnpm run test              # vitest smoke tests
-pnpm run build             # prebuild runs check-locale, then tsc + vite
+The tab ids are `general`, `providers`, `notifications`, `menuBar`, `menu`, `usageSpend`, `advanced`, `hooks` and `about`. They are case-sensitive. The provider part must be the exact `cli_name`.
 
-# Produce the Windows installer (.msi via WiX + .exe via NSIS)
-pnpm run tauri:build       # add  -- --bundles msi  or  nsis  to narrow
-```
-
-Artefacts land in
-`apps\desktop-tauri\src-tauri\target\release\bundle\msi\*.msi` and
-`\nsis\*.exe`. Invocations that pass `--no-bundle` (our default `pnpm run
-tauri:build`) skip installer packaging; drop `--no-bundle` for the real
-release flow via `cargo tauri build` directly.
-
-For the Inno Setup release artifact, prefer the cached Windows release builder:
+The app logs a warning and starts normally when the value is wrong. That includes an unknown surface, an unknown tab, a payload on `trayPanel`, `hidden` or `popOut` (for example `popOut:codex`), and `floatbar`, which is not a proof surface.
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.27.4
+$env:CODEXBAR_PROOF_MODE = 'settings:menu'
 ```
 
-It keeps a clean managed checkout while reusing Cargo, pnpm, and signed
-installer dependency caches. Use `-WarmCacheOnly` after large ports to prepare
-the desktop cache, and `-SmokeInstall` to install/uninstall the generated
-installer. The builder has no upload switch. Publication is performed only by
-the approval-gated CircleCI draft publisher in `docs/release/ci-cd.md`, which
-checks hashes and never overwrites an existing asset.
-Run the standalone smoke installer test on a Windows machine before approval:
+### Seed usage data
+
+`CODEXBAR_SEED_USAGE_JSON` points at a JSON file with synthetic usage. The app loads it into the provider cache before the first window reads it, so a proof run doesn't need real accounts.
 
 ```powershell
-powershell -ExecutionPolicy Bypass `
-  -File .\scripts\windows-smoke-install.ps1 `
-  -InstallerPath .\rust\target\installer\CodexBar-<version>-Setup.exe `
-  -ExpectedVersion <version>
+$env:CODEXBAR_SEED_USAGE_JSON = 'C:\proof\seed.json'
 ```
 
-The script verifies the silent install switches
-`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`, installed files, CLI `--help` and
-`--version` output, Start Menu shortcut, uninstall registry entry, optional
-version match, and silent uninstall cleanup. Add `-LeaveInstalled` when the VM
-should keep the installed app for manual UI validation.
+The file holds one of two shapes:
 
----
+- **One Codex snapshot.** A single JSON object in the bridge `ProviderUsageSnapshot` shape. Its `providerId` must be `codex`. This works with or without proof mode.
+- **A list of snapshots.** A non-empty JSON array of snapshots. This works only when `CODEXBAR_PROOF_MODE` holds a valid value. Each `providerId` must be an exact bridge id (the `cli_name`), and each provider may appear once. The array is all or nothing: one bad entry skips the whole file.
 
-## 2. Observable behaviours to verify on Windows
+The app fills fields that the file leaves out:
 
-After installing the built `.msi`, launch **CodexBar** and walk through
-the list below. Check each item off in §4.
+- `remainingPercent` from `usedPercent`;
+- `formattedUsed` from `used`;
+- `updatedAt` from the current time;
+- the pace for any window that has `resetsAt` but no `pace`, with the same math and work-days setting as a live refresh.
 
-1. **Tray icon visible** in the Windows notification area (may require
-   "Show all icons" in the taskbar settings on first run).
-2. **Left-click the tray icon** → borderless tray panel anchored
-   near the tray. On multi-monitor setups it should appear on the
-   display hosting the tray.
-3. **Right-click the tray icon** → native Windows context menu with
-   Pop Out Dashboard / Refresh / Settings / Check for updates / Quit entries.
-4. **Preferences window** opens from the tray menu or from the tray panel
-   settings gear; all tabs render (General, Providers, Display, API
-   keys, Cookies, Token accounts, Advanced, About).
-5. **Theme toggle** — Appearance → Theme cycles `Auto ↔ Light ↔ Dark`
-   and the active window repaints instantly. Auto should track the OS
-   setting (Windows Settings → Personalisation → Colors).
-6. **Shortcut capture** — General → Global shortcut → Record, press
-   e.g. `Ctrl+Shift+K`. Chip shows the combo, `Saved` appears, and the
-   shortcut toggles the tray panel globally.
-7. **Provider rows drag-reorder** in Preferences → Providers: grab the
-   handle, drop above/below another provider, refresh the tray panel, and
-   confirm the new order is persisted across app restarts.
-8. **Chart tooltip** — open a provider detail → Cost/Credits chart.
-   Hovering a bar/point shows a tooltip with value + date.
-9. **Reset countdown** — tray panel card shows `Resets in Xh Ym` and
-   re-renders at least once during a 1-minute stare (internal tick is
-   30 s).
-10. **Update banner** — Advanced → Check for updates; when an update is
-    offered the banner appears at the top of the tray panel and dismiss /
-    download / install-and-restart buttons all respond.
+A file the app can't read or parse logs a warning, and the app starts without the seed. A normal refresh doesn't replace seeded data while the cache holds every provider the refresh asks for. A forced refresh, such as **Refresh All**, fetches live data.
 
----
+`CODEXBAR_SEED_CLAUDE_ACCOUNTS_JSON` works the same way for the saved Claude account list. It takes effect only in proof mode. A file the app can't parse logs a warning, and the app uses the real account list.
 
-## 3. Known platform limitations
+## Drive the app
 
-- **Work-area rect** on Linux hosts (X11/Wayland) returns the full
-  monitor size because the Tauri `monitor.work_area` helper does not
-  yet exclude panels. The production target is Windows, where
-  `SystemParametersInfoW(SPI_GETWORKAREA)` is correct.
-- The following CLIs are **Windows-only** in this port and cannot be
-  exercised on macOS/Linux: DPAPI-protected browser cookie import
-  (Chrome/Edge), the single-instance lock via named mutex, and the
-  MSI-based auto-update channel.
-- **`fSingleSessionPerUser`** (terminal-services policy): if the
-  post-install tray icon does not appear on a multi-user Windows
-  server, toggle
-  `HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\fSingleSessionPerUser=0`
-  on the host. This is **not** set by the installer — it is a host
-  policy decision, documented here only so operators can unblock
-  themselves. This repository must not ship a registry tweak for it.
-- E2E browser automation (Playwright / WebDriver) is intentionally out
-  of scope for Phase 13; the `pnpm run test` suite covers unit-level
-  behaviour only.
+Drive the app without taking the user's focus or keyboard. Don't use cua-driver's `bring_to_front`, foreground mode, `hotkey` or `type_text`.
 
----
+### CDP for webview controls
 
-## 4. Machine-readable check-list
+Set a remote debugging port before you launch the app. Use one port for each app you run in parallel.
 
-Tick each entry as it is verified on the Windows target.
+```powershell
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=<port>'
+```
+
+Read `http://127.0.0.1:<port>/json/list` and attach to the window's own page target. Pick the target by URL:
+
+| Window | Label | Page URL |
+| --- | --- | --- |
+| Hidden main window (and `trayPanel` proof) | `main` | `http://tauri.localhost/` |
+| Tray panel flyout | `flyout` | `http://tauri.localhost/index.html?window=flyout` |
+| Settings | `settings` | `http://tauri.localhost/index.html?window=settings&tab=<tab>` |
+| Float bar | `floatbar` | `http://tauri.localhost/index.html?window=floatbar&orientation=<orientation>` |
+
+Don't attach to the first target in the list by default. Tools that do that, or that open `about:blank` (for example browser-use), see a blank page.
+
+Click with `Input.dispatchMouseEvent`. It doesn't move the cursor or take focus. Check the DOM state, and check the saved value through the app bridge command `get_settings_snapshot`.
+
+### cua-driver for native checks
+
+[cua-driver](https://github.com/trycua/cua) from trycua/cua does background computer use on Windows: window lists, UI Automation, clicks and real screenshots. See the [docs](https://cua.ai/docs), the [install guide](https://cua.ai/docs/how-to-guides/driver/install) and the [CLI reference](https://cua.ai/docs/reference/cua-driver/cli-reference). Install it in PowerShell:
+
+```powershell
+irm https://cua.ai/driver/install.ps1 | iex
+```
+
+Then follow the steps the installer prints. The binary is usually `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`.
+
+- `cua-driver serve` runs a long-lived daemon. `cua-driver call <tool> '<json>'` runs one tool, for example `list_windows`, `get_window_state` or `click`.
+- In cua-driver 0.31 and later, actions take an `element_token` from `get_window_state`. `element_index` and `snapshot_id` are rejected.
+- A pixel click needs a screenshot from the same session first.
+- Pass the same `session` label on the state read and on every action that uses its tokens, or keep one `serve` connection. Separate one-shot `call`s without a session retire the snapshot, and its tokens go stale.
+
+Use CUA in every proof for what CDP can't see:
+
+- `verify_state` (with `timeout_ms` and `stable_samples`) for window existence and bounds;
+- real-pixel screenshots through `get_window_state` with `--screenshot-out-file`;
+- native facts, such as a dark DWM frame under theme `auto`, the float bar being topmost and layered, and the window frame.
+
+CDP screenshots are not proof.
+
+## What to check after an install
+
+Install the build, start **CodexBar**, and walk through this list.
+
+1. **Tray icon.** The icon appears in the notification area. On first run you may need to turn it on under taskbar settings.
+2. **Left-click the tray icon.** The tray panel flyout opens near the tray, on the monitor that holds the taskbar.
+3. **Right-click the tray icon.** The native menu opens. From top to bottom it has the account submenus (Codex, Claude Code and Grok), the provider status rows, **Refresh All**, **Pop Out Dashboard**, **Show Float Bar**, **Providers**, **Settings...**, **Check for Updates**, **About CodexBar** and **Quit**.
+4. **Settings.** Settings opens from the tray menu and from the gear in the tray panel. Every sidebar pane opens.
+5. **Theme.** In General, switch the theme between Automatic, Light and Dark. The open windows repaint. Automatic follows the Windows color mode.
+6. **Global shortcut.** In General > Keyboard, record a shortcut, for example `Ctrl+Shift+K`. The shortcut opens and closes the tray panel from any app.
+7. **Provider order.** Reorder providers in Settings, then restart the app. The tray panel and Settings keep the new order.
+8. **Reset countdown.** A card shows "Resets in" with a time. The text updates within a minute; the timer ticks every 30 seconds.
+9. **Updates.** In About, click **Check for Updates**. When an update exists, a banner appears at the top of the tray panel with buttons to download, view the release and dismiss.
+
+## Build and release checks
+
+Run these from the repo root. [BUILDING.md](./BUILDING.md) explains each one.
+
+```powershell
+.\scripts\local-check.ps1 -Slice ci
+pnpm --dir apps/desktop-tauri run tauri:build
+.\scripts\windows-release-build.ps1 -Ref vX.Y.Z -SmokeInstall
+.\scripts\release-doctor.ps1 -Version X.Y.Z
+```
+
+`tauri:build` makes no installer. The release builder makes the Inno Setup installer, the portable binary and the CLI zip.
+
+## Known limits
+
+- On Linux hosts, the Tauri work-area helper returns the whole monitor, because it doesn't exclude panels. On Windows, `SystemParametersInfoW(SPI_GETWORKAREA)` gives the correct work area.
+- DPAPI cookie import, the single-instance lock and the installer-based update work only on Windows.
+- On a multi-user Windows server, the tray icon may not appear after install. The host policy `HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\fSingleSessionPerUser` can cause this. Setting it to `0` on the host fixes it. The installer doesn't change it, and this repo must not ship a registry change for it.
+- `pnpm test` runs unit tests in jsdom. It doesn't drive a real window.
+
+## Checklist
 
 ```
-[ ] build.cargo-fmt               cargo fmt --all
-[ ] build.cargo-clippy            cargo clippy --all-targets -- -D warnings
-[ ] build.cargo-test              cargo test
-[ ] build.tauri-clippy            cargo clippy -p codexbar-desktop-tauri --all-targets -- -D warnings
-[ ] build.tauri-test              cargo test -p codexbar-desktop-tauri
-[ ] build.pnpm-install            cd apps/desktop-tauri && pnpm install --frozen-lockfile
-[ ] build.pnpm-check-locale       pnpm run check-locale
-[ ] build.pnpm-test               pnpm run test
-[ ] build.pnpm-build              pnpm run build
-[ ] build.tauri-bundle            pnpm run tauri:build (msi + nsis)
-[ ] release.cached-build          .\scripts\windows-release-build.ps1 -Ref <tag>
+[ ] build.local-check-ci          .\scripts\local-check.ps1 -Slice ci
+[ ] build.tauri-build             pnpm --dir apps/desktop-tauri run tauri:build
+[ ] release.cached-build          .\scripts\windows-release-build.ps1 -Ref <tag> -SmokeInstall
 [ ] release.doctor                .\scripts\release-doctor.ps1 -Version <version>
 
 [ ] runtime.tray-icon-visible
 [ ] runtime.tray-left-click-opens-panel
 [ ] runtime.tray-context-menu
-[ ] runtime.preferences-opens
-[ ] runtime.preferences-all-tabs
+[ ] runtime.settings-opens
+[ ] runtime.settings-all-panes
 [ ] runtime.theme-light
 [ ] runtime.theme-dark
 [ ] runtime.theme-auto-tracks-os
 [ ] runtime.shortcut-capture-records
-[ ] runtime.shortcut-capture-toggles-panel
-[ ] runtime.provider-drag-reorder
+[ ] runtime.shortcut-toggles-panel
+[ ] runtime.provider-reorder
 [ ] runtime.provider-order-persists
-[ ] runtime.chart-tooltip-visible
 [ ] runtime.reset-countdown-ticks
 [ ] runtime.update-banner-flow
-[ ] runtime.single-instance-mutex
+[ ] runtime.single-instance
 ```

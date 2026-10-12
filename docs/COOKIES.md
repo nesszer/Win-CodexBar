@@ -1,56 +1,79 @@
-# Browser Cookie Extraction (Windows)
+# Browser cookies on Windows
 
-Win-CodexBar can extract browser cookies for providers that use web authentication (Claude, Cursor, Kimi, and others). This is the Windows rewrite of upstream cookie/Keychain concepts: **DPAPI + browser profiles**, not macOS Keychain prompts.
+Some providers sign in through their website, for example Claude, Cursor and Kimi. For these providers CodexBar can read the session cookie from a browser on the same PC, or you can paste the cookie yourself. On Windows, CodexBar uses DPAPI and browser profile folders. It doesn't use the macOS Keychain.
 
-## Supported Browsers
+## Import cookies for a provider
 
-| Browser | Encryption | Status |
-|---------|-----------|--------|
-| Chrome | DPAPI + AES-256-GCM; modern profiles may use Chromium ABE (`v20`) | ⚠️ Automatic only when the needed cookies are not App-Bound |
-| Edge | DPAPI + AES-256-GCM; modern profiles may use Chromium ABE (`v20`) | ⚠️ Automatic only when the needed cookies are not App-Bound |
-| Brave | DPAPI + AES-256-GCM; modern profiles may use Chromium ABE (`v20`) | ⚠️ Automatic only when the needed cookies are not App-Bound |
-| Chrome Beta, Dev, Canary, Chrome for Testing, Chromium | DPAPI + AES-256-GCM; modern profiles may use Chromium ABE (`v20`) | ⚠️ Automatic only when the needed cookies are not App-Bound |
-| Firefox | Unencrypted SQLite | ✅ Automatic |
+1. Open **Settings > Providers** and select the provider.
+2. Find the **Browser Cookies** section in the provider pane. It appears only for providers that sign in with web cookies.
+3. Pick a browser and profile set from the list. The list shows only browsers that CodexBar found on this PC, with their profile count.
+4. Click **Import from Browser**.
 
-Chromium App-Bound Encryption (ABE) binds protected cookie keys to the browser installation. Win-CodexBar does not bypass that protection. If the selected Chromium profile stores the provider cookies as App-Bound `v20` values, automatic import cannot decrypt them with the normal user DPAPI key. Use a manual Cookie header or Firefox instead. Chromium browser choices remain available because older or unmigrated profiles can still contain readable DPAPI/AES-GCM cookies. Each Chrome channel (Stable, Beta, Dev, Canary, Chrome for Testing) and Chromium is a separate import choice that reads only its own `User Data` profiles.
+CodexBar reads the cookies for that provider's domain and saves them as the provider's manual cookie. The section then shows a **Saved** badge and a **Remove** button.
 
-## How It Works
+The provider's **Cookie source** setting decides how CodexBar uses cookies during a refresh:
 
-1. CodexBar reads the browser's cookie database from its standard location
-2. For Chromium-based browsers, CodexBar can decrypt legacy DPAPI/AES-GCM cookies using the current user's credentials; App-Bound `v20` cookies are intentionally not bypassed
-3. Only cookies for enabled providers are extracted (e.g., `claude.ai`, `cursor.com`)
-4. Cookies are stored in-memory and refreshed on each provider poll
+- **Automatic** reads the browser cookies on each refresh.
+- **Manual** uses only the cookie you pasted or imported.
+- **Off** turns cookie sign-in off for that provider.
 
-## Setting Up Cookie Import
+Some providers add their own steps to Automatic. The help text under the setting says what each one reads.
 
-1. Open **Settings** → **Providers** tab
-2. Select the provider you want to configure
-3. In the provider detail pane, find the **Browser Cookies** section
-4. Choose your browser from the dropdown and click **Import**
+## Paste a cookie by hand
 
-## Manual Cookies
+Use this when automatic import fails. For example, the browser uses App-Bound Encryption, the cookie database can't be read, or CodexBar runs in WSL.
 
-If automatic extraction fails (for example, Chromium App-Bound Encryption is active, the browser database cannot be read, or CodexBar is running in WSL):
+1. Open the provider's website in your browser and sign in, for example `claude.ai`.
+2. Open DevTools (F12) and select the **Network** tab.
+3. Reload the page and select any request to the provider.
+4. Under **Request Headers**, copy the value of the `Cookie` header.
+5. In **Settings > Providers > (provider) > Browser Cookies**, paste the value and click **Save Cookie**.
 
-1. Open your browser and navigate to the provider's website (e.g., `claude.ai`)
-2. Open DevTools (F12) → **Network** tab
-3. Refresh the page and click any request to the provider
-4. Copy the `Cookie` header value from **Request Headers**
-5. In CodexBar Settings → provider detail → **Browser Cookies**, paste the value
+Manual cookies are stored in `manual_cookies.json` in the CodexBar config folder. The file is written through `secure_file`, which uses DPAPI on Windows. See [CONFIGURATION.md](./CONFIGURATION.md).
 
-## Kimi local-storage tokens
+## Supported browsers
 
-With the Kimi cookie source set to automatic, CodexBar also reads `access_token` from Chromium browsers' `Local Storage` for the selected Kimi region (`www.kimi.com` or `www.kimi.ai`), after the Kimi Desktop session and browser cookies. Local storage is not App-Bound encrypted, so this can work when cookie decryption is blocked. Only unexpired three-segment JWTs are used; refresh tokens are never read. A manual Cookie header always wins, and Cookie source Off or Manual skips this step. Open Kimi in the browser to renew an expired session. Firefox and Safari local storage are not read, and only the `Default` and `Profile N` profiles are scanned.
+| Browser | Cookie storage | Automatic import |
+| --- | --- | --- |
+| Chrome | DPAPI and AES-256-GCM. Newer profiles may use App-Bound Encryption (`v20`). | Works only when the needed cookies are not App-Bound. |
+| Chrome Beta, Dev, Canary and Chrome for Testing | Same as Chrome | Same as Chrome |
+| Chromium | Same as Chrome | Same as Chrome |
+| Edge | Same as Chrome | Same as Chrome |
+| Brave | Same as Chrome | Same as Chrome |
+| Arc | Same as Chrome | Same as Chrome |
+| Firefox | Unencrypted SQLite | Works |
+
+Each Chrome channel, Chromium, Edge, Brave and Arc is a separate choice. Each one reads only its own `User Data` profiles. Firefox reads the profiles under `%APPDATA%\Mozilla\Firefox\Profiles`.
+
+## App-Bound Encryption
+
+Chromium App-Bound Encryption (ABE) ties the cookie key to the browser install. CodexBar doesn't bypass it. If the selected profile stores the provider's cookies as App-Bound `v20` values, CodexBar can't decrypt them with the user's DPAPI key.
+
+Closing the browser doesn't remove ABE. Paste the cookie by hand, or sign in to the provider in Firefox and import from there. The Chromium choices stay in the list because older profiles can still hold readable DPAPI and AES-GCM cookies.
+
+## Kimi tokens from local storage
+
+When the Kimi cookie source is Automatic, CodexBar also reads `access_token` from the `Local Storage` of Chromium browsers, for the selected Kimi region (`www.kimi.com` or `www.kimi.ai`). It tries this after the Kimi Desktop session and the browser cookies.
+
+- Local storage is not App-Bound encrypted, so this can work when cookie decryption is blocked.
+- CodexBar uses only unexpired JWTs with three segments. It never reads refresh tokens.
+- A manual cookie always wins. Cookie source **Manual** or **Off** skips this step.
+- CodexBar scans only the `Default` and `Profile N` profiles. It doesn't read Firefox local storage.
+
+If the token has expired, open Kimi in the browser to renew the session.
 
 ## Troubleshooting
 
-- **"Chromium App-Bound Encryption"**: Modern Chrome, Edge, Brave, and other Chromium-based profiles can protect cookies with ABE. Closing the browser does not remove ABE; use a manual Cookie header or Firefox for the same login
-- **"Cookie decryption failed"**: Close the browser and retry if the cookie database itself is locked
-- **Empty cookies**: Make sure you're logged into the provider's web interface in that browser
-- **WSL**: Chromium DPAPI cookies cannot be decrypted from WSL. Use manual cookies or CLI-based auth instead
+| Message or symptom | What to do |
+| --- | --- |
+| "... Chromium App-Bound Encryption ... blocking automatic cookie import" | Paste the cookie by hand, or import from Firefox. |
+| "Database error" or "Decryption error" | Close the browser and try again, in case the cookie database is locked. |
+| "No cookies found for (domain)" | Sign in to the provider's website in that browser, then import again. |
+| The browser list is missing | CodexBar found no supported browser. Paste the cookie by hand. |
+| CodexBar runs in WSL | WSL can't decrypt Chromium DPAPI cookies. Paste the cookie by hand or use CLI sign-in. See [WSL.md](./WSL.md). |
 
 ## Related
 
-- [CONFIGURATION.md](./CONFIGURATION.md) — where manual cookies and settings live on disk
-- [PROVIDERS.md](./PROVIDERS.md) — web vs cli vs oauth sources
-- [WSL.md](./WSL.md) — why automatic Chromium decrypt fails in WSL
+- [CONFIGURATION.md](./CONFIGURATION.md): where manual cookies and settings are stored.
+- [PROVIDERS.md](./PROVIDERS.md): which providers use web, CLI or OAuth sign-in.
+- [WSL.md](./WSL.md): why Chromium cookie decryption fails in WSL.

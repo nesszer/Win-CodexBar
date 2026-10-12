@@ -1,34 +1,34 @@
 # ADR 0003: Multi-account Codex coexistence with ambient provider
 
 Date: 2026-08-06
-Status: Accepted
+Status: Accepted. The tray-flyout parts of PR 5/5 were superseded by #813. See "Later changes".
 
 ## Context
 
-CodexBar today surfaces exactly one `codex` provider snapshot. That snapshot is
-produced by the ambient single-account Codex provider in
-`rust/src/providers/codex/`: it reads the identity that happens to be active in
-`~/.codex` (`auth.json`), calls `fetch_usage`, and publishes the result through
-the standard provider pipeline to the tray, flyout, and settings surfaces.
+CodexBar shows exactly one `codex` provider snapshot. The ambient
+single-account Codex provider in `rust/src/providers/codex/` produces it. The
+provider reads whichever identity is active in `~/.codex` (`auth.json`), calls
+`fetch_usage`, and publishes the result through the standard provider pipeline
+to the tray, the flyout and Settings.
 
-A stacked 5-PR series ports the MIT-licensed Windows core of
+A stacked series of 5 PRs ports the MIT-licensed Windows core of
 [`ademisler/codexcontrol`](https://github.com/ademisler/codexcontrol) (Windows
-Python modules) into Rust as `rust/src/codex_accounts/`:
+Python modules) to Rust as `rust/src/codex_accounts/`:
 
-- **PR 1/5 — domain core**: account model (`CodexAccount`,
-  `CodexAccountSource::Ambient | Managed`), ambient vs app-managed
+- **PR 1/5, domain core.** The account model (`CodexAccount`,
+  `CodexAccountSource::Ambient | ManagedByApp`), ambient vs app-managed
   `CODEX_HOME` discovery (`file_locations`), per-account quota snapshots,
   account stores, login runner, and Codex Desktop (MSIX) session switching.
-- **PR 2/5 — shell**: Tauri commands exposing discovery/login/switch/remove,
+- **PR 2/5, shell.** Tauri commands exposing discovery/login/switch/remove,
   plus managed-account refresh lanes that fetch and cache a snapshot per
   managed account in parallel.
-- **PR 3/5 — frontend bridge**: TS types, `tauri.ts` wrappers, i18n keys.
-- **PR 4/5 — settings panel**: `CodexAccountsSection` in provider settings.
-- **PR 5/5 — tray menu**: `CodexAccountsMenu` flyout.
+- **PR 3/5, frontend bridge.** TS types, `tauri.ts` wrappers, i18n keys.
+- **PR 4/5, settings panel.** `CodexAccountsSection` in provider settings.
+- **PR 5/5, tray menu.** The `CodexAccountsMenu` flyout.
 
-The new module therefore manages *many* accounts while the existing provider
-pipeline still models *one* `codex` provider. Both must work while the port
-lands in reviewable slices.
+The new module manages *many* accounts, while the provider pipeline still
+models *one* `codex` provider. Both must work while the port lands in
+reviewable slices.
 
 ## Decision
 
@@ -46,12 +46,12 @@ lands in reviewable slices.
 - No existing provider, surface, or persistence path is rewired in this series;
   the ambient provider keeps publishing exactly as before.
 
-**Replacement intent** (tracked as part of this ADR decision, not executed in
-this series): the ambient provider path retires in a follow-up major release
-once `codex_accounts` reaches feature parity against it — i.e. the managed
-lanes match ambient `fetch_usage` behavior *and* local cost scans are migrated
-onto the managed-home model. Retirement is a separate change with its own
-review; this series only prepares the ground.
+**Replacement intent.** This ADR records the intent, but this series does not
+carry it out. The ambient provider path retires in a later major release, once
+`codex_accounts` reaches feature parity with it. Parity means the managed lanes
+match ambient `fetch_usage` behavior *and* local cost scans move to the
+managed-home model. Retirement is a separate change with its own review. This
+series only prepares for it.
 
 ## Consequences
 
@@ -83,3 +83,18 @@ review; this series only prepares the ground.
   clobbering them: copying on unknown freshness is exactly how a stale
   ambient token turned working accounts into dead ones, which is the
   duplicate-home failure mode this policy exists to prevent.
+
+## Later changes
+
+Added 2026-10-12. The decision above is kept as history.
+
+- The enum variant is `CodexAccountSource::ManagedByApp`
+  (`rust/src/codex_accounts/models.rs`). Earlier text called it `Managed`.
+- The ambient provider has not retired. `rust/src/providers/codex/` still
+  publishes the single `codex` snapshot.
+- #813 (`feat/mac-card-anatomy`) removed the React `CodexAccountsMenu` and
+  `ClaudeAccountsMenu` flyouts from the tray panel. A Codex card now ends with
+  a "Switch Account..." or "Add Account..." row that opens Settings >
+  Providers, where account switching lives. The tray icon's right-click menu
+  still has native "Codex Accounts", "Claude Code accounts" and "Grok
+  accounts" submenus (`apps/desktop-tauri/src-tauri/src/tray_accounts.rs`).

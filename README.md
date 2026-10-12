@@ -2,7 +2,7 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [繁體中文（臺灣）](./README.zh-TW.md) | [日本語](./README.ja-JP.md) | [한국어](./README.ko-KR.md) | [Español mexicano](./README.es-MX.md) | [Português (Brasil)](./README.pt-BR.md) | [Türkçe](./README.tr-TR.md)
 
-Win-CodexBar is a Windows system-tray app for keeping AI coding-tool usage visible without opening a dozen dashboards. It ports the spirit of [CodexBar](https://github.com/steipete/CodexBar) to a Tauri + React desktop shell backed by shared Rust provider logic.
+Win-CodexBar is a Windows tray app that shows how much of your AI coding-tool quota you have used, without opening each provider's dashboard. It is a Windows port of [CodexBar](https://github.com/steipete/CodexBar) for macOS. The app is a Tauri 2 and React shell on top of shared Rust provider code.
 
 <table>
   <tr>
@@ -15,57 +15,61 @@ Win-CodexBar is a Windows system-tray app for keeping AI coding-tool usage visib
   </tr>
 </table>
 
-## Highlights
-
-- **56 providers** including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, Qoder, Sakana AI, CrossModel, and more.
-- **Tray-first workflow** with a compact provider grid, usage cards, refresh action, settings shortcut, and quit control.
-- **Provider settings** for source selection, credentials, cookie import, token accounts, API keys, regions, and tray-display preferences.
-- **Windows credential protection** for app-managed API keys, manual cookies, and token accounts, using user-scoped DPAPI where available.
-- **Browser cookie import** for Chrome Stable, Beta, Dev, Canary, Chrome for Testing, Chromium, Edge, Brave, and Firefox, kept opt-in per provider.
-- **Installed local CLI** for scripting usage, cost, config, diagnostics, and loopback integrations.
-- **Installer + portable builds** with WebView2 runtime bootstrap, VC++ runtime bootstrap, and SHA-256 checksum files.
-
 ## Install
 
-Install with Windows Package Manager:
+Install with the Windows Package Manager:
 
 ```powershell
 winget install Finesssee.Win-CodexBar
 ```
 
-Or download the latest installer/portable build from [GitHub Releases](https://github.com/nesszer/Win-CodexBar/releases).
+Or download a build from [GitHub Releases](https://github.com/nesszer/Win-CodexBar/releases):
 
 - Installer: `CodexBar-<version>-Setup.exe`
 - Portable: `CodexBar-<version>-portable.exe`
-- Checksums: each release includes `.sha256` files
+- CLI only: `CodexBarCLI-v<version>-windows-x64.zip`
+- Each file has a `.sha256` checksum next to it.
 
-Winget distribution is approved through [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/f/Finesssee/Win-CodexBar). New versions can take a little time to appear because every Winget update is pinned to a specific release URL and installer hash.
+The installer installs the WebView2 runtime if it is missing. Release builds link the C runtime statically, so they don't need the VC++ redistributable.
 
-## Code signing
+Winget packages come from [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/f/Finesssee/Win-CodexBar). Each Winget version pins one release URL and installer hash, so a new version can take a while to appear there.
 
-> **Code signing:** SignPath.io is wired into the GitHub Actions release path, but production signing remains fail-closed until the Release certificate 2026 is issued and the `release-signing` policy becomes valid. See [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md) for the signing policy.
-> The v0.60.3 release is immutable and unsigned; verify its SHA-256 files. The first signed release will be the next normal version after SignPath onboarding.
+### Code signing
 
-## First Run
+Releases are not signed yet. SignPath.io is set up in the GitHub Actions release workflow, but signing stays off until SignPath issues the Release certificate 2026 and the `release-signing` policy is valid. Until then, check each download against its `.sha256` file. See [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
-1. Launch **CodexBar** from the Start Menu or portable executable.
-2. Click the tray icon to open the usage panel.
-3. Open **Settings -> Providers**.
-4. Enable the providers you use.
-5. Add the matching credential type: OAuth/device login, API key, browser cookies, local CLI login, or token account.
+## First run
 
-For Claude, browser cookies/sessionKey are preferred because they match Claude's settings-page usage. OAuth and CLI stay available as fallbacks. For CLI-based providers such as Codex and Gemini, sign in with the provider CLI first.
+1. Start **CodexBar** from the Start menu, or run the portable executable.
+2. Click the tray icon to open the tray panel.
+3. Open **Settings > Providers** from the tray menu.
+4. Turn on the providers you use. A new install turns on Claude and Codex.
+5. Add the credential each provider needs: an OAuth or device login, an API key, browser cookies, a local CLI login or a token account.
 
-## Latest Release
+For Claude, browser cookies (the `sessionKey`) are preferred, because they match the usage on Claude's settings page. OAuth and the CLI are fallbacks. For CLI-based providers such as Codex and Gemini, sign in with that provider's CLI first.
 
-**v0.33.2** fixes tray-panel dismissal so the popover closes on focus loss or Escape, without immediately reopening from the same tray click.
+## What the app does
 
-See the full history in [CHANGELOG.md](CHANGELOG.md).
+- **Tray panel.** Left-click the tray icon, or press `Ctrl+Shift+U`, to open a light panel in the Mac style. It shows one card per provider. Each card has a metric row per usage window, with a bar, the reset time and, when the provider supports it, a pace line such as "10% in deficit · Runs out in 9d 8h".
+- **Tray icon.** The icon shows bars or a percentage for one provider, or two providers stacked. With **Color Pace Indicator** on, it turns green when you are behind pace and red when you are ahead.
+- **Float bar.** An optional always-on-top strip with the same usage.
+- **Providers.** More than 90 providers, including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, Qoder and Sakana AI. Each provider has its own source, credentials, cookie import, token accounts, API keys and region settings.
+- **Settings.** A window with a sidebar: General, Usage & Spend, Notifications, Menu Bar, Menu, Advanced, Hooks and About, then one page per provider. Each provider row has a status dot.
+- **Provider status pages.** With **Check provider status** on (the default), the app polls the status pages of providers such as OpenAI, Claude, Copilot, Cursor and Gemini. An incident colors that provider's dot in Settings and adds a line to the tray panel and the tray tooltip.
+- **Per-provider quota warnings.** Each provider can use the global warning thresholds, its own thresholds, or none.
+- **Usage & Spend.** Local cost estimates from Codex and Claude logs and from provider APIs. Turn off **Track costs** to hide them.
+- **Hooks.** Run a local program when a quota runs low, runs out or resets, or when a provider fails or recovers.
+- **Hide personal information.** Removes email addresses and replaces account names with "Account 1", "Account 2" and so on.
+- **Portable preferences.** Export your display and behavior choices to a JSON file and import them on another machine. Secrets are never exported.
+- **CLI.** A console tool for scripts: usage, cost, config, diagnostics and a loopback dashboard server.
+- **Languages.** The app follows the Windows display language by default.
 
-## Supported Providers
+[docs/CONFIGURATION.md](docs/CONFIGURATION.md) describes every setting.
+
+## Supported providers
 
 <details>
-<summary>Provider matrix</summary>
+<summary>Provider matrix (a selection; the app supports more)</summary>
 
 | Provider | Auth | Tracks |
 |---|---|---|
@@ -85,7 +89,7 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | Augment | Cookies | Credits |
 | OpenCode | Local Config | Usage |
 | Kimi | Cookies | 5h Rate, Weekly |
-| Kimi K2 | API Key | Credits |
+| Kimi K2 (deprecated) | API Key | Credits |
 | Amp | Cookies | Usage |
 | Warp | Local Config | Usage |
 | Ollama | Cookies / API Key | Usage, Cloud Models, Pace windows |
@@ -129,15 +133,17 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | xKiro | API Key | Daily free tokens |
 | Synthetic | API Key | Five-hour quota, Weekly tokens, Hourly search, Plan |
 | Langdock | Browser cookies / manual Cookie header | Session (5h), Weekly |
-| LithosAI | Browser cookies / manual Cookie header | Prepaid balance, UTC spend today and this month |
+| LithosAI | Browser cookies / manual Cookie header | Prepaid balance (Credits), UTC spend today and this month |
 | Muse (muse.ai) | Browser cookies / manual Cookie header | Weekly usage, tokens left, top-up tokens |
 | WorkBuddy | Browser cookies / manual Cookie header | Monthly credits left, plan, cycle reset |
 
 </details>
 
-## Supported Languages
+[docs/PROVIDERS.md](docs/PROVIDERS.md) explains how providers fetch data, which windows get pace, and the details of individual providers.
 
-The UI and contributor reporting currently support:
+## Supported languages
+
+The app ships these 10 languages:
 
 - English
 - 简体中文
@@ -146,28 +152,39 @@ The UI and contributor reporting currently support:
 - 한국어
 - Español mexicano
 - Português (Brasil)
+- Русский
 - Türkçe
 - Українська
 
-## Build From Source
+A new install follows the Windows display language. Pick **System** or a language in **Settings > General**.
+
+## Build from source
+
+You need Rust (stable, `x86_64-pc-windows-msvc`), the Visual Studio C++ build tools, Node.js and pnpm. `scripts/dev.ps1` checks for them but installs nothing. Run these from the repo root:
 
 ```powershell
-# Prerequisites: Node.js + pnpm. Rust and MinGW are installed by the script when needed.
 git clone https://github.com/nesszer/Win-CodexBar.git
 cd Win-CodexBar
+pnpm --dir apps/desktop-tauri install --frozen-lockfile
 .\scripts\dev.ps1
 ```
 
-Useful dev flags:
+Other `dev.ps1` options:
 
 ```powershell
-.\scripts\dev.ps1 -Release      # optimized build
-.\scripts\dev.ps1 -SkipBuild    # relaunch the last build
+.\scripts\dev.ps1 -Release
+.\scripts\dev.ps1 -SkipBuild
 ```
 
-CLI examples:
+`-Release` builds an optimized binary. `-SkipBuild` starts the last build again.
 
-```bash
+[docs/BUILDING.md](docs/BUILDING.md) covers the checks, the CLI build and release builds.
+
+## Use the CLI
+
+The installer puts the console CLI in `codexbar-cli.exe`. `codexbar.exe` is the tray app, and `codexbar-desktop.exe` is a copy kept for older shortcuts and autostart entries. Start menu shortcuts start the tray app.
+
+```powershell
 codexbar-cli --help
 codexbar-cli diagnose --pretty
 codexbar-cli usage -p claude
@@ -175,45 +192,53 @@ codexbar-cli usage -p all
 codexbar-cli cost -p codex
 ```
 
-Installer builds include `codexbar.exe` as the tray app and `codexbar-cli.exe` as the console CLI. Start Menu shortcuts launch the desktop app; terminal commands use `codexbar-cli.exe`. `codexbar-desktop.exe` is still installed as a compatibility alias for older shortcuts and autostart entries.
+A source build names the CLI `codexbar.exe`. See [docs/CLI.md](docs/CLI.md).
 
-## Release Builds
+## Release builds
 
-For local Windows release builds, use the cached release builder:
+To build a release locally on Windows, use the cached release builder:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.33.2 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.70.0 -SmokeInstall
 ```
 
-The script builds the real Tauri release binary plus the console CLI, verifies signed installer dependencies, packages with Inno Setup, writes installer/portable assets, writes SHA-256 sidecars, and can run a silent install/uninstall smoke test.
-
-More release automation notes live in [docs/release/ci-cd.md](docs/release/ci-cd.md).
+It builds the Tauri release binary and the console CLI, checks the installer dependencies, packages the installer with Inno Setup, writes the installer and portable files with SHA-256 checksums, and with `-SmokeInstall` runs a silent install and uninstall test. See [docs/BUILDING.md](docs/BUILDING.md#build-a-release-on-windows) and [docs/release/ci-cd.md](docs/release/ci-cd.md).
 
 ## Privacy
 
-- **On-device by default**: provider data is read from known local paths or provider APIs you configure.
-- **Opt-in cookies**: browser-cookie extraction only runs for providers you enable.
-- **Protected secrets**: API keys, manual cookies, and token accounts use the secure-file layer; Windows uses user-scoped DPAPI where available.
-- **Safe diagnostics**: diagnostics expose provider/source/status metadata only, never raw cookies, API keys, bearer tokens, or OAuth values.
-- **Verified updates**: installer downloads require a GitHub SHA-256 digest and are re-verified immediately before apply.
+- **Local by default.** The app reads provider data from known local paths or from provider APIs you set up.
+- **Cookies are opt-in.** The app reads browser cookies only for providers you turn on.
+- **Secrets are protected.** API keys, pasted cookies, token accounts and `settings.json` are stored through the secure-file layer, which uses DPAPI for the current Windows user.
+- **Diagnostics are safe to share.** They contain provider, source and status metadata only. They never contain cookies, API keys, bearer tokens or OAuth values.
+- **Updates are verified.** An update download needs a SHA-256 digest from GitHub and is checked again right before it is applied.
+
+See [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Docs
 
 | Topic | Link |
 |---|---|
 | Building from source | [docs/BUILDING.md](docs/BUILDING.md) |
-| WSL setup and auth tips | [docs/WSL.md](docs/WSL.md) |
-| Browser cookie details | [docs/COOKIES.md](docs/COOKIES.md) |
+| Settings and files | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
+| Providers, windows and pace | [docs/PROVIDERS.md](docs/PROVIDERS.md) |
+| The CLI | [docs/CLI.md](docs/CLI.md) |
+| Browser cookies | [docs/COOKIES.md](docs/COOKIES.md) |
+| How the app is built | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Proving UI changes | [docs/WINDOWS_PROOF.md](docs/WINDOWS_PROOF.md) |
+| WSL setup and sign-in tips | [docs/WSL.md](docs/WSL.md) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+See [CHANGELOG.md](CHANGELOG.md) for the release history. The current release is 0.70.0.
 
 ## Local integrations
 
-- [AI Usage Limits](https://github.com/lenadweb/stream-deck-ai-limits) — Elgato Stream Deck integration that can consume the local `codexbar serve` dashboard/API to show provider, account, quota, or payload metrics.
-- [AI Monitor](https://github.com/tobymarks/esp32-ai-monitor) — ESP32 desk display (Cheap Yellow Display) with a Windows companion app (beta) that calls the installed CLI (`codexbar-cli usage -p <provider> --json`) and streams Claude, Codex, Copilot, Cursor, Gemini, or Antigravity limits to the display over USB serial.
+- [AI Usage Limits](https://github.com/lenadweb/stream-deck-ai-limits): an Elgato Stream Deck plugin that reads the local `codexbar serve` dashboard and API to show provider, account, quota or payload metrics.
+- [AI Monitor](https://github.com/tobymarks/esp32-ai-monitor): an ESP32 desk display (Cheap Yellow Display) with a Windows companion app (beta). The app calls the installed CLI (`codexbar-cli usage -p <provider> --json`) and sends Claude, Codex, Copilot, Cursor, Gemini or Antigravity limits to the display over USB serial.
 
 ## Credits
 
 - Original macOS app: [steipete/CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger
-- Inspired by [ccusage](https://github.com/ryoppippi/ccusage) for cost tracking
+- Cost tracking inspired by [ccusage](https://github.com/ryoppippi/ccusage)
 
 ## License
 

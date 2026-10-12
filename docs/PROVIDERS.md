@@ -1,44 +1,82 @@
-# Providers (Windows)
+# Providers
 
-Windows rewrite of the *role* of upstream `docs/providers.md`: how providers are registered and fetched in **this** repo.
-Do **not** treat upstream’s full strategy table as authoritative for Win-CodexBar without checking code — IDs and auto-order drift.
+This page explains how a provider is added and fetched in Win-CodexBar, how its usage windows and pace work, and what is special about individual providers. The upstream `docs/providers.md` describes the macOS app. Its ids and fallback order differ from this port, so check the code before you copy anything from it.
 
-## Single factory
+## Add a provider
 
-All shells and the CLI construct providers through:
+1. Add a `ProviderId` variant in `rust/src/core/provider.rs`, with its metadata: `cli_name`, `display_name`, `from_cli_name` and, if it uses cookies, the cookie domain.
+2. Implement the `Provider` trait in `rust/src/providers/<name>/`.
+3. Add a match arm in `instantiate` in `rust/src/core/provider_factory.rs`.
+4. Add a match arm in `pace_capability` in the same file. Map the provider to its own `PACE_CAPABILITY`, or to `ProviderPaceCapability::UNSUPPORTED`. See [Pace](#pace).
 
-```text
-codexbar::core::instantiate_provider  →  rust/src/core/provider_factory.rs
-```
+Both matches are exhaustive, so a missing arm doesn't compile. A test checks that every id can be built.
 
-`ProviderId` lives in `rust/src/core/provider.rs`. The factory match is **exhaustive** (missing arm = compile error). Tests ensure every id instantiates.
+Rules:
 
-**Never** duplicate provider factories in the Tauri shell or ad-hoc commands.
+- `instantiate_provider` is the only provider factory. The desktop shell and the CLI both use it. Don't write another one.
+- Keep parsing, auth and display choices inside the provider module. Shared code has no `if provider == X` branches. When shared code needs a provider-specific answer, add a typed field or a trait method with a default, as `menu_bar_pace_lane` and `reset_regenerates` below do.
+- Keep identity, plan and email per provider. Never show one provider's account data on another provider's card or page.
 
-## Adding a provider
+`ProviderId` has 96 variants. A fresh install enables only Claude and Codex. Kimi K2 and CrossModel are deprecated and stay hidden unless they are already enabled.
 
-1. Add a `ProviderId` variant + `cli_name` / `display_name` / cookie domain / `from_cli_name` metadata as required.
-2. Implement `Provider` in `rust/src/providers/<name>/` (or module).
-3. Add the match arm in `provider_factory.rs::instantiate`.
-4. Keep provider-specific parsing and auth **inside** that module — no cross-provider branching in shared UI paths.
-5. Keep identity / plan / email **siloed** per provider in the UI.
+## Fetch sources
 
-## Fetch strategies (concept)
+| Source | Meaning |
+| --- | --- |
+| `auto` | The provider's own fallback order |
+| `web` | Browser cookies or a pasted cookie against the provider's web dashboard |
+| `cli` | A local CLI, PTY or RPC helper |
+| `oauth` | An OAuth flow, where the provider supports it |
 
-Same vocabulary as upstream, implemented in Rust:
+Pick one for a single CLI run with `codexbar usage --source <source>`. Most providers look for credentials in this order: the value saved in Settings, then the credential store, then environment variables. Each module sets its own order.
 
-| Source label | Meaning (typical) |
-|--------------|-------------------|
-| `auto` | Provider-specific fallback order |
-| `web` | Cookie / dashboard HTTP |
-| `cli` | Local CLI / PTY / RPC helpers |
-| `oauth` | OAuth-backed flows where supported |
+## Usage windows
 
-CLI: `codexbar usage --source auto|web|cli|oauth`.
+A provider returns its usage as rate windows (`RateWindow` in `rust/src/core/rate_window.rs`). The tray panel draws one metric row per window, with a bar, the reset time and, where it applies, a pace line.
 
-Auth resolution helpers in `rust/src/providers/` commonly try: explicit settings → keyring/entry → environment variables (exact order is provider-specific).
+- `window_minutes` is the window length: 300 for a five-hour session, 10080 for a week, 43200 as the 30-day sentinel for a monthly window. A window with no length gets no tray pace tint and, for some rows, no pace line.
+- `reset_regenerates` makes the card say "Regenerates in ..." instead of "Resets in ...", and hides the pace line for that window. Synthetic sets it on its regenerating lanes.
+- `hidden_on_card` keeps the window for the tray icon and float bar, but the card draws no row for it. LithosAI uses it for its balance.
+- `card_title_key` on `CostSnapshot` names the cost block. ClawRouter uses "Monthly budget" when the policy has a limit and "ClawRouter spend" when it doesn't. LithosAI uses "Credits".
 
-### Devin manual authentication
+These three fields cross to the frontend only when a provider sets them. The CLI JSON doesn't change.
+
+## Pace
+
+Pace compares how much of a window you have used with how much of its time has passed. The card shows it as a line such as "10% in deficit · Runs out in 9d 8h". The shell scores it into seven stages, from `far_behind` to `far_ahead` (`commands/bridge/pace.rs`).
+
+- Session and weekly windows get pace from their length and their reset time.
+- **Work days** in Settings > Menu limits weekly pace to working days. When it is set from 2 to 6, a 10080-minute window counts only Monday up to that weekday as elapsed time. Day boundaries are local midnight. Automatic, 1 and 7 use plain elapsed time.
+- The card hides the pace line at 100% used. It also hides it unless at least 3% use is expected or the quota runs out now.
+
+### Reset-window pace for monthly and billing windows
+
+Some providers refill on a billing date instead of on a fixed session or week. Those providers opt in to reset-window pace. Each one declares a `PACE_CAPABILITY` constant in its own module (`rust/src/core/pace_capability.rs` defines the type). The rule says which windows get pace and whether a 30-day sentinel becomes the real calendar month that ends at the reset, so a February cycle scores as 28 days.
+
+| Provider | Windows that get pace | Uses the calendar month |
+| --- | --- | --- |
+| Copilot | any window with a reset date | when the window has no length |
+| Cursor | any window with a length | no |
+| Kimi | exactly 10080 minutes | no |
+| Grok | a window labelled weekly whose reset falls inside it | no |
+| Z.ai | the 43200-minute MCP window | yes |
+| Amp | a window with a length whose reset text starts with "renews in " | no |
+| Alibaba, Alibaba Token Plan, Command Code, Doubao, MiMo, StepFun, Notion, Ollama, OpenCode Go | exactly 43200 minutes | yes |
+
+Every other provider is `UNSUPPORTED` and keeps only the session and weekly pace.
+
+### Tray pace tint
+
+With **Color Pace Indicator** on (`menu_bar_color_pace`, Settings > Menu Bar), a single-provider tray icon turns green when usage is behind pace and red when it is ahead. Stacked icons keep the usage color.
+
+The tint is scored on one window:
+
+- `Provider::menu_bar_pace_lane()` can name it. Codex returns its weekly lane and Abacus its primary lane.
+- For every other provider (`None`), it is the window the icon draws for the selected metric.
+
+The window must have a length, quota left and at least 3% expected use. Copilot's windows have no length, so Copilot never gets a tint.
+
+## Devin manual authentication
 
 On Windows, Devin uses a manually pasted Bearer token; Chrome-session import is
 not available. In Devin, open Developer Tools → Network, reload **Usage &
@@ -56,10 +94,8 @@ organization.
 
 ## Cookie-backed providers
 
-Windows browser import: Chrome Stable, Beta, Dev, Canary, Chrome for Testing, Chromium, Edge, Brave (DPAPI + AES-GCM), and Firefox (SQLite). Chrome channels are detected separately and keep distinct import choices.
-Settings → **Providers** → provider detail → choose browser → Import.  
-Manual cookie header paste is the fallback (required under WSL for Chromium DPAPI).  
-Details: [COOKIES.md](./COOKIES.md).
+Providers that read a web dashboard use cookies from a browser profile, or a cookie header you paste. Choose the browser for each provider in **Settings > Providers > (provider)**, then import. A pasted header is the fallback, and the only option under WSL. [COOKIES.md](./COOKIES.md#supported-browsers) lists the supported browsers.
+
 
 ### Venice web session
 
@@ -149,11 +185,15 @@ signed-in console at `https://console.lithosai.cloud` with both session cookies,
 - Requests, in order: `GET /api/me` (active organization, email), then
   `GET /api/billing` and `GET /api/billing/spend?start=YYYY-MM-01&end=YYYY-MM-DD`
   (UTC month to date), both with `X-Organization-Id`.
-- The card shows the prepaid USD balance (1 USD = 1,000,000,000 nanos) as a
-  "Prepaid credits" cost block and a **Billing** section: Balance, Payment card,
-  Account status, Today (UTC) and This month (UTC). There is no quota bar. A
-  negative balance has no cost block and stays visible as, for example,
-  "Balance: -$1.00" in the primary line and the Balance row.
+- The prepaid USD balance (1 USD = 1,000,000,000 nanos) shows twice on the
+  detailed card, as on the Mac. First comes a **Billing** section: Balance,
+  Payment card, Account status, Today (UTC) and This month (UTC). Then comes a
+  cost block titled **Credits** that reads, for example, "Balance: $42.37".
+  There is no quota bar. The balance window is `hidden_on_card`, so it feeds
+  the tray and float bar without drawing a card row.
+- The compact Overview shows the Billing rows once and no Credits block.
+- A negative balance has no cost block. It shows in the Balance row, for
+  example "-$1.00".
 - A spend report that fails or does not parse shows "Spend: Unavailable" and
   keeps the balance; a 401 anywhere rejects that session, and an expired
   session is reported once no candidate is left.
@@ -301,6 +341,11 @@ Synthetic (or `SYNTHETIC_API_KEY`); the CLI also accepts `synthetic.new`.
   "76% after next regen · Full in ~3 regens". The weekly lane does the same
   when it carries `maxCredits` and `nextRegenCredits`. Like the Mac card, no
   weekly USD cost is shown (on the card or in CLI JSON).
+- Regenerating lanes keep their length (300 and 10080 minutes) and set
+  `reset_regenerates`. The card counts them down as "Regenerates in 45m"
+  instead of "Resets in", always as a relative time, and shows no pace line
+  for them. Plain lanes keep "Resets in". The tray pace tint still scores a
+  regenerating lane.
 - The plan name (`plan`, `planName`, `tier`, ...) is shown as the plan.
 - 401 and 403 report "Invalid Synthetic API credentials."; response bodies are
   never echoed in errors.
@@ -317,8 +362,10 @@ credentials, a query or a fragment are rejected before the key is read.
 Redirects are never followed and response bodies are never echoed in errors.
 
 - The primary lane is the monthly budget (spent / limit), resetting on the
-  first day of the next month (UTC). The cost line shows this month's spend
-  against the limit.
+  first day of the next month (UTC). The cost block is titled "Monthly budget"
+  and shows this month's spend against the limit. Without a positive limit it
+  is titled "ClawRouter spend". Both titles stay in English in every language,
+  as on the Mac.
 - Details show requests, tokens, actual cost, the budget ledger and the
   monthly budget, then up to 20 routed providers ordered by spend and
   requests.
@@ -344,7 +391,21 @@ portal in Settings → Providers → IBM Bob, as token accounts, or with
 - 401 and 403 report that the key was rejected; response bodies are never
   echoed in errors.
 
-## Listing what is enabled
+## Window lengths that match the Mac
+
+These providers set window lengths the same way the Mac app does, so their rows get pace and the tray tint can score them:
+
+| Provider | Window | Length |
+| --- | --- | --- |
+| Codebuff | Weekly lane | 10080 minutes. The Credits lane has no length. |
+| MiniMax | Services rows from the coding-plan page | From the row's window type, for example 300 for 5 hours and 10080 for Weekly |
+| MiniMax | Remains weekly rows | Always 10080 minutes, even without a start and end |
+| Synthetic | Regenerating five-hour and weekly lanes | 300 and 10080 minutes, from the payload |
+| Grok | Credits proxy period | Kept after the period ends. An ended period has no pace. |
+| Z.ai | `TIME_LIMIT` windows | From the unit: 1 = 1440, 3 = 60, 5 = 1, 6 = 10080 minutes per unit. The monthly MCP marker keeps the 30-day sentinel. |
+| Notion | Billing lane | Labelled "Monthly". Other monthly lanes keep the "30-Day" label. |
+
+## See what is enabled
 
 ```powershell
 codexbar config providers
@@ -352,61 +413,129 @@ codexbar config enable -p cursor
 codexbar config disable -p cursor
 ```
 
-Desktop: Settings → Providers (sidebar reorder, per-provider credential UI).
+In the app, use **Settings > Providers**. The sidebar can reorder and toggle providers, and each provider page holds its credentials. See [CONFIGURATION.md](./CONFIGURATION.md#provider-list-in-the-sidebar).
 
 ## Status pages
 
-Optional status polling (provider status pages) is available via CLI `--status` and Settings advanced toggles where wired. Mapping of Statuspage vs Google incidents is provider metadata in code — see provider modules rather than upstream-only URLs if they disagree.
+The app polls provider status pages while **Settings > General > Check provider status** (`status_checks_enabled`, on by default) is on. A full provider refresh starts a status poll for the enabled providers that have a status source. The auto-resume probe (Windows-only, 60-second exact-session watcher) does not poll status. Unforced refreshes skip a provider whose last poll started less than 30 seconds ago; forced refreshes (manual, menu open, settings toggle) always poll. One fetch times out after 10 seconds and the whole poll after 15 seconds. A failed fetch keeps the last good status.
+
+Where the status shows:
+
+- **Settings sidebar.** For a provider with a status source, a service dot replaces the fetch-status dot: green for operational, yellow for a partial outage, orange for a major outage, red for a critical issue, gray for maintenance or unknown (also before the first poll). The tooltip reads "Provider service status: ..." with the label.
+- **Tray panel.** While the selected provider has an incident, the menu shows one extra line under the provider actions: the feed's description (or the status label) and when the feed was updated.
+- **Tray icon tooltip.** Each enabled provider with an incident adds a `Provider: label` line under the tooltip title.
+
+The status source per provider is set by `status_source` in `rust/src/status/mod.rs`:
+
+| Source | Providers |
+| --- | --- |
+| Statuspage (`/api/v2/status.json`) | Claude, Codex and OpenAI API (status.openai.com), Copilot (githubstatus.com), Cursor, Factory, Augment, Hugging Face, ZoomMate (zoomstatus.com) |
+| Google Workspace incident feed | Gemini, Antigravity |
+
+Other providers have no status source, so they keep the fetch-status dot and never add an incident line.
+
+`codexbar usage --status` fetches the same sources from the CLI and adds them to the output. In JSON, `status.level` holds: `operational`, `degraded` (raw `minor`), `major` (raw `major` or `critical`), or `unknown` (raw `maintenance` or `unknown`). When this table and the code disagree, the code wins.
 
 ## Usage & Spend
 
-Desktop tab id: `usageSpend`. The desktop and Overview consume one shared spend catalog. Codex and Claude local logs are first-class; routed OpenCodex usage enriches the matching Codex, OpenCode Go, Kimi, or DeepSeek subscription instead of appearing as a second fake provider. xAI and OpenRouter can publish exact provider-metered daily USD spend when their management credentials are configured, while Grok local sessions contribute tokens only (the scan covers exactly the requested number of local calendar days, including today). Missing spend sources remain unknown rather than becoming a false `$0`. Do not invent cross-currency totals.
+The Settings pane id is `usageSpend`. The pane and the Overview read one shared spend catalog.
+
+- Codex and Claude local logs are first-class sources.
+- Routed OpenCodex usage is added to the matching Codex, OpenCode Go, Kimi or DeepSeek subscription. It doesn't appear as a separate provider.
+- xAI and OpenRouter can report exact daily USD spend from the provider when their management credentials are set.
+- Grok local sessions add tokens only. The scan covers exactly the requested number of local calendar days, including today.
+- A missing spend source stays unknown. It never shows as `$0`.
+- Totals are never converted across currencies.
 
 ### AWS Bedrock monitoring
 
-AWS Bedrock is a Windows provider backed by signed Cost Explorer requests and optional CloudWatch activity. It is disabled by default, and monitoring requests can add charges to your AWS bill. AWS currently charges $0.01 per Cost Explorer API request; paginated monthly-spend reads can therefore use more than one billed request, while optional CloudWatch activity is billed under CloudWatch pricing.
+AWS Bedrock uses signed Cost Explorer requests and, optionally, CloudWatch activity. It is disabled by default.
 
-The shared refresh interval controls automatic provider polling. `0` / Manual disables the recurring timer, but explicit refreshes and **Refresh when the menu opens** can still fetch Bedrock data. Disable Bedrock itself to stop its app refreshes.
+- Monitoring can add charges to your AWS bill. AWS charges $0.01 per Cost Explorer API request, and a paginated monthly-spend read can take more than one request. CloudWatch activity is billed at CloudWatch prices.
+- The shared refresh interval controls automatic polling. Manual (`0`) stops the timer, but an explicit refresh and **Refresh when the menu opens** still fetch Bedrock data. Disable Bedrock to stop its refreshes.
+- `CODEXBAR_BEDROCK_BUDGET` only changes the monthly progress shown. It doesn't cap AWS charges, stop polling or enforce a limit.
 
-`CODEXBAR_BEDROCK_BUDGET` changes only the displayed monthly progress. It does **not** cap AWS charges, stop polling, or enforce a billing limit.
+Custom pricing overlays override prices only where the local spend data has matching provider and model token evidence.
 
-Custom pricing overlays are exact-match overrides used only where the local spend contract has matching provider/model token evidence. Explicit zero rates mean free; omitted rate fields stay unknown. The Usage & Spend surface keeps provenance/coverage visible, preserves cost-only model rows when token coverage is partial, and can Copy JSON or save the same JSON contract through the native file picker.
+- An explicit zero rate means free. A rate you leave out stays unknown.
+- Usage & Spend keeps provenance and coverage visible, and keeps cost-only model rows when token coverage is partial.
+- **Copy JSON** and **Save JSON** export the same JSON contract.
 
-### OpenCode, Codex quota, and local cost boundaries
+### OpenCode, Codex quota and local cost
 
-OpenCode-held OpenAI/Codex OAuth can be reused for **remote Codex account quota** only when the Codex provider's `External OAuth sources` setting is explicitly enabled. Native Codex credentials still take precedence, an explicit `CODEX_HOME` stays isolated, and external credentials remain read-only. This does **not** import ordinary OpenCode sessions into Codex token or spend totals. OpenCode Go's local SQLite reader remains scoped to its own `opencode-go` assistant records; OpenAI API-platform usage is a separate provider. Its recorded local token counts (`tokens` on assistant messages and step-finish parts; step-finish parts win over their parent message) fill Usage & Spend token columns and per-model history; costs stay the recorded `cost` field, and rows with absent, malformed, negative, or overflowing tokens leave that window's totals incomplete instead of counting as zero.
+OpenCode can hold an OpenAI or Codex OAuth login. Win-CodexBar reuses it for **remote Codex account quota** only when the Codex provider's **External OAuth sources** setting is on.
 
-Codex local cost prices **Priority (Fast) turns** at the Fast rate. A turn counts as Priority when `<CODEX_HOME>/logs_2.sqlite` (Codex's trace database) holds a `response.create` websocket request with `service_tier == "priority"` for that turn's id. The database is opened read-only, scanned incrementally with a persisted cursor in the cost cache, and only turn ids, model names, and timestamps are kept; row bodies contain prompts and are never stored or logged. A missing or unreadable database keeps Standard pricing, and turn evidence never crosses `CODEX_HOME` scopes. Models without a Fast lane stay Standard. Older cost caches rebuild once (Codex cache schema v4 records each row's turn id).
+- Native Codex credentials still come first.
+- An explicit `CODEX_HOME` stays isolated.
+- External credentials are read-only.
+- Ordinary OpenCode sessions are never added to Codex token or spend totals.
+
+OpenCode Go's local SQLite reader reads only its own `opencode-go` assistant records. OpenAI API-platform usage is a separate provider.
+
+- Token counts come from `tokens` on assistant messages and step-finish parts. A step-finish part wins over its parent message.
+- They fill the Usage & Spend token columns and per-model history. Costs are the recorded `cost` field.
+- A row with missing, malformed, negative or overflowing tokens marks that window's totals incomplete. It isn't counted as zero.
+
+Codex local cost prices **Priority (Fast)** turns at the Fast rate.
+
+- A turn is Priority when `<CODEX_HOME>/logs_2.sqlite`, Codex's trace database, has a `response.create` websocket request with `service_tier == "priority"` for that turn id.
+- The database is opened read-only and scanned incrementally, with a cursor saved in the cost cache.
+- Only turn ids, model names and timestamps are kept. Row bodies contain prompts and are never stored or logged.
+- A missing or unreadable database keeps Standard pricing. Turn evidence never crosses `CODEX_HOME` scopes.
+- Models without a Fast rate stay Standard.
+- Older cost caches rebuild once. Codex cache schema v4 records each row's turn id.
+
+## API key notes
 
 ### OpenRouter keys
 
-The **API key** field (or `OPENROUTER_API_KEY`) is required and accepts either a regular API key or a Management API key. A Management key entered there also enables account Activity on the official OpenRouter API. The separate **Management API key** field (or `OPENROUTER_MANAGEMENT_API_KEY`) is an optional additional key for account Activity, only needed to use a Management key different from the one in the required field. Filling only the Management field does not select an account for quota or balance; with no primary key, the provider reports the missing-key message instead.
+- The **API key** field (or `OPENROUTER_API_KEY`) is required. It takes a regular API key or a Management API key. A Management key there also turns on account Activity from the official OpenRouter API.
+- The **Management API key** field (or `OPENROUTER_MANAGEMENT_API_KEY`) is optional. You need it only to use a different Management key for account Activity.
+- A Management key alone doesn't select an account for quota or balance. Without the main key, the provider reports the missing-key message.
 
 ### z.ai Coding Plan quotas
 
-z.ai Coding Plans accept both `TOKENS_LIMIT` and `CREDIT_LIMIT` rows. The shortest known Coding Plan window becomes primary and the longest becomes secondary; `TIME_LIMIT` is the separate MCP lane. When absolute usage/remaining counts are available they determine the used percentage, otherwise the provider percentage is used, always clamped to 0–100%. This behavior is shared by the tray, provider detail, CLI, and other Windows surfaces. Empty or wholly unrecognized limits never fabricate a 0% window; they show a "Coding Plan usage: Unavailable" detail row that points to the Usage Dashboard, and mixed responses keep the recognized windows and add "Additional quota: Unavailable". Unknown string limit types are skipped, while malformed entries and unsupported envelopes fail with Usage Dashboard guidance.
+- z.ai Coding Plans accept both `TOKENS_LIMIT` and `CREDIT_LIMIT` rows. The shortest known Coding Plan window is the primary lane and the longest is the secondary lane. `TIME_LIMIT` is the separate MCP lane.
+- When absolute used and remaining counts exist, they set the used percentage. Otherwise the provider's percentage is used. Both are clamped to 0-100%. The tray, the provider page and the CLI all use this rule.
+- Empty or unrecognized limits never invent a 0% window. They show a "Coding Plan usage: Unavailable" row that points to the Usage Dashboard. A mixed response keeps the windows it recognizes and adds "Additional quota: Unavailable".
+- Unknown string limit types are skipped. Malformed entries and unsupported envelopes fail with Usage Dashboard guidance.
 
 ### xKiro daily free tokens
 
-xKiro reads `GET https://api.xkiro.com/v1/usage` with `XKIRO_API_KEY` (or the key saved in Preferences) as a bearer token. Only the `free_tokens` counters are used: the primary lane is `used_today / limit_per_day`, resetting at the next 00:00 UTC, and a limit of `0` reads as fully used. The paid `wallet` balance is never treated as headroom and is not shown. Counters that are missing stay missing rather than becoming zero, a payload with no usable counter is reported as unrecognized, and an explicit `plan: null` is labelled "Pay as you go". There are no token accounts. The wire shape follows upstream's documented example; live account behavior has not been verified.
+xKiro reads `GET https://api.xkiro.com/v1/usage` with `XKIRO_API_KEY`, or the key saved in Settings, as a bearer token.
 
-Upstream's independent **WidgetKit** provider-widget configuration has no Windows analogue in this repository. Win-CodexBar has no WidgetKit extension; provider cards and tray entries are already independent Windows/Tauri surfaces.
+- Only the `free_tokens` counters are used. The primary lane is `used_today / limit_per_day` and resets at the next 00:00 UTC. A limit of `0` reads as fully used.
+- The paid `wallet` balance is never treated as headroom and isn't shown.
+- Missing counters stay missing; they don't become zero. A payload with no usable counter is reported as unrecognized.
+- An explicit `plan: null` is labelled "Pay as you go".
+- There are no token accounts.
+- The response shape follows upstream's documented example. It hasn't been checked against a live account.
 
 ### LiteLLM budgets
 
-LiteLLM reads a virtual key's own budgets from the proxy's management routes. Set the base URL and key in Settings → Providers → LiteLLM, or use `LITELLM_BASE_URL` and `LITELLM_API_KEY`. A trailing `/v1` is dropped. The base URL must use HTTPS unless it names `localhost`, a `.local` host, or a loopback, RFC 1918, link-local or IPv6 unique-local address, and it must not embed credentials, because the key is sent as a bearer token.
+LiteLLM reads a virtual key's own budgets from the proxy's management routes. Set the base URL and key in **Settings > Providers > LiteLLM**, or with `LITELLM_BASE_URL` and `LITELLM_API_KEY`.
 
-The provider calls `GET /key/info`, then `GET /user/info?user_id=…` for a user-bound key or `GET /team/info?team_id=…` for a team-only key, and rejects a response whose user or team ID differs from the key's. The personal budget fills the primary lane and the key's matching team budget fills the secondary lane. When only one budget exists, it takes the primary lane under its own label, and a key without any budget shows "No budget set". Amounts such as `$25.00 / $100.00` are detail lines, shown apart from a real reset date. The Automatic tray and float bar metric shows the team budget unless a budget is exhausted. Spend without a budget stays visible as API spend, and no pace is derived from budget resets.
+- A trailing `/v1` is dropped.
+- The base URL must use HTTPS unless it names `localhost`, a `.local` host, or a loopback, RFC 1918, link-local or IPv6 unique-local address. It must not embed credentials, because the key is sent as a bearer token.
+- The provider calls `GET /key/info`. Then it calls `GET /user/info?user_id=…` for a key bound to a user, or `GET /team/info?team_id=…` for a team-only key. A response whose user or team id differs from the key's is rejected.
+- The personal budget is the primary lane and the key's team budget is the secondary lane. With only one budget, it takes the primary lane under its own label. A key with no budget shows "No budget set".
+- Amounts such as `$25.00 / $100.00` are detail lines, apart from a real reset date.
+- The Automatic tray and float bar metric shows the team budget unless a budget is exhausted.
+- Spend without a budget stays visible as API spend. Budget resets give no pace.
 
-## Upstream doc warning
+## Not ported
 
-Upstream `docs/providers.md` is a large auto-strategy matrix (60+ providers) for the macOS app. Use it as **inspiration** when porting a provider. For runtime truth on Windows:
+Upstream's WidgetKit provider-widget settings have no Windows version. Win-CodexBar has no WidgetKit extension; provider cards and tray entries already work on their own.
+
+## Upstream provider docs
+
+Upstream `docs/providers.md` is a large table of fallback orders for the macOS app. Use it for ideas when you port a provider. For what Windows actually does, read:
 
 1. `rust/src/core/provider.rs` (`ProviderId`)
 2. `rust/src/providers/<id>/`
-3. `codexbar usage -p <id> -v` / desktop provider detail errors
+3. the output of `codexbar usage -p <id> -v`, or the error on the provider's Settings page
 
-## Related
+## Related docs
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
 - [CLI.md](./CLI.md)

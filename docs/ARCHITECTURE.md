@@ -1,64 +1,116 @@
-# Architecture overview (Windows)
+# Architecture
 
-Windows rewrite of upstream CodexBar architecture concepts for **Win-CodexBar**.
-Upstream `docs/architecture.md` describes Swift modules (`CodexBarCore`, menu bar app, WidgetKit, Sparkle). Those do **not** apply here.
+This page shows how Win-CodexBar is put together: the crates, the windows, and how usage data and settings move between them. It covers the Windows port only. The upstream `docs/architecture.md` describes Swift modules, WidgetKit and Sparkle, which this port doesn't use.
 
-## Modules
+## Crates and folders
 
 | Area | Path | Role |
-|------|------|------|
-| Shared backend + CLI | `rust/` (`codexbar` crate) | Providers, settings, browser cookies, tray icon pixels, CLI |
-| Desktop shell | `apps/desktop-tauri/src-tauri/` (`codexbar-desktop-tauri`) | Tauri 2 host: tray, windows, IPC commands, float bar, proof harness |
-| Frontend | `apps/desktop-tauri/src/` | React 18 + Vite surfaces (tray panel, settings, float bar) |
+| --- | --- | --- |
+| Shared backend and CLI | `rust/` (crate `codexbar`) | Providers, settings, browser cookies, tray icon pixels, the CLI |
+| Desktop shell | `apps/desktop-tauri/src-tauri/` (crate `codexbar-desktop-tauri`) | Tauri 2 host: tray, windows, commands, float bar, proof harness |
+| Frontend | `apps/desktop-tauri/src/` | React 18 and Vite: tray panel, Settings, float bar |
 
-Cargo workspace (root `Cargo.toml`): members `rust`, `apps/desktop-tauri/src-tauri`; **default-member** is the Tauri crate. Shell depends on `codexbar = { path = "../../../rust" }`.
+The root `Cargo.toml` is a workspace with the members `rust` and `apps/desktop-tauri/src-tauri`. The Tauri crate is the default member. It depends on `codexbar = { path = "../../../rust" }`.
 
 ## Entry points
 
-- **Desktop**: `apps/desktop-tauri/src-tauri/src/main.rs` — plugins, tray setup, float bar install, auto-refresh, command registration. Binary: `codexbar-desktop-tauri.exe`.
-- **CLI**: `rust/src/main.rs` — subcommands only (no GUI on bare invoke). Binary: `codexbar.exe`.
-- **Frontend bootstrap**: `apps/desktop-tauri/src/App.tsx` routes by window label (`main`, settings, floatbar, flyout).
+- **Desktop app:** `apps/desktop-tauri/src-tauri/src/main.rs`. It loads settings, reads the proof harness variables, sets up the tray and float bar, starts auto refresh and registers the commands. Cargo builds it as `codexbar-desktop-tauri.exe`.
+- **CLI:** `rust/src/main.rs`. It has no GUI. Run with no subcommand, it prints a hint and exits with code 64. Cargo builds it as `codexbar.exe`.
+- **Frontend:** `apps/desktop-tauri/src/App.tsx` picks the surface from the window label.
+
+Release builds rename both binaries. See [BUILDING.md](./BUILDING.md#build-a-release-on-windows).
+
+## Windows
+
+The app runs one hidden window and opens the others on demand.
+
+| Label | Page | What it shows |
+| --- | --- | --- |
+| `main` | `index.html` | Nothing. It stays hidden and hosts app state. Proof mode `trayPanel` draws the tray panel here. |
+| `flyout` | `index.html?window=flyout` | The tray panel |
+| `settings` | `index.html?window=settings&tab=<tab>` | Settings |
+| `floatbar` | `index.html?window=floatbar&orientation=<orientation>` | The float bar |
+
+### Tray panel
+
+The tray panel is the only dashboard layout. Tray left-click, **Pop Out Dashboard** in the tray menu, the global shortcut, app launch and a second launch of the app all open the `flyout` window. `shell/flyout_window.rs` owns it.
+
+- It is a light panel in the Mac style. It is 310 px wide, times the **Panel scale** setting, and its height fits its content.
+- It paints `#DEDEE2` before the page loads, so it never flashes white.
+- It opens next to the tray and can't be moved or resized.
+- It closes when it loses focus. Proof mode, `CODEXBAR_START_VISIBLE` and dragging a provider tab to reorder keep it open.
+
+The panel shows one card per provider. A card has metric rows for each usage window, with a bar, the reset time and, when the provider supports it, a pace line. [PROVIDERS.md](./PROVIDERS.md) lists the windows and pace support per provider.
+
+The older PopOut layout on `main` is retired. `SurfaceMode::PopOut` remains only as a key in stored data.
+
+### Settings
+
+Settings is a separate window with a sidebar. `shell/settings_window.rs` owns it. The pane ids are `general`, `providers`, `notifications`, `menuBar`, `menu`, `usageSpend`, `advanced`, `hooks` and `about`. `surface_target.rs` in the shell and `TAB_META` in `apps/desktop-tauri/src/surfaces/settings/settingsTabs.ts` must list the same ids. An unknown id opens General. [CONFIGURATION.md](./CONFIGURATION.md) describes each pane.
+
+### Float bar
+
+The float bar is an optional always-on-top strip. `floatbar/` owns it. Its window builder must pin `.theme(Some(tauri::Theme::Dark))`. WebView2 resolves `prefers-color-scheme` on a process profile that all windows share, so an unpinned float bar flips the other windows when the theme is `auto`.
 
 ## Data flow
 
-1. **Provider refresh**  
-   `instantiate_provider` (`rust/src/core/provider_factory.rs`) → `Provider::fetch_usage` → shell `commands/providers.rs` (semaphore + timeout) → `AppState.provider_cache` → events → React `useProviders`.
+### Provider refresh
 
-2. **Settings**  
-   `%AppData%\Roaming\CodexBar\settings.json` (and sibling stores) via `Settings::load` / `save` + `secure_file` (DPAPI-capable). UI patches go through `updateSettings` → save → settings / float-bar events.
+1. `codexbar::core::instantiate_provider` in `rust/src/core/provider_factory.rs` builds each provider. It is the only provider factory.
+2. `commands/providers.rs` in the shell calls `Provider::fetch_usage`. It runs at most 8 fetches at once.
+3. Each fetch has a timeout: 75 seconds for Claude, Codex and Copilot, and 35 seconds for the others. LiteLLM gets 40 seconds when optional details are on. A longer web timeout in settings raises these, up to 65 seconds.
+4. Results go into `AppState.provider_cache`.
+5. The shell sends `provider-updated` for each provider and `refresh-complete` at the end. The React hook `useProviders` listens and redraws.
 
-3. **Tray**  
-   `tray_bridge` + `tray_menu`. Icon RGBA from shared `codexbar::tray::{render_bar_icon_rgba, render_percent_icon_rgba}`.
+A full provider refresh also starts a status poll (`status_poller.rs`) while `status_checks_enabled` is on (the auto-resume probe does not). The poller fetches the status page of each enabled provider that has one, keeps the results in `AppState.provider_statuses`, and sends `provider-statuses-updated` with the full list when a status changes. The React hook `useProviderStatuses` reads it, and the tray tooltip adds a line per incident. See [PROVIDERS.md](./PROVIDERS.md#status-pages).
 
-4. **Float bar**  
-   Detached always-on-top window owned by `floatbar/`. Builder must pin `.theme(Some(tauri::Theme::Dark))` so WebView2’s shared profile does not flip other windows under theme `auto`.
+`auto_refresh.rs` starts refreshes on a timer. The adaptive mode also checks for running coding agents (`coding_activity.rs`).
 
-5. **CLI**  
-   Same provider factory and settings stores as the app. Useful for scripts without UI (`usage`, `cost`, `guard`, `serve`, `config`, …).
+### Settings
 
-## Surfaces (desktop)
+1. `Settings::load` reads `%APPDATA%\CodexBar\settings.json`. Other stores, such as `api_keys.json`, `manual_cookies.json` and `hooks.json`, sit in the same folder. `settings.json` and the secret stores are written through `secure_file`, which wraps them with DPAPI on Windows. `hooks.json` is plain JSON. See [CONFIGURATION.md](./CONFIGURATION.md#files-and-where-they-live).
+2. The frontend calls `updateSettings` with a patch.
+3. The shell saves the file and sends `settings-changed`. In the page, the DOM event `codexbar:settings-updated` tells other parts of the UI to reload. The float bar has its own config events.
 
-- **Tray panel** — left-click tray; blur-dismiss (suppressed in proof mode and while a provider tab is dragged to reorder). A light, Mac-style panel 310 px wide (times the **Panel scale** setting in Settings > Menu) whose height fits its content. It always opens next to the tray and can't be moved or resized.
-- **Tray panel flyout** — larger dashboard window opened from the tray
-  menu ("Pop Out Dashboard"); the tray panel itself is the only
-  dashboard layout.
-- **Settings** — detached window; tabs: `general`, `providers`, `notifications`, `menuBar`, `menu`, `usageSpend`, `advanced`, `hooks`, `about`.
-- **Float bar** — optional capacity strip.
+The Hooks pane reads and writes `hooks.json` through the commands `get_hooks_config` and `save_hooks_config` (`commands/hooks.rs`). Hooks run only when both `hooks_enabled` in settings and `enabled` in `hooks.json` are on.
 
-## Concurrency & platform
+### Events
 
-- Rust edition 2024; async via Tokio in CLI and shell.
-- Provider fetches are concurrent with a semaphore cap in the shell.
-- Windows-specific: DPAPI cookie decrypt, DWM dark caption, tray promotion, start-at-login (`HKCU\...\Run`), WebView2.
-- Prefer validating tray/DPAPI/cookies on **native Windows**; WSL is insufficient for DPAPI.
+The shell sends these Tauri events (`events.rs`): `surface-mode-changed`, `provider-updated`, `refresh-started`, `refresh-complete`, `update-state-changed`, `locale-changed`, `settings-changed`, `stay-awake-changed`, `codex-accounts-updated`, `login-phase` and `provider-statuses-updated`.
+
+### Tray icon
+
+- `tray_bridge.rs` owns the icon and `tray_menu.rs` builds the right-click menu.
+- `tray_presentation.rs` decides what the icon shows. The pixels come from `codexbar::tray` in `rust/src/tray/render.rs`.
+- With **Color Pace Indicator** on (setting `menu_bar_color_pace`, in Settings > Menu Bar), a single-provider bar or percent icon turns green when usage is behind pace and red when it is ahead. On track or unknown pace keeps the normal usage color. Stacked icons keep the usage color.
+- The pace for the tint is scored on one window. A provider can name that window with `Provider::menu_bar_pace_lane()`. When it returns `None`, the app uses the window the icon draws for the selected metric.
+
+### Pace
+
+Pace compares how much of a window you have used with how much time of it has passed. `commands/bridge/pace.rs` scores it into seven stages, from `far_behind` to `far_ahead`.
+
+Session and weekly windows get pace from their length and reset time. Providers that refill on a billing date opt in to reset-window pace: each declares a `PACE_CAPABILITY` in its own module, and `pace_capability()` in `provider_factory.rs` maps every `ProviderId` to it or to `ProviderPaceCapability::UNSUPPORTED`. The match is exhaustive, so a new provider must state its pace support to compile. [PROVIDERS.md](./PROVIDERS.md#pace) lists the rules.
+
+### CLI
+
+The CLI uses the same provider factory and the same settings stores as the app. Use it for scripts without a UI, for example `usage`, `cost`, `guard` and `serve`. See [CLI.md](./CLI.md).
+
+## Proof harness
+
+`proof_harness.rs` reads `CODEXBAR_PROOF_MODE` and `CODEXBAR_SEED_USAGE_JSON` at startup. Proof mode opens one surface and keeps it open for automation. The seed fills the provider cache with synthetic data. See [WINDOWS_PROOF.md](./WINDOWS_PROOF.md).
+
+## Platform notes
+
+- Rust edition 2024. The CLI and the shell use Tokio.
+- Windows-only parts: DPAPI cookie decryption, the dark DWM caption, tray icon promotion, start at login under `HKCU\...\Run`, and WebView2.
+- Test tray, DPAPI and cookie behavior on Windows. WSL can't decrypt DPAPI data. See [WSL.md](./WSL.md).
 
 ## Related docs
 
-- [BUILDING.md](./BUILDING.md) — build / test / release
-- [CLI.md](./CLI.md) — command-line surface
-- [CONFIGURATION.md](./CONFIGURATION.md) — settings paths and stores
-- [PROVIDERS.md](./PROVIDERS.md) — provider factory and sources
-- [COOKIES.md](./COOKIES.md) — browser cookie import
-- Root [AGENTS.md](../AGENTS.md) — agent-oriented guidelines
-
-Upstream-only (macOS): WidgetKit, Sparkle, Keychain Safe Storage prompts, `Scripts/package_app.sh` — not used in this port.
+- [BUILDING.md](./BUILDING.md): build, test and release.
+- [CLI.md](./CLI.md): the command-line tool.
+- [CONFIGURATION.md](./CONFIGURATION.md): settings files and the Settings window.
+- [PROVIDERS.md](./PROVIDERS.md): providers, sign-in sources, windows and pace.
+- [COOKIES.md](./COOKIES.md): browser cookie import.
+- [WINDOWS_PROOF.md](./WINDOWS_PROOF.md): proving UI changes.
+- [AGENTS.md](../AGENTS.md): rules for agents and contributors.

@@ -1,20 +1,22 @@
 # ADR 0004: GitHub Actions release and CircleCI validation boundary
 
 Date: 2026-09-16
-Status: Accepted; supersedes the release portion of the previous ADR 0004
+Status: Accepted. This version replaces the release part of the first ADR 0004
+(dated 2026-08-14, #285), which put tag releases on CircleCI. That first version
+superseded the local-release decision in ADR 0001.
 
 ## Context
 
-Win-CodexBar needs reproducible hosted Windows validation and a release path
-whose build provenance can be verified by SignPath. SignPath's GitHub trusted
-build integration requires the build, the uploaded signing artifact, and the
-jobs leading to signing to be observed as GitHub Actions work on GitHub-hosted
-runners. CircleCI is retained for ordinary PR and protected-branch validation,
-but it cannot be the producer of the SignPath release artifact.
+Win-CodexBar needs reproducible hosted Windows checks and a release path whose
+build origin SignPath can verify. SignPath's GitHub trusted-build integration
+must see the build, the uploaded signing artifact and the jobs before signing
+run as GitHub Actions work on GitHub-hosted runners. CircleCI stays for
+ordinary PR and protected-branch checks, but it cannot produce the artifact
+that SignPath signs.
 
-Release credentials must remain unavailable to validation and build steps that
-do not need GitHub release write access. v0.60.3 was released before this
-change and is immutable.
+Validation and build steps that don't need GitHub release write access must
+not get release credentials. v0.60.3 was released before this change and is
+immutable.
 
 ## Decision
 
@@ -72,3 +74,14 @@ own GitHub-hosted cache strategy, but the final release assets are always
 built fresh from the frozen tag SHA and then signed. A cached output is never
 accepted as the final signed artifact without the full post-sign verification
 and manifest generation steps.
+
+## Later changes
+
+Added 2026-10-12. No change to the decision.
+
+- The build step in `release.yml` runs `scripts/circleci-release-build.ps1`.
+  The script name comes from the CircleCI era. GitHub Actions runs it on
+  `windows-latest`.
+- The six release assets are `CodexBar-<version>-Setup.exe`,
+  `CodexBar-<version>-portable.exe` and `CodexBarCLI-v<version>-windows-x64.zip`,
+  each with a `.sha256` file.

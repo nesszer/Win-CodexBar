@@ -1,50 +1,67 @@
 # Shared CI budget glossary
 
-This glossary is shared with the sister repo (`linear-cli`) so operators can reason about CI spend across both projects with one vocabulary.
+This glossary defines the CI budget terms that Win-CodexBar shares with its sister repo, `linear-cli`. Use it to reason about CI spend across both projects.
 
-Detailed Win-CodexBar CI topology, trigger configuration, cache policy, release flow, and operator setup belong in [`.github/CI.md`](.github/CI.md). This file intentionally stays small so shared budget language does not become a second CI manual.
+Trigger rules, caches, fork PRs and the release workflow are in [`.github/CI.md`](.github/CI.md). The budget modes are defined here and in [ADR 0002](docs/adr/0002-ci-budget-modes.md), because `.github/CI.md` does not cover them.
 
 ## Win-CodexBar compute roles
 
-- **CircleCI Windows** — primary hosted PR/`main` integration gate and release builder.
-- **Blacksmith Windows** — manual reserve/second-opinion CI only.
-- **GitHub-hosted Ubuntu** — lightweight interaction guard for untrusted authors.
+- **CircleCI Windows** runs the hosted PR and `main` check (`pr-check`). It builds no releases.
+- **GitHub Actions Windows** (`windows-latest`) builds, signs and drafts tagged releases in `.github/workflows/release.yml`.
+- **Blacksmith Windows** runs `.github/workflows/pr-check.yml` by manual dispatch only, as a reserve or second opinion.
+- **GitHub-hosted Ubuntu** (`ubuntu-latest`) runs the interaction guard for authors who are not owners, members or collaborators.
 
-The primary and reserve Windows jobs use the same canonical `scripts/local-check.ps1 -Slice ci` contract. See `.github/CI.md` for the exact trigger and runner rules.
+CircleCI and the Blacksmith reserve run the same command, `scripts/local-check.ps1 -Slice ci`.
 
-## Blacksmith Pool
+## Blacksmith pool
 
-The Blacksmith allowance is shared with `linear-cli`. For Win-CodexBar it is reserve capacity rather than recurring PR compute. Do not automatically run Blacksmith beside a healthy CircleCI run.
+Win-CodexBar shares its Blacksmith allowance with `linear-cli`. Win-CodexBar uses Blacksmith only as reserve capacity. Don't run Blacksmith beside a healthy CircleCI run.
 
-The historical cross-repo intent split was roughly **60% Win-CodexBar / 30% linear-cli / 10% buffer**. Treat that as budget history, not a reason to schedule duplicate validation.
+The original split between the repos was about **60% Win-CodexBar, 30% linear-cli and 10% buffer**. That split is budget history. It is not a reason to run duplicate checks.
 
 ## CI budget mode
 
-`CI_BUDGET_MODE` is the coarse emergency control. Supported values are `normal`, `thin`, and `off`; unset/empty means `normal`.
+`CI_BUDGET_MODE` is the emergency stop for hosted checks. It takes `normal`, `thin` or `off`. Unset or empty means `normal`.
 
 | Mode | CircleCI PR check | Interaction guard | Blacksmith reserve | Release |
 | --- | --- | --- | --- | --- |
-| `normal` | runs when in scope | runs when needed | manual only | tag-triggered CircleCI |
-| `thin` | runs when in scope | runs when needed | manual only | tag-triggered CircleCI |
-| `off` | skip | skip | skip | tag-triggered CircleCI |
+| `normal` | runs when in scope | runs when needed | manual only | GitHub Actions on a `v*.*.*` tag |
+| `thin` | runs when in scope | runs when needed | manual only | GitHub Actions on a `v*.*.*` tag |
+| `off` | skips | skips | skips | GitHub Actions on a `v*.*.*` tag |
 
-`thin` currently has the same single hosted Windows integration job as `normal`; there is no matrix left to trim. Porting micro PRs save compute through their semantic integration-branch topology instead. See `.github/CI.md` and `docs/PORTING.md`.
+`thin` behaves like `normal`. The code checks only for `off`, and the PR check is a single job with nothing to trim. The value exists for parity with `linear-cli`.
 
-Set the variable in provider settings, not source code:
+Porting micro PRs that target a `port/upstream-*` branch save compute in a different way: CircleCI skips them. See `docs/PORTING.md`.
 
-- CircleCI: Project Settings -> Environment Variables -> `CI_BUDGET_MODE`
-- GitHub Actions: Settings -> Secrets and variables -> Actions -> Variables
+Set the variable in each CI service's settings, not in source code:
 
-Budget mode does not disable the protected release-tag pipeline.
+- CircleCI: Project Settings > Environment Variables > `CI_BUDGET_MODE`. The `pr-check` gate reads it.
+- GitHub Actions: Settings > Secrets and variables > Actions > Variables. `pr-check.yml` and `interaction-guard.yml` read it.
+
+`release.yml` doesn't read `CI_BUDGET_MODE`, so budget mode never stops a tagged release.
 
 ## Local check slice
 
-The hosted Windows contract is:
+The hosted Windows check runs this command from the repo root:
 
 ```powershell
 .\scripts\local-check.ps1 -Slice ci
 ```
 
-It covers formatting, Clippy, Rust tests, frozen frontend install, frontend tests/build, and interaction-guard tests. Installer/release packaging and UI proof remain separate responsibilities.
+It runs these steps in order:
 
-For UI, tray, settings, and float-bar changes, CI is not sufficient: use a fresh Windows build plus CUA (or documented equivalent manual proof) as required by `AGENTS.md`.
+1. `scripts/circleci-pr.tests.ps1` (CI gate tests)
+2. `cargo fmt --all --check`
+3. `cargo clippy --workspace --all-targets -- -D warnings`
+4. `cargo test --workspace`
+5. `pnpm install --frozen-lockfile`
+6. `pnpm run lint` (oxlint)
+7. `pnpm run check:anti-slop`
+8. `pnpm run test:anti-slop`
+9. `pnpm test`
+10. `pnpm run build`
+11. `node --test .github/scripts/interaction-guard.test.mjs`
+
+The slice doesn't build the installer or release assets, and it doesn't prove UI behavior.
+
+For tray, settings, float bar and other UI changes, CI is not enough. Rebuild on Windows and prove the change in the real window with CUA, or attach equivalent manual proof. `AGENTS.md` and `docs/WINDOWS_PROOF.md` describe the proof.

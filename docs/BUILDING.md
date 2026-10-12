@@ -1,175 +1,228 @@
-# Building from Source
+# Building from source
+
+This page shows how to build and test Win-CodexBar on Windows. The desktop app is the Tauri shell in `apps/desktop-tauri`. The CLI and the shared backend are the `codexbar` crate in `rust/`.
 
 ## Prerequisites
 
-- **Rust** stable with the `x86_64-pc-windows-msvc` target
-- **Microsoft Visual Studio Build Tools** with the **Desktop development with C++** workload
-- **Node.js** 22.13+ (24 recommended) and pnpm 11
+- Rust stable with the `x86_64-pc-windows-msvc` target. CI pins the version in `scripts/circleci-pinned-rust.txt` (1.98.0).
+- Visual Studio Build Tools with the **Desktop development with C++** workload.
+- Node.js. CI uses Node 24.18.0, so use the same version locally.
+- pnpm, at the exact version in the `packageManager` field of `apps/desktop-tauri/package.json` (`pnpm@11.25.0`). Corepack can activate it. Don't use npm or yarn.
 
-Install the tools manually with rustup/winget/corepack, or use a tool manager
-such as mise. There is no automatic Windows bootstrap script in this port.
+Install the tools yourself with rustup, winget or corepack, or with a tool manager such as mise. The repo has no setup script that installs them.
 
-## Build the Desktop App
+## Build the desktop app
+
+Run these from the repo root:
 
 ```powershell
-cd apps/desktop-tauri
-pnpm install --frozen-lockfile
-cd ../..
+pnpm --dir apps/desktop-tauri install --frozen-lockfile
 pnpm --dir apps/desktop-tauri run tauri:build
 ```
 
-The release binary lands at `target/release/codexbar-desktop-tauri.exe`.
+`tauri:build` runs `tauri build --no-bundle`. It builds the frontend and the release desktop binary, `codexbar-desktop-tauri.exe`, and makes no installer.
 
-For a debug build (faster compile, no optimisations):
+For a faster debug build:
+
 ```powershell
-cd apps/desktop-tauri
-pnpm run tauri:build:debug
+pnpm --dir apps/desktop-tauri run tauri:build:debug
 ```
 
-## Build the CLI Only
+A raw `cargo build --release` of the Tauri crate can embed the dev server URL instead of the built frontend. Use the pnpm scripts or `scripts/dev.ps1` instead.
+
+## Build the CLI only
 
 ```powershell
 cargo build -p codexbar --release
-# Binary at: target/release/codexbar.exe
 ```
 
-## Dev Mode (Hot Reload)
+The binary is `codexbar.exe`.
+
+## Where the binaries land
+
+Without extra setup, Cargo writes to `target\` in the repo root, for example `target\release\codexbar-desktop-tauri.exe` and `target\release\codexbar.exe`.
+
+In a Git worktree, load `scripts/worktree-env.ps1` first. It sets `CARGO_TARGET_DIR` for the current PowerShell process only, to a folder outside every registered worktree:
 
 ```powershell
-.\scripts\dev.ps1           # default debug build + launch
-.\scripts\dev.ps1 -Release  # optimised build
-.\scripts\dev.ps1 -Verbose  # debug logging
-.\scripts\dev.ps1 -SkipBuild # run last build without rebuilding
+. .\scripts\worktree-env.ps1
 ```
 
-Or directly:
+The default folder is `%LOCALAPPDATA%\Win-CodexBar\cargo-target\repo-<id>\worktree-<id>`. The script prints the path it chose. Set `WCB_CARGO_TARGET_ROOT` to change the root folder, or `WCB_CARGO_TARGET_DIR` to set the exact folder. `scripts/local-check.ps1` loads this script itself.
+
+## Run the app while you develop
+
+`scripts/dev.ps1` builds the desktop app and starts it:
+
 ```powershell
-cd apps/desktop-tauri && pnpm run tauri:dev
+.\scripts\dev.ps1
+.\scripts\dev.ps1 -Release
+.\scripts\dev.ps1 -SkipBuild
+.\scripts\dev.ps1 -Verbose
 ```
 
-## Fast Windows Release Build
+- With no switch, it makes a debug build with `tauri:build:debug` and starts it.
+- `-Release` builds with `tauri:build` instead.
+- `-SkipBuild` starts the last build without building again.
+- `-Verbose` sets `RUST_LOG=debug`.
 
-For repeat release builds on a Windows server, prefer the cached release script:
+The script installs nothing and doesn't run `pnpm install`. It checks that `cargo` and `pnpm.cmd` are on `PATH`, and it checks for `dlltool` on GNU toolchain hosts only. Run `pnpm install` yourself first.
+
+For hot reload of the frontend, run Tauri dev mode:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.27.4
+pnpm --dir apps/desktop-tauri run tauri:dev
 ```
 
-It builds from a clean managed checkout but keeps Cargo output, the pnpm store,
-and signed installer bootstrapper downloads in `C:\code\Win-CodexBar-release\cache`.
-Release assets land in `C:\code\Win-CodexBar-release\assets`. Keep the
-`.sha256` sidecars; they are the copy/paste source for Winget's
-`InstallerSha256`.
+On macOS, Linux or WSL, `scripts/dev.sh` takes `--release`, `--skip-build`, `--verbose` and `--cli`. In WSL with no display server, it switches to CLI mode.
 
-Useful release flags:
+## Run the checks
+
+Run the same check as the hosted PR check:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref vX.Y.Z -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref vX.Y.Z -SmokeInstall
+.\scripts\local-check.ps1 -Slice ci
+```
+
+`CONTEXT.md` lists its 11 steps. With no parameters, `local-check.ps1` runs a shorter developer check: the worktree storage report, the `gh-safe.sh` tests, both Rust test suites, and the frontend tests and build. Add `-Format`, `-Clippy`, `-ReleaseDoctor` or `-All` for more.
+
+To run single steps:
+
+```powershell
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+pnpm --dir apps/desktop-tauri test
+pnpm --dir apps/desktop-tauri run lint
+pnpm --dir apps/desktop-tauri run build
+```
+
+`pnpm run build` runs `check-locale` first, then `tsc --noEmit` and `vite build`. `check-locale` fails when the Rust and TypeScript locale keys differ.
+
+Tests and builds don't prove tray, settings, float bar or WebView2 behavior. See [WINDOWS_PROOF.md](./WINDOWS_PROOF.md).
+
+## Build a release on Windows
+
+GitHub Actions builds, signs and drafts the published releases when a `vX.Y.Z` tag is pushed (`.github/workflows/release.yml`). [release/ci-cd.md](./release/ci-cd.md) describes that flow.
+
+To build release assets on your own Windows PC, use the cached release builder:
+
+```powershell
+.\scripts\windows-release-build.ps1 -Ref vX.Y.Z
+```
+
+It builds from a clean checkout under `-WorkRoot` (default `C:\code\Win-CodexBar-release`):
+
+- `source\` holds the checkout.
+- `cache\` keeps the pnpm store, the Cargo output and the installer downloads between runs.
+- `assets\` receives the release files.
+
+The script renames the binaries for release. The desktop app becomes `codexbar.exe`, with `codexbar-desktop.exe` as a second name for older shortcuts. The CLI becomes `codexbar-cli.exe`. It writes these assets, each with a `.sha256` file:
+
+| Asset | Contents |
+| --- | --- |
+| `CodexBar-<version>-Setup.exe` | Inno Setup installer for `codexbar.exe`, `codexbar-cli.exe` and `codexbar-desktop.exe` |
+| `CodexBar-<version>-portable.exe` | The desktop app as one file |
+| `CodexBarCLI-v<version>-windows-x64.zip` | `codexbar-cli.exe` |
+
+Keep the `.sha256` files. They are the source for Winget's `InstallerSha256`.
+
+Other switches:
+
+| Switch | What it does |
+| --- | --- |
+| `-WarmCacheOnly` | Builds the desktop binary to fill the caches, then stops before installer packaging |
+| `-SmokeInstall` | Installs and uninstalls the new installer to test it |
+| `-RefreshInstallerDependencies` | Downloads the installer bootstrappers again instead of reusing the cached copies |
+| `-RepoUrl` | The repo to clone when the managed checkout doesn't exist yet (default `https://github.com/nesszer/Win-CodexBar.git`) |
+
+The script only builds and tests. It has no upload switch.
+
+To check release assets:
+
+```powershell
 .\scripts\release-doctor.ps1 -Version X.Y.Z
 ```
 
-`windows-release-build.ps1` only builds and smoke-tests. It has no upload
-switch. The hosted release path is the approval-gated CircleCI workflow
-documented in `docs/release/ci-cd.md`; publication uses its no-clobber,
-SHA-256-checked draft publisher.
+`release-doctor.ps1` also takes `-AssetsDir` and `-SkipGitHub`.
 
-## macOS Windows Cross Build
+To test an installer on its own:
 
-For a fast compile check from macOS, use the cross-build wrapper:
+```powershell
+.\scripts\windows-smoke-install.ps1 -InstallerPath <path-to-Setup.exe> -ExpectedVersion X.Y.Z
+```
+
+The smoke test checks the silent install switches (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`), the installed files, the CLI `--help` and `--version` output, the Start Menu shortcut, the uninstall registry entry and the silent uninstall. Add `-LeaveInstalled` to keep the app installed for manual checks, or `-InstallDir` to choose the install folder.
+
+## Cross-build from macOS
+
+For a compile check from a Mac, use the cross-build wrapper:
 
 ```bash
 ./scripts/macos-windows-cross-build.sh
 ```
 
-Or call the desktop package script directly:
+Or run the package script:
 
 ```bash
 pnpm --dir apps/desktop-tauri run tauri:build:windows-cross
 ```
 
-This uses `cargo-xwin` plus Homebrew `llvm`/`lld` to build the Windows MSVC
-Tauri executable at `target/x86_64-pc-windows-msvc/release/codexbar-desktop-tauri.exe`.
-It is useful for catching frontend, Tauri, and Windows-target Rust compile
-failures from a Mac. It does not replace the Windows server release path:
-installer packaging, tray behavior, WebView2, DPAPI, startup integration, and
-smoke install validation still need a real Windows machine.
+This uses `cargo-xwin` with Homebrew `llvm` and `lld`, and builds `target/x86_64-pc-windows-msvc/release/codexbar-desktop-tauri.exe`. It catches frontend, Tauri and Windows-target Rust compile errors. It doesn't replace a Windows build: installer packaging, tray behavior, WebView2, DPAPI, startup and smoke install still need a real Windows PC.
 
-## Project Structure
+## Project layout
 
 ```
 Win-CodexBar/
-├── apps/desktop-tauri/          # Tauri desktop shell
-│   ├── src/                     # React frontend (TypeScript)
-│   └── src-tauri/               # Tauri/Rust backend
-│       └── src/
-│           ├── commands/        # Tauri IPC commands
-│           ├── shell/           # Window management, DWM, tray bridge
-│           └── main.rs          # App entry point
-├── rust/                        # Shared backend crate + CLI
+├── apps/desktop-tauri/          Tauri desktop shell
+│   ├── src/                     React frontend (TypeScript)
+│   └── src-tauri/src/
+│       ├── commands/            Tauri commands called by the frontend
+│       ├── shell/               Windows: activation, DWM, flyout and Settings windows
+│       ├── floatbar/            Float bar window
+│       ├── tray_bridge.rs       Tray icon and menu
+│       └── main.rs              Desktop entry point
+├── rust/                        Shared backend crate and CLI
 │   └── src/
-│       ├── providers/           # Per-provider fetch/parse/auth
-│       ├── core/                # Provider IDs, cost pricing
-│       ├── browser/             # Browser cookie extraction (DPAPI)
-│       ├── tray/                # Tray icon rendering
-│       └── main.rs              # CLI entry point
-├── docs/                        # Documentation
-└── scripts/                     # Dev/release helper scripts
+│       ├── core/                Provider ids, the Provider trait, the provider factory
+│       ├── providers/           One module per provider
+│       ├── settings/            Settings model, load and save
+│       ├── browser/             Browser detection and cookie import
+│       ├── tray/                Tray icon renderer
+│       ├── cli/                 CLI subcommands
+│       └── main.rs              CLI entry point
+├── docs/                        Documentation
+└── scripts/                     Dev, check and release scripts
 ```
 
 ## Documentation map
 
 | Doc | Contents |
-|-----|----------|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Modules, entry points, data flow (Windows/Tauri) |
-| [CLI.md](./CLI.md) | `codexbar.exe` commands |
-| [CONFIGURATION.md](./CONFIGURATION.md) | Config paths, `codexbar config`, settings tabs |
-| [PROVIDERS.md](./PROVIDERS.md) | Provider factory and sources |
-| [COOKIES.md](./COOKIES.md) | Browser cookie import (DPAPI) |
-| [WSL.md](./WSL.md) | WSL limitations |
-| [WINDOWS_PROOF.md](./WINDOWS_PROOF.md) | Manual/runtime proof checklist |
-| [release/ci-cd.md](./release/ci-cd.md) | Hosted PR check + local release |
-| [../AGENTS.md](../AGENTS.md) | Agent/contributor guidelines |
+| --- | --- |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Modules, entry points and data flow |
+| [CLI.md](./CLI.md) | `codexbar` CLI commands |
+| [CONFIGURATION.md](./CONFIGURATION.md) | Settings, config files and the Settings window |
+| [PROVIDERS.md](./PROVIDERS.md) | Providers, sign-in sources and usage windows |
+| [COOKIES.md](./COOKIES.md) | Browser cookie import |
+| [WSL.md](./WSL.md) | WSL limits |
+| [WINDOWS_PROOF.md](./WINDOWS_PROOF.md) | Proving UI changes on Windows |
+| [release/ci-cd.md](./release/ci-cd.md) | Hosted PR check and the release workflow |
+| [../AGENTS.md](../AGENTS.md) | Rules for agents and contributors |
 
-Upstream macOS docs (`steipete/CodexBar`) are a **read-only** concept source. Do not copy Swift/Keychain/Sparkle instructions here without a Windows rewrite.
-
-
-## Running Tests
-
-```bash
-# Shared crate tests
-cargo test --manifest-path rust/Cargo.toml
-
-# Tauri crate tests
-cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
-
-# TypeScript type check
-cd apps/desktop-tauri && pnpm exec tsc --noEmit
-
-# Lint
-cargo clippy --all-targets -- -D warnings
-cargo fmt --all --check
-```
+The upstream macOS docs (`steipete/CodexBar`) are read-only reference. Don't copy Swift, Keychain or Sparkle steps here without rewriting them for Windows.
 
 ## Stored process environments
 
-A process environment carries API keys, tokens and cookies. Every struct, union or enum-variant
-field that stores one uses `codexbar::process_environment::ProcessEnvironment`, including
-optional maps and `(OsString, OsString)` pair lists. Its `Debug` output is
-`ProcessEnvironment(N entries; redacted)`, so `{:?}`, `dbg!`, `tracing` field captures and
-`assert_eq!` failures never print variable names or values. Wrapping an `Option` keeps `None`
-distinct from an empty map, and equality still compares the original contents.
+A process environment carries API keys, tokens and cookies. Every struct, union or enum-variant field that stores one uses `codexbar::process_environment::ProcessEnvironment`. This includes optional maps and `(OsString, OsString)` pair lists.
 
-Deref, iteration, `get` and `insert` still return the original values for the child process,
-so never log what they return. Function parameters and locals are transient and stay unwrapped.
+- Its `Debug` output is `ProcessEnvironment(N entries; redacted)`. So `{:?}`, `dbg!`, `tracing` field captures and `assert_eq!` failures never print variable names or values.
+- Wrapping an `Option` keeps `None` apart from an empty map. Equality still compares the original contents.
+- Deref, iteration, `get` and `insert` still return the original values for the child process. Never log what they return.
+- Function parameters and locals are short-lived and stay unwrapped.
 
-The `process_environment::storage_guard` test scans `rust/src` and
-`apps/desktop-tauri/src-tauri/src` for environment-named fields whose type is a string map or a
-string pair list, through `Option`, `Box`, `Arc`, references, slices and local `type` aliases,
-and fails on any that is not wrapped. Each entry in its `REVIEWED_EXCEPTIONS` list must match
-exactly one declaration, so stale or duplicate exceptions fail too. The guard is a lexical
-tripwire, not a type checker: generic parameters, differently named fields and explicit logging
-of an unwrapped map still need code review.
+The `process_environment::storage_guard` test scans `rust/src` and `apps/desktop-tauri/src-tauri/src` for fields with an environment-like name whose type is a string map or a string pair list. It looks through `Option`, `Box`, `Arc`, references, slices and local `type` aliases, and fails on any field that is not wrapped. Each entry in its `REVIEWED_EXCEPTIONS` list must match exactly one declaration, so stale or duplicate exceptions fail too.
+
+The guard matches text. It doesn't check types. Generic parameters, fields with other names and explicit logging of an unwrapped map still need code review.
 
 ```bash
 cargo test -p codexbar process_environment

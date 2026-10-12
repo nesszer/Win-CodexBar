@@ -1,46 +1,79 @@
 # Repository Guidelines
 
-## Project Overview
+Win-CodexBar is the Windows port of CodexBar: a tray app that shows AI-provider usage and limits. This file holds the rules for working in this repo. Long reference material lives in `docs/`; the [docs index](#docs-index) says where.
 
-- Windows desktop tray app for AI-provider usage and limits (Win-CodexBar port of CodexBar).
-- Default product surface: Tauri 2 desktop shell in `apps/desktop-tauri`, not the CLI.
-- Shared domain/backend and CLI live in the `rust/` crate `codexbar`.
-- Material under `docs/` that describes the upstream macOS/Swift project is historical unless the task is explicitly about upstream parity.
-- When repo docs conflict, trust active sources: `apps/desktop-tauri` plus `rust/src`.
+## How to use this file
 
-## Architecture & Data Flow
+- Read the code before you rely on memory or on a doc. The sources of truth are `apps/desktop-tauri` and `rust/src`. When a doc and the code disagree, the code wins; fix the doc.
+- Precedence: the user's instructions in the current task come first, then this file, then other docs. Upstream macOS docs under `docs/` are historical unless the task is about upstream parity.
+- Do the reversible work first (reading, editing, local builds and tests, local commits). Ask the user before anything in [Ask first](#ask-first).
 
-- Cargo workspace (root `Cargo.toml`): members `rust`, `apps/desktop-tauri/src-tauri`; **default-member** is the Tauri crate.
-- Path dependency: `codexbar-desktop-tauri` → `codexbar = { path = "../../../rust" }`.
-- Frontend: React 18 + Vite in `apps/desktop-tauri/src/`. Typed invoke bridge in `src/lib/tauri.ts`; DTOs in `src/types/bridge.ts`.
-- Surfaces: the hidden `main` webview routes by window label / surface mode — TrayPanel, Settings, FloatBar. Settings, float bar, and the tray-panel flyout use detached windows. The flyout's TrayPanel is the only dashboard layout; the legacy PopOut layout is retired (`SurfaceMode::PopOut` remains only as a data key).
-- **Provider refresh**: `codexbar::core::instantiate_provider` (`rust/src/core/provider_factory.rs`) → `Provider::fetch_usage` → shell `commands/providers.rs` (semaphore + timeout) → `AppState.provider_cache` → events → React `useProviders`.
-- **Settings**: `%config%/CodexBar/settings.json` via `Settings::load` / `save` and `secure_file` (DPAPI-capable on Windows). Frontend `updateSettings` patch → save → `codexbar:settings-updated` / float-bar config events.
-- **Tray**: `tray_bridge` + `tray_menu`. Icon pixels from shared `codexbar::tray::{render_bar_icon_rgba, render_percent_icon_rgba}`.
-- **Float bar**: `floatbar/` owns the auxiliary always-on-top window. The builder must pin `.theme(Some(tauri::Theme::Dark))` — WebView2 resolves `prefers-color-scheme` on a shared process profile; an unpinned window flips other webviews under theme `auto`.
-- **Proof harness**: env `CODEXBAR_PROOF_MODE` (e.g. `settings:menu`) opens a target surface and suppresses blur-dismiss for automation / CUA capture. `CODEXBAR_SEED_USAGE_JSON=<abs-path>` seeds one synthetic bridge-shaped Codex `ProviderUsageSnapshot` into the provider cache at launch (pinned against refresh eviction; malformed files are warned about and skipped).
+## Project overview
 
-## Key Directories
+- The product is the Tauri 2 desktop app in `apps/desktop-tauri`, not the CLI.
+- The shared backend and the CLI are the `rust/` crate `codexbar`.
+- The root `Cargo.toml` is a workspace with members `rust` and `apps/desktop-tauri/src-tauri`. The Tauri crate is the default member, so plain `cargo` commands from the repo root target the desktop app. Use `cd rust` only for CLI or backend-only work.
+- The Tauri crate depends on `codexbar = { path = "../../../rust" }`.
+- The frontend is React 18 and Vite in `apps/desktop-tauri/src/`. The typed invoke bridge is `src/lib/tauri.ts`; its DTOs are in `src/types/bridge.ts`.
 
-- `apps/desktop-tauri/src/` — React UI (surfaces, hooks, i18n, bridge types)
-- `apps/desktop-tauri/src-tauri/src/` — Tauri shell (`main`, tray, floatbar, shell windows, commands, proof_harness)
-- `rust/src/core/` — `ProviderId`, `Provider` trait, `instantiate_provider`, fetch context
-- `rust/src/providers/` — one module per provider (fetch/parse/auth)
-- `rust/src/settings/` — settings model and load/save
-- `rust/src/browser/` — Windows browser detection + cookie extraction
-- `rust/src/tray/` — shared tray-icon renderer
-- `rust/src/cli/` — CLI subcommands (`codexbar` binary)
-- `scripts/` — `dev.ps1`, `local-check.ps1`, release and smoke scripts
-- `docs/` — Windows port docs (`ARCHITECTURE`, `CLI`, `CONFIGURATION`, `PROVIDERS`, `BUILDING`, `COOKIES`, `WINDOWS_PROOF`, ADRs). Upstream macOS docs are read-only reference only.
-- `.circleci/config.yml` — primary hosted Windows PR/push gate; `.github/workflows/pr-check.yml` — manual Blacksmith Windows reserve; `.github/workflows/interaction-guard.yml` — lightweight GitHub-hosted policy guard.
+## Architecture and data flow
 
-## Development Commands
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the full picture. The rules that matter on every change:
 
-```text
-# Local CI slice (mirrors hosted PR check)
+- **Windows.** The hidden `main` webview routes by window label. Settings, the float bar and the tray-panel flyout are separate windows. The flyout's TrayPanel is the only dashboard layout. The old PopOut layout is retired; `SurfaceMode::PopOut` remains only as a data key.
+- **Provider refresh.** `codexbar::core::instantiate_provider` (`rust/src/core/provider_factory.rs`) builds the provider, then `Provider::fetch_usage` runs from the shell's `commands/providers.rs` under a semaphore and a timeout. Results go to `AppState.provider_cache`, then to events, then to the React hook `useProviders`.
+- **Settings.** `%APPDATA%\CodexBar\settings.json` is read and written by `Settings::load` / `save` through `secure_file`, which wraps it with DPAPI on Windows. The frontend sends an `updateSettings` patch; the shell saves it and the UI reloads on `codexbar:settings-updated` and the float-bar config events.
+- **Tray.** `tray_bridge` and `tray_menu` own the icon and the menu. The icon pixels come from the shared `codexbar::tray::{render_bar_icon_rgba, render_percent_icon_rgba}`.
+- **Float bar.** `floatbar/` owns the always-on-top window. Its builder must pin `.theme(Some(tauri::Theme::Dark))`. WebView2 resolves `prefers-color-scheme` on a process profile shared by all windows, so an unpinned float bar flips the other windows when the theme is `auto`. Call this failure the **theme flip**.
+- **Proof harness.** `CODEXBAR_PROOF_MODE` (for example `settings:menu`) opens one surface and turns off blur-dismiss for automation. `CODEXBAR_SEED_USAGE_JSON=<abs-path>` seeds synthetic bridge-shaped `ProviderUsageSnapshot` data into the provider cache at launch, pinned against refresh eviction. A malformed seed file logs a warning and is skipped. See [docs/WINDOWS_PROOF.md](docs/WINDOWS_PROOF.md#proof-mode).
+
+## Key directories
+
+| Path | Contents |
+| --- | --- |
+| `apps/desktop-tauri/src/` | React UI: surfaces, hooks, i18n, bridge types |
+| `apps/desktop-tauri/src-tauri/src/` | Tauri shell: `main`, tray, floatbar, shell windows, commands, proof_harness |
+| `rust/src/core/` | `ProviderId`, the `Provider` trait, `instantiate_provider`, fetch context |
+| `rust/src/providers/` | One module per provider: fetch, parse, auth |
+| `rust/src/settings/` | Settings model, load and save |
+| `rust/src/browser/` | Windows browser detection and cookie extraction |
+| `rust/src/tray/` | Shared tray-icon renderer |
+| `rust/src/cli/` | CLI subcommands (`codexbar` binary) |
+| `scripts/` | `dev.ps1`, `local-check.ps1`, release, smoke and safety scripts. There is no root `Scripts/` (capital S) pipeline. |
+| `docs/` | Windows port docs and ADRs. Upstream macOS docs there are read-only reference. |
+| `.circleci/config.yml` | Primary hosted Windows PR and push gate |
+| `.github/workflows/pr-check.yml` | Manual Blacksmith Windows reserve |
+| `.github/workflows/interaction-guard.yml` | Lightweight GitHub-hosted policy guard |
+
+## Important files
+
+| File | Role |
+| --- | --- |
+| `apps/desktop-tauri/src-tauri/src/main.rs` | Shell entry, command registration, setup |
+| `apps/desktop-tauri/src/App.tsx` | Surface routing by window label |
+| `apps/desktop-tauri/src/lib/tauri.ts` | Frontend invoke bridge |
+| `apps/desktop-tauri/src/types/bridge.ts` | DTOs and `SettingsTabId` |
+| `rust/src/core/provider_factory.rs` | The only provider factory, and `pace_capability` |
+| `rust/src/core/provider.rs` | `ProviderId` and the `Provider` trait |
+| `apps/desktop-tauri/src-tauri/src/commands/providers.rs` | Refresh engine |
+| `apps/desktop-tauri/src-tauri/src/tray_bridge.rs` | Tray icon and menu |
+| `apps/desktop-tauri/src-tauri/src/floatbar/window.rs` | Float bar window builder |
+| `apps/desktop-tauri/src-tauri/src/surface_target.rs` | Proof and settings tab whitelist |
+| `apps/desktop-tauri/src-tauri/tauri.conf.json` | Active Tauri config |
+| `scripts/local-check.ps1` | Local CI slice |
+| `.circleci/config.yml` | Primary hosted PR and push gate (`.github/workflows/pr-check.yml` is the manual Blacksmith reserve) |
+| `CONTEXT.md` | CI roles and budget glossary (Blacksmith pool, `CI_BUDGET_MODE`) |
+
+## Commands
+
+Run from the repo root unless a line says otherwise.
+
+```powershell
+# Local CI slice; -Slice ci mirrors the hosted PR check
 .\scripts\local-check.ps1
+.\scripts\local-check.ps1 -Slice ci
 
-# Rust backend / CLI
+# Rust backend and CLI
 cargo test --manifest-path rust/Cargo.toml
 cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 cargo build -p codexbar
@@ -50,7 +83,7 @@ cargo run -p codexbar -- --help
 cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
 cargo clippy --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
 
-# Frontend (cwd apps/desktop-tauri) — use pnpm, not npm
+# Frontend (from apps/desktop-tauri); use pnpm, not npm
 pnpm install
 pnpm test
 pnpm run build
@@ -58,138 +91,115 @@ pnpm run tauri:dev
 pnpm run tauri:build:debug
 pnpm run tauri:build
 
-# Dev launch helpers (repo root)
+# Dev launch helpers
 .\scripts\dev.ps1
 .\scripts\dev.ps1 -SkipBuild
-./dev.sh
+./scripts/dev.sh
 ```
 
-- Raw `cargo build --release` on the Tauri crate can still embed the **dev URL**. Prefer `pnpm run tauri:build` / `tauri:build:debug` or `scripts/dev.ps1`.
-- Binaries: `codexbar.exe` (CLI), `codexbar-desktop-tauri.exe` (desktop).
-- Default desktop work runs from the repo root (default-member). Use `cd rust` only for CLI/backend-only focus.
-- There is no active root `Scripts/` (capital S) pipeline — use `scripts/`.
-- Format before handoff when Rust changed: `cargo fmt --all`. Clippy both manifests with `-D warnings` (or explain skips).
+- A raw `cargo build --release` of the Tauri crate can embed the **dev URL** instead of the built frontend. Build with `pnpm run tauri:build`, `tauri:build:debug` or `scripts/dev.ps1`.
+- Cargo builds `codexbar.exe` (CLI) and `codexbar-desktop-tauri.exe` (desktop). Release builds rename them: the installer ships `codexbar.exe` (desktop), `codexbar-cli.exe` (CLI) and `codexbar-desktop.exe` (compatibility alias). See [docs/BUILDING.md](docs/BUILDING.md#where-the-binaries-land).
+- When Rust changed, run `cargo fmt --all` before handoff and clippy on both manifests with `-D warnings`. If you skip one, say why.
 
-## Code Conventions & Common Patterns
+## Code conventions
 
-- Prefer small, typed structs/enums and focused modules; keep changes local.
-- Provider-specific logic stays inside `rust/src/providers/<name>/` (or that module). Do not add cross-provider branching in shared paths.
-- **New provider**: (1) `ProviderId` variant + metadata methods (`cli_name`, `display_name`, …), (2) provider module implementing `Provider`, (3) match arm in `core/provider_factory.rs::instantiate`. The factory is exhaustive — missing arms fail to compile. Never duplicate factories in the shell or CLI.
-- Errors: `thiserror` (`ProviderError`) and `anyhow` where already used; keep user-facing messages friendly.
-- Logging: `tracing` only. Never log secrets, cookies, tokens, or raw API keys.
-- Frontend tests are co-located `*.test.ts` / `*.test.tsx`. Bridge types in `types/bridge.ts` must stay aligned with Rust command payloads (including settings tab ids).
-- **Settings tab ids** (case-sensitive; backend whitelist in `surface_target.rs` must mirror frontend `SettingsTabId` / `TAB_META`): `general`, `providers`, `notifications`, `menuBar`, `menu`, `usageSpend`, `advanced`, `hooks`, `about`. Unknown ids fall back to General in the UI. Old ids `display` / `apiKeys` / `cookies` are not valid settings tabs.
-- Cookie import UX uses **explicit browser selection** in Preferences — do not assume Chrome-only.
-- Claude CLI output is user-configurable; do not treat a customizable status line as the usage source of truth.
-- Keep provider data siloed: never show identity / plan / email from provider A in provider B UI.
-- Secrets (manual cookies, API keys, token accounts): use existing redaction, `secure_file`, and keyring helpers.
-- Do not add dependencies or tooling without confirmation.
-- Do not open issues or PRs against upstream `steipete/CodexBar` unless the user explicitly asks. This repo is Win-CodexBar only.
-- **GitHub write safety:** for any mutating `gh` command (comment, review, merge, close, edit, create, label, release, etc.), always pass the explicit `--repo owner/repo`; never rely on the current remote or a PR/issue number alone.
-- Before any GitHub mutation, perform a read-back against that same explicit repo and verify the returned owner/repo or URL exactly matches the intended target. Abort on any mismatch.
-- Treat `steipete/CodexBar` as **read-only by default**. A GitHub write to upstream requires explicit user authorization in the current turn; prior permission never carries forward.
+- Prefer small typed structs and enums in focused modules. Keep changes local.
+- Keep provider-specific logic inside `rust/src/providers/<name>/`. Shared paths have no cross-provider branching; when shared code needs a provider-specific answer, add a typed field or a trait method with a default.
+- **New provider:** (1) a `ProviderId` variant with its metadata methods (`cli_name`, `display_name`, ...), (2) a provider module that implements `Provider`, (3) a match arm in `instantiate` and in `pace_capability` in `core/provider_factory.rs`. Both matches are exhaustive, so a missing arm doesn't compile. Never add a second factory in the shell or the CLI. See [docs/PROVIDERS.md](docs/PROVIDERS.md#add-a-provider).
+- Errors: `thiserror` (`ProviderError`), and `anyhow` where it is already used. Keep user-facing messages friendly.
+- Logging: `tracing` only. Never log secrets, cookies, tokens or raw API keys.
+- Frontend tests sit next to the code as `*.test.ts` / `*.test.tsx`. `types/bridge.ts` must match the Rust command payloads, including the settings tab ids.
+- **Settings tab ids** are case-sensitive: `general`, `providers`, `notifications`, `menuBar`, `menu`, `usageSpend`, `advanced`, `hooks`, `about`. The backend whitelist in `surface_target.rs` must match the frontend `SettingsTabId` and `TAB_META`. Unknown ids fall back to General in the UI. The old ids `display`, `apiKeys` and `cookies` are not settings tabs.
+- Cookie import uses **explicit browser selection** in Settings. Don't assume Chrome.
+- Claude CLI output is user-configurable. Don't treat a customizable status line as the usage source of truth.
+- Keep provider data siloed: never show identity, plan or email from provider A in provider B's UI.
+- Secrets (manual cookies, API keys, token accounts) go through the existing redaction, `secure_file` and keyring helpers.
 
-## Important Files
+## Ask first
 
-- `apps/desktop-tauri/src-tauri/src/main.rs` — shell entry, command registration, setup
-- `apps/desktop-tauri/src/App.tsx` — surface routing by window label
-- `apps/desktop-tauri/src/lib/tauri.ts` — frontend invoke bridge
-- `apps/desktop-tauri/src/types/bridge.ts` — DTOs + `SettingsTabId`
-- `rust/src/core/provider_factory.rs` — sole provider factory
-- `rust/src/core/provider.rs` — `ProviderId` + `Provider` trait
-- `apps/desktop-tauri/src-tauri/src/commands/providers.rs` — refresh engine
-- `apps/desktop-tauri/src-tauri/src/tray_bridge.rs` — tray icon and menu
-- `apps/desktop-tauri/src-tauri/src/floatbar/window.rs` — float bar window builder
-- `apps/desktop-tauri/src-tauri/src/surface_target.rs` — proof / settings tab whitelist
-- `apps/desktop-tauri/src-tauri/tauri.conf.json` — active Tauri config
-- `scripts/local-check.ps1` — local CI slice
-- `.circleci/config.yml` — primary hosted PR/push gate; `.github/workflows/pr-check.yml` — manual Blacksmith reserve
-- `CONTEXT.md` — CI budget glossary (Blacksmith pool / `CI_BUDGET_MODE`)
+These need the user's confirmation, because they are hard to undo or affect shared systems:
 
-## Runtime/Tooling Preferences
+- Adding a dependency or new tooling.
+- Any GitHub write to upstream `steipete/CodexBar`. It is read-only by default. A write needs explicit authorization from the user in the current turn; earlier permission never carries over. Don't open issues or PRs there unless the user asks.
+- Opening issues or PRs against trycua/cua. Use it as tooling only.
 
-- Package manager: **pnpm**, with the exact version pinned only by `packageManager` in `apps/desktop-tauri/package.json` (and reflected by the lockfile). Do not introduce npm or yarn lockfiles.
-- Node: CircleCI pins **Node 24.18.0**; no `.nvmrc` in repo. Prefer Node 24.18.0 locally for hosted parity.
-- Rust: edition **2024**, stable toolchain; CI target `x86_64-pc-windows-msvc`. No committed `rust-toolchain.toml` / `rustfmt.toml` / `clippy.toml` — defaults plus CI flags (`clippy -- -D warnings`).
-- Tray / DPAPI / browser-cookie behavior: validate on **Windows-native** hosts. WSL/Linux is insufficient for those paths.
-- **CUA (computer-use) for UI proof** — see [Testing & QA](#testing--qa). Project: [trycua/cua](https://github.com/trycua/cua). On this machine the Windows driver is typically `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`.
+## GitHub write safety
+
+- Route every GitHub mutation (comment, review, merge, close, edit, create, label, release and so on) through `scripts/gh-safe.sh`. It is the only supported mutation wrapper. It binds the repo, reads the target back, blocks repo overrides and fails closed on a mismatch.
+- Always pass the explicit `--repo owner/repo`. Never rely on the current remote or on a PR or issue number alone.
+- Before any mutation, read the target back from that same repo and check that the returned owner/repo or URL matches exactly. Abort on any mismatch.
+- For object mutations (PR, issue, release), bind both the exact `owner/repo` and the exact number or tag. Use repo-only verification only for creates, where the object doesn't exist yet.
+- `gh-safe.sh` allows three repos: `nesszer/Win-CodexBar`, `Finesssee/winget-pkgs` (the fork that receives the manifest branch) and `microsoft/winget-pkgs` (where the Winget PR opens).
+
+## Runtime and tooling
+
+- **pnpm** only. The exact version is pinned only by `packageManager` in `apps/desktop-tauri/package.json`, and the lockfile reflects it. Don't add npm or yarn lockfiles.
+- **Node:** CircleCI pins Node 24.18.0. There is no `.nvmrc`. Use 24.18.0 locally to match CI.
+- **Rust:** edition 2024, stable, target `x86_64-pc-windows-msvc`. CI pins the version in `scripts/circleci-pinned-rust.txt`. There is no committed `rust-toolchain.toml`, `rustfmt.toml` or `clippy.toml`; use the defaults plus the CI flags (`clippy -- -D warnings`).
+- Test tray, DPAPI and browser-cookie behavior on a native Windows host. WSL and Linux can't exercise those paths.
 
 ### Worktree storage policy
 
-- Keep source isolation in Git worktrees when branches are edited concurrently. Read-only issue review can use an existing checkout, `git show`, or `git diff` without creating another worktree.
-- Local Cargo builds should load `scripts/worktree-env.ps1`. It sets a process-local `CARGO_TARGET_DIR` outside every registered worktree. Use `WCB_CARGO_TARGET_ROOT` for a temporary machine-local cache root or `WCB_CARGO_TARGET_DIR` for an explicit per-process override.
-- Do not commit a shared writable `target-dir` in `.cargo/config.toml`, set a global `CARGO_TARGET_DIR`, or share one exact target directory between concurrent builds. The source worktree remains isolated; only reproducible build output is redirected.
-- `scripts/worktree-storage.ps1` is read-only. It reports free disk, registered worktrees, worktree-local `target`, `node_modules`, and the configured external Cargo target. Storage warnings are advisory and never delete files, clean Cargo output, switch branches, or prune Git metadata.
-- Treat `target`, Cargo incremental artifacts, frontend build output, and reinstallable `node_modules` as disposable. Preserve source edits, commits, branches, PR history, and review evidence. Before retiring a worktree, verify it is clean and its commit is preserved; removing a worktree does not delete its branch.
-- Use these local warning guides: below 60 GiB free, above 1 GiB per worktree target, or above 5 GiB aggregate worktree targets. Treat below 35 GiB free or above 5 GiB for one target / 10 GiB aggregate as an immediate cleanup review. CircleCI keeps its normal runner-local cache and skips this workstation audit.
-
+- Use Git worktrees to isolate branches that are edited at the same time. Read-only review can use an existing checkout, `git show` or `git diff` without a new worktree.
+- Load `scripts/worktree-env.ps1` before local Cargo builds. It sets a process-local `CARGO_TARGET_DIR` outside every registered worktree. Set `WCB_CARGO_TARGET_ROOT` for a temporary machine-local cache root, or `WCB_CARGO_TARGET_DIR` for an explicit per-process target.
+- Don't commit a shared writable `target-dir` in `.cargo/config.toml`, set a global `CARGO_TARGET_DIR`, or share one exact target directory between concurrent builds. The source worktree stays isolated; only reproducible build output moves.
+- `scripts/worktree-storage.ps1` is read-only. It reports free disk, registered worktrees, worktree-local `target` and `node_modules`, and the configured external Cargo target. Its warnings are advisory. It never deletes files, cleans Cargo output, switches branches or prunes Git metadata.
+- `target`, Cargo incremental output, frontend build output and reinstallable `node_modules` are disposable. Source edits, commits, branches, PR history and review evidence are not. Before you retire a worktree, check that it is clean and its commit is preserved. Removing a worktree doesn't delete its branch.
+- Warning levels: under 60 GiB free, over 1 GiB for one worktree target, or over 5 GiB for all worktree targets together. Review cleanup at once under 35 GiB free, or over 5 GiB for one target or 10 GiB in total. CircleCI keeps its normal runner-local cache and skips this audit.
 
 ## Testing & QA
 
-- Rust: prefer focused `#[cfg(test)]` unit tests near the changed module. Run both manifests after Rust changes.
-- Frontend: Vitest 3 + jsdom + Testing Library. From `apps/desktop-tauri`: `pnpm test` (`src/**/*.{test,spec}.{ts,tsx}`).
-- **Hosted PR check**: CircleCI Windows is primary and runs `scripts/local-check.ps1 -Slice ci` for same-repository ordinary/canonical PRs and `main` (never for fork PRs); micro PRs targeting `port/upstream-*` intentionally skip hosted Windows compute; a micro-named PR targeting `main` does not. `.github/workflows/pr-check.yml` is manual Blacksmith Windows reserve only. Budget details: `CONTEXT.md`, `.github/CI.md`, and ADRs under `docs/adr/`.
-- **Fork PRs and reviews**: CircleCI never runs on fork PRs, and this project adds no CircleCI API token. Read the full diff, then run the `-Slice ci` steps from main's copy of `scripts/local-check.ps1` against the fork head (`pull/<number>/head`) in a disposable, credential-free Windows environment (Windows Sandbox or a throwaway VM; a worktree is not isolation), and post the result (see `.github/CI.md`). CodeRabbit (`.coderabbit.yaml`) reviews every PR, drafts included, against these rules; fix or answer its findings before merging.
-- **Hosted mirror**: `.\scripts\local-check.ps1 -Slice ci`. The default no-parameter developer slice remains available and does not run full installer/smoke unless requested.
-- Parser / fetcher changes: add deterministic samples or fixtures where practical.
-- No coverage thresholds are configured — do not invent any.
+- Rust: prefer focused `#[cfg(test)]` unit tests next to the changed module. After a Rust change, run the tests for both manifests.
+- Frontend: Vitest 3 with jsdom and Testing Library. From `apps/desktop-tauri`: `pnpm test` (`src/**/*.{test,spec}.{ts,tsx}`).
+- Parser and fetcher changes: add deterministic samples or fixtures where practical.
+- Run the checks that fit the change. There are no coverage thresholds; don't invent any.
+- **Hosted PR check.** CircleCI Windows is the primary gate. It runs `scripts/local-check.ps1 -Slice ci` for same-repository ordinary and canonical PRs and for `main`, and never for fork PRs. Micro PRs that target `port/upstream-*` skip hosted Windows compute on purpose; a micro-named PR that targets `main` does not. `.github/workflows/pr-check.yml` is a manual Blacksmith Windows reserve only. Budget details are in `CONTEXT.md`, `.github/CI.md` and `docs/adr/`.
+- **Local mirror.** `.\scripts\local-check.ps1 -Slice ci` mirrors the hosted check. The default developer slice, with no parameters, doesn't run the full installer or smoke test unless asked.
+- **Fork PRs and reviews.** CircleCI never runs on fork PRs, and this project adds no CircleCI API token. Read the full diff. Then run the `-Slice ci` steps from main's copy of `scripts/local-check.ps1` against the fork head (`pull/<number>/head`) in a disposable, credential-free Windows environment (Windows Sandbox or a throwaway VM; a worktree is not isolation), and post the result (see `.github/CI.md`).
+- **CodeRabbit** (`.coderabbit.yaml`) reviews every PR, drafts included, against these rules. Fix or answer its findings before merging.
 
 ### UI validation with CUA ([trycua/cua](https://github.com/trycua/cua))
 
-Unit tests and `local-check` do **not** prove tray, settings, float bar, theme, or WebView2 behavior. For UI / tray / settings / float-bar / visual changes, agents **must** retest on a real Windows desktop build using **Cua Drivers** (background computer-use: click, type, screenshot, UIA) from the open-source [trycua/cua](https://github.com/trycua/cua) project. Docs: [cua.ai/docs](https://cua.ai/docs), driver install: [install guide](https://cua.ai/docs/how-to-guides/driver/install), CLI reference: [cua-driver CLI](https://cua.ai/docs/reference/cua-driver/cli-reference).
+Unit tests and `local-check` don't prove tray, Settings, float bar, theme or WebView2 behavior. After any UI, tray, Settings, float-bar or visual change, retest on a real Windows desktop build. Vitest, jsdom and `cargo test` alone are never enough for the tray icon, DWM, the WebView2 theme, float bar z-order or Settings chrome.
 
-**Install (Windows PowerShell, from upstream README):**
+1. **Rebuild** a desktop binary that includes the change: `pnpm --dir apps/desktop-tauri run tauri:build:debug` or `.\scripts\dev.ps1`. Proof from an exe built before the change (a **stale exe**) proves nothing.
+2. **Close** any running CodexBar. The single-instance plugin can hand a new launch to the old process.
+3. **Launch** the new binary in proof mode, for example `$env:CODEXBAR_PROOF_MODE = 'settings:menu'`. The float bar section is on the `menu` pane. For CDP, also set `$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=<port>'`, one port per parallel lane.
+4. **Drive in the background only.** Never use `bring_to_front`, foreground mode, `hotkey` or `type_text`; they take the user's focus or keyboard. Use CDP for webview controls: attach to the window's own page target by URL, never the first target, click with `Input.dispatchMouseEvent`, and assert the DOM state and the persisted value through the bridge (`get_settings_snapshot`). Use cua-driver 0.31+ with `element_token` from `get_window_state`, and pass one `session` label on the state read and every action that uses its tokens.
+5. **Prove with CUA every time:** `verify_state` for window existence and bounds, real-pixel screenshots through `get_window_state` with `--screenshot-out-file`, and native facts CDP can't see (DWM dark under `auto`, float bar topmost and layered, window frame). CDP screenshots are not proof.
+6. **Attach the proof** to the PR: CDP assertions and CUA screenshots. List what isn't covered, such as tray icon or tray menu pixels. If CUA can't run, say why and attach equivalent manual proof (PR template).
 
-```powershell
-irm https://cua.ai/driver/install.ps1 | iex
-```
+**Reviewing snapshots.** When you ask Astra or Fable to review snapshots of the app, ask it to collage them into one contact sheet first. It then reads one image instead of one per snapshot, which saves a lot of context.
 
-Then follow post-install instructions (permissions / accessibility as prompted).
+[docs/WINDOWS_PROOF.md](docs/WINDOWS_PROOF.md) has the cua-driver install command (driver usually at `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`), the CDP target URLs, the cua-driver session rules and the post-install checklist.
 
-**Typical layout after install:**
+## Commits and PRs
 
-- Driver binary: `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`
-- Long-lived daemon: `cua-driver serve` (often over a named pipe). One-shot tools: `cua-driver call <tool> '<json>'` (e.g. `list_windows`, `get_window_state`, `click`, screenshots via `--screenshot-out-file`).
+- Short imperative commit messages, for example `Fix Claude CLI parser` or `Improve cookie import errors`. One change per commit.
+- A PR includes: a summary of behavior changes, the commands you ran (`cargo test`, `pnpm test`, `.\scripts\local-check.ps1` ...), Windows screenshots or GIFs for UI changes, and the linked issue or reference.
+- `ci/circleci: pr-check` is the primary Windows gate; `.github/workflows/pr-check.yml` is the manual Blacksmith backup. Porting micro PRs that target `port/upstream-*` use focused local evidence and skip automatic hosted Windows CI on purpose. Same-repository PRs to `main` always get the hosted gate; fork PRs never do (see Fork PRs and reviews).
+- UI, tray, Settings, float-bar and visual PRs need hybrid proof by default: CDP for actions and state, CUA for real pixels and native checks, after a fresh local rebuild. See [UI validation with CUA](#ui-validation-with-cua-trycuacua).
+- Before a non-trivial merge, run the thermo-nuclear structure review when the project process requires it.
 
-**Required retest loop after UI-affecting code changes:**
+## Release and Winget
 
-1. **Rebuild** a local desktop binary that includes the change (`pnpm --dir apps/desktop-tauri run tauri:build:debug` or `.\scripts\dev.ps1`). Do not validate against a stale pre-change exe.
-2. **Close** any already-running CodexBar instance (single-instance plugin may hand off to the old process).
-3. **Launch** the new binary. For stable automation (no blur-dismiss), set proof mode, e.g.  
-   `$env:CODEXBAR_PROOF_MODE = 'settings:menu'`  
-   (settings tab ids: `general`, `providers`, `notifications`, `menuBar`, `menu`, `usageSpend`, `advanced`, `hooks`, `about` — float bar section is on **`menu`**).  
-   To use CDP, also set `$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=<port>'` (one port per parallel lane).
-4. **Drive in the background only** — never `bring_to_front`, foreground mode, `hotkey`, or `type_text`; they take the user's focus or keyboard.
-   - **CDP (preferred for webview controls):** read `http://127.0.0.1:<port>/json/list` and attach to the window's own page target by URL — main / tray panel / Settings: `http://tauri.localhost/`; float bar: `…?window=floatbar…`. Never the first target: tools that attach to it or open `about:blank` (e.g. browser-use) see a blank page. Click with `Input.dispatchMouseEvent` (does not move the OS cursor or take focus); assert DOM state and the persisted value via the app bridge (`get_settings_snapshot`).
-   - **cua-driver 0.31+:** actions take `element_token` from `get_window_state` (`element_index` / `snapshot_id` are rejected); pixel clicks need a screenshot from the same session first. Pass the same `session` label on the state read and every action that uses its tokens (or keep one `serve` connection); separate one-shot `call`s without it retire the snapshot, so the token goes stale.
-5. **Prove with CUA every time:** `verify_state` (`timeout_ms`, `stable_samples`) for window existence/bounds, real-pixel screenshots via `get_window_state` + `--screenshot-out-file`, and native facts CDP can't see (DWM dark under `auto`, float bar topmost/layered, window frame). CDP screenshots are not proof.
-6. **Attach proof** to the PR: CDP assertions + CUA screenshots; list anything not covered (e.g. tray icon / tray menu pixels) explicitly. If CUA cannot run, say why and attach equivalent manual proof (PR template).
+- Update Winget as a normal release step, after the GitHub release artifacts are stable.
+- Every version needs its own immutable manifest folder in `microsoft/winget-pkgs`, for example `manifests/f/Finesssee/Win-CodexBar/0.23.6/`. Winget doesn't track "latest".
+- For a routine bump, copy the previous approved folder and change only `PackageVersion`, `InstallerUrl`, `InstallerSha256`, `DisplayName`, `DisplayVersion`, `ReleaseNotes` and `ReleaseNotesUrl`.
+- Keep `PackageIdentifier`, `InstallerType`, `Scope`, `ProductCode`, `Publisher`, the package URLs and the silent install behavior unchanged unless there is a real packaging reason.
+- Before you open a Winget PR, check that the installer URL resolves and recompute the SHA-256 from the downloaded file. On Windows, run `winget validate` when it is available.
+- The first submission was approved in `microsoft/winget-pkgs#366653` and the v0.23.5 update in `microsoft/winget-pkgs#366794`. Later updates still go through Microsoft validation and review.
 
-**Do not** treat Vitest/jsdom or `cargo test` alone as sufficient for tray icon, DWM, WebView2 theme, float bar z-order, or settings chrome. **Do not** open issues/PRs against trycua/cua unless the user explicitly asks; use it as tooling.
+## Docs index
 
-
-## Commit & PR Guidelines
-
-- Short imperative commit messages (e.g. `Fix Claude CLI parser`, `Improve cookie import errors`).
-- Keep commits scoped to one change.
-- In PRs / patches include:
-  - Summary of behavior changes
-  - Commands run (`cargo test`, `pnpm test`, `.\scripts\local-check.ps1`, etc.)
-  - Screenshots / GIFs for UI changes (Windows)
-  - Linked issue / reference when relevant
-- Hosted PR check exists: `ci/circleci: pr-check` is the primary Windows gate; `.github/workflows/pr-check.yml` is manual Blacksmith backup. Porting micro PRs targeting `port/upstream-*` use focused local evidence and intentionally skip automatic hosted Windows CI; same-repository `main`-bound PRs always get the hosted gate; fork PRs never do (see Fork PRs and reviews).
-- UI / tray / settings / float-bar / visual PRs: **hybrid proof is the default** — CDP for actions and state assertions, CUA Driver ([trycua/cua](https://github.com/trycua/cua)) for real-pixel screenshots and native checks — after a **fresh local rebuild** — see [UI validation with CUA](#ui-validation-with-cua-trycuacua). If CUA cannot be used, explain why and attach equivalent manual proof (PR template checkboxes).
-- Before non-trivial merge: thermo-nuclear structure review when the project process requires it.
-
-
-## Release & Winget Notes
-
-- Treat Winget updates as a normal release step after GitHub release artifacts are stable.
-- Winget does not track "latest" GitHub releases; every version needs its own immutable manifest folder in `microsoft/winget-pkgs`, for example `manifests/f/Finesssee/Win-CodexBar/0.23.6/`.
-- For routine version bumps, copy the previous approved manifest folder and change only version-specific fields: `PackageVersion`, `InstallerUrl`, `InstallerSha256`, `DisplayName`, `DisplayVersion`, `ReleaseNotes`, and `ReleaseNotesUrl`.
-- Keep stable package identity and installer behavior unchanged unless there is a real packaging reason: `PackageIdentifier`, `InstallerType`, `Scope`, `ProductCode`, `Publisher`, package URLs, and silent install behavior.
-- Before opening a Winget PR, verify the release installer URL resolves and recompute the SHA-256 from the downloaded asset. On Windows, run `winget validate` when available.
-- The first Winget package submission was approved in `microsoft/winget-pkgs#366653`; the v0.23.5 update was approved in `microsoft/winget-pkgs#366794`. Future updates should be faster, but still expect Microsoft validation/review.
-- Agents must route GitHub mutations through `scripts/gh-safe.sh` instead of calling mutating `gh` subcommands directly. This is the sole supported mutation wrapper. It owns repo binding, performs read-back verification, blocks repo overrides, and fails closed on target mismatch.
-- `gh-safe.sh` allowlists three repos: `nesszer/Win-CodexBar`, plus `Finesssee/winget-pkgs` (the fork that receives the manifest branch) and `microsoft/winget-pkgs` (where the winget PR opens).
-- For object mutations (PR/issue/release), bind both the exact `owner/repo` and exact object number/tag. Use repo-only verification only for creates where the target object does not exist yet.
+| Need | File |
+| --- | --- |
+| Windows, data flow, events, pace | `docs/ARCHITECTURE.md` |
+| Settings panes, keys, files, portable preferences, hooks | `docs/CONFIGURATION.md` |
+| Adding a provider, windows, pace rules, provider notes | `docs/PROVIDERS.md` |
+| CLI commands and flags | `docs/CLI.md` |
+| Build, checks, release builds, binary names | `docs/BUILDING.md` |
+| Browser cookie import | `docs/COOKIES.md` |
+| Proof mode, seeding, CDP, cua-driver | `docs/WINDOWS_PROOF.md` |
+| CI roles and budget terms | `CONTEXT.md`, `.github/CI.md`, `docs/adr/` |
+| Porting from upstream | `docs/PORTING.md` |

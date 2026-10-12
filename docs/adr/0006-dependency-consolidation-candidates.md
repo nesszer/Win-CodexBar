@@ -5,15 +5,14 @@ Status: Proposed
 
 ## Context
 
-Win-CodexBar has grown across roughly 70 providers, a Rust backend, a Tauri 2
-shell, and a React frontend. The codebase now contains several places where the
-same domain information or infrastructure policy is expressed repeatedly.
-Adding dependencies is only worthwhile when a crate removes measurable
-boilerplate, reduces synchronization points, or materially improves
-correctness. This ADR records candidates for review before implementation. It
-does not approve adding every crate listed below.
+Win-CodexBar has about 70 providers, a Rust backend, a Tauri 2 shell and a
+React frontend. In several places the code repeats the same domain information
+or infrastructure policy. A new dependency is worth adding only when it removes
+measurable boilerplate, removes places that must be kept in sync, or fixes a
+real correctness problem. This ADR lists candidates to review before any
+implementation. It does not approve adding every crate below.
 
-The September 2026 audit found these concrete pressure points:
+The September 2026 audit found these problems:
 
 - `rust/src/core/provider.rs` is 1,131 lines. `ProviderId` has 70 variants, with
   repeated handwritten tables for iteration, CLI names, display names, cookie
@@ -243,3 +242,14 @@ Reviewers should challenge each candidate with the same questions:
 - This ADR is intentionally `Proposed`; accepting it does not automatically
   authorize every Tier 1 or Tier 2 dependency. Each implementation PR still
   needs its own measured justification and tests.
+
+## Later changes
+
+Added 2026-10-12. The status is still `Proposed`.
+
+- None of the 15 candidate crates is a direct dependency yet. None is listed in
+  `rust/Cargo.toml`, `apps/desktop-tauri/src-tauri/Cargo.toml` or the root
+  `Cargo.toml`. `reqwest` is still on 0.12.
+- The audit numbers above are from September 2026. On 2026-10-12,
+  `rust/src/core/provider.rs` is 1,997 lines and `ProviderId` has 96 variants
+  (the `ProviderId::all()` test asserts 96).
