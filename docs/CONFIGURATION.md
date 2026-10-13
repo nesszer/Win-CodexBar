@@ -38,6 +38,19 @@ Aligned with upstream *ideas*, mapped to this port:
 
 Do not commit real `settings.json` / key files into the repo.
 
+## Windows update helper
+
+Applying an update uses a background Windows PowerShell inline command to wait
+for CodexBar to exit, run the verified installer, and reopen the desktop app
+after a successful install. The helper does not override the inherited PowerShell
+execution policy. Inline commands do not require enabling unsigned script files.
+
+Removing the unnecessary policy override is a hardening change, not evidence
+that a Defender detection is a false positive or that a release binary is safe.
+Investigate detected files using their exact build provenance and hashes; see
+[Microsoft's file submission portal](https://www.microsoft.com/en-us/wdsi/filesubmission)
+for malware or false-positive analysis.
+
 ## CLI configuration commands
 
 ```powershell

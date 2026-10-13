@@ -538,22 +538,30 @@ fn windows_update_relaunch_path(current_exe: &Path) -> PathBuf {
 
 #[cfg(target_os = "windows")]
 fn spawn_windows_installer(installer_path: &Path, relaunch_path: &Path) -> Result<(), String> {
-    use std::process::Command;
-
     let plan = windows_installer_launch_plan(installer_path)?;
-    Command::new(windows_powershell_path())
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            &windows_installer_apply_script(&plan, std::process::id(), relaunch_path),
-        ])
+    windows_installer_command(&plan, std::process::id(), relaunch_path)
         .spawn()
         .map_err(|e| format!("Failed to launch installer: {}", e))?;
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn windows_installer_command(
+    plan: &WindowsInstallerLaunchPlan,
+    current_pid: u32,
+    relaunch_path: &Path,
+) -> std::process::Command {
+    let mut command = std::process::Command::new(windows_powershell_path());
+    // インラインコマンドなので、実行ポリシーを上書きする必要はない。
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle",
+        "Hidden",
+        "-Command",
+        &windows_installer_apply_script(plan, current_pid, relaunch_path),
+    ]);
+    command
 }
 
 #[cfg(target_os = "windows")]
@@ -890,6 +898,68 @@ mod tests {
         ));
         assert!(script.contains("-PassThru -Wait"));
         assert!(script.contains(r"Start-Process -FilePath 'C:\Program Files\CodexBar\codexbar.exe' -ArgumentList @('menubar')"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_installer_helper_preserves_restricted_execution_policy() {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let temp = tempfile::tempdir().expect("temp dir");
+        let plan = WindowsInstallerLaunchPlan {
+            program: windows_powershell_path(),
+            args: [
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                "exit 0",
+            ]
+            .map(std::ffi::OsString::from)
+            .to_vec(),
+        };
+        let mut previous_process = std::process::Command::new(windows_powershell_path())
+            .args(["-NoProfile", "-NonInteractive", "-Command", "exit 0"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .expect("previous process");
+        let command = windows_installer_command(
+            &plan,
+            previous_process.id(),
+            &temp.path().join("absent-desktop.exe"),
+        );
+        let mut args: Vec<_> = command.get_args().map(std::ffi::OsString::from).collect();
+        let script = args.pop().expect("inline update command");
+        args.push(
+            format!(
+                "{}; Write-Output $p.ExitCode; Get-ExecutionPolicy",
+                script.to_string_lossy()
+            )
+            .into(),
+        );
+        let output = std::process::Command::new(command.get_program())
+            .args(args)
+            .env("PSExecutionPolicyPreference", "Restricted")
+            // PowerShell 7 のモジュール検索先を Windows PowerShell に引き継がせない。
+            .env_remove("PSModulePath")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .expect("update helper");
+        previous_process.wait().expect("reap previous process");
+
+        assert!(
+            output.status.success(),
+            "update helper failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .replace("\r\n", "\n"),
+            "0\nRestricted"
+        );
     }
 
     #[cfg(target_os = "windows")]
