@@ -931,6 +931,12 @@ mod tests {
             &temp.path().join("absent-desktop.exe"),
         );
         let mut args: Vec<_> = command.get_args().map(std::ffi::OsString::from).collect();
+        assert!(
+            !args.iter().any(|arg| arg
+                .to_string_lossy()
+                .eq_ignore_ascii_case("-ExecutionPolicy")),
+            "update helper must not override the inherited execution policy"
+        );
         let script = args.pop().expect("inline update command");
         args.push(
             format!(
