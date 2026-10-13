@@ -28,6 +28,7 @@ debug_*.swift
 
 # Debug/analysis docs
 docs/*-analysis.md
+HANDOFF.md
 # Spec/plan scratch under docs (not product docs)
 docs/superpowers/
 
