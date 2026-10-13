@@ -305,6 +305,34 @@ Synthetic (or `SYNTHETIC_API_KEY`); the CLI also accepts `synthetic.new`.
 - 401 and 403 report "Invalid Synthetic API credentials."; response bodies are
   never echoed in errors.
 
+### Sail Research
+
+Sail Research reads `GET https://api.sailresearch.com/v2/usage/summary?range=30d`
+with bearer authentication. Configure the API key in Settings → Providers →
+Sail Research (or `SAIL_API_KEY`).
+
+- The "Organization billing" section shows the credit balance and the spend for
+  the effective range the API reports (for example "Last 30 days spend").
+  Amounts arrive as fractional cents and display as USD.
+- When `balance_unavailable` is true the balance row shows "Unavailable" and
+  the spend row is kept.
+- 401 reports "Sail Research returned HTTP 401."; 402 reports exhausted
+  credits; 403 reports missing organization access. A billing summary that is
+  unavailable, has no billing account, or fails validation is reported as an
+  error. Response bodies are never echoed in errors.
+
+### Linkup
+
+Linkup reads `GET https://api.linkup.so/v1/credits/balance` with bearer
+authentication. Configure the API key in Settings → Providers → Linkup (or
+`LINKUP_API_KEY`).
+
+- The "Account balance" section shows one "Credit balance" row in USD. Zero
+  and negative balances are shown as reported.
+- Every non-200 status reports "Linkup returned HTTP <status>."; a body that is
+  not an object with a finite numeric `balance` reports "Linkup returned an
+  unrecognized credit balance.". Response bodies are never echoed in errors.
+
 ### ClawRouter
 
 ClawRouter reports the monthly budget, spend and routed-provider usage of one

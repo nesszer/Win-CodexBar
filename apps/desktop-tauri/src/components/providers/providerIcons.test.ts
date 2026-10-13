@@ -162,6 +162,7 @@ describe("provider icon registry", () => {
       "aixy",
       "deepinfra",
       "elevenlabs",
+      "linkup",
       "manus",
       "replicate",
       "synthetic",

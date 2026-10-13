@@ -88,14 +88,17 @@ export function UsageSection({ provider, resetTimeRelative, display, accentColor
     });
   }
 
+  // Card-hidden windows only feed the tray icon and float bar, as on MenuCard.
+  const shownBars = bars.filter((bar) => !bar.rate.hiddenOnCard);
+
   // Cached snapshots outlive the pool reset; re-check blocks on the clock.
   const monthlyLimitBlockNow = useMonthlyLimitBlockNow(
-    bars.map((bar) => bar.rate.monthlyLimitBlock),
+    shownBars.map((bar) => bar.rate.monthlyLimitBlock),
   );
   const inventory = provider.inventory ?? [];
   const displayDetails = provider.displayDetails ?? [];
   const displayDetailGroups = groupProviderDisplayDetails(displayDetails);
-  if (bars.length === 0 && inventory.length === 0 && displayDetails.length === 0) {
+  if (shownBars.length === 0 && inventory.length === 0 && displayDetails.length === 0) {
     return null;
   }
 
@@ -105,7 +108,7 @@ export function UsageSection({ provider, resetTimeRelative, display, accentColor
       style={accentColor ? ({ "--provider-accent": accentColor } as CSSProperties) : undefined}
     >
       <h4>{t("ProviderUsage")}</h4>
-      {bars.map((b) => (
+      {shownBars.map((b) => (
         <CardMetricRow
           key={b.key}
           title={b.label}

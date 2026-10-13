@@ -133,6 +133,28 @@ pub(crate) fn usage_item_descriptors(
         }
     }
 
+    // A card-hidden window is never drawn as a row, so neither a live toggle
+    // nor a saved-ID placeholder for it would control anything. Marking it
+    // seen suppresses both; windows absent from the snapshot keep placeholders.
+    if let Some(snapshot) = snapshot {
+        let windows = [
+            ("primary", Some(&snapshot.primary)),
+            ("secondary", snapshot.secondary.as_ref()),
+            ("model-specific", snapshot.model_specific.as_ref()),
+            ("tertiary", snapshot.tertiary.as_ref()),
+        ];
+        for (raw_id, window) in windows {
+            if window.is_some_and(|w| w.hidden_on_card) {
+                seen.insert(usage_item_id(raw_id));
+            }
+        }
+        for extra in &snapshot.extra_rate_windows {
+            if extra.window.hidden_on_card {
+                seen.insert(usage_item_id(&format!("extra-{}", extra.id)));
+            }
+        }
+    }
+
     let mut push = |raw_id: &str, title: &str, available: bool| {
         let id = usage_item_id(raw_id);
         if seen.insert(id.clone()) {

@@ -128,6 +128,8 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | IBM Bob | API Key / token accounts | Monthly Bobcoins, per-team budgets |
 | xKiro | API Key | Daily free tokens |
 | Synthetic | API Key | Five-hour quota, Weekly tokens, Hourly search, Plan |
+| Sail Research | API Key | Organization credit balance, spend for the reported range (up to 30 days) |
+| Linkup | API Key | Account credit balance |
 | Langdock | Browser cookies / manual Cookie header | Session (5h), Weekly |
 | LithosAI | Browser cookies / manual Cookie header | Prepaid balance, UTC spend today and this month |
 | Muse (muse.ai) | Browser cookies / manual Cookie header | Weekly usage, tokens left, top-up tokens |

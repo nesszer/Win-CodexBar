@@ -96,6 +96,22 @@ describe("UsageSection", () => {
     expect(screen.getByText("58% left")).toBeInTheDocument();
   });
 
+  it("omits card-hidden windows, as the tray card does", async () => {
+    const detail = provider();
+    detail.session = { ...rateWindow(0), hiddenOnCard: true };
+    detail.primaryLabel = "Spend";
+
+    render(
+      <LocaleProvider>
+        <UsageSection provider={detail} resetTimeRelative={true} t={(key) => key} />
+      </LocaleProvider>,
+    );
+
+    expect(await screen.findByText("Additional Budget")).toBeInTheDocument();
+    expect(screen.queryByText("Spend")).not.toBeInTheDocument();
+    expect(screen.queryByText("100% left")).not.toBeInTheDocument();
+  });
+
   it.each([false, true])(
     "renders detail-backed amounts as a detail line, not reset text (resetsAt: %s)",
     async (hasReset) => {

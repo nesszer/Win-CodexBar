@@ -10,6 +10,7 @@ use crate::providers::AtlasCloudProvider;
 use crate::providers::ClawRouterProvider;
 use crate::providers::IBMBobProvider;
 use crate::providers::LangdockProvider;
+use crate::providers::LinkupProvider;
 use crate::providers::LithosAIProvider;
 use crate::providers::MuseAIProvider;
 use crate::providers::SyntheticProvider;
@@ -28,10 +29,10 @@ use crate::providers::{
     MistralProvider, MuseProvider, NanoGPTProvider, NeuralwattProvider, NotionProvider,
     NousProvider, OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider, OpenCodeProvider,
     OpenRouterProvider, PerplexityProvider, PiProvider, PoeProvider, QoderProvider,
-    QwenCloudProvider, RaycastProvider, ReplicateProvider, SakanaProvider, StepFunProvider,
-    Sub2ApiProvider, T3ChatProvider, TypeSafeProvider, V0Provider, VeniceProvider, VercelProvider,
-    VertexAIProvider, WarpProvider, WayfinderProvider, WindsurfProvider, XKiroProvider,
-    XaiProvider, ZaiProvider, ZedProvider, ZenMuxProvider, ZoomMateProvider,
+    QwenCloudProvider, RaycastProvider, ReplicateProvider, SailResearchProvider, SakanaProvider,
+    StepFunProvider, Sub2ApiProvider, T3ChatProvider, TypeSafeProvider, V0Provider, VeniceProvider,
+    VercelProvider, VertexAIProvider, WarpProvider, WayfinderProvider, WindsurfProvider,
+    XKiroProvider, XaiProvider, ZaiProvider, ZedProvider, ZenMuxProvider, ZoomMateProvider,
 };
 
 /// Instantiate the concrete [`Provider`] implementation for a given [`ProviderId`].
@@ -52,6 +53,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::ClawRouter => Box::new(ClawRouterProvider::new()),
         ProviderId::IBMBob => Box::new(IBMBobProvider::new()),
         ProviderId::Langdock => Box::new(LangdockProvider::new()),
+        ProviderId::Linkup => Box::new(LinkupProvider::new()),
         ProviderId::LithosAI => Box::new(LithosAIProvider::new()),
         ProviderId::MuseAI => Box::new(MuseAIProvider::new()),
         ProviderId::WorkBuddy => Box::new(WorkBuddyProvider::new()),
@@ -121,6 +123,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::ZoomMate => Box::new(ZoomMateProvider::new()),
         ProviderId::QwenCloud => Box::new(QwenCloudProvider::new()),
         ProviderId::Replicate => Box::new(ReplicateProvider::new()),
+        ProviderId::SailResearch => Box::new(SailResearchProvider::new()),
         ProviderId::Notion => Box::new(NotionProvider::new()),
         ProviderId::Xai => Box::new(XaiProvider::new()),
         ProviderId::Fireworks => Box::new(FireworksProvider::new()),
@@ -171,6 +174,7 @@ pub fn pace_capability(id: ProviderId) -> ProviderPaceCapability {
         | ProviderId::ClawRouter
         | ProviderId::IBMBob
         | ProviderId::Langdock
+        | ProviderId::Linkup
         | ProviderId::LithosAI
         | ProviderId::MuseAI
         | ProviderId::WorkBuddy
@@ -228,6 +232,7 @@ pub fn pace_capability(id: ProviderId) -> ProviderPaceCapability {
         | ProviderId::ZoomMate
         | ProviderId::QwenCloud
         | ProviderId::Replicate
+        | ProviderId::SailResearch
         | ProviderId::Xai
         | ProviderId::Fireworks
         | ProviderId::Meta

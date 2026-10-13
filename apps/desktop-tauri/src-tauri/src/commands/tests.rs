@@ -1438,6 +1438,73 @@ fn usage_item_descriptors_include_detail_sections() {
 }
 
 #[test]
+fn usage_item_descriptors_skip_card_hidden_windows() {
+    let metadata = instantiate_provider(ProviderId::Codex).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(
+            codexbar::core::RateWindow::informational("$1.00").hidden_on_card(),
+        )
+        .with_secondary(codexbar::core::RateWindow::new(20.0)),
+        cost: None,
+        wayfinder_usage: None,
+        inventory: Vec::new(),
+        reset_credits: None,
+        display_details: vec![
+            codexbar::core::ProviderDisplayDetail::new("spend", "Spend", "$1.00")
+                .expect("valid detail"),
+        ],
+        source_label: "api".to_string(),
+        has_successful_claude_cli_quota: false,
+        pace_authoritative: true,
+        account_identity: None,
+        open_ai_api_usage: None,
+        last_good_owner: None,
+    };
+    let mut snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None, None);
+    let mut hidden_extra = snapshot.primary.clone();
+    hidden_extra.hidden_on_card = true;
+    snapshot.extra_rate_windows = vec![NamedRateWindowSnapshot {
+        id: "hidden".to_string(),
+        title: "Hidden".to_string(),
+        window: hidden_extra,
+        fallback_lane: false,
+        icon_fallback: None,
+    }];
+
+    let items =
+        super::usage_item_descriptors(Some(&snapshot), &Settings::default(), ProviderId::Codex);
+    let ids: Vec<&str> = items.iter().map(|item| item.id.as_str()).collect();
+
+    assert_eq!(ids, ["detailSection:Spend", "metric:secondary"]);
+
+    // A saved hidden ID for a card-hidden window gets no placeholder, while
+    // one for a window the snapshot no longer reports still does.
+    let mut settings = Settings::default();
+    settings.set_hidden_usage_item_ids(
+        ProviderId::Codex,
+        vec![
+            "metric:primary".to_string(),
+            "metric:extra-hidden".to_string(),
+            "metric:tertiary".to_string(),
+        ],
+    );
+    let items = super::usage_item_descriptors(Some(&snapshot), &settings, ProviderId::Codex);
+    let ids: Vec<(&str, bool)> = items
+        .iter()
+        .map(|item| (item.id.as_str(), item.available))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("detailSection:Spend", true),
+            ("metric:secondary", true),
+            ("metric:tertiary", false),
+        ]
+    );
+}
+
+#[test]
 fn pace_stage_serializes_to_snake_case_string() {
     use codexbar::core::PaceStage;
     assert_eq!(
