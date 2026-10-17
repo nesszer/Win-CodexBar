@@ -1,95 +1,1302 @@
 {
-  "__inputs": [],
-  "__requires": [
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "注释与告警",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
     {
-      "type": "datasource",
-      "id": "prometheus",
-      "name": "Prometheus",
-      "version": "1.0.0"
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Prometheus 是否能够访问 Win-CodexBar 节点。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "text": "不可达"
+                },
+                "1": {
+                  "color": "green",
+                  "text": "可访问"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "min(up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "instant": true,
+          "legendFormat": "抓取",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Prometheus 抓取状态",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Win-CodexBar 是否成功生成本次 Prometheus 抓取所需的指标数据。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "text": "不可用"
+                },
+                "1": {
+                  "color": "green",
+                  "text": "就绪"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "min(codexbar_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "instant": true,
+          "legendFormat": "指标生成",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "指标生成状态",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "当前导出的指标数据生成至今的秒数。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "max(codexbar_snapshot_age_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "instant": true,
+          "legendFormat": "指标数据年龄",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "指标数据年龄",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "当前导出的指标数据是否超过导出器配置的过期阈值。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "text": "有效"
+                },
+                "1": {
+                  "color": "red",
+                  "text": "已过期"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "max(codexbar_snapshot_stale{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "instant": true,
+          "legendFormat": "时效状态",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "指标数据时效性",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "所选 Codex 节点中，最近一次用量采集成功的比例。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 * sum(codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} * on(job, instance) group_left up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}) / clamp_min(count(up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}), 1)",
+          "instant": true,
+          "legendFormat": "健康率",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Codex 健康节点比例",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Win-CodexBar 配置的监控面板数据刷新间隔。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "max(codexbar_refresh_interval_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "instant": true,
+          "legendFormat": "刷新间隔",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "刷新间隔",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "各个所选额度窗口当前剩余的 Codex 配额百分比。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5.000001
+              },
+              {
+                "color": "green",
+                "value": 20.000001
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "options": {
+        "displayMode": "gradient",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "codexbar_quota_${window:raw}_remaining_ratio{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} * 100",
+          "instant": true,
+          "legendFormat": "{{instance}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "当前剩余额度",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Codex 剩余额度历史，可通过节点和额度窗口变量筛选。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 14,
+        "x": 10,
+        "y": 4
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "codexbar_quota_${window:raw}_remaining_ratio{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} * 100",
+          "hide": false,
+          "legendFormat": "{{instance}} 剩余",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "剩余额度历史",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "每个节点占一行，显示当前可用的 Codex 限流重置卡数量和所有可用卡中最早的到期时间。张数 -1 表示 PAT 模式、接口不支持或查询失败；没有可用卡或接口未提供有效期时显示“未提供”。该接口结果缓存 10 分钟。",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "可用张数"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "-1": {
+                        "color": "orange",
+                        "text": "无法获取"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "orange",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最近到期"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "orange",
+                        "text": "未提供"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 12
+      },
+      "id": 17,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "max by (instance) (codexbar_reset_credits_available{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "可用张数",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "(max by (instance) (codexbar_reset_credits_next_expiry_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_reset_credits_available{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 0)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "最近到期",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Codex 重置卡",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "instance",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time #A": true,
+              "Time #B": true,
+              "__name__": true,
+              "job": true,
+              "monitor": true,
+              "provider": true
+            },
+            "indexByName": {
+              "instance": 0,
+              "Value #A": 1,
+              "Value #B": 2
+            },
+            "renameByName": {
+              "Value #A": "可用张数",
+              "Value #B": "最近到期",
+              "instance": "节点"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "最近一次 Codex 用量采集是否成功。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "text": "失败"
+                },
+                "1": {
+                  "color": "green",
+                  "text": "正常"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 12
+      },
+      "id": 10,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{instance}} / {{provider}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Codex 采集状态",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "monitor": true
+            },
+            "indexByName": {
+              "instance": 0,
+              "provider": 1,
+              "Value": 2
+            },
+            "renameByName": {
+              "Value": "采集状态",
+              "instance": "节点",
+              "provider": "提供方"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "按所选额度窗口展示距离重置的剩余天数；各时间点按当时的重置时间计算。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "剩余天数",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "d",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 12
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "clamp_min(codexbar_quota_${window:raw}_reset_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} - time(), 0) / 86400",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "距离额度重置趋势",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "id": 18,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "根据本地会话日志估算的 Codex 成本；这不是 Codex 订阅账单，无可用估算时不会输出序列。",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "currencyUSD"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 20
+          },
+          "id": 12,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "codexbar_cost_today_usd{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
+              "instant": true,
+              "legendFormat": "{{instance}} 今日",
+              "range": false,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "codexbar_cost_last_30_days_usd{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
+              "instant": true,
+              "legendFormat": "{{instance}} 近 30 天",
+              "range": false,
+              "refId": "B"
+            }
+          ],
+          "title": "Codex 本地估算成本",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "导出器构建版本、数据结构版本、指标生成时间和过期阈值。",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 27
+          },
+          "id": 15,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "label_replace(codexbar_snapshot_schema_version{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}, \"metric\", \"数据结构版本\", \"\", \"\") or label_replace(codexbar_snapshot_generated_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}, \"metric\", \"指标生成时间\", \"\", \"\") or label_replace(codexbar_snapshot_stale_after_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}, \"metric\", \"指标过期阈值\", \"\", \"\")",
+              "instant": true,
+              "legendFormat": "{{instance}} / {{metric}}",
+              "range": false,
+              "refId": "A",
+              "format": "table"
+            }
+          ],
+          "title": "导出器元数据",
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "job": true,
+                  "__name__": true,
+                  "monitor": true
+                },
+                "indexByName": {
+                  "instance": 0,
+                  "metric": 1,
+                  "Value": 2
+                },
+                "renameByName": {
+                  "Value": "值",
+                  "instance": "节点",
+                  "metric": "指标",
+                  "schema_version": "指标结构版本"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Codex 启用状态、采集结果、错误码和提供方更新时间；仅在源字段存在时显示可选序列。",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 27
+          },
+          "id": 16,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "label_replace(codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}, \"metric\", \"采集状态\", \"\", \"\") or label_replace(codexbar_provider_data_age_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}, \"metric\", \"数据年龄\", \"\", \"\") or label_replace(codexbar_provider_updated_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}, \"metric\", \"数据更新时间\", \"\", \"\")",
+              "instant": true,
+              "legendFormat": "{{instance}} / {{provider}} / {{metric}}",
+              "range": false,
+              "refId": "A",
+              "format": "table"
+            }
+          ],
+          "title": "Codex 采集详情",
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "job": true,
+                  "__name__": true,
+                  "monitor": true
+                },
+                "indexByName": {
+                  "instance": 0,
+                  "provider": 1,
+                  "metric": 2,
+                  "Value": 3
+                },
+                "renameByName": {
+                  "Value": "值",
+                  "instance": "节点",
+                  "provider": "提供方",
+                  "metric": "指标"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        }
+      ],
+      "title": "辅助信息",
+      "type": "row"
     }
   ],
-  "uid": null,
-  "id": null,
-  "title": "CodexBar · Codex 监控",
-  "tags": [
-    "codexbar",
-    "codex"
-  ],
-  "timezone": "browser",
+  "refresh": "30s",
   "schemaVersion": 39,
-  "version": 1,
-  "editable": true,
-  "refresh": "1m",
-  "time": {
-    "from": "now-24h",
-    "to": "now"
-  },
+  "tags": [
+    "win-codexbar",
+    "codex",
+    "prometheus",
+    "ai-usage",
+    "AI 用量"
+  ],
   "templating": {
     "list": [
       {
-        "name": "datasource",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
         "label": "Prometheus 数据源",
-        "type": "datasource",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
         "query": "prometheus",
         "refresh": 1,
-        "current": {}
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
       },
       {
-        "name": "job",
-        "label": "采集任务",
-        "type": "query",
+        "current": {
+          "selected": true,
+          "text": "全部",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
         },
+        "definition": "label_values(codexbar_provider_up{provider=\"codex\"},job)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "采集任务",
+        "multi": true,
+        "name": "job",
+        "options": [],
         "query": {
           "query": "label_values(codexbar_provider_up{provider=\"codex\"},job)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,
-        "includeAll": true,
-        "multi": true,
-        "allValue": ".*",
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
         "current": {
           "selected": true,
           "text": "全部",
           "value": "$__all"
-        }
-      },
-      {
-        "name": "instance",
-        "label": "节点",
-        "type": "query",
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
         },
+        "definition": "label_values(codexbar_provider_up{provider=\"codex\",job=~\"${job:regex}\"},instance)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "节点",
+        "multi": true,
+        "name": "instance",
+        "options": [],
         "query": {
           "query": "label_values(codexbar_provider_up{provider=\"codex\",job=~\"${job:regex}\"},instance)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,
-        "includeAll": true,
-        "multi": true,
-        "allValue": ".*",
-        "current": {
-          "selected": true,
-          "text": "全部",
-          "value": "$__all"
-        }
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
       },
       {
-        "name": "window",
-        "label": "额度窗口",
-        "type": "custom",
-        "query": "weekly,session,monthly,code_review",
         "current": {
           "selected": true,
           "text": "weekly",
           "value": "weekly"
         },
+        "hide": 0,
         "includeAll": false,
+        "label": "额度窗口",
         "multi": false,
+        "name": "window",
         "options": [
           {
             "selected": true,
@@ -111,394 +1318,25 @@
             "text": "code_review",
             "value": "code_review"
           }
-        ]
+        ],
+        "query": "weekly,session,monthly,code_review",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "custom"
       }
     ]
   },
-  "panels": [
-    {
-      "id": 1,
-      "title": "节点采集状态",
-      "type": "stat",
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 0,
-        "y": 0
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {},
-      "description": "1 为正常，0 为查询失败"
-    },
-    {
-      "id": 2,
-      "title": "剩余额度",
-      "type": "gauge",
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 8,
-        "y": 0
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "codexbar_quota_${window:raw}_remaining_ratio{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {},
-      "description": ""
-    },
-    {
-      "id": 3,
-      "title": "重置卡可用张数",
-      "type": "stat",
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 16,
-        "y": 0
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "codexbar_reset_credits_available{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "-1": {
-                  "text": "无法获取",
-                  "color": "orange"
-                }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {},
-      "description": "-1 表示 PAT 模式或查询不可用；0 表示用完"
-    },
-    {
-      "id": 4,
-      "title": "最早到期重置卡",
-      "type": "stat",
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 0,
-        "y": 5
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "codexbar_reset_credits_next_expiry_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} * 1000",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "dateTimeAsLocal",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "noValue": "无有效期数据"
-        },
-        "overrides": []
-      },
-      "options": {},
-      "description": "仅在有可用卡且接口返回有效期时显示"
-    },
-    {
-      "id": 5,
-      "title": "剩余额度历史",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 9,
-        "w": 16,
-        "x": 8,
-        "y": 5
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "codexbar_quota_${window:raw}_remaining_ratio{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {},
-      "description": ""
-    },
-    {
-      "id": 6,
-      "title": "额度重置时间",
-      "type": "stat",
-      "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 0,
-        "y": 10
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "codexbar_quota_${window:raw}_reset_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} * 1000",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "dateTimeAsLocal",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {},
-      "description": ""
-    },
-    {
-      "id": 7,
-      "type": "row",
-      "title": "辅助信息",
-      "collapsed": true,
-      "gridPos": {
-        "x": 0,
-        "y": 14,
-        "w": 24,
-        "h": 1
-      },
-      "panels": [
-        {
-          "id": 8,
-          "title": "Codex 本地估算成本（今日）",
-          "type": "stat",
-          "gridPos": {
-            "h": 5,
-            "w": 8,
-            "x": 0,
-            "y": 15
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "expr": "codexbar_cost_today_usd{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
-              "legendFormat": "{{instance}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "currencyUSD",
-              "color": {
-                "mode": "palette-classic"
-              }
-            },
-            "overrides": []
-          },
-          "options": {},
-          "description": ""
-        },
-        {
-          "id": 9,
-          "title": "采集数据年龄",
-          "type": "stat",
-          "gridPos": {
-            "h": 5,
-            "w": 8,
-            "x": 8,
-            "y": 15
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "expr": "codexbar_provider_data_age_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
-              "legendFormat": "{{instance}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s",
-              "color": {
-                "mode": "palette-classic"
-              }
-            },
-            "overrides": []
-          },
-          "options": {},
-          "description": ""
-        },
-        {
-          "id": 10,
-          "title": "导出器状态",
-          "type": "stat",
-          "gridPos": {
-            "h": 5,
-            "w": 8,
-            "x": 16,
-            "y": 15
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "expr": "codexbar_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}",
-              "legendFormat": "{{instance}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "color": {
-                "mode": "palette-classic"
-              }
-            },
-            "overrides": []
-          },
-          "options": {},
-          "description": ""
-        }
-      ]
-    }
-  ],
-  "annotations": {
-    "list": []
-  }
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "CodexBar · Codex 监控",
+  "uid": null,
+  "version": 1,
+  "weekStart": "",
+  "description": "Codex 多节点中文监控：剩余额度、重置倒计时、重置卡与采集状态。适配上游固定窗口 ratio 指标。"
 }

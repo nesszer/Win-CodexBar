@@ -2582,7 +2582,7 @@ mod tests {
             last_refresh: None,
             account_email: None,
         };
-        let err = CodexApi::enforce_external_oauth_gate(&creds)
+        let err = CodexApi::enforce_external_oauth_gate_at(&creds, false, Utc::now())
             .expect_err("external OAuth without provenance must fail closed");
         assert!(matches!(err, ProviderError::AuthRequired));
     }
