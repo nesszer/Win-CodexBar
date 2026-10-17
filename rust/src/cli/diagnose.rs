@@ -194,6 +194,7 @@ async fn collect_provider_diagnostic(
         // Diagnostics keep the short optional-join grace (upstream #2583 gate).
         requires_optional_usage_completeness: false,
         optional_details_enabled: settings.optional_details_enabled(provider_id),
+        live_usage_enabled: false,
     };
 
     let fetch_result = provider.fetch_usage(&ctx).await;

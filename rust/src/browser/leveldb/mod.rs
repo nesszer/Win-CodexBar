@@ -16,6 +16,10 @@
 //! - Files larger than [`MAX_FILE_BYTES`], scans larger than [`MAX_TOTAL_SCAN_BYTES`], and blocks
 //!   that decode beyond [`MAX_BLOCK_BYTES`] are skipped so a corrupt profile cannot exhaust
 //!   memory or monopolize a refresh.
+//!
+//! [`read_current_value_strict`] is the stricter single-key variant for credentials whose stale
+//! value must never be resurrected: it fails instead of skipping any file or block, and it
+//! rejects symlinked entries and a directory that changes while it is read.
 
 pub mod local_storage;
 mod log;
@@ -66,6 +70,8 @@ pub enum LevelDbError {
     Io(#[from] std::io::Error),
     #[error("LevelDB directory exceeds safe scan limits")]
     ResourceLimit,
+    #[error("LevelDB directory could not be read completely and consistently")]
+    Incomplete,
 }
 
 /// A put (`value: Some`) or delete (`value: None`) with the sequence number it was written at.
@@ -225,6 +231,115 @@ pub(crate) fn read_entries_with_budget(
     Ok((entries.into_entries(), scanned_bytes))
 }
 
+/// Newest live value of exactly `key` in the LevelDB directory `dir`, or `None` when the key is
+/// absent or its newest record is a delete.
+///
+/// A skipped file or block could hold a newer record or tombstone for `key`, so unlike
+/// [`read_entries`] every problem fails the whole read with [`LevelDbError::Incomplete`]: a
+/// missing `CURRENT`, a symlinked entry, an oversized or unreadable file, a malformed table or
+/// data block, a torn log record, or a directory listing whose names, sizes or modification
+/// times differ after the read. The `MANIFEST` is still not consulted and checksums are not
+/// verified, so this narrows rather than eliminates the window for a concurrent writer.
+pub(crate) fn read_current_value_strict(
+    dir: &Path,
+    key: &[u8],
+) -> Result<Option<Vec<u8>>, LevelDbError> {
+    let before = directory_fingerprint(dir)?;
+    if !before.iter().any(|file| file.name == "CURRENT") {
+        return Err(LevelDbError::Incomplete);
+    }
+    let mut entries = EntryAccumulator {
+        key_prefix: Some(key),
+        ..EntryAccumulator::default()
+    };
+    let mut scanned_bytes = 0u64;
+    for file in &before {
+        let path = dir.join(&file.name);
+        let Some(kind) = FileKind::of(&path) else {
+            continue;
+        };
+        let remaining_bytes = MAX_TOTAL_SCAN_BYTES.saturating_sub(scanned_bytes);
+        let data = match open_no_follow(&path)
+            .map_err(BoundedReadError::Io)
+            .and_then(|file| read_bounded_open_file(file, remaining_bytes))
+        {
+            Ok(data) => data,
+            Err(BoundedReadError::BudgetExceeded) => return Err(LevelDbError::ResourceLimit),
+            Err(BoundedReadError::FileTooLarge | BoundedReadError::Io(_)) => {
+                return Err(LevelDbError::Incomplete);
+            }
+        };
+        let file_bytes = u64::try_from(data.len()).map_err(|_| LevelDbError::ResourceLimit)?;
+        scanned_bytes = scanned_bytes
+            .checked_add(file_bytes)
+            .ok_or(LevelDbError::ResourceLimit)?;
+        let complete = match kind {
+            FileKind::Log => log::read_log_until(&data, &mut |record| entries.absorb(record)),
+            FileKind::Table => matches!(
+                table::read_table_until(&data, &mut |record| entries.absorb(record)),
+                Ok((0, true))
+            ),
+        };
+        if entries.resource_limit_exceeded {
+            return Err(LevelDbError::ResourceLimit);
+        }
+        if !complete {
+            return Err(LevelDbError::Incomplete);
+        }
+    }
+    if directory_fingerprint(dir)? != before {
+        return Err(LevelDbError::Incomplete);
+    }
+    Ok(entries.newest.remove(key).and_then(|(_, value)| value))
+}
+
+#[derive(PartialEq, Eq)]
+struct FileFingerprint {
+    name: std::ffi::OsString,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+fn directory_fingerprint(dir: &Path) -> Result<Vec<FileFingerprint>, LevelDbError> {
+    let mut files = Vec::new();
+    for (count, dir_entry) in std::fs::read_dir(dir)?.enumerate() {
+        if count == MAX_DIRECTORY_ENTRIES {
+            return Err(LevelDbError::ResourceLimit);
+        }
+        let dir_entry = dir_entry.map_err(|_| LevelDbError::Incomplete)?;
+        // `DirEntry::metadata` does not traverse links; junctions count as symlinks on Windows.
+        let metadata = dir_entry.metadata().map_err(|_| LevelDbError::Incomplete)?;
+        if metadata.file_type().is_symlink() {
+            return Err(LevelDbError::Incomplete);
+        }
+        files.push(FileFingerprint {
+            name: dir_entry.file_name(),
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+        });
+    }
+    files.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(files)
+}
+
+/// Open `path` for reading without following a link swapped in after the directory listing.
+fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(std::io::Error::other("not a regular file"));
+    }
+    Ok(file)
+}
+
 #[derive(Clone, Copy)]
 enum FileKind {
     Log,
@@ -252,6 +367,13 @@ enum BoundedReadError {
 
 fn read_bounded_file(path: &Path, remaining_bytes: u64) -> Result<Vec<u8>, BoundedReadError> {
     let file = std::fs::File::open(path).map_err(BoundedReadError::Io)?;
+    read_bounded_open_file(file, remaining_bytes)
+}
+
+fn read_bounded_open_file(
+    file: std::fs::File,
+    remaining_bytes: u64,
+) -> Result<Vec<u8>, BoundedReadError> {
     let size = file.metadata().map_err(BoundedReadError::Io)?.len();
     if size > MAX_FILE_BYTES {
         return Err(BoundedReadError::FileTooLarge);

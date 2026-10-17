@@ -13,6 +13,7 @@ import { DEEPSEEK_PRICING_EVENT } from "../../../../hooks/useDeepSeekPricingStat
 import { getDeepSeekPricingStatus } from "../../../../lib/tauri";
 import { getPaceBudget, type PaceBudget } from "../../../../lib/paceBudget";
 import { isMonthlyLimitBlockActive } from "../../../../lib/monthlyLimitBlock";
+import { formatSignedPace } from "../../../../lib/paceSign";
 import { providerAllowsPace } from "../../../../lib/providerPace";
 import { localizeWindowLabel } from "../../../../lib/windowLabels";
 import { paceCategory } from "../../../tray/paceCategory";
@@ -96,13 +97,20 @@ export function weeklyBudgets(
   return result;
 }
 
-function PaceBars({ pace, t }: { pace: PaceSnapshot; t: T }) {
+function PaceBars({
+  pace,
+  reservePositive,
+  t,
+}: {
+  pace: PaceSnapshot;
+  reservePositive: boolean;
+  t: T;
+}) {
   const category = paceCategory(pace.stage);
   return (
     <div className="provider-usage-details__pace">
       <div className="provider-usage-details__pace-delta" data-pace={category}>
-        {pace.deltaPercent >= 0 ? "+" : ""}
-        {pace.deltaPercent.toFixed(1)}%
+        {formatSignedPace(pace.deltaPercent, reservePositive)}
       </div>
       <div className="provider-usage-details__pace-row">
         <span>{t("PanelExpected")}</span>
@@ -176,7 +184,13 @@ function DeepSeekPricing({ t }: { t: T }) {
  * forecast, expected-versus-actual pace bars, the quota burndown and DeepSeek
  * pricing). The tray card keeps the upstream card anatomy only.
  */
-export function UsageDetailsSection({ provider }: { provider: ProviderUsageSnapshot | null }) {
+export function UsageDetailsSection({
+  provider,
+  paceReservePositive = false,
+}: {
+  provider: ProviderUsageSnapshot | null;
+  paceReservePositive?: boolean;
+}) {
   const { t, language } = useLocale();
   const monthlyLimitBlockNow = useMonthlyLimitBlockNow([
     provider?.primary.monthlyLimitBlock,
@@ -217,7 +231,7 @@ export function UsageDetailsSection({ provider }: { provider: ProviderUsageSnaps
   return (
     <section className="provider-detail-section provider-usage-details">
       <h4>{t("PanelUsageDetails")}</h4>
-      {pace && <PaceBars pace={pace} t={t} />}
+      {pace && <PaceBars pace={pace} reservePositive={paceReservePositive} t={t} />}
       {forecast && <div className="provider-usage-details__forecast">{forecast}</div>}
       {budgets.map(({ id, label, snap, budget }) => (
         <div className="provider-usage-details__budget" key={id}>

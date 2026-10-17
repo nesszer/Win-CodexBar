@@ -348,6 +348,17 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://console.aws.amazon.com/bedrock"),
         },
         ProviderConfigInfo {
+            id: ProviderId::CommandCode,
+            name: "Command Code",
+            requires_api_key: false,
+            api_key_env_var: Some("COMMAND_CODE_API_KEY"),
+            api_key_help: Some(
+                "Used by Auto when set and by the API usage source. Without a key, Auto uses browser cookies. Set it here or in COMMAND_CODE_API_KEY.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://commandcode.ai/studio"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Codebuff,
             name: "Codebuff",
             requires_api_key: true,
@@ -677,6 +688,15 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://crossmodel.ai"),
         },
         ProviderConfigInfo {
+            id: ProviderId::Sofya,
+            name: "Sofya",
+            requires_api_key: true,
+            api_key_env_var: Some("SOFYA_API_KEY"),
+            api_key_help: Some("Saved in CodexBar's local config file. Or set SOFYA_API_KEY."),
+            config_file_path: None,
+            dashboard_url: Some("https://sofya.co/dashboard"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Sub2Api,
             name: "sub2api",
             requires_api_key: true,
@@ -763,6 +783,28 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: None,
         },
         ProviderConfigInfo {
+            id: ProviderId::Tavily,
+            name: "Tavily",
+            requires_api_key: true,
+            api_key_env_var: Some(crate::providers::tavily::API_KEY_ENV),
+            api_key_help: Some(
+                "Save a Tavily API key to fetch account plan, API key, and pay-as-you-go credit usage. Or set TAVILY_API_KEY.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://app.tavily.com"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Exa,
+            name: "Exa",
+            requires_api_key: true,
+            api_key_env_var: Some(crate::providers::exa::SERVICE_KEY_ENV),
+            api_key_help: Some(
+                "Save an Exa Team Management service key to fetch selected API key monthly spend (UTC). Both keys must belong to the same team. Or set EXA_SERVICE_KEY and EXA_API_KEY_ID.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://dashboard.exa.ai/api-keys"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::ClawRouter,
             name: "ClawRouter",
             requires_api_key: true,
@@ -801,6 +843,50 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             api_key_help: Some("Stored in the CodexBar config file. Or set LINKUP_API_KEY."),
             config_file_path: None,
             dashboard_url: Some("https://app.linkup.so/organization/billing"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Aerostack,
+            name: "Aerostack",
+            requires_api_key: true,
+            api_key_env_var: Some("AEROSTACK_TOKEN"),
+            api_key_help: Some(
+                "Set an Aerostack account JWT in Settings or AEROSTACK_TOKEN. This is the account bearer token used by the billing API, not an Agent Endpoint key.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://app.aerostack.dev/settings/billing"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Fal,
+            name: "fal",
+            requires_api_key: true,
+            api_key_env_var: Some("FAL_KEY"),
+            api_key_help: Some(
+                "Key with billing read access (BILLING or READONLY preset). Or set FAL_KEY.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://fal.ai/dashboard/keys"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Flora,
+            name: "FLORA",
+            requires_api_key: true,
+            api_key_env_var: Some("FLORA_API_KEY"),
+            api_key_help: Some("Needs billing permission on the workspace. Or set FLORA_API_KEY."),
+            config_file_path: None,
+            dashboard_url: Some(
+                "https://app.flora.ai/projects?openSettings=true&initialTab=apiKeys",
+            ),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Cosmic,
+            name: "Cosmic AI",
+            requires_api_key: true,
+            api_key_env_var: Some("COSMIC_TOKEN"),
+            api_key_help: Some(
+                "Get a Personal Access Token from Cosmic AI. Also set COSMIC_PROJECT_ID or the project ID in Settings.",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://app.cosmicjs.com"),
         },
     ]
 }

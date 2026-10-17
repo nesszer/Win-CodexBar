@@ -7,7 +7,7 @@ use super::warning_identity::WarningIdentity;
 use super::*;
 use chrono::{Local, Utc};
 use codexbar::core::HookUsageWindow;
-use codexbar::notifications::WarningScope;
+use codexbar::notifications::{LimitResetObservation, LimitResetSample, WarningScope};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -269,6 +269,21 @@ pub(crate) fn build_fetch_context(
                 (SourceMode::Web, stored_cookie.clone(), false)
             }
             _ if active_token_env.is_some() => (SourceMode::OAuth, None, false),
+            // Providers that pick their own API-key or cookie lane (Command
+            // Code) keep Auto and API for every cookie source, so a configured
+            // key is used without touching a browser. `off` marks the cookie
+            // lane unavailable; `manual`/`auto` pass a stored header through.
+            _ if provider.owns_credential_lane_routing()
+                && matches!(usage_source, SourceMode::Auto | SourceMode::OAuth) =>
+            {
+                let cookie_off = cookie_source == "off";
+                let cookie_header = if cookie_off {
+                    None
+                } else {
+                    active_token_cookie.clone().or(stored_cookie)
+                };
+                (usage_source, cookie_header, cookie_off)
+            }
             // Opt-in web providers keep their default credential lane
             // unless the usage source is explicitly Web; a stored or
             // browser cookie must not turn Auto into Web.
@@ -296,10 +311,17 @@ pub(crate) fn build_fetch_context(
             "off" if provider_uses_oauth_without_cookies(id, usage_source) => {
                 (SourceMode::OAuth, None, false)
             }
-            "off"
-                if (has_kimi_code_api_key || has_opencodego_api_key)
-                    && usage_source == SourceMode::Auto =>
-            {
+            // OpenCode Go discovers browser sessions inside the provider; the
+            // missing-cookie flag tells it that Off forbids that discovery.
+            "off" if id == ProviderId::OpenCodeGo => {
+                let source_mode = if has_opencodego_api_key && usage_source == SourceMode::Auto {
+                    SourceMode::Auto
+                } else {
+                    SourceMode::Cli
+                };
+                (source_mode, None, true)
+            }
+            "off" if has_kimi_code_api_key && usage_source == SourceMode::Auto => {
                 (SourceMode::Auto, None, false)
             }
             // Droid/Factory: cookie-off must never scrape browser cookies. Map to
@@ -370,10 +392,14 @@ pub(crate) fn build_fetch_context(
         && !provider.cookie_source_scopes_session_only()
         && !cookies_only_enrich_usage
     {
-        if cookie_header
-            .as_deref()
-            .map(str::trim)
-            .is_none_or(|s| s.is_empty())
+        // Providers that own browser cookie resolution try each browser's
+        // session themselves; a pre-resolved first-browser header would pin
+        // them to that browser.
+        if !defer_provider_browser_cookie_lookup
+            && cookie_header
+                .as_deref()
+                .map(str::trim)
+                .is_none_or(|s| s.is_empty())
         {
             cookie_header = provider_cookie_domain(id, settings).and_then(|domain| {
                 codexbar::browser::cookies::get_cookie_header(domain)
@@ -458,6 +484,7 @@ pub(crate) fn build_fetch_context(
                 && token_account_kind == Some(codexbar::core::TokenAccountKind::ApiKey)),
         browser_cookie_import,
         optional_details_enabled: settings.optional_details_enabled(id),
+        live_usage_enabled: settings.live_usage_enabled(id),
         ..FetchContext::default()
     }
 }
@@ -1230,7 +1257,7 @@ fn notify_usage_thresholds(
     cached: &[ProviderUsageSnapshot],
 ) {
     let cli_map = codexbar::core::cli_name_map();
-    if let Ok(mut guard) = state.lock() {
+    let persistence = if let Ok(mut guard) = state.lock() {
         for snapshot in cached {
             if snapshot.error.is_none()
                 && let Some(&provider) = cli_map.get(snapshot.provider_id.as_str())
@@ -1302,6 +1329,21 @@ fn notify_usage_thresholds(
                         weekly.used_percent,
                     );
                 }
+                let token_account_label = token_accounts
+                    .get(&provider)
+                    .and_then(ProviderAccountData::active_account)
+                    .map(|account| account.label.as_str());
+                guard.notification_manager.observe_limit_reset(
+                    limit_reset_sample(
+                        provider,
+                        snapshot,
+                        &warning_identity,
+                        token_account_label,
+                        &session_account,
+                        settings,
+                    ),
+                    settings,
+                );
                 notify_predictive_pace(
                     &mut guard.notification_manager,
                     provider,
@@ -1311,6 +1353,63 @@ fn notify_usage_thresholds(
                 );
             }
         }
+        guard
+            .notification_manager
+            .finish_limit_reset_batch(settings, chrono::Utc::now())
+    } else {
+        None
+    };
+    if let Some(persistence) = persistence {
+        persistence.apply();
+    }
+}
+
+/// Reset-detector input for one cached snapshot. Only real session lanes
+/// (1..=360 minutes) and the 7-day weekly lane are observed.
+pub(super) fn limit_reset_sample<'a>(
+    provider: ProviderId,
+    snapshot: &ProviderUsageSnapshot,
+    identity: &WarningIdentity,
+    token_account_label: Option<&str>,
+    session_transition_account: &'a str,
+    settings: &Settings,
+) -> LimitResetSample<'a> {
+    let label = token_account_label
+        .filter(|label| !label.trim().is_empty())
+        .or(snapshot.account_email.as_deref())
+        .filter(|label| !label.trim().is_empty())
+        .or(snapshot.account_organization.as_deref());
+    let account = identity.limit_reset_account(label, settings.hide_personal_info);
+    let observed_at = chrono::DateTime::parse_from_rfc3339(&snapshot.updated_at)
+        .ok()
+        .map(|date| date.with_timezone(&chrono::Utc));
+    let observe = |lane: &RateWindowSnapshot| {
+        Some(LimitResetObservation {
+            used_percent: lane.used_percent,
+            observed_at: observed_at?,
+            reset_boundary: lane
+                .resets_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .map(|date| date.with_timezone(&chrono::Utc)),
+        })
+    };
+    let session = Some(&snapshot.primary)
+        .filter(|lane| {
+            !lane.is_informational && lane.window_minutes.is_some_and(|m| (1..=360).contains(&m))
+        })
+        .and_then(observe);
+    let weekly = snapshot
+        .secondary
+        .as_ref()
+        .filter(|lane| !lane.is_informational && lane.window_minutes == Some(10080))
+        .and_then(observe);
+    LimitResetSample {
+        provider,
+        account,
+        session_transition_account,
+        session,
+        weekly,
     }
 }
 
@@ -1749,6 +1848,7 @@ mod reset_backfill_tests {
             fetch_duration_ms: None,
             wayfinder_usage: None,
             open_ai_api_usage: None,
+            throughput: None,
             session_equivalent_forecast: None,
             quota_burndown: None,
         }

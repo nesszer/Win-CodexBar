@@ -226,12 +226,11 @@ describe("ProviderDetailPane", () => {
     expect(tauri.refreshProviders).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the claude-swap path field only while claude-swap is on", async () => {
+  it("shows the claude-swap path field under its Options toggle only while claude-swap is on", async () => {
     tauri.getProviderDetail.mockResolvedValue(detail("claude"));
-    const { container, unmount } = await renderPane("claude");
+    const { unmount } = await renderPane("claude");
     expect(screen.queryByRole("textbox", { name: "ClaudeSwapExecutablePath" })).toBeNull();
     expect(screen.getByTestId("claude-accounts")).toHaveAttribute("data-swap", "false");
-    expect(container.querySelector(".provider-fields-group")).toBeTruthy();
     unmount();
 
     const on = {
@@ -241,8 +240,14 @@ describe("ProviderDetailPane", () => {
     } as SettingsSnapshot;
     const view = await renderPane("claude", on);
     const fields = view.container.querySelector(".provider-fields-group") as HTMLElement;
-    const input = within(fields).getByRole("textbox", { name: "ClaudeSwapExecutablePath" });
+    expect(within(fields).queryByRole("textbox", { name: "ClaudeSwapExecutablePath" })).toBeNull();
+    const options = view.container.querySelector(".provider-options-group") as HTMLElement;
+    const input = within(options).getByRole("textbox", { name: "ClaudeSwapExecutablePath" });
     expect(input).toHaveValue("C:/tools/cswap.exe");
+    const toggleRow = within(options)
+      .getByRole("checkbox", { name: "ClaudeSwapEnable" })
+      .closest(".settings-field")!;
+    expect(toggleRow.nextElementSibling).toBe(input.closest(".settings-field"));
     expect(screen.getByTestId("claude-accounts")).toHaveAttribute("data-swap", "true");
     expect(screen.getByTestId("claude-accounts")).toHaveAttribute("data-path", "C:/tools/cswap.exe");
   });

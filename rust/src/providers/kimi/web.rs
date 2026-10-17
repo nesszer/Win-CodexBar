@@ -6,11 +6,15 @@
 //! manual cookie header → Kimi Desktop session → browser cookie import →
 //! Chromium local-storage `access_token` (upstream `KimiWebEnrichmentTokenResolver`
 //! and #3923), used both by the web fetch itself and
-//! by the Code-API/CLI monthly enrichment.
+//! by the Code-API/CLI monthly enrichment. A Desktop session keeps its
+//! provenance as a [`KimiWebCredential`] and is revalidated before each
+//! request (upstream #4416); a changed session stops the chain instead of
+//! falling back to another credential.
 
 use reqwest::Client;
 
-use super::desktop_token::KimiDesktopAuthToken;
+use super::credential::KimiWebCredential;
+use super::desktop_session::desktop_credential;
 use super::local_storage::local_storage_tokens;
 use super::{
     KIMI_SUBSCRIPTION_SERVICE, KIMI_SUBSCRIPTION_STATS_SERVICE, KIMI_WEB_USAGE_SERVICE,
@@ -67,17 +71,20 @@ impl WebFetchFailure {
 /// 2. Kimi Desktop session token (automatic source only).
 /// 3. Browser cookie import (automatic source only).
 /// 4. Chromium local-storage `access_token` for the region (automatic source only).
-pub(crate) fn web_auth_tokens(manual_header: Option<&str>, region: KimiRegion) -> Vec<String> {
+pub(super) fn web_auth_credentials(
+    manual_header: Option<&str>,
+    region: KimiRegion,
+) -> Vec<KimiWebCredential> {
     resolve_web_tokens(&WebTokenInput {
         manual_header,
         cookie_source: &cookie_source(),
         region,
-        desktop_token: KimiDesktopAuthToken::load_for_region,
+        desktop_token: desktop_credential,
         browser_token: browser_auth_token,
         local_storage_tokens,
     })
     .into_iter()
-    .map(|candidate| candidate.token)
+    .map(|candidate| candidate.credential)
     .collect()
 }
 
@@ -85,7 +92,7 @@ struct WebTokenInput<'a> {
     manual_header: Option<&'a str>,
     cookie_source: &'a str,
     region: KimiRegion,
-    desktop_token: fn(KimiRegion) -> Option<String>,
+    desktop_token: fn(KimiRegion) -> Option<KimiWebCredential>,
     browser_token: fn(KimiRegion) -> Option<String>,
     local_storage_tokens: fn(KimiRegion) -> Vec<String>,
 }
@@ -98,20 +105,10 @@ enum WebTokenSource {
     LocalStorage,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct WebTokenCandidate {
-    token: String,
+    credential: KimiWebCredential,
     source: WebTokenSource,
-}
-
-impl std::fmt::Debug for WebTokenCandidate {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("WebTokenCandidate")
-            .field("token", &"[REDACTED]")
-            .field("source", &self.source)
-            .finish()
-    }
 }
 
 fn resolve_web_tokens(input: &WebTokenInput<'_>) -> Vec<WebTokenCandidate> {
@@ -119,7 +116,7 @@ fn resolve_web_tokens(input: &WebTokenInput<'_>) -> Vec<WebTokenCandidate> {
         && let Ok(token) = KimiProvider::auth_token_from_cookie_header(header)
     {
         return vec![WebTokenCandidate {
-            token,
+            credential: KimiWebCredential::plain(token),
             source: WebTokenSource::Manual,
         }];
     }
@@ -129,11 +126,11 @@ fn resolve_web_tokens(input: &WebTokenInput<'_>) -> Vec<WebTokenCandidate> {
 
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    if let Some(token) = (input.desktop_token)(input.region)
-        && seen.insert(token.clone())
+    if let Some(credential) = (input.desktop_token)(input.region)
+        && seen.insert(credential.token().to_string())
     {
         candidates.push(WebTokenCandidate {
-            token,
+            credential,
             source: WebTokenSource::Desktop,
         });
     }
@@ -141,14 +138,14 @@ fn resolve_web_tokens(input: &WebTokenInput<'_>) -> Vec<WebTokenCandidate> {
         && seen.insert(token.clone())
     {
         candidates.push(WebTokenCandidate {
-            token,
+            credential: KimiWebCredential::plain(token),
             source: WebTokenSource::Browser,
         });
     }
     for token in (input.local_storage_tokens)(input.region) {
         if seen.insert(token.clone()) {
             candidates.push(WebTokenCandidate {
-                token,
+                credential: KimiWebCredential::plain(token),
                 source: WebTokenSource::LocalStorage,
             });
         }
@@ -212,7 +209,7 @@ pub(super) async fn fetch_web_session_isolated(
                 });
             }
         };
-        return fetch_via_web_token(&http, &token, region)
+        return fetch_via_web_token(&http, &KimiWebCredential::plain(token), region)
             .await
             .map_err(WebFetchFailure::after_token);
     }
@@ -229,18 +226,18 @@ pub(super) async fn fetch_web_session(
         manual_header: cookie_header,
         cookie_source: &source,
         region,
-        desktop_token: KimiDesktopAuthToken::load_for_region,
+        desktop_token: desktop_credential,
         browser_token: browser_auth_token,
-        local_storage_tokens: crate::providers::kimi::local_storage::local_storage_tokens,
+        local_storage_tokens,
     };
     // One HTTP client for every token attempt, built on first use.
     let mut shared_client: Option<Client> = None;
-    fetch_with_web_tokens(&input, |token| {
+    fetch_with_web_tokens(&input, |credential| {
         let http = match &shared_client {
             Some(http) => Ok(http.clone()),
             None => client().inspect(|http| shared_client = Some(http.clone())),
         };
-        async move { fetch_via_web_token(&http?, &token, region).await }
+        async move { fetch_via_web_token(&http?, &credential, region).await }
     })
     .await
 }
@@ -248,13 +245,14 @@ pub(super) async fn fetch_web_session(
 /// The web fetch over the token chain. An explicit manual token is
 /// authoritative; otherwise (automatic source only) the Kimi Desktop session
 /// is tried, then browser import. Only a server rejection moves on to the
-/// next automatic token.
+/// next automatic token; a Desktop session that changed before dispatch is a
+/// non-auth error and stops the chain.
 async fn fetch_with_web_tokens<F, Fut>(
     input: &WebTokenInput<'_>,
     mut fetch: F,
 ) -> Result<UsageSnapshot, WebFetchFailure>
 where
-    F: FnMut(String) -> Fut,
+    F: FnMut(KimiWebCredential) -> Fut,
     Fut: Future<Output = Result<UsageSnapshot, ProviderError>>,
 {
     if let Some(token) = input
@@ -263,7 +261,9 @@ where
     {
         // An explicit manual credential is authoritative. A rejected manual
         // token must not silently switch accounts underneath the user.
-        return fetch(token).await.map_err(WebFetchFailure::after_token);
+        return fetch(KimiWebCredential::plain(token))
+            .await
+            .map_err(WebFetchFailure::after_token);
     }
 
     if !browser_import_allowed(input.cookie_source) {
@@ -277,18 +277,19 @@ where
     // read only after the server rejects this automatic session, so a healthy
     // desktop account never causes another credential store to be touched.
     let desktop_token = (input.desktop_token)(input.region);
-    if let Some(token) = desktop_token.clone() {
-        match fetch(token).await {
+    if let Some(credential) = desktop_token.clone() {
+        match fetch(credential).await {
             Ok(usage) => return Ok(usage),
             Err(ProviderError::AuthRequired) => {}
             Err(error) => return Err(WebFetchFailure::after_token(error)),
         }
     }
 
-    let browser_token =
-        (input.browser_token)(input.region).filter(|token| desktop_token.as_ref() != Some(token));
+    let browser_token = (input.browser_token)(input.region).filter(|token| {
+        desktop_token.as_ref().map(KimiWebCredential::token) != Some(token.as_str())
+    });
     if let Some(token) = browser_token.clone() {
-        match fetch(token).await {
+        match fetch(KimiWebCredential::plain(token)).await {
             Ok(usage) => return Ok(usage),
             Err(ProviderError::AuthRequired) => {}
             Err(error) => return Err(WebFetchFailure::after_token(error)),
@@ -298,16 +299,17 @@ where
     // Local-storage tokens are read last, only after every cookie source
     // was rejected.
     let mut seen = std::collections::HashSet::new();
-    if let Some(token) = desktop_token.clone() {
-        seen.insert(token);
+    if let Some(credential) = &desktop_token {
+        seen.insert(credential.token().to_string());
     }
     if let Some(token) = browser_token.clone() {
         seen.insert(token);
     }
     for candidate in resolve_web_tokens(input).into_iter().filter(|candidate| {
-        candidate.source == WebTokenSource::LocalStorage && seen.insert(candidate.token.clone())
+        candidate.source == WebTokenSource::LocalStorage
+            && seen.insert(candidate.credential.token().to_string())
     }) {
-        match fetch(candidate.token).await {
+        match fetch(candidate.credential).await {
             Ok(usage) => return Ok(usage),
             Err(ProviderError::AuthRequired) => {}
             Err(error) => return Err(WebFetchFailure::after_token(error)),
@@ -339,7 +341,7 @@ fn client() -> Result<reqwest::Client, ProviderError> {
 
 async fn fetch_via_web_token(
     client: &reqwest::Client,
-    token: &str,
+    credential: &KimiWebCredential,
     region: KimiRegion,
 ) -> Result<UsageSnapshot, ProviderError> {
     let usage_url = region.web_api_url(KIMI_WEB_USAGE_SERVICE);
@@ -347,7 +349,7 @@ async fn fetch_via_web_token(
         client,
         &usage_url,
         region,
-        token,
+        credential,
         serde_json::json!({ "scope": ["FEATURE_CODING"] }),
     )
     .await?;
@@ -365,7 +367,7 @@ async fn fetch_via_web_token(
         .await
         .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
-    let (subscription, plan_name) = fetch_subscription_details(client, token, region).await;
+    let (subscription, plan_name) = fetch_subscription_details(client, credential, region).await;
 
     snapshot_from_web_usage_response_with_plan(usage, subscription, plan_name)
 }
@@ -374,18 +376,18 @@ const SUBSCRIPTION_ENRICHMENT_TIMEOUT: std::time::Duration = std::time::Duration
 
 async fn fetch_subscription_details(
     client: &reqwest::Client,
-    token: &str,
+    credential: &KimiWebCredential,
     region: KimiRegion,
 ) -> (Option<KimiSubscriptionStatsResponse>, Option<String>) {
     // The quota statistics and the optional title are independent. Keep a
     // completed statistics response when the plan endpoint is slow or absent.
     let stats = tokio::time::timeout(
         SUBSCRIPTION_ENRICHMENT_TIMEOUT,
-        fetch_subscription_for_enrichment(client, token, region),
+        fetch_subscription_for_enrichment(client, credential, region),
     );
     let plan = tokio::time::timeout(
         SUBSCRIPTION_ENRICHMENT_TIMEOUT,
-        fetch_subscription_plan(client, token, region),
+        fetch_subscription_plan(client, credential, region),
     );
     let (stats, plan) = tokio::join!(stats, plan);
     (stats.ok().flatten(), plan.ok().flatten())
@@ -430,11 +432,11 @@ fn snapshot_from_web_usage_response_with_plan(
 
 pub(super) async fn fetch_subscription_plan(
     client: &Client,
-    token: &str,
+    credential: &KimiWebCredential,
     region: KimiRegion,
 ) -> Option<String> {
     let url = region.web_api_url(KIMI_SUBSCRIPTION_SERVICE);
-    match kimi_web_post(client, &url, region, token, serde_json::json!({})).await {
+    match kimi_web_post(client, &url, region, credential, serde_json::json!({})).await {
         Ok(response) if response.status().is_success() => response
             .json::<KimiSubscriptionResponse>()
             .await
@@ -448,10 +450,10 @@ pub(super) async fn fetch_subscription_plan(
 // token; any failure means "no enrichment", never an error.
 pub(super) async fn fetch_subscription_for_enrichment(
     client: &Client,
-    token: &str,
+    credential: &KimiWebCredential,
     region: KimiRegion,
 ) -> Option<KimiSubscriptionStatsResponse> {
-    fetch_subscription_for_enrichment_result(client, token, region)
+    fetch_subscription_for_enrichment_result(client, credential, region)
         .await
         .ok()
         .flatten()
@@ -459,11 +461,11 @@ pub(super) async fn fetch_subscription_for_enrichment(
 
 pub(super) async fn fetch_subscription_for_enrichment_result(
     client: &Client,
-    token: &str,
+    credential: &KimiWebCredential,
     region: KimiRegion,
 ) -> Result<Option<KimiSubscriptionStatsResponse>, ProviderError> {
     let url = region.web_api_url(KIMI_SUBSCRIPTION_STATS_SERVICE);
-    match kimi_web_post(client, &url, region, token, serde_json::json!({})).await {
+    match kimi_web_post(client, &url, region, credential, serde_json::json!({})).await {
         Ok(response) if response.status().is_success() => response
             .json()
             .await
@@ -497,16 +499,28 @@ mod tests {
         );
     }
 
-    fn static_desktop(_: KimiRegion) -> Option<String> {
-        Some("desktop-token".to_string())
+    fn static_desktop(_: KimiRegion) -> Option<KimiWebCredential> {
+        Some(KimiWebCredential::plain("desktop-token"))
+    }
+
+    fn changed_desktop(_: KimiRegion) -> Option<KimiWebCredential> {
+        Some(KimiWebCredential::desktop("desktop-token", || false))
     }
 
     fn static_browser(_: KimiRegion) -> Option<String> {
         Some("browser-token".to_string())
     }
 
+    fn no_desktop(_: KimiRegion) -> Option<KimiWebCredential> {
+        None
+    }
+
     fn no_token(_: KimiRegion) -> Option<String> {
         None
+    }
+
+    fn unread_desktop(_: KimiRegion) -> Option<KimiWebCredential> {
+        panic!("automatic Kimi token sources must not be read here")
     }
 
     fn unread(_: KimiRegion) -> Option<String> {
@@ -546,9 +560,23 @@ mod tests {
         respond: fn(&str) -> Result<UsageSnapshot, ProviderError>,
     ) -> (Result<UsageSnapshot, WebFetchFailure>, Vec<String>) {
         let sent = std::cell::RefCell::new(Vec::new());
-        let result = fetch_with_web_tokens(&input, |token| {
-            let response = respond(&token);
-            sent.borrow_mut().push(token);
+        let client = reqwest::Client::new();
+        let url = KimiRegion::China.web_api_url(KIMI_WEB_USAGE_SERVICE);
+        let result = fetch_with_web_tokens(&input, |credential| {
+            let request = super::super::kimi_web_request(
+                &client,
+                &url,
+                KimiRegion::China,
+                credential.token(),
+                serde_json::json!({}),
+            )
+            .unwrap();
+            let response = credential
+                .check_dispatch(&request, KimiRegion::China)
+                .and_then(|()| {
+                    sent.borrow_mut().push(credential.token().to_string());
+                    respond(credential.token())
+                });
             async move { response }
         })
         .await;
@@ -556,11 +584,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn changed_desktop_session_is_not_sent_and_does_not_fall_back() {
+        let (result, sent) =
+            run_chain(input(None, "auto", changed_desktop, unread), accept_all).await;
+        let failure = result.expect_err("desktop session changed");
+        assert!(failure.had_token);
+        assert_eq!(
+            failure.error.to_string(),
+            super::super::credential::DESKTOP_SESSION_CHANGED_MESSAGE
+        );
+        assert!(sent.is_empty());
+    }
+
+    #[tokio::test]
     async fn web_auth_without_a_token_reports_that_none_was_tried() {
         for source in ["off", "manual"] {
             for manual in [None, Some("not-a-token")] {
                 let (result, sent) =
-                    run_chain(input(manual, source, unread, unread), accept_all).await;
+                    run_chain(input(manual, source, unread_desktop, unread), accept_all).await;
                 let failure = result.expect_err("no web token to try");
                 assert!(!failure.had_token);
                 assert_eq!(
@@ -571,7 +612,7 @@ mod tests {
             }
         }
 
-        let (result, sent) = run_chain(input(None, "auto", no_token, no_token), accept_all).await;
+        let (result, sent) = run_chain(input(None, "auto", no_desktop, no_token), accept_all).await;
         let failure = result.expect_err("no automatic token found");
         assert!(!failure.had_token);
         assert!(matches!(failure.error, ProviderError::AuthRequired));
@@ -581,7 +622,12 @@ mod tests {
     #[tokio::test]
     async fn rejected_manual_token_is_authoritative_and_counts_as_tried() {
         let (result, sent) = run_chain(
-            input(Some("kimi-auth=synthetic-web"), "auto", unread, unread),
+            input(
+                Some("kimi-auth=synthetic-web"),
+                "auto",
+                unread_desktop,
+                unread,
+            ),
             reject_all,
         )
         .await;
@@ -655,7 +701,7 @@ mod tests {
     fn input<'a>(
         manual_header: Option<&'a str>,
         cookie_source: &'a str,
-        desktop_token: fn(KimiRegion) -> Option<String>,
+        desktop_token: fn(KimiRegion) -> Option<KimiWebCredential>,
         browser_token: fn(KimiRegion) -> Option<String>,
     ) -> WebTokenInput<'a> {
         WebTokenInput {
@@ -683,7 +729,7 @@ mod tests {
         assert_eq!(
             candidates,
             vec![WebTokenCandidate {
-                token: "manual-token".to_string(),
+                credential: KimiWebCredential::plain("manual-token"),
                 source: WebTokenSource::Manual,
             }]
         );
@@ -695,9 +741,9 @@ mod tests {
             resolve_web_tokens(&input(None, "browser", static_desktop, static_browser));
         assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].source, WebTokenSource::Desktop);
-        assert_eq!(candidates[0].token, "desktop-token");
+        assert_eq!(candidates[0].credential.token(), "desktop-token");
         assert_eq!(candidates[1].source, WebTokenSource::Browser);
-        assert_eq!(candidates[1].token, "browser-token");
+        assert_eq!(candidates[1].credential.token(), "browser-token");
     }
 
     #[test]
@@ -711,7 +757,7 @@ mod tests {
                 resolve_web_tokens(&input(
                     Some("not-a-token"),
                     source,
-                    no_token,
+                    no_desktop,
                     static_browser
                 )),
                 Vec::new()
@@ -721,11 +767,11 @@ mod tests {
 
     #[test]
     fn browser_token_used_when_desktop_absent() {
-        let candidates = resolve_web_tokens(&input(None, "auto", no_token, static_browser));
+        let candidates = resolve_web_tokens(&input(None, "auto", no_desktop, static_browser));
         assert_eq!(
             candidates,
             vec![WebTokenCandidate {
-                token: "browser-token".to_string(),
+                credential: KimiWebCredential::plain("browser-token"),
                 source: WebTokenSource::Browser,
             }]
         );
@@ -742,7 +788,7 @@ mod tests {
         assert_eq!(
             candidates,
             vec![WebTokenCandidate {
-                token: "manual-token".to_string(),
+                credential: KimiWebCredential::plain("manual-token"),
                 source: WebTokenSource::Manual,
             }]
         );
@@ -755,7 +801,7 @@ mod tests {
         assert_eq!(
             candidates,
             vec![WebTokenCandidate {
-                token: "desktop-token".to_string(),
+                credential: KimiWebCredential::plain("desktop-token"),
                 source: WebTokenSource::Desktop,
             }]
         );
@@ -769,7 +815,7 @@ mod tests {
         });
         let ordered: Vec<_> = candidates
             .iter()
-            .map(|candidate| (candidate.source, candidate.token.as_str()))
+            .map(|candidate| (candidate.source, candidate.credential.token()))
             .collect();
         assert_eq!(
             ordered,
@@ -785,7 +831,7 @@ mod tests {
     fn local_storage_is_not_read_for_manual_credentials_or_blocked_sources() {
         let manual = resolve_web_tokens(&WebTokenInput {
             local_storage_tokens: static_local_storage,
-            ..input(Some("kimi-auth=manual-token"), "auto", no_token, no_token)
+            ..input(Some("kimi-auth=manual-token"), "auto", no_desktop, no_token)
         });
         assert_eq!(manual.len(), 1);
         assert_eq!(manual[0].source, WebTokenSource::Manual);
@@ -794,7 +840,7 @@ mod tests {
             assert!(
                 resolve_web_tokens(&WebTokenInput {
                     local_storage_tokens: static_local_storage,
-                    ..input(None, source, no_token, no_token)
+                    ..input(None, source, no_desktop, no_token)
                 })
                 .is_empty()
             );

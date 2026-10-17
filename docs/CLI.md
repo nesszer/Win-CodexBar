@@ -92,6 +92,8 @@ codexbar cost
 codexbar cost -p codex -f json --pretty
 codexbar cost -p codex --remote user@mac-host
 codexbar cost -p codex --format json --summary-only --provider-native-only --days 30
+codexbar cost -p codex --group-by project
+codexbar cost -p codex --identified-only --format json --days 30 --remote user@build-host
 codexbar cost --period month-to-date --json
 codexbar cost --period all --json
 codexbar cost --days 7 --json
@@ -108,7 +110,16 @@ Antigravity history that stopped short is never shown as exact. A scan whose dec
 
 Claude/Codex costs come from local session logs. Antigravity exposes local **token history only** through `cost`; dollar cost remains unknown rather than becoming a false `$0`. Other providers may differ; do not assume upstream Cursor dashboard cost behavior unless implemented in this tree.
 
-`--remote` adds one separate native Codex report fetched through non-interactive SSH; overlapping local and remote histories are never combined. `--summary-only` emits the versioned, path-free JSON contract used by the remote comparison and accepts only `--provider codex --format json`. Both modes reject session grouping and other provider selections.
+`--remote` adds one separate native Codex report fetched through non-interactive SSH; overlapping local and remote histories are never combined. `--summary-only` emits the versioned, path-free JSON contract used by the remote comparison and accepts only `--provider codex --format json`. Both modes reject project/session grouping and other provider selections.
+
+`--group-by project` lists Codex local projects from the workspace index (text only; other providers print a not-available line and JSON output is unchanged). When the local cost scan has incomplete coverage, the report shows the same `Coverage: partial (history catch-up in progress)` notice as the default Codex text report, including when no project rows are available. Hide personal information replaces project names and drops paths.
+
+**Identified-request subtotal (experimental).** `codexbar cost --provider codex --identified-only --format json --days 30` exports a versioned native request ledger (`schemaVersion` 1) over one inclusive UTC window. `--identified-end <Unix milliseconds>` pins the end (default: now); the start is UTC midnight `days - 1` days earlier, and saved periods and time zones do not change it. Add `--remote <ssh-host>` to return per-source `reports` plus an **identified-request subtotal** for this machine and that host; the remote host needs a CLI that supports `--identified-only`.
+
+- Only owned native `token_usage_record` events with thread and response IDs contribute. Legacy `token_count` usage without a matching identified request, and unidentified usage, is excluded and counted in `excludedCount`; the subtotal is not complete account usage. Foreign-provider routes (for example `deepseek/...`) are not Codex usage.
+- Identical copies count once. Contradictory copies of one identity are excluded for the whole merge, even after a later matching copy. Identities are length-framed SHA-256 hashes, so rows carry timestamps and token categories without conversation text, model names, paths, or raw session IDs.
+- Combined prices are unavailable (`costUSD: null`); no dollar estimate is made. Exports are limited to 50,000 records and conflict IDs and 32 MiB of remote output; exceeding a limit rejects that source instead of truncating it. An unavailable source keeps the successful source data, marks the result `partial`, and exits nonzero. Readable empty history is available; malformed lines, dropped usage lines, or files that change during the scan mark the data partial.
+- Requires explicit `--provider codex` and JSON, and `--days` 1..=365 (30 by default). It cannot be combined with `--summary-only`, `--period`, or `--group-by`. The separate-host `--remote` summary without `--identified-only` is unchanged.
 
 Codex local-history scans use a 60-second scanner-side debounce for ordinary disk-cache reads. This is separate from the desktop provider refresh setting. With Adaptive refresh off, **Manual** (`refresh_interval_secs = 0`) disables the recurring desktop refresh timer, but it does not forbid startup/stale-aware reads, explicit refreshes, or pending Codex catch-up scans. Low Power Mode floors recurring automatic refreshes to 30 minutes; explicit/manual work remains immediate.
 

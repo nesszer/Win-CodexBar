@@ -95,6 +95,28 @@ describe("hidden sources", () => {
     expect(noCodex.contract.reportingPeriod).toBe("rolling:30");
   });
 
+  it("drops hidden sources from the trend series", () => {
+    const data = {
+      ...summary([row("codex", 1, 1), row("claude", 1, 1)]),
+      trend: {
+        startDay: "2026-01-01",
+        endDay: "2026-01-02",
+        timeZone: "UTC",
+        sources: ["claude", "codex"].map((id) => ({ id, providerId: id, displayName: id, knownZero: false })),
+        daily: [
+          { sourceId: "claude", day: "2026-01-01", costUsd: 1 },
+          { sourceId: "codex", day: "2026-01-01", costUsd: 2 },
+        ],
+        hourly: [{ sourceId: "claude", hour: "2026-01-01T10:00:00Z", costUsd: 1 }],
+        hourlyDays: [],
+      },
+    };
+    const visible = visibleUsageSpendSummary(data, ["Claude"]);
+    expect(visible.trend?.sources.map((source) => source.id)).toEqual(["codex"]);
+    expect(visible.trend?.daily.map((point) => point.sourceId)).toEqual(["codex"]);
+    expect(visible.trend?.hourly).toEqual([]);
+  });
+
   it("lists every returned source plus hidden ones without a row", () => {
     const data = summary([row("codex", 1, 1), row("claude", 1, 1)]);
     expect(spendSources(data, ["claude", "pi"]).map((source) => source.id)).toEqual(["claude", "codex", "pi"]);

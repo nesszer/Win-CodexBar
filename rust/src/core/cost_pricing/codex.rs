@@ -305,6 +305,11 @@ impl CostUsagePricing {
         if key == Self::CODEX_UNATTRIBUTED_MODEL {
             return None;
         }
+        // Included Auto-review requests are billed by the ChatGPT plan at $0.
+        // An explicit custom rate is applied by the spend contract, not here.
+        if crate::core::codex_included_pricing::is_included_model_key(&key) {
+            return Some(0.0);
+        }
         if let Some(pricing) = CODEX_PRICING.get(key.as_str()) {
             return Some(codex_cost_from_pricing(
                 pricing,

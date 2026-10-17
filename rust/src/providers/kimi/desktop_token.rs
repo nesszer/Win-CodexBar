@@ -16,6 +16,10 @@
 //!   is preferred (upstream reads only `value`); the encrypted form falls
 //!   back to the existing `browser::cookies` decryption helpers.
 //!
+//! Since upstream #4416 this cookie store is read only for International; China
+//! uses the current Desktop Local Storage session (`desktop_session`) and never
+//! falls back to a historical China Desktop cookie.
+//!
 //! Auth cookies are secrets: token values are never logged.
 
 use base64::Engine;

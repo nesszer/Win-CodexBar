@@ -2,10 +2,18 @@
 //!
 //! Intentionally separate from the Grok consumer provider:
 //! - `GET https://management-api.x.ai/v1/billing/teams/{team_id}/prepaid/balance`
+//! - `GET https://management-api.x.ai/v1/billing/teams/{team_id}/postpaid/invoice/preview`
+//!   (best-effort live remaining estimate; see `live_remaining`)
 //! - `POST https://management-api.x.ai/v1/billing/teams/{team_id}/usage`
 //!
 //! Ported from steipete/CodexBar v0.47.0 `XAIBillingFetcher` /
-//! `XAIProviderDescriptor` / `XAIUsageSnapshot`.
+//! `XAIProviderDescriptor` / `XAIUsageSnapshot`, plus the invoice-preview
+//! estimate from upstream 24d5d7059 (#4419).
+
+mod live_remaining;
+
+#[cfg(test)]
+mod live_remaining_tests;
 
 use std::collections::BTreeMap;
 
@@ -26,6 +34,8 @@ const ENV_API_KEYS: &[&str] = &["XAI_MANAGEMENT_API_KEY"];
 const ENV_TEAM_ID: &str = "XAI_TEAM_ID";
 const HISTORY_DAYS: i64 = 30;
 const REQUEST_TIMEOUT_SECS: u64 = 15;
+/// Upstream's bound for the optional invoice-preview enrichment.
+const PREVIEW_TIMEOUT_SECS: u64 = 5;
 
 #[derive(Debug, Deserialize)]
 struct BalanceEnvelope {
@@ -101,6 +111,9 @@ struct XaiUsageSnapshot {
     daily: Vec<DailyBucket>,
     history_days: i64,
     limit_reached: bool,
+    /// Posted balance minus the current invoice preview; `None` when the
+    /// preview is unavailable or malformed.
+    live_remaining_usd: Option<f64>,
     updated_at: DateTime<Utc>,
 }
 
@@ -171,11 +184,13 @@ fn format_balance_line(balance_usd: f64) -> String {
 pub struct XaiProvider {
     metadata: ProviderMetadata,
     client: Client,
+    base_url: String,
 }
 
 impl XaiProvider {
     pub fn new() -> Self {
         Self {
+            base_url: BASE_URL.to_string(),
             metadata: ProviderMetadata {
                 id: ProviderId::Xai,
                 display_name: "xAI",
@@ -194,6 +209,12 @@ impl XaiProvider {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
         }
+    }
+
+    #[cfg(test)]
+    fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
     }
 
     fn resolve_api_key(api_key: Option<&str>) -> Result<String, ProviderError> {
@@ -233,10 +254,7 @@ impl XaiProvider {
         let team_id = Self::resolve_team_id(ctx.workspace_id.as_deref())?;
         let now = Utc::now();
         let snapshot = self.fetch_usage_snapshot(&api_key, &team_id, now).await?;
-        Ok(
-            ProviderFetchResult::new(snapshot.to_usage_snapshot(), "api")
-                .with_cost(snapshot.to_cost_snapshot()),
-        )
+        Ok(into_fetch_result(&snapshot))
     }
 
     async fn fetch_usage_snapshot(
@@ -246,6 +264,12 @@ impl XaiProvider {
         now: DateTime<Utc>,
     ) -> Result<XaiUsageSnapshot, ProviderError> {
         let balance_usd = self.fetch_balance_usd(api_key, team_id).await?;
+
+        // The live estimate is optional enrichment: any failure leaves it absent
+        // and never affects the posted balance or the history below.
+        let live_remaining_usd = self
+            .fetch_live_remaining_usd(api_key, team_id, balance_usd)
+            .await;
 
         // History is best-effort enrichment: the balance is independently useful,
         // so only credential problems escalate from the usage call.
@@ -261,12 +285,36 @@ impl XaiProvider {
             daily,
             history_days: HISTORY_DAYS,
             limit_reached,
+            live_remaining_usd,
             updated_at: now,
         })
     }
 
+    /// Best-effort `postpaid/invoice/preview` read. Every failure (transport,
+    /// non-2xx, unreadable or malformed body) resolves to `None`.
+    async fn fetch_live_remaining_usd(
+        &self,
+        api_key: &str,
+        team_id: &str,
+        balance_usd: f64,
+    ) -> Option<f64> {
+        let url = team_url(&self.base_url, team_id, &["postpaid", "invoice", "preview"]).ok()?;
+        let response = self
+            .client
+            .get(url)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Accept", "application/json")
+            .timeout(std::time::Duration::from_secs(PREVIEW_TIMEOUT_SECS))
+            .send()
+            .await
+            .ok()?;
+        let status = response.status().as_u16();
+        let body = response.text().await.ok()?;
+        live_remaining::live_remaining_usd_from_preview(balance_usd, status, &body)
+    }
+
     async fn fetch_balance_usd(&self, api_key: &str, team_id: &str) -> Result<f64, ProviderError> {
-        let url = team_url(team_id, &["prepaid", "balance"])?;
+        let url = team_url(&self.base_url, team_id, &["prepaid", "balance"])?;
         let response = self
             .client
             .get(url)
@@ -288,7 +336,7 @@ impl XaiProvider {
         team_id: &str,
         now: DateTime<Utc>,
     ) -> Result<(Vec<DailyBucket>, bool), ProviderError> {
-        let url = team_url(team_id, &["usage"])?;
+        let url = team_url(&self.base_url, team_id, &["usage"])?;
         let body = usage_request_body(now);
         let response = self
             .client
@@ -308,6 +356,16 @@ impl XaiProvider {
 
         aggregate_daily_usage(&envelope)
     }
+}
+
+/// Provider result for a fetched snapshot: posted balance and history, plus the
+/// transient "Live remaining (est.)" row when the invoice preview produced one.
+fn into_fetch_result(snapshot: &XaiUsageSnapshot) -> ProviderFetchResult {
+    ProviderFetchResult::new(snapshot.to_usage_snapshot(), "api")
+        .with_cost(snapshot.to_cost_snapshot())
+        .with_display_detail(live_remaining::live_remaining_detail(
+            snapshot.live_remaining_usd,
+        ))
 }
 
 fn aggregate_daily_usage(
@@ -418,8 +476,8 @@ fn balance_usd_from_ledger_cents(raw: &str) -> Result<f64, ProviderError> {
     Ok(-cents / 100.0)
 }
 
-fn team_url(team_id: &str, suffix: &[&str]) -> Result<reqwest::Url, ProviderError> {
-    let mut url = reqwest::Url::parse(BASE_URL)
+fn team_url(base_url: &str, team_id: &str, suffix: &[&str]) -> Result<reqwest::Url, ProviderError> {
+    let mut url = reqwest::Url::parse(base_url)
         .map_err(|e| ProviderError::Other(format!("Invalid xAI base URL: {e}")))?;
     {
         let mut segments = url
@@ -553,6 +611,7 @@ fn parse_snapshot_for_testing(
         daily,
         history_days: HISTORY_DAYS,
         limit_reached,
+        live_remaining_usd: None,
         updated_at: now,
     })
 }
@@ -754,7 +813,7 @@ mod tests {
 
     #[test]
     fn team_url_encodes_path_component() {
-        let url = team_url("team one", &["prepaid", "balance"]).unwrap();
+        let url = team_url(BASE_URL, "team one", &["prepaid", "balance"]).unwrap();
         assert_eq!(url.scheme(), "https");
         assert_eq!(url.host_str(), Some("management-api.x.ai"));
         assert!(url.as_str().contains("team%20one"));

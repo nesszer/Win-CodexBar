@@ -173,6 +173,25 @@ describe("MenuSurface footer", () => {
     expect(onRefresh).toHaveBeenCalledTimes(0);
   });
 
+  it("marks the surface only when hover highlighting is turned off", async () => {
+    const rows = [[{ id: "refresh" as const, label: "Refresh", onClick: vi.fn() }]];
+    const { container, rerender } = renderFooter(rows);
+    await screen.findByRole("button", { name: "Refresh" });
+    const surface = container.querySelector(".menu-surface")!;
+    expect(surface).not.toHaveClass("menu-surface--hover-highlight-off");
+
+    rerender(
+      <LocaleProvider>
+        <MenuSurface footerGroups={rows} hoverHighlight={false}>
+          <div>cards</div>
+        </MenuSurface>
+      </LocaleProvider>,
+    );
+    expect(container.querySelector(".menu-surface")).toHaveClass(
+      "menu-surface--hover-highlight-off",
+    );
+  });
+
   it("renders no footer when every group is empty", async () => {
     renderFooter([[], []]);
 

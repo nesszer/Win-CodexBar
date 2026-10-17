@@ -1,12 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { SpendContract, SpendModelRow } from "../../../types/bridge";
 import type { LocaleKey } from "../../../i18n/keys";
 import { buildSpendProviderGroups } from "../../../lib/usageSpendBreakdown";
 import { UsageSpendProviderGroups } from "./UsageSpendProviderGroups";
-import { UsageSpendTrendPanel } from "./UsageSpendTrendPanel";
 
 const t = (key: LocaleKey) => key;
 
@@ -59,41 +57,5 @@ describe("UsageSpendProviderGroups", () => {
   it("shows the empty state without groups", () => {
     render(<UsageSpendProviderGroups groups={[]} caption="Models for: Last 30 days" t={t} />);
     expect(screen.getByText("UsageSpendNoModels")).toBeTruthy();
-  });
-});
-
-describe("UsageSpendTrendPanel", () => {
-  function Harness() {
-    const [day, setDay] = useState<string | null>(null);
-    return <UsageSpendTrendPanel contract={contract} selectedDay={day} onSelectDay={setDay} t={t} />;
-  }
-
-  it("selects a day from the daily chart and clears it with one control", () => {
-    render(<Harness />);
-    expect(screen.queryByTestId("usage-spend-selected-day")).toBeNull();
-    const bars = screen.getAllByRole("button", { pressed: false }).filter((node) => node.getAttribute("title"));
-    expect(bars).toHaveLength(2);
-
-    fireEvent.click(bars[0]);
-    expect(screen.getByTestId("usage-spend-selected-day")).toBeTruthy();
-    expect(screen.getByText("UsageSpendSelectedDayScope")).toBeTruthy();
-
-    fireEvent.click(screen.getByLabelText("UsageSpendClearSelectedDay"));
-    expect(screen.queryByTestId("usage-spend-selected-day")).toBeNull();
-  });
-
-  it("switches between the daily and hourly views with one selector", () => {
-    render(<Harness />);
-    expect(screen.getByText("UsageSpendDailySpend")).toBeTruthy();
-    fireEvent.click(screen.getByText("UsageSpendTrendHourly"));
-    expect(screen.getByLabelText("UsageSpendHourlyActivity")).toBeTruthy();
-    expect(screen.queryByText("UsageSpendDailySpend")).toBeNull();
-  });
-
-  it("drops the selector when only one view has data", () => {
-    const hourlyOnly = { ...contract, daily: [] } as unknown as SpendContract;
-    render(<UsageSpendTrendPanel contract={hourlyOnly} selectedDay={null} onSelectDay={() => {}} t={t} />);
-    expect(screen.queryByText("UsageSpendTrendDaily")).toBeNull();
-    expect(screen.getByLabelText("UsageSpendHourlyActivity")).toBeTruthy();
   });
 });

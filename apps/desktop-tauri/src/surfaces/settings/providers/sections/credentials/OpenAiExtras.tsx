@@ -5,6 +5,9 @@ import {
   setProviderWorkspaceId,
 } from "../../../../../lib/tauri";
 
+/** Fired on `window` after a workspace ID is saved; `detail` is the provider id. */
+export const PROVIDER_WORKSPACE_ID_SAVED_EVENT = "codexbar:provider-workspace-id-saved";
+
 interface Props {
   providerId?: string;
   t: (key: LocaleKey) => string;
@@ -47,6 +50,9 @@ export function OpenAiExtras({ providerId = "openaiapi", t }: Props) {
       const next = projectId.trim();
       await setProviderWorkspaceId(providerId, next);
       setSavedProjectId(next);
+      window.dispatchEvent(
+        new CustomEvent<string>(PROVIDER_WORKSPACE_ID_SAVED_EVENT, { detail: providerId }),
+      );
     } catch (e) {
       setError(String(e));
     } finally {
@@ -91,6 +97,11 @@ export function OpenAiExtras({ providerId = "openaiapi", t }: Props) {
   return null;
 }
 
+/** Providers that show a workspace, organization or base-URL field next to their key. */
+export function hasWorkspaceExtra(providerId: string): boolean {
+  return WORKSPACE_EXTRA_IDS[providerId] === true;
+}
+
 const WORKSPACE_EXTRA_IDS: Record<string, true> = {
   openaiapi: true,
   litellm: true,
@@ -103,6 +114,9 @@ const WORKSPACE_EXTRA_IDS: Record<string, true> = {
   xai: true,
   fireworks: true,
   gitkraken: true,
+  exa: true,
+  cosmic: true,
+  flora: true,
 };
 
 function extraConfig(providerId: string, t: Props["t"]) {
@@ -183,6 +197,27 @@ function extraConfig(providerId: string, t: Props["t"]) {
         label: "Organization ID (optional)",
         placeholder: "organization-id",
         help: "Adds the organization ID to shared-pool usage requests. Or set GITKRAKEN_ORG_ID.",
+      };
+    case "exa":
+      return {
+        title: t("ExaApiTitle"),
+        label: t("ExaApiKeyIdLabel"),
+        placeholder: t("ExaApiKeyIdPlaceholder"),
+        help: t("ExaApiKeyIdHelp"),
+      };
+    case "cosmic":
+      return {
+        title: t("CosmicProjectIdTitle"),
+        label: t("CosmicProjectIdLabel"),
+        placeholder: t("CosmicProjectIdPlaceholder"),
+        help: t("CosmicProjectIdHelp"),
+      };
+    case "flora":
+      return {
+        title: "FLORA workspace",
+        label: "Workspace ID",
+        placeholder: "ws_…",
+        help: "Required. The ws_… ID of the workspace the key can bill. Or set FLORA_WORKSPACE_ID.",
       };
     default:
       return null;

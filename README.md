@@ -17,13 +17,13 @@ Win-CodexBar is a Windows system-tray app for keeping AI coding-tool usage visib
 
 ## Highlights
 
-- **56 providers** including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, Qoder, Sakana AI, CrossModel, and more.
+- **100+ providers** including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, Qoder, Sakana AI, Aerostack, CrossModel, and more.
 - **Tray-first workflow** with a compact provider grid, usage cards, refresh action, settings shortcut, and quit control.
 - **Provider settings** for source selection, credentials, cookie import, token accounts, API keys, regions, and tray-display preferences.
 - **Windows credential protection** for app-managed API keys, manual cookies, and token accounts, using user-scoped DPAPI where available.
 - **Browser cookie import** for Chrome Stable, Beta, Dev, Canary, Chrome for Testing, Chromium, Edge, Brave, and Firefox, kept opt-in per provider.
 - **Installed local CLI** for scripting usage, cost, config, diagnostics, and loopback integrations.
-- **Installer + portable builds** with WebView2 runtime bootstrap, VC++ runtime bootstrap, and SHA-256 checksum files.
+- **Installer + portable builds** with WebView2 runtime bootstrap, a statically linked C runtime (no VC++ redistributable needed), and SHA-256 checksum files.
 
 ## Install
 
@@ -65,7 +65,7 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 ## Supported Providers
 
 <details>
-<summary>Provider matrix</summary>
+<summary>Provider matrix (selected providers; the app supports more)</summary>
 
 | Provider | Auth | Tracks |
 |---|---|---|
@@ -91,6 +91,7 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | Ollama | Cookies / API Key | Usage, Cloud Models, Pace windows |
 | Azure OpenAI | API Key | Deployment |
 | T3 Chat | Cookies / cURL | Base, Overage |
+| TinyApi | Browser cookies / manual Cookie header | Available credits |
 | TypeSafe | Browser cookies / manual Cookie header | Billing-cycle spend, balance, expiring credits |
 | OpenRouter | API Key | Credits |
 | JetBrains AI | Local Config | Usage |
@@ -110,12 +111,14 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | Xiaomi MiMo | Cookies | Balance, Token Plan |
 | Doubao | API Key | Request Limits |
 | Command Code | Cookies | Monthly Credits, Purchased Credits |
+| Aerostack | API Key (Account JWT) | Monthly AI tokens used/allowance |
+| Cosmic AI | API Key | Input tokens used/allowance, Output tokens used/allowance |
 | StepFun | Oasis Token | 5h, Weekly, Token refresh |
 | Venice | API Key / Web session | USD / DIEM Balance, Bundled credits (web session expires in about 60 s) |
 | OpenAI | Admin API / API Key | Usage, Requests, Project-scoped cost, Credit Balance |
 | Grok | Cookies / auth.json | Billing |
 | Helmcode (also NaN Builders) | Browser cookies / manual Cookie header | Per-model token quotas, reset windows, Helmcode prepaid balance |
-| Raycast | Cookies (Chrome auto or manual) | Monthly AI credits, plan, renewal |
+| Raycast | Cookies (browser auto or manual) | Monthly AI credits, plan, renewal |
 | Replicate | Cookies / token accounts | Monthly spend, credit balance |
 | Aixy | API Key / token accounts | Applicable budget balances, 7-day key usage |
 | ClawRouter | API Key | Monthly budget, requests, tokens, routed-provider spend |
@@ -130,10 +133,17 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | Synthetic | API Key | Five-hour quota, Weekly tokens, Hourly search, Plan |
 | Sail Research | API Key | Organization credit balance, spend for the reported range (up to 30 days) |
 | Linkup | API Key | Account credit balance |
+| Sofya | API Key | Available, plan and purchased credits, Monthly reset (free tier) |
+| Tavily | API Key | Account plan usage, API key usage, Pay-as-you-go credits |
+| Exa | API Key + Scope | Selected API key monthly spend (UTC) |
 | Langdock | Browser cookies / manual Cookie header | Session (5h), Weekly |
 | LithosAI | Browser cookies / manual Cookie header | Prepaid balance, UTC spend today and this month |
 | Muse (muse.ai) | Browser cookies / manual Cookie header | Weekly usage, tokens left, top-up tokens |
 | WorkBuddy | Browser cookies / manual Cookie header | Monthly credits left, plan, cycle reset |
+| X API | Browser cookies / manual Cookie header | Prepaid balance, purchased and free credits |
+| Parallel | Browser cookies / manual Cookie header | Prepaid account balance, pending debit |
+| fal | API Key | Account credit balance |
+| FLORA | API Key + workspace ID | Workspace available balance, member limit, month-to-date spend |
 
 </details>
 

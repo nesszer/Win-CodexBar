@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { SpendProviderIcon } from "../../../components/providers/SpendProviderIcon";
 import { formatSpendMetric, formatUsd } from "../../../lib/usageSpendSharing";
 import {
   PROVIDER_MODEL_DISPLAY_LIMIT,
   type SpendProviderGroup,
+  showsSpendModelsLabel,
 } from "../../../lib/usageSpendBreakdown";
 import type { LocaleKey } from "../../../i18n/keys";
 
@@ -42,7 +44,7 @@ export function UsageSpendProviderGroups({ groups, caption, t, showHeading = tru
             const showAll = expandedModels.has(group.providerId);
             const models = showAll ? group.models : group.models.slice(0, PROVIDER_MODEL_DISPLAY_LIMIT);
             return (
-              <div key={group.providerId} className="provider-detail-section" style={{ padding: "10px 12px" }}>
+              <div key={group.providerId} className="provider-detail-section usage-spend-provider">
                 <button
                   type="button"
                   aria-expanded={!isCollapsed}
@@ -61,21 +63,25 @@ export function UsageSpendProviderGroups({ groups, caption, t, showHeading = tru
                     cursor: "pointer",
                   }}
                 >
-                  <strong>{group.displayName}</strong>
+                  <span className="usage-spend-provider__name">
+                    <SpendProviderIcon providerId={group.providerId} />
+                    <strong>{group.displayName}</strong>
+                  </span>
                   <span>{groupMetric(group, t("UsageSpendTokens"))}</span>
                   <span aria-hidden="true">{group.models.length === 0 ? "" : isCollapsed ? "▸" : "▾"}</span>
                 </button>
                 {group.row && <RowDetail row={group.row} t={t} />}
                 {!isCollapsed && group.models.length > 0 && (
-                  <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                    {!showHeading && (
-                      <span className="settings-group__title" style={{ margin: 0 }}>{t("UsageSpendModels")}</span>
+                  <div style={{ display: "grid", gap: 0, marginTop: 8 }}>
+                    {!showHeading && showsSpendModelsLabel(group) && (
+                      <span className="settings-group__title usage-spend-provider__subsection">{t("UsageSpendModels")}</span>
                     )}
                     {group.hasPartialModelHistory && (
                       <span className="settings-section__caption">{t("UsageSpendPartialModelBreakdown")}</span>
                     )}
                     {models.map((model) => (
-                      <div key={model.model} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 12 }}>
+                      <div key={model.model} className="usage-spend-provider__model">
+                        <SpendProviderIcon providerId={group.providerId} style="monochrome" />
                         <span style={{ minWidth: 0 }}>
                           {model.model}
                           <span className="settings-section__caption" style={{ display: "block", margin: 0 }}>

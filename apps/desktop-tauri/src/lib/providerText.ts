@@ -16,6 +16,7 @@ const SENTENCES: Record<string, LocaleKey> = {
   "no balance information returned": "ProviderTextNoBalanceInfo",
   unlimited: "ProviderTextUnlimited",
   unavailable: "ProviderTextUnavailable",
+  expired: "ProviderTextExpired",
   "overdue invoices": "ProviderTextOverdueInvoices",
   "subscription active": "ProviderTextSubscriptionActive",
   "virtual key is inactive": "ProviderTextVirtualKeyInactive",
@@ -170,6 +171,7 @@ const V = String.raw`[-+]?[$¥€£]?\d[\d,]*(?:\.\d+)?\s?[KMBkmb]?%?`;
 const VALUE = new RegExp(String.raw`^(${V}(?:\s*/\s*${V})?)\s+(.+)$`);
 const PATTERNS: Array<[RegExp, LocaleKey]> = [
   [new RegExp(String.raw`^(${V}) of (${V}) credits$`, "i"), "ProviderTextOfCredits"],
+  [new RegExp(String.raw`^(${V}) of (${V}) remaining$`, "i"), "ProviderTextOfRemaining"],
   [new RegExp(String.raw`^(${V}) tokens over last (\d+) days$`, "i"), "ProviderTextTokensOverLastDays"],
   [new RegExp(String.raw`^(${V}) over last (\d+) days$`, "i"), "ProviderTextOverLastDays"],
   [new RegExp(String.raw`^(${V}) used, (${V}) remaining$`, "i"), "ProviderTextUsedRemaining"],

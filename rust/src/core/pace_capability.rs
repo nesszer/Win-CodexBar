@@ -314,7 +314,7 @@ mod tests {
         );
         let no_reset = RateWindow::with_details(10.0, None, None, None);
         assert!(!copilot.supports_reset_window_pace(&no_reset, now));
-        for provider in [ProviderId::Codex, ProviderId::Claude, ProviderId::Gemini] {
+        for provider in [ProviderId::Codex, ProviderId::Gemini] {
             assert!(
                 provider
                     .pace_capability()
@@ -430,7 +430,7 @@ mod tests {
         assert!(!alibaba.uses_inferred_monthly_duration(&unknown_reset));
         // Providers upstream does not opt in still ignore it.
         assert!(
-            !ProviderId::Claude
+            !ProviderId::Codex
                 .pace_capability()
                 .supports_reset_window_pace(&march, now)
         );
@@ -502,7 +502,8 @@ mod tests {
                         .as_deref()
                         .is_some_and(|text| text.starts_with("renews in "))
             }
-            ProviderId::Alibaba
+            ProviderId::Claude
+            | ProviderId::Alibaba
             | ProviderId::AlibabaTokenPlan
             | ProviderId::CommandCode
             | ProviderId::Doubao
@@ -520,7 +521,8 @@ mod tests {
                 window.window_minutes == Some(MONTHLY)
                     && window.reset_description.as_deref() == Some("MCP")
             }
-            ProviderId::Alibaba
+            ProviderId::Claude
+            | ProviderId::Alibaba
             | ProviderId::AlibabaTokenPlan
             | ProviderId::CommandCode
             | ProviderId::Doubao

@@ -10,6 +10,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::core::ProviderError;
 use crate::providers::{BoundedBodyError, read_bounded_response};
@@ -32,6 +33,9 @@ const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 pub(super) struct BearerBilling {
     pub(super) billing: GrokBillingSnapshot,
     pub(super) subscription_tier: Option<String>,
+    /// Purchased credits in USD, from the proxy wallet only (grok.com gRPC-web
+    /// does not publish one). `None` when absent, invalid, or unknown.
+    pub(super) prepaid_balance_usd: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +63,10 @@ struct CreditsConfig {
     subscription_tier: Option<String>,
     #[serde(default, rename = "productUsage")]
     product_usage: LossyProductUsage,
+    /// Purchased credits, read leniently by [`prepaid_balance_usd`] so a
+    /// malformed wallet can never fail an otherwise valid quota answer.
+    #[serde(default, rename = "prepaidBalance")]
+    prepaid_balance: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -72,6 +80,37 @@ struct CurrentPeriod {
 #[derive(Deserialize)]
 struct CreditsAmount {
     val: Option<f64>,
+}
+
+/// Purchased credits in USD from `config.prepaidBalance`. The contract is
+/// `{ "val": <USD cents> }`: an integer or decimal-integer string converts to
+/// dollars, and an empty object is a known zero (proto3 omits the zero scalar).
+/// Negative, inexact, out-of-range, or unrecognized values are unknown.
+/// Upstream `GrokCreditsProxyFetcher.PrepaidBalance` (v0.72.0).
+fn prepaid_balance_usd(wallet: Option<&Value>) -> Option<f64> {
+    let object = wallet?.as_object()?;
+    let Some(val) = object.get("val") else {
+        return object.is_empty().then_some(0.0);
+    };
+    let cents = match val {
+        Value::Number(number) => number.as_i64(),
+        Value::String(text) => text.parse::<i64>().ok(),
+        _ => None,
+    }?;
+    usd_from_exact_cents(cents)
+}
+
+/// Dollars from cents, accepting only values an `f64` holds exactly (the
+/// Swift `Double(exactly:)` check). `2^63` is excluded so `i64::MAX` cannot
+/// round-trip through a saturating cast.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the integer round trip below is the exactness check; out-of-range values fail it"
+)]
+fn usd_from_exact_cents(cents: i64) -> Option<f64> {
+    let value = cents as f64;
+    (cents >= 0 && value < 9_223_372_036_854_775_808.0 && value as i64 == cents)
+        .then(|| value / 100.0)
 }
 
 fn parse_timestamp(raw: Option<&str>) -> Option<DateTime<Utc>> {
@@ -130,6 +169,7 @@ pub(super) fn parse_credits_response(
         config.billing_period_start.as_deref()
     };
     let window_minutes = window_minutes(period_start, resets_at, now);
+    let prepaid_balance_usd = prepaid_balance_usd(config.prepaid_balance.as_ref());
 
     let wire_percent = config
         .credit_usage_percent
@@ -145,7 +185,7 @@ pub(super) fn parse_credits_response(
         })
         .filter(|percent| percent.is_finite())
         .map(|percent| percent.clamp(0.0, 100.0));
-    if used_percent.is_none() && resets_at.is_none() {
+    if used_percent.is_none() && resets_at.is_none() && prepaid_balance_usd.is_none() {
         return Err(malformed());
     }
     Ok(BearerBilling {
@@ -162,6 +202,7 @@ pub(super) fn parse_credits_response(
             product_usage,
         },
         subscription_tier,
+        prepaid_balance_usd,
     })
 }
 
@@ -184,6 +225,7 @@ fn adopt_grpc_percent(proxy: BearerBilling, grpc: GrokBillingSnapshot) -> Bearer
             ..proxy.billing
         },
         subscription_tier: proxy.subscription_tier,
+        prepaid_balance_usd: proxy.prepaid_balance_usd,
     }
 }
 
@@ -206,6 +248,7 @@ impl GrokProvider {
                 return Ok(BearerBilling {
                     billing,
                     subscription_tier: None,
+                    prepaid_balance_usd: None,
                 });
             }
         };

@@ -70,6 +70,7 @@ const MAC_PARITY_ACCENTS: Array<[string, string]> = [
   ["chutes", "#3184ff"],
   ["deepgram", "#6467f2"],
   ["doubao", "#3370ff"],
+  ["exa", "#0143d9"],
   ["grok", "#10a37f"],
   ["groq", "#f56844"],
   ["helmcode", "#4934e1"],
@@ -85,6 +86,7 @@ const MAC_PARITY_ACCENTS: Array<[string, string]> = [
   ["sakana", "#2975db"],
   ["stepfun", "#2196f2"],
   ["t3chat", "#f56647"],
+  ["tinyapi", "#f97316"],
   ["typesafe", "#111111"],
   ["v0", "#111111"],
   ["warp", "#938bb4"],
@@ -105,6 +107,14 @@ describe("provider icon registry", () => {
     expect(svg).toContain("<svg");
     expect(svg).toContain('fill="currentColor"');
     expect(svg).not.toContain('fill="#000"');
+  });
+
+  it("ships the official Devin hexagon mark as a currentColor template", () => {
+    const entry = PROVIDER_ICON_REGISTRY.devin;
+    expect(entry.svgPath).toContain('viewBox="0 0 128 128"');
+    expect(entry.svgPath).toContain('fill="currentColor"');
+    expect(entry.svgPath).not.toContain("<rect");
+    expect(entry.brandColor.toLowerCase()).toBe("#317cff");
   });
 
   it("does not expose the retired Crof provider", () => {
@@ -162,8 +172,10 @@ describe("provider icon registry", () => {
       "aixy",
       "deepinfra",
       "elevenlabs",
+      "flora",
       "linkup",
       "manus",
+      "parallel",
       "replicate",
       "synthetic",
       "typesafe",

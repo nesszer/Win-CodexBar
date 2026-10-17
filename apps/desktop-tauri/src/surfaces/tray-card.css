@@ -480,6 +480,14 @@
   overflow-wrap: anywhere;
 }
 
+/* Plan renewal / expiry line under the quota rows (upstream UsageNotesContent). */
+.menu-surface--tray .card-notes {
+  margin: 0;
+  font: var(--mac-text-caption);
+  color: var(--mac-text-2);
+  overflow-wrap: anywhere;
+}
+
 /* The percent stays whole on the right while a long spend line wraps. */
 .menu-surface--tray .card-extra__line > .card-extra__caption {
   flex: none;

@@ -2,12 +2,14 @@
 //!
 //! Separate workspace surface that shares the `opencode.ai` cookie domain with
 //! the OpenCode provider. Auto prefers local SQLite usage (upstream #2316)
-//! unless a workspace override scopes the fetch to web first; Web is cookie
-//! scrape only; Cli is local-only.
+//! unless a workspace override scopes the fetch to web first, and overlays
+//! API or browser-session quota onto the local estimate (upstream #4445);
+//! Web is cookie scrape only; Cli is local-only.
 
 mod console;
 mod legacy;
 pub(crate) mod local;
+mod session_overlay;
 mod tokens;
 mod transport;
 mod usage_api;
@@ -503,10 +505,11 @@ impl Provider for OpenCodeGoProvider {
                         }
                         Err(e) => return Err(e),
                     }
-                    return self.fetch_local_with_balance(ctx).await;
+                    // The scoped session just failed; do not retry it as an overlay.
+                    return self.fetch_local_with_balance(ctx, false).await;
                 }
 
-                match self.fetch_local_with_balance(ctx).await {
+                match self.fetch_local_with_balance(ctx, true).await {
                     Ok(result) => return Ok(result),
                     Err(e) => {
                         tracing::debug!("OpenCode Go local failed in Auto; trying API/web: {e}");
@@ -523,7 +526,7 @@ impl Provider for OpenCodeGoProvider {
                 self.fetch_web(ctx).await
             }
             SourceMode::Web => self.fetch_web(ctx).await,
-            SourceMode::Cli => self.fetch_local_with_balance(ctx).await,
+            SourceMode::Cli => self.fetch_local_with_balance(ctx, false).await,
             SourceMode::OAuth => {
                 let api_key = if ctx.token_account_isolated {
                     usage_api::selected_account_api_key(ctx).ok_or(ProviderError::AuthRequired)?
@@ -549,6 +552,12 @@ impl Provider for OpenCodeGoProvider {
     }
 
     fn supports_cli(&self) -> bool {
+        true
+    }
+
+    /// An API result needs a browser session only for the Zen balance, so the
+    /// provider imports one when it will use it instead of on every refresh.
+    fn owns_browser_cookie_resolution(&self) -> bool {
         true
     }
 }
@@ -607,63 +616,75 @@ impl OpenCodeGoProvider {
         )
     }
 
-    /// Local SQLite snapshot plus the optional bounded Zen balance enrichment
-    /// (upstream #2583 waits for the balance in usage-snapshot reads too, not
-    /// just web reads; cookie absence or a slow/broken billing lookup degrades
-    /// to no balance, never to an error).
+    /// Local SQLite snapshot plus optional enrichment: API meters first, then
+    /// (when `overlay_session` is set) Console quota from a provided or
+    /// discovered browser session (upstream #4410 / #4445), and the bounded
+    /// Zen balance (upstream #2583). Enrichment failures degrade to the local
+    /// estimate, never to an error.
     async fn fetch_local_with_balance(
         &self,
         ctx: &FetchContext,
+        overlay_session: bool,
     ) -> Result<ProviderFetchResult, ProviderError> {
         let snap = local::fetch_local_usage(Utc::now())?;
-        let mut result = snap.to_fetch_result();
+        let local = snap.to_fetch_result();
+        let transport = Arc::new(HttpWebTransport::new(self.client.clone()));
+        let session = session_overlay::SessionCookie::for_context(ctx);
+
         if let Some(api_key) = usage_api::resolve_api_key(ctx)
             && let Ok(api_result) = usage_api::fetch(&self.client, ctx, &api_key, "local+api").await
         {
-            result = api_result;
+            return Ok(
+                Self::with_optional_session_balance(ctx, api_result, session, transport).await,
+            );
         }
+        if overlay_session {
+            let cookie_header = session.resolve(session_overlay::discover_browser_session);
+            return Ok(
+                Self::overlay_local_with_session(ctx, local, cookie_header, transport).await,
+            );
+        }
+        Ok(Self::with_optional_session_balance(ctx, local, session, transport).await)
+    }
+
+    async fn with_optional_session_balance(
+        ctx: &FetchContext,
+        result: ProviderFetchResult,
+        session: session_overlay::SessionCookie,
+        transport: Arc<HttpWebTransport>,
+    ) -> ProviderFetchResult {
         if !ctx.include_credits {
-            return Ok(result);
+            return result;
         }
-        let cookie_header = match ctx.manual_cookie_header.clone() {
-            Some(header) => Some(header),
-            None => crate::providers::browser_cookie_header(&["opencode.ai"]).ok(),
-        };
-        let Some(cookie_header) = cookie_header else {
-            return Ok(result);
-        };
-        let cookies = WebCookieSession::new(&cookie_header);
-        let transport = Arc::new(HttpWebTransport::new(self.client.clone()));
-        let (task, started) = Self::spawn_zen_balance_task(
-            Arc::clone(&transport),
-            &cookies,
-            ctx.workspace_id.as_deref(),
-            ctx.web_timeout,
-        );
-        if let Some(balance) = Self::finish_zen_balance(
-            transport,
-            &cookies,
-            task,
-            started,
-            ctx.requires_optional_usage_completeness,
-        )
-        .await
-        {
-            result =
-                Self::with_zen_balance(result.usage, &result.source_label.clone(), Some(balance));
+        match session.resolve(session_overlay::discover_browser_session) {
+            Some(cookie_header) => {
+                Self::attach_zen_balance(ctx, result, &cookie_header, transport).await
+            }
+            None => result,
         }
-        Ok(result)
     }
 
     async fn fetch_web(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         if let Some(cookie_header) = &ctx.manual_cookie_header {
             return self.fetch_with_cookies(ctx, cookie_header).await;
         }
+        if ctx.manual_cookie_missing {
+            return Err(ProviderError::AuthRequired);
+        }
 
-        match crate::providers::browser_cookie_header(&["opencode.ai"]) {
-            Ok(cookie_header) => self.fetch_with_cookies(ctx, &cookie_header).await,
-            Err(ProviderError::NoCookies) => Err(ProviderError::AuthRequired),
-            Err(e) => Err(e),
+        // A signed-out browser session moves on to the next browser's session.
+        let mut sessions =
+            crate::providers::browser_cookie_sessions(ctx, session_overlay::COOKIE_DOMAINS);
+        let mut rejected = None;
+        for cookie_header in sessions.by_ref() {
+            match self.fetch_with_cookies(ctx, &cookie_header).await {
+                Err(ProviderError::AuthRequired) => rejected = Some(ProviderError::AuthRequired),
+                result => return result,
+            }
+        }
+        match rejected.unwrap_or_else(|| sessions.exhaustion_error()) {
+            ProviderError::NoCookies => Err(ProviderError::AuthRequired),
+            error => Err(error),
         }
     }
 }

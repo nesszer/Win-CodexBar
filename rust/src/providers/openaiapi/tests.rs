@@ -23,6 +23,7 @@ fn provider(server: &ServerGuard) -> OpenAIApiProvider {
         credit_grants: format!("{}{GRANTS_PATH}", server.url()),
         costs: format!("{}{COSTS_PATH}", server.url()),
         completions: format!("{}{COMPLETIONS_PATH}", server.url()),
+        projects: format!("{}/v1/organization/projects", server.url()),
     };
     provider.retry = RetryPolicy {
         base_delay: Duration::ZERO,
@@ -131,8 +132,9 @@ fn openai_admin_usage_accepts_numeric_string_cost_amounts() {
 }
 
 #[test]
-fn openai_admin_tokens_sum_text_and_audio_without_cached() {
-    // Upstream `tokens = input + input_audio + output + output_audio`.
+fn openai_admin_tokens_do_not_recount_audio_or_cached() {
+    // Upstream `tokens = input + output`: `input_tokens`/`output_tokens` already include the
+    // audio breakdowns, and cached input is a subset of input.
     let completions = [CompletionsUsageBucket {
         start_time: 1_700_000_000,
         end_time: 1_700_086_400,
@@ -158,9 +160,9 @@ fn openai_admin_tokens_sum_text_and_audio_without_cached() {
         ],
     }];
     let result = result_from_admin_usage(&[], &completions, fixed_now(0), None).unwrap();
-    assert_eq!(extra_window(&result, "tokens"), "2050 tokens");
+    assert_eq!(extra_window(&result, "tokens"), "2000 tokens");
     assert_eq!(extra_window(&result, "requests"), "10 requests");
-    assert_eq!(extra_window(&result, "model-0"), "1550 tokens");
+    assert_eq!(extra_window(&result, "model-0"), "1500 tokens");
     assert_eq!(extra_window(&result, "model-1"), "500 tokens");
 }
 

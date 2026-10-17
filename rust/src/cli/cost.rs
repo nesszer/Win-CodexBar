@@ -8,11 +8,12 @@ use super::cost_period::{
     cost_totals_json, resolve_period, rolling_window_days, stamp_period, window_days,
 };
 use super::usage::{OutputFormat, ProviderSelection};
-use crate::codex_costs::{
-    CodexHostCostReport, CodexHostCostsArgs, CodexHostOutcome, run_codex_host_costs,
+use crate::codex_costs::{CodexHostCostReport, CodexHostOutcome};
+use crate::core::format_count as format_number;
+use crate::core::{
+    CostCliExtension, CostCliInvocation, CostCliMode, CostGroupedReportContext, CostGrouping,
+    CostScanOptions, ProviderId, cost_cli_extension_for, cost_cli_extensions,
 };
-use crate::codex_workspaces::short_session_id;
-use crate::core::{CostScanOptions, ProviderId};
 use crate::cost_reporting_period::CostReportingPeriod;
 use crate::cost_scanner::{CostScanner, CostSummary};
 use crate::settings::Settings;
@@ -61,17 +62,25 @@ pub struct CostArgs {
     #[arg(long = "provider-native-only")]
     pub provider_native_only: bool,
 
-    /// Group text output by Codex local conversation/session.
-    #[arg(long = "group-by", value_parser = ["session"])]
+    /// Group Codex text output by local project or conversation/session.
+    #[arg(long = "group-by", value_parser = ["project", "session"])]
     pub group_by: Option<String>,
 
-    /// Also report native Codex costs from one SSH host as a separate report.
+    /// Read one SSH host; separate summaries unless --identified-only is selected.
     #[arg(long)]
     pub remote: Option<String>,
 
     /// Emit the versioned native Codex summary contract as JSON.
     #[arg(long = "summary-only")]
     pub summary_only: bool,
+
+    /// Native Codex identified-request subtotal JSON; prices unavailable.
+    #[arg(long = "identified-only")]
+    pub identified_only: bool,
+
+    /// Identified subtotal window end, inclusive Unix milliseconds (UTC).
+    #[arg(long = "identified-end", value_name = "UNIX_MS")]
+    pub identified_end: Option<i64>,
 
     /// Antigravity only: when a recorded model has no known public price, wait
     /// for one bounded models.dev pricing refresh and rescan. Without it the
@@ -83,12 +92,14 @@ pub struct CostArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CostGroupBy {
     None,
+    Project,
     Session,
 }
 
 impl CostGroupBy {
     fn from_arg(raw: Option<&str>) -> Self {
         match raw {
+            Some("project") => Self::Project,
             Some("session") => Self::Session,
             _ => Self::None,
         }
@@ -97,6 +108,15 @@ impl CostGroupBy {
 
 /// Run the cost command
 pub async fn run(args: CostArgs) -> anyhow::Result<()> {
+    run_with_settings(args, Settings::load).await
+}
+
+/// `load_settings` runs only once a mode needs saved settings; tests inject
+/// defaults so they never read the user's real settings file.
+async fn run_with_settings(
+    args: CostArgs,
+    load_settings: impl FnOnce() -> Settings,
+) -> anyhow::Result<()> {
     let format = if args.json {
         OutputFormat::Json
     } else {
@@ -107,31 +127,41 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     let group_by = CostGroupBy::from_arg(args.group_by.as_deref());
     let use_color = !args.no_color && is_terminal();
 
-    let settings = Settings::load();
-    let host_summary = args.remote.is_some() || args.summary_only;
+    let selected_providers = providers.as_list();
+    let invocation = CostCliInvocation {
+        provider_arg: args.provider.as_deref(),
+        providers: &selected_providers,
+        json: format == OutputFormat::Json,
+        pretty: args.pretty,
+        days: args.days,
+        period_set: args.period.is_some(),
+        group_by_set: args.group_by.is_some(),
+        remote: args.remote.as_deref(),
+        summary_only: args.summary_only,
+        identified_only: args.identified_only,
+        identified_end: args.identified_end,
+    };
+    // An exclusive mode replaces the report and validates the provider
+    // selection itself, so it is claimed by its flags alone.
+    let exclusive = cost_cli_extensions()
+        .find_map(|extension| Some((extension, extension.exclusive_mode(&invocation)?)));
+    if let Some((extension, mode @ CostCliMode::BeforePeriod)) = exclusive {
+        return extension.run_exclusive_mode(mode, &invocation, None).await;
+    }
+
+    let settings = load_settings();
     let period = resolve_period(
         args.days,
         args.period.as_deref(),
         settings.cost_reporting_period,
-        host_summary,
+        exclusive.is_some(),
     )?;
     let days = window_days(period);
 
-    if host_summary {
-        return run_codex_host_costs(&CodexHostCostsArgs {
-            days,
-            remote: args.remote.clone(),
-            summary_only: args.summary_only,
-            pretty: args.pretty,
-            format: if format == OutputFormat::Json {
-                crate::codex_costs::HostOutputFormat::Json
-            } else {
-                crate::codex_costs::HostOutputFormat::Text
-            },
-            provider_is_codex_only: providers.as_list() == vec![ProviderId::Codex],
-            group_by_rejected: args.group_by.is_some(),
-        })
-        .await;
+    if let Some((extension, mode)) = exclusive {
+        return extension
+            .run_exclusive_mode(mode, &invocation, Some(days))
+            .await;
     }
 
     let mut scan_options = CostScanOptions::app_driven();
@@ -230,7 +260,13 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
 
     match format {
         OutputFormat::Text => {
-            print_text_output(&results, use_color, period, group_by);
+            print_text_output(
+                &results,
+                use_color,
+                period,
+                group_by,
+                settings.hide_personal_info,
+            );
         }
         OutputFormat::Json => {
             // Upstream 0.60.4 refreshes OpenCodex prices before the JSON
@@ -310,118 +346,196 @@ struct CostResult {
     token_history: Option<crate::spend_contract::LocalTokenHistorySummary>,
 }
 
+/// Appends one formatted line to a text report buffer.
+macro_rules! outln {
+    ($out:expr) => {
+        $out.push('\n')
+    };
+    ($out:expr, $($arg:tt)*) => {{
+        $out.push_str(&format!($($arg)*));
+        $out.push('\n');
+    }};
+}
+
+/// Resolves the cost extension for a result's provider CLI name.
+type ExtensionFor<'a> = &'a dyn Fn(&str) -> Option<&'a dyn CostCliExtension>;
+
+fn registered_extension(provider: &str) -> Option<&'static dyn CostCliExtension> {
+    ProviderId::from_cli_name(provider).and_then(cost_cli_extension_for)
+}
+
 /// Print text output
 fn print_text_output(
     results: &[CostResult],
     use_color: bool,
     period: CostReportingPeriod,
     group_by: CostGroupBy,
+    hide_personal_info: bool,
 ) {
-    let label = period.label();
     for (i, result) in results.iter().enumerate() {
-        let title = if result.token_history.is_some() {
-            format!("{} Token History ({label})", result.display_name)
-        } else {
-            format!("{} Cost ({label})", result.display_name)
-        };
-        if use_color {
-            println!("\x1b[1m{title}\x1b[0m");
-        } else {
-            println!("{title}");
-        }
-
-        if let Some(history) = result.token_history.as_ref() {
-            print_local_token_history(history);
-        } else if group_by == CostGroupBy::Session && result.provider == "codex" {
-            print_codex_session_output(result, period);
-        } else if group_by == CostGroupBy::Session {
-            println!("  Session grouping is only available for Codex local conversations");
-        } else if !result.supported {
-            println!("  Local cost scanning not available for this provider");
-            println!("  (Only Codex and Claude have local logs)");
-        } else if result.summary.sessions_count == 0 {
-            if result.summary.incomplete_request_count > 0 {
-                // Only preliminary proxy rows exist: usage is unavailable, not $0.
-                println!("  No completed usage data found");
-                print_incomplete_note(result.summary.incomplete_request_count);
-            } else if result.summary.known_zero {
-                println!("  No usage in the selected period (scan complete)");
-            } else {
-                println!("  No usage data found");
-                println!("  Check that you have used {} locally", result.display_name);
-            }
-        } else {
-            // Total cost
-            let incomplete_suffix = incomplete_suffix(result.summary.incomplete_request_count);
-            if use_color {
-                println!(
-                    "  Total:    \x1b[32m{}\x1b[0m{incomplete_suffix}",
-                    result.summary.format_total()
-                );
-            } else {
-                println!(
-                    "  Total:    {}{incomplete_suffix}",
-                    result.summary.format_total()
-                );
-            }
-
-            // Token breakdown
-            println!(
-                "  Tokens:   {} input, {} output, {} cached",
-                format_number(result.summary.input_tokens),
-                format_number(result.summary.output_tokens),
-                format_number(result.summary.cached_tokens)
-            );
-
-            // Sessions
-            println!("  Sessions: {}", result.summary.sessions_count);
-            print_incomplete_note(result.summary.incomplete_request_count);
-
-            // Cost by model
-            if !result.summary.by_model.is_empty() {
-                println!("  By model:");
-                let mut models: Vec<_> = result.summary.by_model.iter().collect();
-                models.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-                for (model, cost) in models {
-                    println!("    {}: ${:.2}", model, cost);
-                }
-            }
-
-            if !result.summary.by_speed.is_empty() {
-                println!("  Codex speed:");
-                for bucket in ["standard", "fast"] {
-                    if let Some(cost) = result.summary.by_speed.get(bucket) {
-                        let tokens = result
-                            .summary
-                            .by_speed_tokens
-                            .get(bucket)
-                            .map(|counts| format_number(counts.total()))
-                            .unwrap_or_else(|| "0".to_string());
-                        println!("    {}: ${:.2} ({} tokens)", bucket, cost, tokens);
-                    }
-                }
-            }
-
-            // F18 (upstream 0.48.0): label partial pricing completeness.
-            if let crate::cost_scanner::ModelPricingCompleteness::Partial { unpriced_models } =
-                &result.summary.model_pricing_completeness
-                && !unpriced_models.is_empty()
-            {
-                println!(
-                    "  Pricing:  partial (unpriced: {})",
-                    unpriced_models.join(", ")
-                );
-            }
-
-            // A16 (upstream 0.48.0): coverage status for Codex.
-            if result.provider == "codex" && !result.summary.history_coverage_established {
-                println!("  Coverage: partial (history catch-up in progress)");
-            }
-        }
-
+        let mut out = String::new();
+        render_result_text(
+            &mut out,
+            result,
+            use_color,
+            period,
+            group_by,
+            hide_personal_info,
+            &registered_extension,
+        );
         if i < results.len() - 1 {
-            println!();
+            outln!(out);
         }
+        print!("{out}");
+    }
+}
+
+fn render_result_text(
+    out: &mut String,
+    result: &CostResult,
+    use_color: bool,
+    period: CostReportingPeriod,
+    group_by: CostGroupBy,
+    hide_personal_info: bool,
+    extension_for: ExtensionFor<'_>,
+) {
+    let extension = extension_for(&result.provider);
+    let grouped_report = |grouping| {
+        extension?.grouped_report(
+            grouping,
+            &CostGroupedReportContext {
+                summary: &result.summary,
+                history_days: rolling_window_days(period),
+                hide_personal_info,
+            },
+        )
+    };
+    let label = period.label();
+    let title = if result.token_history.is_some() {
+        format!("{} Token History ({label})", result.display_name)
+    } else {
+        format!("{} Cost ({label})", result.display_name)
+    };
+    if use_color {
+        outln!(out, "\x1b[1m{title}\x1b[0m");
+    } else {
+        outln!(out, "{title}");
+    }
+
+    // Project grouping is checked before token history so token-history
+    // providers report it unavailable; session grouping is checked after.
+    if group_by == CostGroupBy::Project {
+        match grouped_report(CostGrouping::Project) {
+            Some(lines) => render_lines(out, &lines),
+            None => outln!(
+                out,
+                "  Project grouping is only available for Codex local projects"
+            ),
+        }
+    } else if let Some(history) = result.token_history.as_ref() {
+        render_local_token_history(out, history);
+    } else if group_by == CostGroupBy::Session {
+        match grouped_report(CostGrouping::Session) {
+            Some(lines) => render_lines(out, &lines),
+            None => outln!(
+                out,
+                "  Session grouping is only available for Codex local conversations"
+            ),
+        }
+    } else if !result.supported {
+        outln!(out, "  Local cost scanning not available for this provider");
+        outln!(out, "  (Only Codex and Claude have local logs)");
+    } else if result.summary.sessions_count == 0 {
+        if result.summary.incomplete_request_count > 0 {
+            // Only preliminary proxy rows exist: usage is unavailable, not $0.
+            outln!(out, "  No completed usage data found");
+            render_incomplete_note(out, result.summary.incomplete_request_count);
+        } else if result.summary.known_zero {
+            outln!(out, "  No usage in the selected period (scan complete)");
+        } else {
+            outln!(out, "  No usage data found");
+            outln!(
+                out,
+                "  Check that you have used {} locally",
+                result.display_name
+            );
+        }
+    } else {
+        // Total cost
+        let incomplete_suffix = incomplete_suffix(result.summary.incomplete_request_count);
+        if use_color {
+            outln!(
+                out,
+                "  Total:    \x1b[32m{}\x1b[0m{incomplete_suffix}",
+                result.summary.format_total()
+            );
+        } else {
+            outln!(
+                out,
+                "  Total:    {}{incomplete_suffix}",
+                result.summary.format_total()
+            );
+        }
+
+        // Token breakdown
+        outln!(
+            out,
+            "  Tokens:   {} input, {} output, {} cached",
+            format_number(result.summary.input_tokens),
+            format_number(result.summary.output_tokens),
+            format_number(result.summary.cached_tokens)
+        );
+
+        // Sessions
+        outln!(out, "  Sessions: {}", result.summary.sessions_count);
+        render_incomplete_note(out, result.summary.incomplete_request_count);
+
+        // Cost by model
+        if !result.summary.by_model.is_empty() {
+            outln!(out, "  By model:");
+            let mut models: Vec<_> = result.summary.by_model.iter().collect();
+            models.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (model, cost) in models {
+                outln!(out, "    {}: ${:.2}", model, cost);
+            }
+        }
+
+        if !result.summary.by_speed.is_empty() {
+            outln!(out, "  Codex speed:");
+            for bucket in ["standard", "fast"] {
+                if let Some(cost) = result.summary.by_speed.get(bucket) {
+                    let tokens = result
+                        .summary
+                        .by_speed_tokens
+                        .get(bucket)
+                        .map(|counts| format_number(counts.total()))
+                        .unwrap_or_else(|| "0".to_string());
+                    outln!(out, "    {}: ${:.2} ({} tokens)", bucket, cost, tokens);
+                }
+            }
+        }
+
+        // F18 (upstream 0.48.0): label partial pricing completeness.
+        if let crate::cost_scanner::ModelPricingCompleteness::Partial { unpriced_models } =
+            &result.summary.model_pricing_completeness
+            && !unpriced_models.is_empty()
+        {
+            outln!(
+                out,
+                "  Pricing:  partial (unpriced: {})",
+                unpriced_models.join(", ")
+            );
+        }
+
+        if let Some(notice) = extension.and_then(|ext| ext.coverage_notice(&result.summary)) {
+            outln!(out, "{notice}");
+        }
+    }
+}
+
+fn render_lines(out: &mut String, lines: &[String]) {
+    for line in lines {
+        outln!(out, "{line}");
     }
 }
 
@@ -431,98 +545,68 @@ fn incomplete_suffix(count: u32) -> &'static str {
     if count > 0 { " · Incomplete" } else { "" }
 }
 
-fn print_incomplete_note(count: u32) {
+fn render_incomplete_note(out: &mut String, count: u32) {
     if count > 0 {
-        println!(
+        outln!(
+            out,
             "  Incomplete: {count} requests lacked final usage and were excluded from tokens and cost."
         );
     }
 }
 
-fn print_local_token_history(history: &crate::spend_contract::LocalTokenHistorySummary) {
+fn render_local_token_history(
+    out: &mut String,
+    history: &crate::spend_contract::LocalTokenHistorySummary,
+) {
     use crate::spend_contract::LocalHistoryCoverage;
     match history.coverage {
         LocalHistoryCoverage::Partial if history.lower_bound => {
-            println!(
+            outln!(
+                out,
                 "  Tokens:   at least {} (lower bound; scan stopped short)",
                 format_number(history.total_tokens)
             );
-            println!("  Sessions: at least {}", history.session_count);
+            outln!(out, "  Sessions: at least {}", history.session_count);
         }
         LocalHistoryCoverage::Complete if history.total_tokens == 0 => {
-            println!("  No token usage in the selected period (scan complete)");
+            outln!(
+                out,
+                "  No token usage in the selected period (scan complete)"
+            );
         }
         LocalHistoryCoverage::Complete => {
-            println!("  Tokens:   {} total", format_number(history.total_tokens));
-            println!("  Sessions: {}", history.session_count);
+            outln!(
+                out,
+                "  Tokens:   {} total",
+                format_number(history.total_tokens)
+            );
+            outln!(out, "  Sessions: {}", history.session_count);
         }
         LocalHistoryCoverage::Partial | LocalHistoryCoverage::Unavailable => {
-            println!("  Local token history is unavailable or incomplete");
+            outln!(out, "  Local token history is unavailable or incomplete");
         }
     }
     if let Some(cost) = history.total_usd() {
-        println!("  API list-price estimate: ${cost:.2} (not billed spend)");
+        outln!(
+            out,
+            "  API list-price estimate: ${cost:.2} (not billed spend)"
+        );
     } else if let Some(cost) = history.cost_estimate.known_subtotal_usd {
         if history.coverage == LocalHistoryCoverage::Complete {
-            println!(
+            outln!(
+                out,
                 "  Known API list-price subtotal: ${cost:.2} ({} unpriced requests)",
                 history.cost_estimate.coverage.unpriced
             );
         } else {
-            println!("  Known API list-price subtotal: at least ${cost:.2} (history incomplete)");
-        }
-    } else {
-        println!("  Local token history; dollar costs unavailable");
-    }
-}
-
-fn print_codex_session_output(result: &CostResult, period: CostReportingPeriod) {
-    // The conversation index keeps rolling 1..=365 day windows, so All lists
-    // the most recent year; the heading below reports the window it used.
-    let index = crate::codex_workspaces::CodexWorkspacesIndex::new(rolling_window_days(period));
-    let snapshot = match index.load_snapshot(false, |_| {}) {
-        Ok(snapshot) => snapshot,
-        Err(err) => {
-            println!("  Conversation history unavailable: {err}");
-            return;
-        }
-    };
-
-    println!("  Conversations (last {} days):", snapshot.history_days);
-    if snapshot.source_status.is_partial() {
-        println!("  Conversation history is incomplete while local indexing catches up.");
-    }
-
-    if snapshot.sessions.is_empty() {
-        println!("  —");
-    } else {
-        for session in &snapshot.sessions {
-            let id = short_session_id(&session.id);
-            let cost = if session.cost_estimate.unknown_tokens > 0 {
-                format!("~${:.2} partial", session.cost_estimate.known_usd)
-            } else {
-                format!("${:.2}", session.cost_estimate.known_usd)
-            };
-            let model = session.top_model.as_deref().unwrap_or("unknown model");
-            println!(
-                "  Session {id}: {cost} · {} tokens · {model}",
-                format_number(session.totals.total_tokens)
+            outln!(
+                out,
+                "  Known API list-price subtotal: at least ${cost:.2} (history incomplete)"
             );
-            if let Some(activity) = session.latest_activity {
-                println!(
-                    "    {}",
-                    activity
-                        .with_timezone(&chrono::Local)
-                        .format("%b %d, %H:%M")
-                );
-            }
         }
+    } else {
+        outln!(out, "  Local token history; dollar costs unavailable");
     }
-
-    if !result.summary.history_coverage_established {
-        println!("  Coverage: partial (cost history catch-up in progress)");
-    }
-    println!("  Not a subscription bill or plan value · local usage × public API prices");
 }
 
 /// Print JSON output
@@ -612,20 +696,6 @@ fn print_json_output(
     println!("{}", output);
 
     Ok(())
-}
-
-/// Format a number with commas
-fn format_number(n: u64) -> String {
-    let s = n.to_string();
-    let mut result = String::new();
-    let chars: Vec<char> = s.chars().collect();
-    for (i, c) in chars.iter().enumerate() {
-        if i > 0 && (chars.len() - i).is_multiple_of(3) {
-            result.push(',');
-        }
-        result.push(*c);
-    }
-    result
 }
 
 /// Check if stdout is a terminal
@@ -986,6 +1056,30 @@ mod tests {
     fn group_by_defaults_none_and_accepts_session() {
         assert_eq!(CostGroupBy::from_arg(None), CostGroupBy::None);
         assert_eq!(CostGroupBy::from_arg(Some("session")), CostGroupBy::Session);
+        assert_eq!(CostGroupBy::from_arg(Some("project")), CostGroupBy::Project);
+        assert_eq!(
+            parse_args(&["--group-by", "project"]).group_by.as_deref(),
+            Some("project")
+        );
+    }
+
+    #[test]
+    fn identified_flags_parse_with_remote() {
+        let args = parse_args(&[
+            "--provider",
+            "codex",
+            "--format",
+            "json",
+            "--identified-only",
+            "--identified-end",
+            "1700000000000",
+            "--remote",
+            "build-host",
+        ]);
+        assert!(args.identified_only);
+        assert_eq!(args.identified_end, Some(1_700_000_000_000));
+        assert_eq!(args.remote.as_deref(), Some("build-host"));
+        assert!(!parse_args(&[]).identified_only);
     }
 
     #[test]
@@ -1039,3 +1133,7 @@ mod tests {
         assert!(text.contains("Day boundaries: UTC"));
     }
 }
+
+#[cfg(test)]
+#[path = "cost_golden_tests.rs"]
+mod golden_tests;

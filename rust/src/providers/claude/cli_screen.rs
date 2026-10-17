@@ -11,10 +11,17 @@
 
 /// Screen width, equal to the PTY columns in `cli::tty_runner`.
 pub(super) const COLUMNS: usize = 160;
-/// Screen height, equal to the PTY rows in `cli::tty_runner`.
-pub(super) const ROWS: usize = 50;
+/// Screen height, equal to the rows of the Claude usage PTY (`claude/mod.rs`).
+/// Claude Code 2.1.294's `/usage` panel adds session stats above the quota rows
+/// and an insights list below them, about 100 rows for a heavy user. The inline
+/// renderer scrolls rows past the top of a shorter PTY, and those rows are
+/// missing from the replayed screen, "Current session" first. Keep the PTY well
+/// taller than the panel. Upstream `ClaudeCLIScreen.rows`.
+pub(super) const ROWS: usize = 200;
+/// Largest CSI parameter kept before arithmetic; larger values clamp here.
+const MAX_PARAMETER: usize = if COLUMNS > ROWS { COLUMNS } else { ROWS };
 
-/// Replay `text` onto a 160x50 screen and return the visible rows.
+/// Replay `text` onto a 160x200 screen and return the visible rows.
 ///
 /// With `preserve_plain_reports`, a capture that never moves the cursor or
 /// erases cells (and has no backspace) is returned as its original text with
@@ -263,14 +270,16 @@ impl Screen {
         if !parameters.bytes().all(|b| b.is_ascii_digit() || b == b';') {
             return false;
         }
-        // At most two parameters, each clamped to the screen width before any
-        // arithmetic, even for overflowing decimal input.
+        // At most two parameters, each clamped to the larger screen dimension
+        // before any arithmetic, even for overflowing decimal input.
         let values: Vec<usize> = parameters
             .splitn(3, ';')
             .take(2)
             .map(|value| match value {
                 "" => 0,
-                digits => digits.parse().map_or(COLUMNS, |n: usize| n.min(COLUMNS)),
+                digits => digits
+                    .parse()
+                    .map_or(MAX_PARAMETER, |n: usize| n.min(MAX_PARAMETER)),
             })
             .collect();
         let mode = values.first().copied().unwrap_or(0);

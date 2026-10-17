@@ -10,12 +10,17 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::core::{NamedRateWindow, ProviderError, ProviderFetchResult, RateWindow, UsageSnapshot};
+use crate::core::{
+    CostSnapshot, NamedRateWindow, ProviderDisplayDetail, ProviderError, ProviderFetchResult,
+    RateWindow, UsageSnapshot,
+};
 
 mod credentials_store;
 mod profile;
 mod refresh;
 mod usage_gate;
+
+use super::spend_window;
 
 pub(super) fn clear_account_cache(credential_path: &std::path::Path) {
     credentials_store::clear_cache();
@@ -121,8 +126,24 @@ pub struct OAuthUsageResponse {
     #[serde(rename = "extraUsage", alias = "extra_usage")]
     pub extra_usage: Option<ExtraUsage>,
 
+    /// Promotional cloud-credits block. Display-only: read by `cloud_credits`,
+    /// never by the quota windows.
+    #[serde(default)]
+    pub iguana_necktie: Option<serde_json::Value>,
+
     #[serde(default)]
     limits: Vec<super::scoped_weekly::ScopedWeeklyLimit>,
+}
+
+/// Display row for the promotional cloud-credits block, when present and valid.
+fn cloud_credits_row(
+    response: &OAuthUsageResponse,
+    now: DateTime<Utc>,
+) -> Option<ProviderDisplayDetail> {
+    response
+        .iguana_necktie
+        .as_ref()
+        .and_then(|block| super::cloud_credits::detail_from_block(block, now))
 }
 
 /// A usage window from the OAuth API
@@ -411,6 +432,7 @@ impl ClaudeOAuthFetcher {
     ) -> Result<ProviderFetchResult, ProviderError> {
         let usage_response = self.fetch_usage(&credentials).await?;
         let mut usage = self.build_usage_snapshot(&usage_response, &credentials);
+        let spend_cost = apply_spend_only_extra_usage(&mut usage, &usage_response);
         // Header email only; a profile failure leaves the usage result intact.
         if usage.account_email.is_none()
             && let Some(email) = profile::fetch_email(
@@ -422,7 +444,11 @@ impl ClaudeOAuthFetcher {
         {
             usage = usage.with_email(email);
         }
-        let mut result = ProviderFetchResult::new(usage, "oauth");
+        let mut result = ProviderFetchResult::new(usage, "oauth")
+            .with_display_detail(cloud_credits_row(&usage_response, Utc::now()));
+        if let Some(cost) = spend_cost {
+            result = result.with_cost(cost);
+        }
         if let Some(identity) = credential_identity(&credentials) {
             result = result.with_account_identity(identity);
         }
@@ -831,6 +857,29 @@ impl Default for ClaudeOAuthFetcher {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Upstream #4480: a spend-only OAuth account's monthly cap becomes the
+/// primary meter. Returns the cost to attach, or `None` when not projected.
+fn apply_spend_only_extra_usage(
+    usage: &mut UsageSnapshot,
+    response: &OAuthUsageResponse,
+) -> Option<CostSnapshot> {
+    let extra = response.extra_usage.as_ref()?;
+    if !extra.is_enabled.unwrap_or(false) {
+        return None;
+    }
+    // Extra usage amounts are reported in cents.
+    let currency = extra.currency.clone().unwrap_or_else(|| "USD".to_string());
+    let mut cost = CostSnapshot::new(
+        extra.used_credits.unwrap_or(0.0) / 100.0,
+        currency,
+        "Monthly",
+    );
+    if let Some(limit) = extra.monthly_limit {
+        cost = cost.with_limit(limit / 100.0);
+    }
+    spend_window::project_spend_only(usage, &mut cost).then_some(cost)
 }
 
 /// Parse an ISO8601 date string

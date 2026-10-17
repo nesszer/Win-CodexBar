@@ -49,6 +49,8 @@ pub struct ProviderDetail {
     pub hidden_usage_item_ids: Vec<String>,
     pub inventory: Vec<ProviderInventoryItemSnapshot>,
     pub display_details: Vec<ProviderDisplayDetailSnapshot>,
+    /// Plan renewal / expiry dates for the Settings usage preview.
+    pub subscription: Option<SubscriptionMetadataSnapshot>,
 
     // Cost / pace.
     pub cost: Option<CostSnapshotBridge>,
@@ -147,6 +149,7 @@ pub(crate) fn build_provider_detail(
         hidden_usage_item_ids: settings.hidden_usage_item_ids(id),
         inventory: Vec::new(),
         display_details: Vec::new(),
+        subscription: None,
         cost: None,
         pace: None,
         open_ai_api_usage: None,
@@ -223,6 +226,7 @@ pub fn get_provider_detail(
             detail.extra_rate_windows = snapshot.extra_rate_windows.clone();
             detail.inventory = snapshot.inventory.clone();
             detail.display_details = snapshot.display_details.clone();
+            detail.subscription = snapshot.subscription.clone();
             detail.cost = snapshot.cost.clone();
             detail.pace = snapshot.pace.clone();
             detail.open_ai_api_usage = snapshot.open_ai_api_usage.clone();

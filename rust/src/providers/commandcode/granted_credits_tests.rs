@@ -233,3 +233,86 @@ fn failed_lookup_without_memory_still_honours_a_grant() {
     assert_eq!(result.usage.primary.used_percent, 60.0);
     assert_eq!(result.usage.primary.resets_at, None);
 }
+
+// ── Go v1 and unknown plan ids (upstream #4423) ───
+
+fn subscription_for(plan_id: &str) -> Value {
+    json!({"data": {"planId": plan_id, "currentPeriodEnd": "2026-10-01T12:00:00Z"}})
+}
+
+#[test]
+fn go_v1_plan_sizes_the_monthly_window_from_the_catalog() {
+    let credits = json!({"credits": {"monthlyCredits": 4, "purchasedCredits": 0}});
+    let result = result_from_payloads(
+        &credits,
+        Some(&subscription_for("individual-go-v1")),
+        ANSWERED,
+    )
+    .unwrap();
+
+    assert_eq!(result.usage.primary.used_percent, 60.0);
+    assert_eq!(
+        result.usage.login_method.as_deref(),
+        Some("Go · $6.00 of $10.00")
+    );
+    let cost = result.cost.expect("monthly credits cost");
+    assert_eq!(cost.used, 6.0);
+    assert_eq!(cost.limit, Some(10.0));
+}
+
+#[test]
+fn unknown_plan_keeps_api_usage_and_its_raw_label() {
+    let credits = json!({
+        "credits": {"monthlyCredits": 8, "monthlyCreditsGranted": 20},
+        "windowLimits": {"fiveHour": {"used": 1, "cap": 4, "resetAt": 0}}
+    });
+    let result = result_from_payloads(
+        &credits,
+        Some(&subscription_for("individual-future")),
+        ANSWERED,
+    )
+    .unwrap();
+    let usage = result.usage;
+
+    assert_eq!(usage.primary.used_percent, 25.0);
+    let monthly = usage.tertiary.expect("monthly window from the API grant");
+    assert_eq!(monthly.used_percent, 60.0);
+    assert_eq!(
+        usage.login_method.as_deref(),
+        Some("individual-future · $12.00 of $20.00")
+    );
+    let cost = result.cost.expect("monthly credits cost");
+    assert_eq!(cost.used, 12.0);
+    assert_eq!(cost.limit, Some(20.0));
+}
+
+#[test]
+fn unknown_plan_without_grant_has_no_monthly_percentage() {
+    let credits = json!({"credits": {"monthlyCredits": 8.7784}});
+    let result = result_from_payloads(
+        &credits,
+        Some(&subscription_for("individual-future")),
+        ANSWERED,
+    )
+    .unwrap();
+
+    // A known-but-unsized plan must not borrow the free-tier 0% bar.
+    assert!(result.usage.tertiary.is_none());
+    assert_eq!(
+        result.usage.login_method.as_deref(),
+        Some("individual-future · $8.78 remaining")
+    );
+
+    let empty = json!({"credits": {"monthlyCredits": 0}});
+    let result = result_from_payloads(
+        &empty,
+        Some(&subscription_for("individual-future")),
+        ANSWERED,
+    )
+    .unwrap();
+    assert!(result.usage.tertiary.is_none());
+    assert_eq!(
+        result.usage.login_method.as_deref(),
+        Some("individual-future · $0.00 remaining")
+    );
+}

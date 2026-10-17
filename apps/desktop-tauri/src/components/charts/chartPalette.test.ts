@@ -3,6 +3,7 @@ import {
   providerCostColor,
   providerCreditsColor,
   serviceColorVar,
+  spendSourceColor,
 } from "./chartPalette";
 
 describe("chartPalette.providerColor", () => {
@@ -63,5 +64,21 @@ describe("chartPalette.serviceColorVar", () => {
     expect(serviceColorVar("epsilon", ordered)).toBe("var(--chart-service-5)");
     // slot wraps with modulo 5 → "zeta" is index 5 → slot 1
     expect(serviceColorVar("zeta", ordered)).toBe("var(--chart-service-1)");
+  });
+});
+
+describe("chartPalette.spendSourceColor", () => {
+  const sources = [
+    { id: "codex:b", providerId: "codex" },
+    { id: "claude", providerId: "claude" },
+    { id: "codex:a", providerId: "codex" },
+  ];
+
+  it("keeps the provider color for the first account and turns the hue for later ones", () => {
+    expect(spendSourceColor(sources[1], sources)).toBe(providerCostColor("claude"));
+    expect(spendSourceColor(sources[2], sources)).toBe(providerCostColor("codex"));
+    expect(spendSourceColor(sources[0], sources)).toBe(
+      `oklch(from ${providerCostColor("codex")} l max(c, 0.1) calc(h + 61.2))`,
+    );
   });
 });

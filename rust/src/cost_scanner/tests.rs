@@ -3550,6 +3550,9 @@ mod claude_swap;
 #[cfg(test)]
 #[path = "tests/claude_today.rs"]
 mod claude_today;
+
+#[path = "tests/claude_hourly.rs"]
+mod claude_hourly;
 #[cfg(test)]
 #[path = "tests/copied_prefix.rs"]
 mod copied_prefix;
@@ -3572,6 +3575,10 @@ mod period;
 #[cfg(test)]
 #[path = "tests/archived.rs"]
 mod archived;
+
+#[cfg(test)]
+#[path = "tests/codex_auto_review.rs"]
+mod codex_auto_review;
 
 /// #755: a background scan paused with `no_progress` and no retained report
 /// used to sum every cached day, so Today and 30d showed the same totals.

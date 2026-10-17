@@ -443,6 +443,9 @@ pub(crate) struct CodexSessionMetadata {
     pub history_base_thread_id: Option<String>,
     pub is_subagent: bool,
     pub subagent_history_start_ordinal: Option<i64>,
+    /// Whether the rollout names a ChatGPT creator account
+    /// (`payload.creator_account_id`, non-empty after trimming).
+    pub has_creator_account: bool,
 }
 
 /// Running totals for Codex token counting

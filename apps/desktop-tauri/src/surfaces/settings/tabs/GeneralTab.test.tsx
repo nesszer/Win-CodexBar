@@ -75,6 +75,8 @@ const settings: SettingsSnapshot = {
   quotaWarningMarkersVisible: true,
   workdayTickStyle: "subtle",
   menuBarColorPace: false,
+  menuBarColorByProvider: false,
+  menuBarPaceReservePositive: false,
   providersSortedAlphabetically: false,
   showAsUsed: false,
   showAllTokenAccountsInMenu: true,
@@ -92,6 +94,7 @@ const settings: SettingsSnapshot = {
   globalShortcut: "",
   switcherShortcuts: {},
   codexCustomSessionsDirs: [],
+  antigravityAdditionalProfileHomes: [],
   updateChannel: "stable",
   uiLanguage: "english",
   uiLanguageFollowsSystem: false,
@@ -316,6 +319,26 @@ describe("GeneralTab language picker", () => {
     expect(invoke).toHaveBeenCalledWith("play_notification_sound", {
       event: "sessionRestored",
     });
+  });
+
+  it("cancels the sound preview timer on unmount", () => {
+    vi.useFakeTimers();
+    try {
+      const { unmount } = render(
+        <GeneralTab mode="notifications" settings={settings} set={vi.fn()} saving={false} />,
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "NotificationSoundEventHighUsage: NotificationTestSound",
+        }),
+      );
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("assigns and clears a custom WAV for one notification", async () => {
@@ -635,7 +658,42 @@ describe("GeneralTab notifications pane", () => {
       "SessionQuotaNotifications",
       "ShowNotifications",
       "PredictivePaceWarnings",
+      "LimitResetNotifications",
     ]);
+  });
+
+  it("saves the limit reset preference and treats an absent key as off", () => {
+    const set = vi.fn();
+    render(
+      <GeneralTab
+        mode="notifications"
+        settings={{ ...settings, limitResetNotificationsEnabled: undefined }}
+        set={set}
+        saving={false}
+      />,
+    );
+    const toggle = screen.getByRole("checkbox", { name: "LimitResetNotifications" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(set).toHaveBeenCalledWith({ limitResetNotificationsEnabled: true });
+  });
+
+  it("keeps the limit reset toggle usable while usage warnings are off", () => {
+    render(
+      <GeneralTab
+        mode="notifications"
+        settings={{
+          ...settings,
+          showNotifications: false,
+          limitResetNotificationsEnabled: true,
+        }}
+        set={vi.fn()}
+        saving={false}
+      />,
+    );
+    const toggle = screen.getByRole("checkbox", { name: "LimitResetNotifications" });
+    expect(toggle).toBeEnabled();
+    expect(toggle).toBeChecked();
   });
 
   it("saves quota depleted and restored alerts as their own key", () => {

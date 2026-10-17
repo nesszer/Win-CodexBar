@@ -6,6 +6,26 @@ import { localizeProviderLabel } from "./windowLabels";
 const en = fromFtl("en-US.ftl");
 const ru = fromFtl("ru-RU.ftl");
 
+describe("Claude cloud credits detail row", () => {
+  it("keeps the English row text and title unchanged", () => {
+    expect(localizeProviderLabel("Cloud credits", en)).toBe("Cloud credits");
+    expect(localizeProviderText("$12.00 of $20.00 remaining", en)).toBe(
+      "$12.00 of $20.00 remaining",
+    );
+    expect(localizeProviderText("Expired", en)).toBe("Expired");
+    expect(localizeProviderText("Unavailable", en)).toBe("Unavailable");
+  });
+
+  it("translates the row title, balance, and expired state", () => {
+    expect(localizeProviderLabel("Cloud credits", ru)).toBe("Облачные кредиты");
+    expect(localizeProviderText("$12.00 of $20.00 remaining", ru)).toBe(
+      "Осталось $12.00 из $20.00",
+    );
+    expect(localizeProviderText("Expired", ru)).toBe("Истёк");
+    expect(localizeProviderText("Unavailable", ru)).toBe("Недоступно");
+  });
+});
+
 describe("localizeProviderText", () => {
   it.each([
     ["7 requests", "7 requests"],

@@ -136,26 +136,20 @@ pub(super) fn daily_usage(
         for result in &bucket.results {
             let input = count(result.input_tokens, "input_tokens")?;
             let cached = count(result.input_cached_tokens, "input_cached_tokens")?;
-            let audio_input = count(result.input_audio_tokens, "input_audio_tokens")?;
+            // Audio breakdowns are already inside `input_tokens`/`output_tokens`; they are
+            // validated but never added again (upstream 5a40ac439).
+            count(result.input_audio_tokens, "input_audio_tokens")?;
             let output = count(result.output_tokens, "output_tokens")?;
-            let audio_output = count(result.output_audio_tokens, "output_audio_tokens")?;
+            count(result.output_audio_tokens, "output_audio_tokens")?;
             let requests = count(result.num_model_requests, "num_model_requests")?;
             let model = day
                 .models
                 .entry(display_name(result.model.as_deref(), DEFAULT_MODEL))
                 .or_default();
             model.requests = checked_count_sum(model.requests, requests, "model requests")?;
-            model.input = checked_count_sum(
-                model.input,
-                checked_count_sum(input, audio_input, "input_tokens")?,
-                "model input_tokens",
-            )?;
+            model.input = checked_count_sum(model.input, input, "model input_tokens")?;
             model.cached = checked_count_sum(model.cached, cached, "model cached_input_tokens")?;
-            model.output = checked_count_sum(
-                model.output,
-                checked_count_sum(output, audio_output, "output_tokens")?,
-                "model output_tokens",
-            )?;
+            model.output = checked_count_sum(model.output, output, "model output_tokens")?;
         }
     }
 

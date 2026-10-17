@@ -11,7 +11,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use super::types::CodexLocalProjectUsageSnapshot;
 
 pub const SCHEMA_VERSION: i32 = 5;
-pub const PAYLOAD_FORMAT_VERSION: i32 = 3;
+pub const PAYLOAD_FORMAT_VERSION: i32 = 4;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SidecarError {

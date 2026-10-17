@@ -34,6 +34,7 @@ const baseSettings = {
   menuBarShowsPercent: false,
   menuBarIconStyle: "bars",
   menuBarColorPace: false,
+  menuBarColorByProvider: false,
   promoteTrayIcon: false,
   mergedOverviewSelectedProviders: [],
 } as unknown as SettingsSnapshot;
@@ -63,6 +64,8 @@ describe("MenuBarTab layout", () => {
     expect(fieldLabels(screen.getByRole("region", { name: "MenuBarIconSectionTitle" }))).toEqual([
       "MenuBarIconStyleLabel",
       "ColorPaceInTray",
+      "ColorByProviderInTray",
+      "PaceSignLabel",
       "PromoteTrayIconLabel",
     ]);
     expect(fieldLabels(screen.getByRole("region", { name: "CombinedIconSectionTitle" }))).toEqual([
@@ -98,6 +101,24 @@ describe("MenuBarTab Icon section", () => {
     expect(set).toHaveBeenCalledWith({ menuBarIconStyle: "percent" });
   });
 
+  it("offers Progress bars stacked after the other menu bar styles and saves it", () => {
+    const { set } = renderTab();
+    const options = Array.from(select("MenuBarIconStyleLabel").options).map((o) => [o.value, o.textContent]);
+    expect(options).toEqual([
+      ["bars", "MenuBarIconStyleBars"],
+      ["percent", "MenuBarIconStylePercent"],
+      ["stackedBars", "MenuBarIconStyleStackedBars"],
+    ]);
+    fireEvent.change(select("MenuBarIconStyleLabel"), { target: { value: "stackedBars" } });
+    expect(set).toHaveBeenCalledWith({ menuBarIconStyle: "stackedBars" });
+  });
+
+  it("shows a saved Progress bars stacked style", () => {
+    renderTab({ menuBarIconStyle: "stackedBars" });
+    expect(select("MenuBarIconStyleLabel").value).toBe("stackedBars");
+    expect(select("MenuBarIconStyleLabel").disabled).toBe(false);
+  });
+
   it("disables the Menu bar style while the icon is stacked", () => {
     renderTab({ trayIconMode: "stacked" });
     expect(select("MenuBarIconStyleLabel").disabled).toBe(true);
@@ -107,6 +128,41 @@ describe("MenuBarTab Icon section", () => {
     const { set } = renderTab();
     fireEvent.click(screen.getByRole("checkbox", { name: "ColorPaceInTray" }));
     expect(set).toHaveBeenCalledWith({ menuBarColorPace: true });
+  });
+
+  it("updates Color by provider and keeps it independent of the pace toggle", () => {
+    const { set } = renderTab();
+    const colorByProvider = screen.getByRole("checkbox", { name: "ColorByProviderInTray" }) as HTMLInputElement;
+    expect(colorByProvider.checked).toBe(false);
+    fireEvent.click(colorByProvider);
+    expect(set).toHaveBeenCalledWith({ menuBarColorByProvider: true });
+    expect(set).not.toHaveBeenCalledWith(expect.objectContaining({ menuBarColorPace: expect.anything() }));
+  });
+
+  it("shows a saved Color by provider as checked and not disabled by stacked icons", () => {
+    renderTab({ menuBarColorByProvider: true, trayIconMode: "stacked" });
+    const colorByProvider = screen.getByRole("checkbox", { name: "ColorByProviderInTray" }) as HTMLInputElement;
+    expect(colorByProvider.checked).toBe(true);
+    expect(colorByProvider.disabled).toBe(false);
+  });
+
+  it("saves the Pace sign with ahead-of-pace positive as the default", () => {
+    const { set } = renderTab();
+    const paceSign = select("PaceSignLabel");
+    expect(paceSign.value).toBe("ahead");
+    expect(Array.from(paceSign.options, (o) => o.textContent)).toEqual([
+      "PaceSignAheadPositive",
+      "PaceSignReservePositive",
+    ]);
+    fireEvent.change(paceSign, { target: { value: "reserve" } });
+    expect(set).toHaveBeenCalledWith({ menuBarPaceReservePositive: true });
+  });
+
+  it("shows a saved reserve-positive Pace sign and switches back", () => {
+    const { set } = renderTab({ menuBarPaceReservePositive: true });
+    expect(select("PaceSignLabel").value).toBe("reserve");
+    fireEvent.change(select("PaceSignLabel"), { target: { value: "ahead" } });
+    expect(set).toHaveBeenCalledWith({ menuBarPaceReservePositive: false });
   });
 });
 

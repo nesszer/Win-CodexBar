@@ -372,3 +372,150 @@ async fn credits_plan_labels_oauth_results_without_settings_lookup() {
         Some("SuperGrok Heavy")
     );
 }
+
+/// Ported from upstream `GrokPrepaidBalanceTests` wallet cases. `prepaidBalance`
+/// is USD cents: integers and decimal-integer strings convert, `{}` is a known
+/// zero, and negative, inexact, or unrecognized values are unknown.
+#[test]
+fn prepaid_wallet_follows_the_cents_contract() {
+    let cases: [(&str, Option<f64>); 14] = [
+        ("", None),
+        (r#","prepaidBalance":{"val":1446}"#, Some(14.46)),
+        (r#","prepaidBalance":{"val":"1446"}"#, Some(14.46)),
+        (r#","prepaidBalance":{"val":0}"#, Some(0.0)),
+        (r#","prepaidBalance":{}"#, Some(0.0)),
+        (r#","prepaidBalance":null"#, None),
+        (r#","prepaidBalance":{"val":"invalid"}"#, None),
+        (r#","prepaidBalance":{"val":-1}"#, None),
+        (r#","prepaidBalance":{"val":1.5}"#, None),
+        (r#","prepaidBalance":{"val":9223372036854775808}"#, None),
+        (r#","prepaidBalance":{"amount":100}"#, None),
+        (r#","prepaidBalance":100"#, None),
+        (r#","prepaidBalance":{"val":null}"#, None),
+        (r#","prepaidBalance":{"val":9007199254740993}"#, None),
+    ];
+    for (wallet, expected) in cases {
+        let parsed = parse(&format!(
+            r#"{{"config":{{"creditUsagePercent":12.5{wallet}}}}}"#
+        ));
+        assert_eq!(parsed.billing.used_percent, Some(12.5), "{wallet}");
+        assert_eq!(parsed.prepaid_balance_usd, expected, "{wallet}");
+    }
+}
+
+/// A valid wallet must not be discarded when the quota answer is legacy or
+/// has no percent and no period end but is still a usable response.
+#[test]
+fn prepaid_wallet_is_kept_when_the_quota_is_absent_or_legacy() {
+    let legacy = parse(
+        r#"{"config":{"onDemandCap":{"val":1000},"onDemandUsed":{"val":250},"prepaidBalance":{"val":1446}}}"#,
+    );
+    assert_eq!(legacy.billing.used_percent, Some(25.0));
+    assert_eq!(legacy.prepaid_balance_usd, Some(14.46));
+
+    let period_only = parse(
+        r#"{"config":{"billingPeriodEnd":"2026-08-13T00:00:00Z","prepaidBalance":{"val":1446}}}"#,
+    );
+    assert_eq!(period_only.billing.used_percent, None);
+    assert_eq!(
+        period_only.billing.resets_at,
+        Some(at("2026-08-13T00:00:00Z"))
+    );
+    assert_eq!(period_only.prepaid_balance_usd, Some(14.46));
+
+    let wallet_only = parse(r#"{"config":{"prepaidBalance":{"val":1446}}}"#);
+    assert_eq!(wallet_only.billing.used_percent, None);
+    assert_eq!(wallet_only.billing.resets_at, None);
+    assert_eq!(wallet_only.prepaid_balance_usd, Some(14.46));
+}
+
+/// The grok.com percent retry must not drop the proxy's wallet.
+#[tokio::test]
+async fn prepaid_wallet_survives_grpc_percent_adoption() {
+    let mut server = mockito::Server::new_async().await;
+    server
+        .mock("GET", "/credits")
+        .with_status(200)
+        .with_body(
+            r#"{"config":{"currentPeriod":{"start":"2026-08-06T00:00:00Z","end":"2026-08-13T00:00:00Z"},"prepaidBalance":{"val":1446}},"subscriptionTier":"SUPERGROK_HEAVY"}"#,
+        )
+        .create_async()
+        .await;
+    let grpc = server
+        .mock("POST", "/billing")
+        .with_status(200)
+        .with_body(billing_response_with_percent(70.0))
+        .expect(1)
+        .create_async()
+        .await;
+
+    let bearer = provider_for(&server)
+        .fetch_bearer_billing(&GrokCredentials::from_bearer("token-123"))
+        .await
+        .unwrap();
+
+    grpc.assert_async().await;
+    assert_eq!(bearer.billing.used_percent, Some(70.0));
+    assert_eq!(bearer.prepaid_balance_usd, Some(14.46));
+}
+
+/// Valid wallets become a balance-only USD cost (no limit, so no fake meter)
+/// that is serialized as `cost.balance`; invalid wallets add no cost. The quota
+/// answer is unchanged in every case.
+#[tokio::test]
+async fn prepaid_wallet_is_a_balance_only_cost_and_leaves_quota_unchanged() {
+    for (wallet, expected) in [
+        ("", None),
+        (r#","prepaidBalance":{}"#, Some(0.0)),
+        (r#","prepaidBalance":{"val":1446}"#, Some(14.46)),
+        (r#","prepaidBalance":{"val":-1}"#, None),
+        (r#","prepaidBalance":{"val":"invalid"}"#, None),
+    ] {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("GET", "/credits")
+            .with_status(200)
+            .with_body(format!(
+                r#"{{"config":{{"creditUsagePercent":12.5{wallet}}}}}"#
+            ))
+            .create_async()
+            .await;
+        let context = FetchContext {
+            include_credits: false,
+            ..FetchContext::default()
+        };
+
+        let result = provider_for(&server)
+            .fetch_with_auth(
+                &GrokCredentials::from_bearer("token-123"),
+                GrokAuthKind::OAuth,
+                &context,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.usage.primary.used_percent, 12.5, "{wallet}");
+        assert_eq!(
+            result.cost.as_ref().and_then(|cost| cost.balance),
+            expected,
+            "{wallet}"
+        );
+        if let Some(cost) = &result.cost {
+            assert_eq!(cost.currency_code, "USD", "{wallet}");
+            assert_eq!(cost.used, 0.0, "{wallet}");
+            assert_eq!(cost.limit, None, "{wallet}");
+        }
+        // The CLI JSON embeds this same serialized result cost (`"cost": result.cost`).
+        let json = serde_json::to_value(&result).unwrap();
+        match expected {
+            Some(balance) => {
+                assert_eq!(
+                    json["cost"]["balance"],
+                    serde_json::json!(balance),
+                    "{wallet}"
+                )
+            }
+            None => assert!(json["cost"].get("balance").is_none(), "{wallet}"),
+        }
+    }
+}

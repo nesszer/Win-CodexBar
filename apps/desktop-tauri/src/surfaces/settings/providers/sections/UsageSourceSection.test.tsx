@@ -38,6 +38,13 @@ describe("usage source policy", () => {
       "oauth",
       "web",
     ]);
+    expect(usageSourcePolicy("commandcode")?.options.map((option) => option.value)).toEqual([
+      "auto",
+      "oauth",
+      "web",
+    ]);
+    expect(shouldShowCookieSource("commandcode", "oauth")).toBe(false);
+    expect(shouldShowCookieSource("commandcode", "auto")).toBe(true);
     expect(usageSourcePolicy("zed")?.options[0].description).toContain("editor credential");
     expect(usageSourcePolicy("antigravity")?.options[0].description).toContain(
       "skips agy reports without account identity",

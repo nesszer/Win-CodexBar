@@ -29,7 +29,7 @@ fn field_bytes(number: u64, value: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn valid_turn_blob(input: u64, timestamp_seconds: u64) -> Vec<u8> {
+pub(super) fn valid_turn_blob(input: u64, timestamp_seconds: u64) -> Vec<u8> {
     valid_turn_blob_with_model(input, timestamp_seconds, None)
 }
 

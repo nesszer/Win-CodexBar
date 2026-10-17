@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 
-use super::{NotificationManager, ThresholdKey};
+use super::{NotificationManager, ThresholdKey, session_depleted_key};
 use crate::core::ProviderId;
 use crate::settings::Settings;
 
@@ -77,6 +77,18 @@ pub(super) struct IdentityGapState {
     last_known: HashMap<ProviderId, String>,
     lanes: HashMap<LaneKey, LaneEpisode>,
     sequence: u64,
+}
+
+/// Owner identity used for session baseline resets. Upstream keeps one unresolved Claude
+/// owner (`claude-account:unknown`) for OAuth and CLI samples, so an OAuth-to-CLI source
+/// fallback alone is not an owner change. Threshold lanes stay scoped per source.
+pub(super) fn session_owner_of(provider: ProviderId, account: &str) -> &str {
+    if provider == ProviderId::Claude
+        && matches!(account, "claude:oauth:unknown" | "claude:cli:unknown")
+    {
+        return "claude:unknown";
+    }
+    account
 }
 
 impl NotificationManager {
@@ -147,6 +159,8 @@ impl NotificationManager {
         }
         if prior.shared_with_unresolved {
             // A discontinuity may change the key but cannot discard reconciled thresholds.
+            // Session state is not copied back: it is owner-keyed, and the account's owner
+            // differs from the unresolved owner, so the next sample starts a new baseline.
             self.copy_lane_state(provider, &account, unresolved, window);
             self.identity_gaps.lanes.insert(own_lane, prior);
         }
@@ -208,6 +222,9 @@ impl NotificationManager {
                 .map(|lane| lane.sequence);
             if account_sequence.is_none_or(|sequence| prior.sequence >= sequence) {
                 self.copy_lane_state(provider, unresolved, account, &window);
+                if window == "session" {
+                    self.transfer_session_state(provider, unresolved, account);
+                }
                 self.identity_gaps.lanes.insert(account_lane.clone(), prior);
             }
             if let Some(lane) = self.identity_gaps.lanes.get_mut(&account_lane) {
@@ -217,36 +234,66 @@ impl NotificationManager {
         }
     }
 
-    /// Replace `to`'s fired thresholds (and session-transition baseline) with `from`'s.
+    /// Replace `to`'s fired thresholds with `from`'s for one window. Depleted markers and
+    /// the session baseline are owner-keyed and move through `transfer_session_state`.
     fn copy_lane_state(&mut self, provider: ProviderId, from: &str, to: &str, window: &str) {
         let fired: Vec<ThresholdKey> = self
             .sent_notifications
             .iter()
-            .filter(|(p, a, w, _)| *p == provider && a == from && w == window)
+            .filter(|(p, a, w, t)| {
+                *p == provider && a == from && w == window && t.is_threshold_toast()
+            })
             .cloned()
             .collect();
-        self.sent_notifications
-            .retain(|(p, a, w, _)| *p != provider || a != to || w != window);
+        self.sent_notifications.retain(|(p, a, w, t)| {
+            *p != provider || a != to || w != window || !t.is_threshold_toast()
+        });
         self.sent_notifications.extend(
             fired
                 .into_iter()
                 .map(|(p, _, w, t)| (p, to.to_string(), w, t)),
         );
-        if window == "session" {
-            match self
-                .previous_session_percent
-                .get(&(provider, from.to_string()))
-                .copied()
-            {
-                Some(percent) => {
-                    self.previous_session_percent
-                        .insert((provider, to.to_string()), percent);
-                }
-                None => {
-                    self.previous_session_percent
-                        .remove(&(provider, to.to_string()));
-                }
+    }
+
+    /// Move the session baseline and depleted marker from `from`'s session owner to
+    /// `to`'s. When `from`'s owner is the current one, `to`'s owner inherits it: the copied
+    /// baseline continues the same episode, so the next sample is not an owner change.
+    fn transfer_session_state(&mut self, provider: ProviderId, from: &str, to: &str) {
+        let from_owner = session_owner_of(provider, from);
+        let to_owner = session_owner_of(provider, to);
+        if from_owner == to_owner {
+            return;
+        }
+        if self
+            .session_owner
+            .get(&provider)
+            .is_some_and(|owner| owner == from_owner)
+        {
+            self.session_owner.insert(provider, to_owner.to_string());
+        }
+        match self
+            .previous_session_percent
+            .get(&(provider, from_owner.to_string()))
+            .copied()
+        {
+            Some(percent) => {
+                self.previous_session_percent
+                    .insert((provider, to_owner.to_string()), percent);
             }
+            None => {
+                self.previous_session_percent
+                    .remove(&(provider, to_owner.to_string()));
+            }
+        }
+        if self
+            .sent_notifications
+            .contains(&session_depleted_key(provider, from_owner))
+        {
+            self.sent_notifications
+                .insert(session_depleted_key(provider, to_owner));
+        } else {
+            self.sent_notifications
+                .remove(&session_depleted_key(provider, to_owner));
         }
     }
 
@@ -254,8 +301,18 @@ impl NotificationManager {
         self.sent_notifications
             .retain(|(p, a, w, _)| *p != provider || a != account || w != window);
         if window == "session" {
-            self.previous_session_percent
-                .remove(&(provider, account.to_string()));
+            // The session owner's live baseline and marker are never dropped with a lane.
+            let owner = session_owner_of(provider, account);
+            if self
+                .session_owner
+                .get(&provider)
+                .is_none_or(|current| current != owner)
+            {
+                self.previous_session_percent
+                    .remove(&(provider, owner.to_string()));
+                self.sent_notifications
+                    .remove(&session_depleted_key(provider, owner));
+            }
         }
     }
 }

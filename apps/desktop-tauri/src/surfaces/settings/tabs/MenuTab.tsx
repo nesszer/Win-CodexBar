@@ -166,6 +166,14 @@ export default function MenuTab({ settings, set, saving }: TabProps) {
       </SettingsGroup>
 
       <SettingsGroup title={t("MenuContentSectionTitle")}>
+        <Field label={t("HighlightMenuCardsOnHoverLabel")}>
+          <Toggle
+            variant="switch"
+            checked={settings.highlightMenuCardsOnHover ?? true}
+            disabled={saving}
+            onChange={(v) => set({ highlightMenuCardsOnHover: v })}
+          />
+        </Field>
         <Field label={t("OverviewLayoutLabel")} description={t("OverviewLayoutHelper")}>
           <Select
             variant="menu"

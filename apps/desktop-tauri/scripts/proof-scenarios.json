@@ -1,0 +1,98 @@
+{
+  "scenarios": [
+    {
+      "name": "tray-default",
+      "query": "window=main&fixture=default",
+      "size": [310, 1032],
+      "steps": [
+        { "expectText": ["Usage & Spend", "dev@example.com", "claude.user@example.com"] },
+        { "screenshot": "tray-default", "clip": "panel" },
+        { "click": { "selector": ".provider-grid__item", "label": "Claude" } },
+        { "expectNoText": "dev@example.com" },
+        { "expectText": ["claude.user@example.com", "Switch Account..."] },
+        { "screenshot": "tray-claude-detail", "clip": "panel" }
+      ]
+    },
+    {
+      "name": "tray-errors",
+      "query": "window=main&fixture=errors",
+      "size": [310, 1032],
+      "steps": [
+        { "expectText": ["Your Claude session has expired.", "cursor.user@example.com"] },
+        { "screenshot": "tray-errors", "clip": "panel" }
+      ]
+    },
+    {
+      "name": "tray-empty",
+      "query": "window=main&fixture=empty",
+      "size": [310, 1032],
+      "steps": [
+        { "expectText": "No providers configured" },
+        { "expectNoText": "@example.com" },
+        { "screenshot": "tray-empty", "clip": "panel" }
+      ]
+    },
+    {
+      "name": "flyout-default",
+      "query": "window=flyout&fixture=default",
+      "size": [310, 1032],
+      "steps": [
+        { "expectText": "dev@example.com" },
+        { "screenshot": "flyout-default", "clip": "panel" }
+      ]
+    },
+    {
+      "name": "settings-general-dark",
+      "query": "window=settings&tab=general&theme=dark",
+      "size": [880, 620],
+      "steps": [
+        { "expectTheme": "dark" },
+        { "expectText": ["Refresh interval", "Start at login"] },
+        { "screenshot": "settings-general-dark" },
+        { "click": { "selector": "button", "label": "Menu" } },
+        { "expectText": "Panel scale" },
+        { "screenshot": "settings-menu-after-click" }
+      ]
+    },
+    {
+      "name": "settings-general-light",
+      "query": "window=settings&tab=general&theme=light",
+      "size": [880, 620],
+      "steps": [
+        { "expectTheme": "light" },
+        { "expectText": "Refresh interval" },
+        { "screenshot": "settings-general-light" }
+      ]
+    },
+    {
+      "name": "settings-providers",
+      "query": "window=settings&tab=providers&theme=dark",
+      "size": [880, 620],
+      "steps": [
+        { "expectText": ["Codex", "Claude"] },
+        { "screenshot": "settings-providers" }
+      ]
+    },
+    {
+      "name": "settings-codex-two-accounts",
+      "query": "window=settings&tab=providers:codex&fixture=two-codex-accounts&theme=dark",
+      "size": [880, 620],
+      "steps": [
+        { "expectText": ["work@example.com", "personal@example.com"] },
+        { "screenshot": "settings-codex-two-accounts" },
+        { "click": { "selector": "button", "label": "Switch", "near": "personal@example.com" } },
+        { "expectCall": { "cmd": "codex_account_switch", "args": { "id": "proof-codex-personal" } } }
+      ]
+    },
+    {
+      "name": "floatbar",
+      "query": "window=floatbar",
+      "size": [520, 120],
+      "steps": [
+        { "expectSelector": ".floatbar__pill" },
+        { "expectText": "%" },
+        { "screenshot": "floatbar" }
+      ]
+    }
+  ]
+}

@@ -135,6 +135,27 @@ describe("per-surface tint token", () => {
   });
 });
 
+describe("menu card hover highlight opt-out", () => {
+  const offRow =
+    ".menu-surface--hover-highlight-off .menu-surface__footer-row--refresh:hover:not(:disabled):not(:focus-visible)";
+
+  it("drops the pointer highlight from the Refresh row", () => {
+    expect(ruleBlock(base, offRow)).toContain("color: var(--mac-text)");
+    expect(ruleBlock(base, `${offRow}::before`)).toContain("background: transparent");
+    expect(ruleBlock(base, `${offRow} .menu-surface__footer-shortcut`)).toContain(
+      "color: var(--mac-text-3)",
+    );
+  });
+
+  it("keeps keyboard selection and the native-style rows highlighted", () => {
+    expect(base).not.toMatch(/hover-highlight-off[^{]*focus-visible\s*[,{]/);
+    expect(base).not.toMatch(/hover-highlight-off \.menu-surface__footer-row[:\s{]/);
+    expect(ruleBlock(base, ".menu-surface__footer-row:focus-visible::before")).toContain(
+      "background: var(--mac-selection-bg)",
+    );
+  });
+});
+
 describe("Settings usage details", () => {
   it("colors the pace bars from the pace tokens and keeps budget values off pills", () => {
     expect(

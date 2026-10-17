@@ -149,6 +149,35 @@ fn custom_pricing_reads_each_entry_on_its_own_like_upstream() {
 }
 
 #[test]
+fn included_auto_review_is_free_unless_an_explicit_custom_rate_is_set() {
+    // Upstream #4452/#4453: the summary carries included Auto-review tokens at
+    // $0 under the model's own name. An explicit custom rate wins over that.
+    let mut summary = CostSummary::default();
+    summary
+        .by_model
+        .insert("codex-auto-review".to_string(), 0.0);
+    summary.by_model_tokens.insert(
+        "codex-auto-review".to_string(),
+        ModelTokenCounts {
+            input_tokens: 1_000_000,
+            output_tokens: 0,
+            cached_tokens: 0,
+            reasoning_tokens: None,
+        },
+    );
+
+    let free = model_rows("codex", &summary, &CustomPricing::default());
+    assert_eq!(free[0].cost_usd, Some(0.0));
+    assert!(!free[0].custom_pricing);
+    assert_eq!(free[0].input_tokens, 1_000_000);
+
+    let custom = CustomPricing::parse(br#"{"codex-auto-review": {"input": 2.0}}"#);
+    let priced = model_rows("codex", &summary, &custom);
+    assert_eq!(priced[0].cost_usd, Some(2.0));
+    assert!(priced[0].custom_pricing);
+}
+
+#[test]
 fn local_spend_contract_exposes_reasoning_tokens_and_preserves_unknown() {
     let known_summary = CostSummary {
         reasoning_tokens: Some(7),

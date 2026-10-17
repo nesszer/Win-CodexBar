@@ -79,7 +79,7 @@ export type OverviewLayout = "detailed" | "compact";
 /** How cost is rendered on provider MenuCards (#2976). */
 export type CostSummaryDisplayStyle = "compact" | "detailed" | "hidden";
 /** Settings > Menu Bar > Menu bar style (`menu_bar_icon_style`). */
-export type MenuBarIconStyle = "bars" | "percent";
+export type MenuBarIconStyle = "bars" | "percent" | "stackedBars";
 /** Settings > Menu > Workday tick appearance (`workday_tick_style`). */
 export type WorkdayTickStyle = "hidden" | "subtle" | "high_contrast";
 export type FloatBarOrientation = "horizontal" | "vertical";
@@ -174,6 +174,8 @@ export interface ProviderCatalogEntry {
   id: string;
   displayName: string;
   cookieDomain: string | null;
+  /** CLI aliases the Settings search also matches. Absent on older shells. */
+  cliAliases?: string[];
 }
 
 /** Upstream `ProviderStatusIndicator` raw values; `none` is operational. */
@@ -229,6 +231,8 @@ export interface SettingsSnapshot {
   /** Per-provider quota warnings keyed by CLI name; Global providers are absent. */
   providerQuotaWarnings?: Record<string, ProviderQuotaWarnings>;
   predictivePaceWarningEnabled: boolean;
+  /** Absent on older shells; the UI treats that as off. */
+  limitResetNotificationsEnabled?: boolean;
   credentialExpiryNotificationsEnabled: boolean;
   /** Absent on older shells; the UI falls back to `showNotifications`. */
   sessionQuotaNotificationsEnabled?: boolean;
@@ -244,10 +248,18 @@ export interface SettingsSnapshot {
   /** Overview cards, at most 6; empty means the first 6 enabled providers. */
   mergedOverviewSelectedProviders: string[];
   quotaWarningMarkersVisible: boolean;
+  /** Pointer hover highlights the tray panel Refresh row. Absent on older shells: on. */
+  highlightMenuCardsOnHover?: boolean;
   workdayTickStyle: WorkdayTickStyle;
   menuBarColorPace: boolean;
+  /** Tint the tray usage meter with each shown provider's accent color (`menu_bar_color_by_provider`). */
+  menuBarColorByProvider: boolean;
+  /** Signed pace shows reserve as `+` (deficit as `-`) instead of the default deficit-positive sign. */
+  menuBarPaceReservePositive: boolean;
   /** Settings sidebar lists providers alphabetically, enabled first. Display only. */
   providersSortedAlphabetically: boolean;
+  /** Settings sidebar lists only enabled providers. Local, not portable. Absent on older shells: off. */
+  providersEnabledOnly?: boolean;
   showAsUsed: boolean;
   showAllTokenAccountsInMenu: boolean;
   enableAnimations: boolean;
@@ -264,6 +276,8 @@ export interface SettingsSnapshot {
   switcherShortcuts: Record<string, string>;
   /** Extra Codex home or sessions directories scanned for local cost estimates. */
   codexCustomSessionsDirs: string[];
+  /** Extra Gemini profile homes whose Antigravity local history is combined with the default home. */
+  antigravityAdditionalProfileHomes: string[];
   agentSessionsEnabled?: boolean;
   /** Hold system awake while a local agent session is live. */
   stayAwakeEnabled?: boolean;
@@ -298,6 +312,10 @@ export interface SettingsSnapshot {
   codexExternalOauthSourcesAllowed?: boolean;
   codexLocalSessionCostLedgerEnabled?: boolean;
   codexOpenaiWebBatterySaverEnabled?: boolean;
+  /** OpenAI API Live Usage (on by default); absent on older shells. */
+  openAiLiveUsageEnabled?: boolean;
+  /** OpenAI API manual per-model organization limits. */
+  openAiModelRateLimits?: ModelRateLimitSnapshot[];
   disableKeychainAccess: boolean;
   wayfinderGatewayUrl?: string;
   providerMetrics: Record<string, MetricPreference>;
@@ -386,6 +404,7 @@ export interface SettingsUpdate {
   /** Replaces each listed provider's whole value; `{}` resets it to Global. */
   providerQuotaWarnings?: Record<string, ProviderQuotaWarnings>;
   predictivePaceWarningEnabled?: boolean;
+  limitResetNotificationsEnabled?: boolean;
   credentialExpiryNotificationsEnabled?: boolean;
   sessionQuotaNotificationsEnabled?: boolean;
   showPace?: boolean;
@@ -398,9 +417,13 @@ export interface SettingsUpdate {
   menuBarIconStyle?: MenuBarIconStyle;
   mergedOverviewSelectedProviders?: string[];
   quotaWarningMarkersVisible?: boolean;
+  highlightMenuCardsOnHover?: boolean;
   workdayTickStyle?: WorkdayTickStyle;
   menuBarColorPace?: boolean;
+  menuBarColorByProvider?: boolean;
+  menuBarPaceReservePositive?: boolean;
   providersSortedAlphabetically?: boolean;
+  providersEnabledOnly?: boolean;
   showAsUsed?: boolean;
   showAllTokenAccountsInMenu?: boolean;
   enableAnimations?: boolean;
@@ -416,6 +439,7 @@ export interface SettingsUpdate {
   /** Overrides only; replaces the stored map. `{}` restores the defaults. */
   switcherShortcuts?: Record<string, string>;
   codexCustomSessionsDirs?: string[];
+  antigravityAdditionalProfileHomes?: string[];
   agentSessionsEnabled?: boolean;
   stayAwakeEnabled?: boolean;
   agentSessionSshHosts?: string[];
@@ -442,6 +466,10 @@ export interface SettingsUpdate {
   codexExternalOauthSourcesAllowed?: boolean;
   codexLocalSessionCostLedgerEnabled?: boolean;
   codexOpenaiWebBatterySaverEnabled?: boolean;
+  /** Fetch the last hour of OpenAI API Tokens/min on each refresh. */
+  openAiLiveUsageEnabled?: boolean;
+  /** Replaces the stored OpenAI API limit list; an empty list clears it. */
+  openAiModelRateLimits?: ModelRateLimitSnapshot[];
   disableKeychainAccess?: boolean;
   /** Map of provider CLI name → metric preference label. */
   providerMetrics?: Record<string, MetricPreference>;
@@ -540,6 +568,69 @@ export interface UsageSpendSummary {
   dashboardTimezone: string;
   /** False when "Track costs" is off: nothing was scanned and the summary is empty. */
   costTrackingEnabled?: boolean;
+  /** The last year of per-day tokens per local-log row, independent of the period. */
+  tokenActivity?: TokenActivitySource[];
+  /** Per-source spend series for the trend explorer; absent while Track costs is off. */
+  trend?: SpendTrend;
+}
+
+export interface TokenActivityDay {
+  day: string;
+  /** null is unknown: never scanned, or scanned and still not totalled. */
+  totalTokens: number | null;
+  isScanned: boolean;
+}
+
+export interface TokenActivitySource {
+  providerId: string;
+  /** Oldest day first; the last entry is today in the cost bucket zone. */
+  days: TokenActivityDay[];
+}
+
+export interface SpendTrendSource {
+  id: string;
+  providerId: string;
+  displayName: string;
+  /** The whole window is a covered, priced zero for this source. */
+  knownZero: boolean;
+}
+
+export interface SpendTrendDailyPoint {
+  sourceId: string;
+  day: string;
+  /** null is unknown (unscanned or unpriced); 0 is a covered zero. */
+  costUsd: number | null;
+}
+
+export interface SpendTrendHourlyPoint {
+  sourceId: string;
+  /** RFC 3339 UTC instant the local hour began. */
+  hour: string;
+  costUsd: number | null;
+}
+
+export interface SpendTrendHourSlot {
+  start: string;
+  offsetMinutes: number;
+}
+
+/** One local day with hourly data, as its real (23, 24 or 25) hour slots. */
+export interface SpendTrendHourlyDay {
+  day: string;
+  start: string;
+  end: string;
+  hours: SpendTrendHourSlot[];
+}
+
+export interface SpendTrend {
+  /** First and last reporting day of the window, inclusive. */
+  startDay: string;
+  endDay: string;
+  timeZone: string;
+  sources: SpendTrendSource[];
+  daily: SpendTrendDailyPoint[];
+  hourly: SpendTrendHourlyPoint[];
+  hourlyDays: SpendTrendHourlyDay[];
 }
 
 export type CostProvenance = "listPriceEstimate" | "vendorMetered" | "mixed" | "unknown";
@@ -619,6 +710,37 @@ export interface CodexWorkspacesDailyPoint {
   estimatedCostUsd: number | null;
 }
 
+/** Turns that share one model and reasoning effort (upstream #4304). */
+export interface CodexWorkspacesTurnPerformanceGroup {
+  model: string | null;
+  reasoningEffort: string | null;
+  sampleCount: number;
+  firstTokenSampleCount: number;
+  medianFirstTokenMilliseconds: number | null;
+  medianDurationMilliseconds: number;
+  outputTokensPerSecond: number;
+}
+
+export interface CodexWorkspacesTurnPerformanceDetails {
+  p95DurationMilliseconds: number | null;
+  p95FirstTokenMilliseconds: number | null;
+  outputRateLowerQuartile: number | null;
+  outputRateUpperQuartile: number | null;
+  cachedInputFraction: number | null;
+  cacheSampleCount: number;
+  groups: CodexWorkspacesTurnPerformanceGroup[];
+}
+
+/** Native Codex turn latency and throughput for one conversation. */
+export interface CodexWorkspacesTurnPerformance {
+  sampleCount: number;
+  outputTokensPerSecond: number;
+  medianDurationMilliseconds: number;
+  medianFirstTokenMilliseconds: number | null;
+  firstTokenSampleCount: number;
+  details: CodexWorkspacesTurnPerformanceDetails;
+}
+
 export interface CodexWorkspacesSessionUsage {
   id: string;
   projectId: string;
@@ -629,6 +751,7 @@ export interface CodexWorkspacesSessionUsage {
   totals: CodexWorkspacesUsageTotals;
   costEstimate: CodexWorkspacesCostEstimate;
   topModel: string | null;
+  turnPerformance: CodexWorkspacesTurnPerformance | null;
 }
 
 export interface CodexWorkspacesProjectUsage {
@@ -641,6 +764,8 @@ export interface CodexWorkspacesProjectUsage {
   latestActivity: string | null;
   topModel: string | null;
   topSessions: CodexWorkspacesSessionUsage[];
+  /** Explicit desktop ownership: an independent chat, not a project folder. */
+  isProjectless: boolean;
 }
 
 export interface CodexLocalProjectUsageSnapshot {
@@ -748,6 +873,8 @@ export interface CostSnapshotBridge {
   daily?: CostDailyPoint[];
   /** Provider-metered spend that is itself a primary usage signal. */
   alwaysVisible?: boolean;
+  /** The primary meter already shows this cap, so the cost block omits its bar. */
+  foldedIntoPrimary?: boolean;
   /** Provider-owned cost-block title (upstream `ProviderCostMenuCardStyle`); absent keeps the shared title. */
   titleKey?: LocaleKey;
 }
@@ -817,6 +944,9 @@ export interface SubscriptionMetadataSnapshot {
   startsAt: string | null;
   expiresAt: string | null;
   renewsAt: string | null;
+  /** Calendar-only dates are UTC midnight; format them in UTC. */
+  renewsAtIsDateOnly?: boolean;
+  expiresAtIsDateOnly?: boolean;
 }
 
 export interface ProviderInventoryItem {
@@ -846,6 +976,8 @@ export interface ProviderUsageItem {
   id: string;
   title: string;
   available: boolean;
+  /** Also suppressed while Cost summary display is Hidden. */
+  requiresCostSummary?: boolean;
 }
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
@@ -907,6 +1039,8 @@ export interface ProviderUsageSnapshot {
   wayfinderUsage?: WayfinderUsageSnapshot | null;
   /** Per-UTC-day OpenAI Admin API history; only the `openaiapi` Admin path sets it. */
   openAiApiUsage?: OpenAiApiUsageSnapshot | null;
+  /** Last-hour Tokens/min grid; only the `openaiapi` Admin path sets it. */
+  throughput?: ProviderThroughputSnapshot | null;
   sessionEquivalentForecast?: SessionEquivalentForecastSnapshot | null;
   /** Recorded remaining-quota burndown; Codex and Claude only. */
   quotaBurndown?: QuotaBurndownSnapshot | null;
@@ -984,6 +1118,68 @@ export interface OpenAiApiUsageSnapshot {
   projectId: string | null;
   /** Ascending by `startTime`; empty when the window had no data. */
   daily: OpenAiApiDailyUsageSnapshot[];
+}
+
+/** One minute of the Tokens/min grid. */
+export interface ThroughputMinuteSnapshot {
+  /** Minute start, epoch seconds. */
+  start: number;
+  totalTokens: number;
+  requests: number;
+  /** After the reporting frontier: not reported yet, never a real zero or a peak. */
+  isPending: boolean;
+}
+
+/** Per-model throughput, ranked by reported volume, then pending volume, then name. */
+export interface ThroughputModelSnapshot {
+  name: string;
+  latestTpm: number;
+  peakTpm: number;
+  totalTokens: number;
+  /** Peak non-pending tokens that count toward a rate limit (Batch API excluded). */
+  peakLimitCountedTokens: number;
+  /** Limit-counted tokens aligned with `ProviderThroughputSnapshot.minutes`. */
+  limitCountedTokensByMinute: number[];
+}
+
+export interface ProviderThroughputSnapshot {
+  /** Regular ascending one-minute grid. */
+  minutes: ThroughputMinuteSnapshot[];
+  /** Newest complete minute with reported traffic, epoch seconds. */
+  frontier: number | null;
+  latestTokensPerMinute: number | null;
+  peakTokensPerMinute: number;
+  peakAt: number | null;
+  fiveMinuteAverageTokensPerMinute: number;
+  models: ThroughputModelSnapshot[];
+  windowMinutes: number;
+  /** Epoch seconds. */
+  fetchedAt: number;
+  /** Project scope; `null` covers the whole organization (only then can limits apply). */
+  projectId: string | null;
+}
+
+/** Manual organization limit for one model (OpenAI API Live Usage, upstream #4495). */
+export interface ModelRateLimitSnapshot {
+  model: string;
+  tokensPerMinute: number;
+  /** `null` or absent means no requests-per-minute limit. */
+  requestsPerMinute?: number | null;
+}
+
+export interface OrgModelRateLimitSnapshot {
+  model: string;
+  tokensPerMinute: number;
+  requestsPerMinute: number | null;
+}
+
+/** Project caps read across the organization, sorted by model ID. */
+export interface OrgRateLimitsSnapshot {
+  byModel: OrgModelRateLimitSnapshot[];
+  projectsSampled: number;
+  truncated: boolean;
+  /** Epoch seconds. */
+  fetchedAt: number;
 }
 
 export interface RefreshCompletePayload {
@@ -1269,6 +1465,8 @@ export interface ProviderDetail {
   inventory?: ProviderInventoryItem[];
   /** Provider-specific display rows; never used as quota math or persistence. */
   displayDetails?: ProviderDisplayDetail[];
+  /** Plan renewal / expiry dates for the usage preview. */
+  subscription?: SubscriptionMetadataSnapshot | null;
 
   cost: CostSnapshotBridge | null;
   pace: PaceSnapshot | null;

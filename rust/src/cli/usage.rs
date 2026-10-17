@@ -326,6 +326,7 @@ fn build_usage_fetch_context(args: &UsageArgs, source_mode: SourceMode) -> Fetch
         // Per-provider opt-ins live in settings, which this shared context
         // does not load; the optional breakdowns stay off here.
         optional_details_enabled: false,
+        live_usage_enabled: false,
     }
 }
 

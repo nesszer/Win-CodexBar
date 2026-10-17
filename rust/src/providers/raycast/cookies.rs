@@ -5,6 +5,7 @@
 //! profile is dropped before a request is built.
 
 use crate::browser::cookies::Cookie;
+use crate::browser::detection::BrowserType;
 
 pub(super) const SESSION_COOKIE: &str = "__raycast_session";
 const CSRF_COOKIE: &str = "csrf_token";
@@ -64,6 +65,17 @@ pub(super) fn browser_candidates(cookies: &[Cookie]) -> Vec<String> {
         }
     }
     headers
+}
+
+/// Candidate headers for each scanned browser, in the scan's browser order and
+/// labelled with the browser's display name. Browsers without a usable session
+/// keep an empty list so callers can skip them.
+pub(super) fn browser_groups(
+    scan: &[(BrowserType, Vec<Cookie>)],
+) -> Vec<(&'static str, Vec<String>)> {
+    scan.iter()
+        .map(|(browser, cookies)| (browser.display_name(), browser_candidates(cookies)))
+        .collect()
 }
 
 /// Reduce a pasted header to the two forwarded cookies. Returns `None` without

@@ -179,3 +179,42 @@ fn hide_personal_info_masks_names_with_the_short_id() {
             .all(|s| s.display_title.starts_with("Session "))
     );
 }
+
+#[test]
+fn independent_chats_follow_the_desktop_marker_on_fresh_and_cached_loads() {
+    let tmp = TempDir::new().unwrap();
+    let home = tmp.path().join("codex");
+    let folder = tmp.path().join("chat-folder");
+    fs::create_dir_all(&folder).unwrap();
+    write_session(&home, "chat-1", &folder, 1_000, 100);
+    let state = home.join(".codex-global-state.json");
+    fs::write(&state, r#"{"projectless-thread-ids":["chat-1"]}"#).unwrap();
+    {
+        let conn = Connection::open(home.join("state_5.sqlite")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, project_id TEXT);
+             INSERT INTO threads (id, title) VALUES ('chat-1', 'Repair the local service');",
+        )
+        .unwrap();
+    }
+    let index = CodexWorkspacesIndex::new(30)
+        .with_codex_home(&home)
+        .with_sidecar_path(tmp.path().join("sidecar.sqlite"));
+
+    let fresh = index.load_snapshot(true, |_| {}).unwrap();
+    assert_eq!(fresh.projects.len(), 1);
+    assert!(fresh.projects[0].is_projectless);
+    assert_eq!(fresh.projects[0].display_name, "Repair the local service");
+    assert_eq!(fresh.total.input_tokens, 1_000);
+
+    // Cached loads re-read the marker and the title.
+    let cached = index.load_snapshot(false, |_| {}).unwrap();
+    assert!(cached.projects[0].is_projectless);
+    assert_eq!(cached.projects[0].display_name, "Repair the local service");
+
+    fs::write(&state, r#"{"projectless-thread-ids":[]}"#).unwrap();
+    let unmarked = index.load_snapshot(false, |_| {}).unwrap();
+    assert!(!unmarked.projects[0].is_projectless);
+    assert_eq!(unmarked.projects[0].display_name, "chat-folder");
+    assert_eq!(unmarked.total, fresh.total);
+}

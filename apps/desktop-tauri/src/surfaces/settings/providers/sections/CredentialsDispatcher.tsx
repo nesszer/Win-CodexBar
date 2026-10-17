@@ -3,7 +3,7 @@ import { GeminiCliCreds } from "./credentials/GeminiCliCreds";
 import { VertexAiCreds } from "./credentials/VertexAiCreds";
 import { JetBrainsCreds } from "./credentials/JetBrainsCreds";
 import { KiroCreds } from "./credentials/KiroCreds";
-import { OpenAiExtras } from "./credentials/OpenAiExtras";
+import { hasWorkspaceExtra, OpenAiExtras } from "./credentials/OpenAiExtras";
 import { OpenRouterManagementCreds } from "./credentials/OpenRouterManagementCreds";
 
 interface Props {
@@ -26,21 +26,11 @@ export function CredentialsDispatcher({ providerId, t }: Props) {
       return <JetBrainsCreds t={t} />;
     case "kiro":
       return <KiroCreds t={t} />;
-    case "openaiapi":
-      return <OpenAiExtras providerId={providerId} t={t} />;
-    case "litellm":
-    case "llmman":
-    case "devin":
-    case "opencodego":
-    case "zed":
-    case "sub2api":
-    case "llmproxy":
-    case "xai":
-    case "gitkraken":
-      return <OpenAiExtras providerId={providerId} t={t} />;
     case "openrouter":
       return <OpenRouterManagementCreds t={t} />;
     default:
-      return null;
+      return hasWorkspaceExtra(providerId) ? (
+        <OpenAiExtras providerId={providerId} t={t} />
+      ) : null;
   }
 }

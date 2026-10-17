@@ -149,6 +149,26 @@ describe("UsageDetailsSection", () => {
     expect(fills[1].style.width).toBe("52.5%");
   });
 
+  it("follows the pace sign preference for the pace delta", () => {
+    const pacedSnapshot = (deltaPercent: number) =>
+      snapshot({
+        pace: {
+          stage: deltaPercent < 0 ? "behind" : "ahead",
+          deltaPercent,
+          willLastToReset: deltaPercent < 0,
+          etaSeconds: null,
+          expectedUsedPercent: 40,
+          actualUsedPercent: 40 + deltaPercent,
+        },
+      });
+    const { rerender } = render(<UsageDetailsSection provider={pacedSnapshot(-14)} />);
+    expect(screen.getByText("-14.0%")).toBeInTheDocument();
+    rerender(<UsageDetailsSection provider={pacedSnapshot(-14)} paceReservePositive />);
+    expect(screen.getByText("+14.0%")).toBeInTheDocument();
+    rerender(<UsageDetailsSection provider={pacedSnapshot(12.5)} paceReservePositive />);
+    expect(screen.getByText("-12.5%")).toBeInTheDocument();
+  });
+
   it("drops pace detail for providers whose pace is not meaningful", () => {
     const { container } = render(
       <UsageDetailsSection

@@ -60,6 +60,26 @@ export function providerCostColor(providerId: string): string {
   return "var(--provider-accent, var(--chart-cost))";
 }
 
+/**
+ * Spend trend color for one source. Sources keyed by id keep their color when
+ * a day lacks one of them or the legend isolates a source; a second account of
+ * the same provider turns its hue 0.17 of a turn per ordinal (upstream
+ * `SpendChartPalette.color`).
+ */
+export function spendSourceColor(
+  source: { id: string; providerId: string },
+  sources: readonly { id: string; providerId: string }[],
+): string {
+  const base = providerCostColor(source.providerId);
+  const ids = sources
+    .filter((entry) => entry.providerId === source.providerId)
+    .map((entry) => entry.id)
+    .sort();
+  const index = ids.indexOf(source.id);
+  if (index <= 0) return base;
+  return `oklch(from ${base} l max(c, 0.1) calc(h + ${Math.round(index * 61.2 * 10) / 10}))`;
+}
+
 /** CSS color expression for a provider's credits-series line. */
 export function providerCreditsColor(providerId: string): string {
   const token = PROVIDER_TOKEN[providerId.toLowerCase()];

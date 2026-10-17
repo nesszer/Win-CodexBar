@@ -40,9 +40,11 @@ mod claude_pricing;
 mod claude_roots;
 mod claude_usage;
 mod codex;
+mod hourly;
 mod read_receipt;
 mod stats;
 mod today;
+mod token_activity;
 mod window;
 pub use claude_incomplete::ClaudeIncompleteReport;
 use claude_incomplete::ClaudeIncompleteTracker;
@@ -53,9 +55,12 @@ use claude_usage::{
     ClaudeUsageDedupKey, claude_usage_dedup_key, session_id_from_entries,
     should_count_claude_record,
 };
+use hourly::HourlyCostAccumulator;
+pub use hourly::HourlyCostPoint;
 pub use read_receipt::CodexScanReadReceipt;
 pub use stats::CostScanStats;
 pub use today::TodayUsage;
+pub use token_activity::{TOKEN_ACTIVITY_DAYS, TokenActivityDay, daily_token_activity};
 
 /// Completeness of the pricing coverage in a [`CostSummary`] (upstream 0.48.0 F18).
 ///
@@ -1390,7 +1395,39 @@ pub type DailyCostAndIncomplete = (Vec<(String, Option<f64>)>, Vec<(String, u32)
 /// requests (upstream 0.60.5 #3688). Days with no incomplete request are
 /// absent from the second vector; it is empty for every other provider.
 pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> DailyCostAndIncomplete {
+    let (daily, incomplete, _) = daily_cost_history(provider, days, None);
+    (daily, incomplete)
+}
+
+/// Daily costs, local-hour costs, and whether the Claude walk was complete.
+pub type ClaudeDailyAndHourlyCosts = (Vec<(String, Option<f64>)>, Vec<HourlyCostPoint>, bool);
+
+/// Claude daily costs plus local-hour costs from one de-duplicated log walk.
+/// The hourly series is empty unless the walk read every file completely, so
+/// a partial scan never draws an hour lower than it was. The flag reports
+/// whether the walk was complete.
+pub fn get_claude_daily_and_hourly_cost_history(days: u32) -> ClaudeDailyAndHourlyCosts {
+    let mut hourly = HourlyCostAccumulator::default();
+    let (daily, _, complete) = daily_cost_history("claude", days, Some(&mut hourly));
+    let hourly = if complete {
+        hourly.into_points()
+    } else {
+        Vec::new()
+    };
+    (daily, hourly, complete)
+}
+
+/// Daily costs, per-day incomplete counts, and whether the Claude walk read
+/// every file.
+type DailyCostHistory = (Vec<(String, Option<f64>)>, Vec<(String, u32)>, bool);
+
+fn daily_cost_history(
+    provider: &str,
+    days: u32,
+    mut hourly: Option<&mut HourlyCostAccumulator>,
+) -> DailyCostHistory {
     let mut daily_incomplete = Vec::new();
+    let mut complete = false;
     let scanner = CostScanner::new(days);
     let today = cost_bucket_zone().date(Utc::now());
     let mut daily_costs: HashMap<String, Option<f64>> = HashMap::new();
@@ -1464,6 +1501,16 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
                             &mut incomplete,
                             |record| {
                                 aggregation_complete &= record.timestamp.is_some();
+                                if let (Some(hourly), Some(timestamp)) =
+                                    (hourly.as_deref_mut(), record.timestamp)
+                                {
+                                    let zone = cost_bucket_zone();
+                                    if daily_costs
+                                        .contains_key(&today::day_key(zone.date(timestamp)))
+                                    {
+                                        hourly.add(zone, timestamp, record.cost);
+                                    }
+                                }
                                 aggregation_complete &= add_claude_record_to_daily_costs(
                                     &mut daily_costs,
                                     &mut unknown_cost_dates,
@@ -1484,7 +1531,8 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
                     .saturating_add(roots.read_failures)
                     .saturating_add(traversal_read_failures);
                 daily_incomplete = incomplete.resolve(&seen).daily_sorted();
-                if claude_scan.is_complete() {
+                complete = claude_scan.is_complete();
+                if complete {
                     zero_fill_uninitialized_claude_daily_costs(
                         &mut daily_costs,
                         &unknown_cost_dates,
@@ -1522,7 +1570,7 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
     // Convert to sorted vector
     let mut result: Vec<(String, Option<f64>)> = daily_costs.into_iter().collect();
     result.sort_by(|a, b| a.0.cmp(&b.0));
-    (result, daily_incomplete)
+    (result, daily_incomplete, complete)
 }
 
 /// Daily token totals (provider-aware, see [`cache_is_separate_from_input`])

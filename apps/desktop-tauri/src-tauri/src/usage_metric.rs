@@ -496,6 +496,7 @@ mod tests {
             wayfinder_usage: None,
             quota_burndown: None,
             open_ai_api_usage: None,
+            throughput: None,
             session_equivalent_forecast: None,
         }
     }
@@ -872,6 +873,7 @@ mod tests {
             formatted_balance: None,
             daily: Vec::new(),
             always_visible: false,
+            folded_into_primary: false,
             title_key: None,
         });
         let settings = metric_settings(ProviderId::Mistral, MetricPreference::MonthlyPlan);

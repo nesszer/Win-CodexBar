@@ -98,6 +98,33 @@ fn workbuddy_cookie_source_defaults_to_automatic_session_import() {
 }
 
 #[test]
+fn tinyapi_cookie_source_defaults_to_automatic_session_import() {
+    // Upstream's TinyApi cookie source falls back to `.auto`.
+    let mut settings = Settings::default();
+    assert_eq!(settings.cookie_source(ProviderId::TinyApi), "auto");
+    settings.set_cookie_source(ProviderId::TinyApi, "off");
+    assert_eq!(settings.cookie_source(ProviderId::TinyApi), "off");
+}
+
+#[test]
+fn xapi_cookie_source_defaults_to_automatic_session_import() {
+    // X API cookie source falls back to `.auto`.
+    let mut settings = Settings::default();
+    assert_eq!(settings.cookie_source(ProviderId::Xapi), "auto");
+    settings.set_cookie_source(ProviderId::Xapi, "off");
+    assert_eq!(settings.cookie_source(ProviderId::Xapi), "off");
+}
+
+#[test]
+fn parallel_cookie_source_defaults_to_automatic_session_import() {
+    // Parallel's browser session falls back to `.auto` like X API.
+    let mut settings = Settings::default();
+    assert_eq!(settings.cookie_source(ProviderId::Parallel), "auto");
+    settings.set_cookie_source(ProviderId::Parallel, "off");
+    assert_eq!(settings.cookie_source(ProviderId::Parallel), "off");
+}
+
+#[test]
 fn preferred_currency_defaults_validates_and_round_trips() {
     let legacy: Settings = serde_json::from_str(r#"{"enabled_providers": []}"#)
         .expect("legacy settings without a preferred currency remain valid");
@@ -218,6 +245,43 @@ fn tray_pace_color_defaults_off_and_round_trips() {
 }
 
 #[test]
+fn color_by_provider_defaults_off_and_round_trips() {
+    // Old settings files carry no key and must load with the toggle off.
+    let legacy: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
+        .expect("legacy settings without color by provider load");
+    assert!(!legacy.menu_bar_color_by_provider);
+    assert!(!Settings::default().menu_bar_color_by_provider);
+
+    let enabled = Settings {
+        menu_bar_color_by_provider: true,
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&enabled).expect("serialize color by provider");
+    assert!(json.contains(r#""menu_bar_color_by_provider":true"#));
+
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize color by provider");
+    assert!(loaded.menu_bar_color_by_provider);
+}
+
+#[test]
+fn pace_reserve_positive_defaults_off_and_round_trips() {
+    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
+        .expect("missing pace sign defaults to ahead-of-pace positive");
+    assert!(!defaulted.menu_bar_pace_reserve_positive);
+    assert!(!Settings::default().menu_bar_pace_reserve_positive);
+
+    let enabled = Settings {
+        menu_bar_pace_reserve_positive: true,
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&enabled).expect("serialize pace sign");
+    assert!(json.contains(r#""menu_bar_pace_reserve_positive":true"#));
+
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize pace sign");
+    assert!(loaded.menu_bar_pace_reserve_positive);
+}
+
+#[test]
 fn providers_sorted_alphabetically_defaults_off_and_round_trips() {
     assert!(!Settings::default().providers_sorted_alphabetically);
 
@@ -234,6 +298,62 @@ fn providers_sorted_alphabetically_defaults_off_and_round_trips() {
 
     let loaded: Settings = serde_json::from_str(&json).expect("deserialize sidebar sort");
     assert!(loaded.providers_sorted_alphabetically);
+}
+
+#[test]
+fn providers_enabled_only_defaults_off_and_round_trips() {
+    assert!(!Settings::default().providers_enabled_only);
+
+    let legacy: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
+        .expect("legacy file without the sidebar enabled-only key");
+    assert!(!legacy.providers_enabled_only);
+
+    let filtered = Settings {
+        providers_enabled_only: true,
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&filtered).expect("serialize enabled-only filter");
+    assert!(json.contains(r#""providers_enabled_only":true"#));
+
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize enabled-only filter");
+    assert!(loaded.providers_enabled_only);
+}
+
+#[test]
+fn merge_visible_provider_order_keeps_hidden_slots_in_place() {
+    let full: Vec<String> = ["codex", "kimik2", "claude", "gemini"]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let visible: Vec<String> = ["gemini", "codex", "claude"]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+
+    // kimik2 is hidden from the sidebar; it keeps index 1.
+    assert_eq!(
+        merge_visible_provider_order(&full, &visible),
+        Some(
+            ["gemini", "kimik2", "codex", "claude"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        )
+    );
+}
+
+#[test]
+fn merge_visible_provider_order_rejects_unknown_or_repeated_ids() {
+    let full: Vec<String> = ["codex", "claude"]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let unknown: Vec<String> = ["codex", "nope"].into_iter().map(str::to_string).collect();
+    let repeated: Vec<String> = ["codex", "codex"].into_iter().map(str::to_string).collect();
+
+    assert_eq!(merge_visible_provider_order(&full, &unknown), None);
+    assert_eq!(merge_visible_provider_order(&full, &repeated), None);
+    assert_eq!(merge_visible_provider_order(&full, &[]), Some(full.clone()));
 }
 
 #[test]
@@ -341,6 +461,21 @@ fn new_warning_and_reset_settings_are_backward_compatible() {
     assert!(!loaded.show_reset_when_exhausted);
     assert!(!loaded.predictive_pace_warning_enabled);
     assert!(!loaded.credential_expiry_notifications_enabled);
+    assert!(!loaded.limit_reset_notifications_enabled);
+}
+
+#[test]
+fn limit_reset_notifications_default_off_and_round_trip_when_enabled() {
+    assert!(!Settings::default().limit_reset_notifications_enabled);
+
+    let settings = Settings {
+        limit_reset_notifications_enabled: true,
+        ..Settings::default()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    settings.save_to_path(&path).unwrap();
+    assert!(Settings::load_from_path(Some(&path)).limit_reset_notifications_enabled);
 }
 
 fn load_settings_json(json: &str) -> Settings {
@@ -1780,6 +1915,76 @@ fn legacy_visibility_setters_preserve_other_explicit_hidden_items() {
     );
 }
 
+/// Windows never had upstream's global optional-usage gate, so Claude reset
+/// credits, Extra usage and plan dates were all visible before the
+/// independent choices existed. Upgrading must keep them visible and leave
+/// existing choices untouched.
+#[test]
+fn upgrade_keeps_claude_optional_rows_visible_and_preserves_existing_choices() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(
+        &path,
+        r#"{ "enabled_providers": ["claude"],
+             "provider_configs": { "claude": { "hidden_usage_item_ids": ["metric:secondary"] } } }"#,
+    )
+    .unwrap();
+
+    let mut loaded = Settings::load_from_path(Some(&path));
+    loaded.migrate_legacy_usage_item_flags();
+
+    assert_eq!(
+        loaded.hidden_usage_item_ids(ProviderId::Claude),
+        vec!["metric:secondary".to_string()]
+    );
+    for id in [
+        CLAUDE_RESET_CREDITS_USAGE_ITEM_ID,
+        CLAUDE_EXTRA_USAGE_USAGE_ITEM_ID,
+        SUBSCRIPTION_USAGE_ITEM_ID,
+    ] {
+        assert!(
+            !loaded
+                .hidden_usage_item_ids(ProviderId::Claude)
+                .contains(&id.to_string())
+        );
+    }
+
+    let fresh = Settings::load_from_path(Some(&dir.path().join("missing.json")));
+    assert!(fresh.hidden_usage_item_ids(ProviderId::Claude).is_empty());
+}
+
+#[test]
+fn claude_section_choices_round_trip_independently_through_persistence() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let mut settings = Settings::default();
+    settings.set_hidden_usage_item_ids(
+        ProviderId::Claude,
+        vec![
+            SUBSCRIPTION_USAGE_ITEM_ID.to_string(),
+            CLAUDE_RESET_CREDITS_USAGE_ITEM_ID.to_string(),
+            "section:unknown-section".to_string(),
+            "bogus:claude-extra-usage".to_string(),
+        ],
+    );
+    settings.save_to_path(&path).unwrap();
+
+    let loaded = Settings::load_from_path(Some(&path));
+    assert_eq!(
+        loaded.hidden_usage_item_ids(ProviderId::Claude),
+        vec![
+            CLAUDE_RESET_CREDITS_USAGE_ITEM_ID.to_string(),
+            SUBSCRIPTION_USAGE_ITEM_ID.to_string(),
+            "section:unknown-section".to_string(),
+        ]
+    );
+    assert!(
+        !loaded
+            .hidden_usage_item_ids(ProviderId::Claude)
+            .contains(&CLAUDE_EXTRA_USAGE_USAGE_ITEM_ID.to_string())
+    );
+}
+
 /// Cookie-denial settings must survive the same path-based persistence used by
 /// `Settings::save` and `Settings::load`, including the secure-file wrapper
 /// shared by desktop and CLI settings.
@@ -1950,7 +2155,11 @@ fn stored_menu_bar_icon_style_wins_over_the_legacy_flag() {
 
 #[test]
 fn menu_bar_icon_style_round_trips() {
-    for style in [MenuBarIconStyle::Bars, MenuBarIconStyle::Percent] {
+    for style in [
+        MenuBarIconStyle::Bars,
+        MenuBarIconStyle::Percent,
+        MenuBarIconStyle::StackedBars,
+    ] {
         let settings = Settings {
             menu_bar_icon_style: style,
             // The legacy flag disagrees on purpose: the stored key must win.
@@ -1962,6 +2171,37 @@ fn menu_bar_icon_style_round_trips() {
         let loaded: Settings = serde_json::from_str(&json).expect("deserialize icon style");
         assert_eq!(loaded.menu_bar_icon_style, style);
     }
+}
+
+#[test]
+fn stacked_bars_icon_style_loads_from_a_settings_file() {
+    assert_eq!(
+        MenuBarIconStyle::StackedBars.as_str(),
+        "stackedBars",
+        "the id is the camelCase string the bridge and the file both use"
+    );
+    assert_eq!(
+        MenuBarIconStyle::parse("stackedBars"),
+        Some(MenuBarIconStyle::StackedBars)
+    );
+    assert_eq!(
+        MenuBarIconStyle::parse("STACKEDBARS"),
+        Some(MenuBarIconStyle::StackedBars)
+    );
+    assert_eq!(MenuBarIconStyle::parse("stacked_bars"), None);
+
+    let stored: Settings = serde_json::from_str(
+        r#"{ "enabled_providers": [], "menu_bar_shows_percent": false, "menu_bar_icon_style": "stackedBars" }"#,
+    )
+    .expect("stackedBars file loads");
+    assert_eq!(stored.menu_bar_icon_style, MenuBarIconStyle::StackedBars);
+
+    // Unknown ids keep the legacy fallback, so a bad value never breaks the file.
+    let unknown: Settings = serde_json::from_str(
+        r#"{ "enabled_providers": [], "menu_bar_shows_percent": false, "menu_bar_icon_style": "stacked_bars" }"#,
+    )
+    .expect("unknown style still loads");
+    assert_eq!(unknown.menu_bar_icon_style, MenuBarIconStyle::Bars);
 }
 
 #[test]
@@ -2031,6 +2271,23 @@ fn quota_warning_markers_default_on_and_round_trip() {
     assert!(json.contains(r#""quota_warning_markers_visible":false"#));
     let loaded: Settings = serde_json::from_str(&json).expect("deserialize markers");
     assert!(!loaded.quota_warning_markers_visible);
+}
+
+#[test]
+fn highlight_menu_cards_on_hover_defaults_on_and_round_trips() {
+    assert!(Settings::default().highlight_menu_cards_on_hover);
+    let legacy: Settings =
+        serde_json::from_str(r#"{ "enabled_providers": [] }"#).expect("legacy file");
+    assert!(legacy.highlight_menu_cards_on_hover);
+
+    let off = Settings {
+        highlight_menu_cards_on_hover: false,
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&off).expect("serialize hover highlight");
+    assert!(json.contains(r#""highlight_menu_cards_on_hover":false"#));
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize hover highlight");
+    assert!(!loaded.highlight_menu_cards_on_hover);
 }
 
 #[test]
@@ -2383,5 +2640,29 @@ fn custom_quota_warnings_with_explicit_enabled_round_trip() {
             high: 55.0,
             critical: 85.0,
         }
+    );
+}
+
+#[test]
+fn antigravity_additional_profile_homes_default_empty_and_round_trip() {
+    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
+        .expect("missing additional Gemini homes default to empty");
+    assert!(defaulted.antigravity_additional_profile_homes.is_empty());
+
+    let json = serde_json::to_string(&Settings::default()).expect("serialize default settings");
+    assert!(!json.contains("antigravity_additional_profile_homes"));
+
+    let configured = Settings {
+        antigravity_additional_profile_homes: vec!["D:\\gemini-work".to_string()],
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&configured).expect("serialize additional Gemini homes");
+    assert!(json.contains(r#""antigravity_additional_profile_homes":["D:\\gemini-work"]"#));
+
+    let loaded: Settings =
+        serde_json::from_str(&json).expect("deserialize additional Gemini homes");
+    assert_eq!(
+        loaded.antigravity_additional_profile_homes,
+        vec!["D:\\gemini-work"]
     );
 }

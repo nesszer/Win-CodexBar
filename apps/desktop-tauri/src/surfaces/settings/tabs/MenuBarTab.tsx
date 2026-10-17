@@ -84,6 +84,7 @@ export default function MenuBarTab({
             options={[
               { value: "bars", label: t("MenuBarIconStyleBars") },
               { value: "percent", label: t("MenuBarIconStylePercent") },
+              { value: "stackedBars", label: t("MenuBarIconStyleStackedBars") },
             ]}
             onChange={(v) => set({ menuBarIconStyle: v as MenuBarIconStyle })}
           />
@@ -94,6 +95,26 @@ export default function MenuBarTab({
             checked={settings.menuBarColorPace ?? false}
             disabled={saving}
             onChange={(v) => set({ menuBarColorPace: v })}
+          />
+        </Field>
+        <Field label={t("ColorByProviderInTray")} description={t("ColorByProviderInTrayHelper")}>
+          <Toggle
+            variant="switch"
+            checked={settings.menuBarColorByProvider ?? false}
+            disabled={saving}
+            onChange={(v) => set({ menuBarColorByProvider: v })}
+          />
+        </Field>
+        <Field label={t("PaceSignLabel")} description={t("PaceSignHelper")}>
+          <Select
+            variant="menu"
+            value={settings.menuBarPaceReservePositive ? "reserve" : "ahead"}
+            disabled={saving}
+            options={[
+              { value: "ahead", label: t("PaceSignAheadPositive") },
+              { value: "reserve", label: t("PaceSignReservePositive") },
+            ]}
+            onChange={(v) => set({ menuBarPaceReservePositive: v === "reserve" })}
           />
         </Field>
         <Field

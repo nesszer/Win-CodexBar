@@ -12,8 +12,8 @@ interface Props {
 }
 
 /**
- * claude-swap executable path (macOS Claude Fields row), shown only while
- * "Read accounts from claude-swap" is on. Saves on blur or Enter. A failed save
+ * claude-swap executable path (macOS inline field of the claude-swap toggle),
+ * shown directly under "Read accounts from claude-swap" only while it is on. Saves on blur or Enter. A failed save
  * leaves the saved value unchanged, so the same draft stays retryable.
  */
 export function ClaudeSwapPathField({ value, disabled, t, onSettingsChange }: Props) {

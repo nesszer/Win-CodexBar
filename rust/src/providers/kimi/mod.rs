@@ -12,8 +12,11 @@
 //!   from a signed-in Kimi Desktop session (#2622).
 //! - [`local_storage`]: current `access_token` JWTs from Chromium local storage
 //!   for the selected region, read through the shared LevelDB reader.
+//! - [`desktop_session`]: the current China Kimi Desktop session from its
+//!   Local Storage, revalidated before each request through
+//!   [`credential::KimiWebCredential`] (upstream #4416 / #3536).
 //! - [`desktop_token`]: read-only, WAL-safe reader for the Kimi Desktop
-//!   (Electron) Chromium cookie store.
+//!   (Electron) Chromium cookie store, still used for International.
 //! - [`ratio_pool`]: zero-ratio placeholder reconciliation against matching
 //!   legacy counters (upstream 0.63.0).
 //! - [`auto`]: Auto-mode order after the Code API key (CLI credential, then
@@ -21,6 +24,8 @@
 
 mod auto;
 mod code_api;
+mod credential;
+mod desktop_session;
 pub mod desktop_token;
 mod local_storage;
 #[cfg(test)]
@@ -30,6 +35,8 @@ mod region;
 mod web;
 
 pub use region::KimiRegion;
+
+use credential::KimiWebCredential;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -545,9 +552,21 @@ async fn kimi_web_post(
     client: &Client,
     url: &str,
     region: KimiRegion,
-    token: &str,
+    credential: &KimiWebCredential,
     body: serde_json::Value,
 ) -> Result<reqwest::Response, ProviderError> {
+    let request = kimi_web_request(client, url, region, credential.token(), body)?;
+    credential.check_dispatch(&request, region)?;
+    client.execute(request).await.map_err(ProviderError::from)
+}
+
+fn kimi_web_request(
+    client: &Client,
+    url: &str,
+    region: KimiRegion,
+    token: &str,
+    body: serde_json::Value,
+) -> Result<reqwest::Request, ProviderError> {
     client
         .post(url)
         .bearer_auth(token)
@@ -561,8 +580,7 @@ async fn kimi_web_post(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         )
         .json(&body)
-        .send()
-        .await
+        .build()
         .map_err(ProviderError::from)
 }
 

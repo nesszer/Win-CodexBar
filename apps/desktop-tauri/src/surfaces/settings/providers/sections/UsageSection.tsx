@@ -10,7 +10,11 @@ import type { LocaleKey } from "../../../../i18n/keys";
 import type { ResetTimeFormatMode } from "../../../../hooks/useFormattedResetTime";
 import { useMonthlyLimitBlockNow } from "../../../../hooks/useMonthlyLimitBlockNow";
 import type { MetricLane } from "../../../../lib/metricRowModel";
-import { isUsageItemVisible } from "../../../../lib/usageItemVisibility";
+import {
+  claudePlanDateNote,
+  isUsageItemVisible,
+  projectClaudeSections,
+} from "../../../../lib/usageItemVisibility";
 import { localizeProviderLabel, localizeWindowLabel } from "../../../../lib/windowLabels";
 
 interface Props {
@@ -41,7 +45,14 @@ interface BarSpec {
  * bars follow "Show usage as used", carry the quota-warning markers, and the
  * pace becomes the meta line under the bar.
  */
-export function UsageSection({ provider, resetTimeRelative, display, accentColor, t }: Props) {
+export function UsageSection({
+  provider: reportedProvider,
+  resetTimeRelative,
+  display,
+  accentColor,
+  t,
+}: Props) {
+  const provider = projectClaudeSections(reportedProvider.id, reportedProvider);
   const bars: BarSpec[] = [];
   if (provider.session && isUsageItemVisible(provider.hiddenUsageItemIds, "primary")) {
     bars.push({
@@ -98,7 +109,13 @@ export function UsageSection({ provider, resetTimeRelative, display, accentColor
   const inventory = provider.inventory ?? [];
   const displayDetails = provider.displayDetails ?? [];
   const displayDetailGroups = groupProviderDisplayDetails(displayDetails);
-  if (shownBars.length === 0 && inventory.length === 0 && displayDetails.length === 0) {
+  const planDateNote = claudePlanDateNote(provider.id, provider.subscription, t);
+  if (
+    shownBars.length === 0 &&
+    !planDateNote &&
+    inventory.length === 0 &&
+    displayDetails.length === 0
+  ) {
     return null;
   }
 
@@ -119,6 +136,7 @@ export function UsageSection({ provider, resetTimeRelative, display, accentColor
           display={{ ...display, resetTimeRelative, monthlyLimitBlockNow }}
         />
       ))}
+      {planDateNote && <div className="provider-usage-inventory">{planDateNote}</div>}
       {inventory.map((item) => (
         <InventoryItemRow
           key={item.id}

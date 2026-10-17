@@ -6,13 +6,18 @@ mod auto_precision;
 pub mod claude_swap;
 mod cli_reset;
 mod cli_screen;
+mod cloud_credits;
 mod oauth;
 pub mod quota_history;
 mod reset_credits;
 pub mod reset_observations;
 mod scoped_weekly;
+mod spend_window;
+mod subscription_details;
 mod trust_dialog;
 mod web_api;
+
+pub(crate) use spend_window::PACE_CAPABILITY;
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -38,6 +43,18 @@ use cli_reset::{
     extract_cli_scoped_weekly_limits, normalized_for_label_search, parse_claude_reset_date,
     parse_percent_line, starts_next_usage_section,
 };
+
+/// Limit reset detection (upstream `UsageStore+LimitResetCelebration.swift`):
+/// after a weekly reset, two above-threshold samples must confirm recovery
+/// before the lane re-arms, and identity-less samples need a second low sample.
+pub(crate) const LIMIT_RESET_POLICY: crate::core::ProviderLimitResetPolicy =
+    crate::core::ProviderLimitResetPolicy {
+        supported: true,
+        weekly: crate::core::WeeklyResetRule::RecoveryObservations { count: 2 },
+        missing_identity: crate::core::MissingIdentityRule::Track {
+            requires_low_confirmation: true,
+        },
+    };
 
 // ── Upstream 0.50.1 #2516: CLI usage-result cache ────────────────────────────
 //
@@ -480,14 +497,16 @@ fn javascript_hash_base36(text: &str) -> String {
 /// Arguments shared by every Claude CLI `/usage` probe.
 ///
 /// The remote-control startup hook can otherwise change the interactive
-/// session before the usage command is collected. Keep this override in one
-/// helper so future CLI probe paths cannot silently omit it.
+/// session before the usage command is collected. `disableAllHooks` stops the
+/// user's SessionStart hooks (git syncs, ssh, and so on) from running on every
+/// poll. Keep this override in one helper so future CLI probe paths cannot
+/// silently omit it.
 fn claude_usage_settings_args() -> [String; 2] {
     [
         "--settings".to_string(),
         // Issue #778 (Claude Code 2.1.293): `tui: default` stops the "Try the new
         // fullscreen renderer?" offer. Older builds ignore unknown settings keys.
-        r#"{"remoteControlAtStartup":false,"tui":"default"}"#.to_string(),
+        r#"{"remoteControlAtStartup":false,"disableAllHooks":true,"tui":"default"}"#.to_string(),
     ]
 }
 
@@ -497,6 +516,9 @@ fn claude_probe_launch_args(session_id: &str) -> Vec<String> {
         "user".to_string(),
         "--allowed-tools".to_string(),
         String::new(),
+        // The probe never calls MCP tools, so ignore ambient MCP servers
+        // instead of waiting for unrelated user servers to initialize.
+        "--strict-mcp-config".to_string(),
     ];
     args.extend(claude_usage_settings_args());
     args.extend(["--session-id".to_string(), session_id.to_string()]);
@@ -541,13 +563,14 @@ const CLAUDE_USAGE_ECHO_MARKERS: &[&str] = &["❯ /usage", "> /usage", "/usage s
 async fn run_claude_usage_pty_probe(
     claude_path: std::path::PathBuf,
     working_directory: std::path::PathBuf,
+    timeout: Duration,
 ) -> Result<String, ProviderError> {
     run_claude_pty_probe(
         claude_path,
         working_directory,
         ClaudePtyProbeOptions {
             script: "/usage",
-            timeout_secs: 24.0,
+            timeout_secs: timeout.as_secs_f64(),
             idle_timeout_secs: Some(6.0),
             initial_delay_secs: 3.0,
             script_char_delay_secs: 0.04,
@@ -596,8 +619,92 @@ fn resolve_claude_cli_path() -> Result<std::path::PathBuf, ProviderError> {
     })
 }
 
+/// Initial `/usage` PTY timeout. Kept at 24 s rather than upstream's 12 s
+/// auto-probe timeout: the Windows PTY needs ~3 s before the prompt mounts,
+/// and the in-probe `/usage` re-sends run up to 14 s after launch.
+const CLAUDE_CLI_PROBE_TIMEOUT: Duration = Duration::from_secs(24);
+/// Upstream #4155 (`cliRetryProbeTimeout`): a retry after a transient CLI
+/// timeout gets the longer window. Capped by the remaining fetch budget.
+const CLAUDE_CLI_RETRY_PROBE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Shell per-provider budget for Claude (`SLOW_PROVIDER_FETCH_TIMEOUT` in
+/// `apps/desktop-tauri/src-tauri/src/commands/providers.rs`). The shell drops
+/// the whole fetch future at this point, so a retry must end before it.
+const CLAUDE_FETCH_BUDGET: Duration = Duration::from_secs(75);
+/// Reserved after the last probe for the summary and stale-cache fallback.
+const CLAUDE_FETCH_BUDGET_MARGIN: Duration = Duration::from_secs(5);
+/// Below this a retry cannot finish the PTY handshake and `/usage` render.
+const CLAUDE_CLI_MIN_RETRY_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Whether a failed CLI probe is a transient timeout or loading stall that a
+/// longer retry can fix (upstream `isRetryableCLIProbeError`). Auth failures
+/// are never retried.
+fn is_retryable_cli_probe_error(error: &ProviderError) -> bool {
+    match error {
+        ProviderError::AuthRequired | ProviderError::OAuth(_) | ProviderError::OAuthExpired(_) => {
+            false
+        }
+        ProviderError::Timeout => true,
+        ProviderError::Parse(message) => message.to_lowercase().contains("still loading usage"),
+        other => {
+            let message = other.to_string().to_lowercase();
+            message.contains("timed out") || message.contains("timeout")
+        }
+    }
+}
+
+/// Whether the latest `/usage` panel shows only the "Loading usage data…"
+/// placeholder (upstream `isUsageStillLoading`). Earlier panels in the PTY
+/// capture are ignored, and any percentage means the data has rendered.
+fn claude_cli_usage_still_loading(visible: &str) -> bool {
+    let lower = visible.to_lowercase();
+    let panel = lower
+        .rfind("settings:")
+        .map(|start| &lower[start..])
+        .filter(|tail| tail.contains("usage"))
+        .unwrap_or(&lower);
+    let normalized: String = panel.chars().filter(|c| !c.is_whitespace()).collect();
+    normalized.contains("loadingusage") && !normalized.contains('%')
+}
+
+/// Timeout for the outer retry, given the time already spent in this fetch.
+/// Returns `None` when the remaining budget is too small for a useful probe.
+fn cli_retry_timeout(elapsed: Duration) -> Option<Duration> {
+    let remaining = CLAUDE_FETCH_BUDGET
+        .checked_sub(elapsed)?
+        .checked_sub(CLAUDE_FETCH_BUDGET_MARGIN)?;
+    let timeout = remaining.min(CLAUDE_CLI_RETRY_PROBE_TIMEOUT);
+    (timeout >= CLAUDE_CLI_MIN_RETRY_TIMEOUT).then_some(timeout)
+}
+
+/// Run the CLI probe once with the initial timeout, then retry once with the
+/// longer timeout when the failure is retryable and budget remains. Errors
+/// from the retry are returned as is.
+async fn probe_cli_with_retry<F, Fut>(
+    started: Instant,
+    mut probe: F,
+) -> Result<String, ProviderError>
+where
+    F: FnMut(Duration) -> Fut,
+    Fut: std::future::Future<Output = Result<String, ProviderError>>,
+{
+    match probe(CLAUDE_CLI_PROBE_TIMEOUT).await {
+        Err(error) if is_retryable_cli_probe_error(&error) => {
+            let Some(timeout) = cli_retry_timeout(started.elapsed()) else {
+                return Err(error);
+            };
+            tracing::debug!(
+                timeout_secs = timeout.as_secs(),
+                "Claude CLI probe timed out; retrying with a longer timeout"
+            );
+            probe(timeout).await
+        }
+        result => result,
+    }
+}
+
 async fn fetch_claude_cli_usage_text(
     claude_path: std::path::PathBuf,
+    timeout: Duration,
 ) -> Result<String, ProviderError> {
     let probe_dir = claude_usage_probe_dir()?;
     if let Some(login) = claude_login_fingerprint()
@@ -605,22 +712,24 @@ async fn fetch_claude_cli_usage_text(
     {
         return Ok(cached);
     }
-    let combined = run_claude_usage_pty_probe(claude_path.clone(), probe_dir.clone()).await?;
+    let combined =
+        run_claude_usage_pty_probe(claude_path.clone(), probe_dir.clone(), timeout).await?;
 
-    rerun_claude_usage_after_trust_prompt(claude_path, probe_dir, combined).await
+    rerun_claude_usage_after_trust_prompt(claude_path, probe_dir, combined, timeout).await
 }
 
 async fn rerun_claude_usage_after_trust_prompt(
     claude_path: std::path::PathBuf,
     probe_dir: std::path::PathBuf,
     combined: String,
+    timeout: Duration,
 ) -> Result<String, ProviderError> {
     if !is_workspace_trust_prompt(&cli_screen::render(&combined, true).to_lowercase()) {
         return Ok(combined);
     }
 
     run_claude_trust_preflight(claude_path.clone(), probe_dir.clone()).await?;
-    run_claude_usage_pty_probe(claude_path, probe_dir).await
+    run_claude_usage_pty_probe(claude_path, probe_dir, timeout).await
 }
 
 fn claude_cli_error_from_output(output: &str) -> Option<ProviderError> {
@@ -713,6 +822,9 @@ async fn run_claude_pty_probe(
                 .with_script_line_delay(probe.script_line_delay_secs)
                 .with_working_directory(working_directory.clone())
                 .with_extra_args(claude_probe_launch_args(&session_id));
+            // Match the replay screen: rows scrolled off a shorter PTY are
+            // missing from the replayed panel (see `cli_screen::ROWS`).
+            options.rows = u16::try_from(cli_screen::ROWS).expect("Claude PTY rows fit in u16");
             if let Some(idle) = probe.idle_timeout_secs {
                 options = options.with_idle_timeout(idle);
             }
@@ -838,14 +950,16 @@ impl Provider for ClaudeProvider {
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+        // Budget clock for the shell's per-provider timeout; see `cli_retry_timeout`.
+        let started = Instant::now();
         match ctx.source_mode {
             SourceMode::Auto => self
-                .fetch_via_auto(ctx)
+                .fetch_via_auto(ctx, started)
                 .await
                 .map(auto_precision::finish_auto_result),
             SourceMode::OAuth => self.fetch_via_oauth(ctx).await,
             SourceMode::Web => self.fetch_via_web(ctx).await,
-            SourceMode::Cli => match self.fetch_via_cli(ctx).await {
+            SourceMode::Cli => match self.fetch_via_cli(ctx, started).await {
                 Ok(result) => Ok(result),
                 Err(error) if should_fallback_from_claude_cli_error(&error) => {
                     tracing::debug!(
@@ -911,6 +1025,7 @@ impl ClaudeProvider {
     async fn fetch_via_auto(
         &self,
         ctx: &FetchContext,
+        started: Instant,
     ) -> Result<ProviderFetchResult, ProviderError> {
         let mut failures = Vec::new();
 
@@ -921,7 +1036,7 @@ impl ClaudeProvider {
         if let Some(result) =
             record_auto_source(&mut failures, "Web", self.fetch_via_web(ctx).await)?
         {
-            return Ok(result);
+            return Ok(live_auto_success(result));
         }
 
         // Upstream 0.50.1 #2516: track whether OAuth failed with a revocation.
@@ -931,7 +1046,7 @@ impl ClaudeProvider {
             .err()
             .is_some_and(oauth_failure_uses_cli_cache);
         if let Some(result) = record_auto_source(&mut failures, "OAuth", oauth_result)? {
-            return Ok(result);
+            return Ok(live_auto_success(result));
         }
 
         // When OAuth was revoked (not just expired) or is rate limited, reuse a
@@ -944,9 +1059,12 @@ impl ClaudeProvider {
             return Ok(cached);
         }
 
-        if let Some(mut result) =
-            record_auto_source(&mut failures, "CLI", self.fetch_via_cli(ctx).await)?
-        {
+        let cli_result = self.fetch_via_cli(ctx, started).await;
+        if let Some(cached) = stale_cli_result_on_probe_timeout(&cli_result) {
+            tracing::debug!("Claude CLI probe timed out; returning stale cached CLI result");
+            return Ok(cached);
+        }
+        if let Some(mut result) = record_auto_source(&mut failures, "CLI", cli_result)? {
             // Without consent for reading Claude Code credentials, label the
             // CLI fallback as reduced fidelity.
             if !claude_code_consent() {
@@ -1026,13 +1144,27 @@ impl ClaudeProvider {
     async fn fetch_via_cli(
         &self,
         _ctx: &FetchContext,
+        started: Instant,
     ) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Attempting CLI probe for Claude");
 
         let claude_path = resolve_claude_cli_path()?;
-        let combined = fetch_claude_cli_usage_text(claude_path).await?;
-        // Replay cursor redraws once; rendering is idempotent on rendered text.
-        let visible = cli_screen::render(&combined, true);
+        let visible = probe_cli_with_retry(started, |timeout| {
+            let claude_path = claude_path.clone();
+            async move {
+                let combined = fetch_claude_cli_usage_text(claude_path, timeout).await?;
+                // Replay cursor redraws once; rendering is idempotent on rendered text.
+                let visible = cli_screen::render(&combined, true);
+                // Checked inside the probe so a loading stall gets the longer retry.
+                if claude_cli_usage_still_loading(&visible) {
+                    return Err(ProviderError::Parse(
+                        "Claude CLI /usage is still loading usage data.".to_string(),
+                    ));
+                }
+                Ok(visible)
+            }
+        })
+        .await?;
         if tracing::enabled!(tracing::Level::TRACE) {
             tracing::trace!(output = %redacted_probe_screen(&visible), "Claude CLI probe output");
         }
@@ -1050,7 +1182,10 @@ impl ClaudeProvider {
 
     /// Parse Claude CLI /usage output
     fn parse_cli_output(&self, output: &str) -> Result<ProviderFetchResult, ProviderError> {
-        let clean = cli_screen::render(output, true);
+        let rendered = cli_screen::render(output, true);
+        // Insights carry arbitrary tool names and usage shares, never quota or
+        // account fields, so nothing below the heading may feed the parsers.
+        let (clean, has_insights) = split_usage_insights(rendered);
         let clean_lower = clean.to_lowercase();
 
         if clean.trim().is_empty() {
@@ -1107,9 +1242,12 @@ impl ClaudeProvider {
             && weekly_percent.is_none()
             && !is_exhausted_short_form(&clean_lower)
         {
-            return Err(ProviderError::Parse(
-                "Claude CLI did not return usage data".to_string(),
-            ));
+            let message = if has_insights {
+                "Claude CLI /usage returned usage insights without quota data."
+            } else {
+                "Claude CLI did not return usage data"
+            };
+            return Err(ProviderError::Parse(message.to_string()));
         }
 
         // Extract identity info
@@ -1200,6 +1338,27 @@ fn record_auto_source(
             failures.push((source, error));
             Ok(None)
         }
+    }
+}
+
+/// A live OAuth or Web answer is newer than any retained CLI result. Dropping
+/// the retained result keeps a later CLI timeout from serving usage older than
+/// what the user has already seen.
+fn live_auto_success(result: ProviderFetchResult) -> ProviderFetchResult {
+    clear_cli_result_cache();
+    result
+}
+
+/// `record_auto_source` propagates transport failures immediately, so a CLI
+/// probe timeout would never reach the auto path's stale-cache fallback. The
+/// CLI probe has no network leg, so a transport-class error here is a probe
+/// timeout; prefer the retained CLI result when one is still within the TTL.
+fn stale_cli_result_on_probe_timeout(
+    result: &Result<ProviderFetchResult, ProviderError>,
+) -> Option<ProviderFetchResult> {
+    match result {
+        Err(error) if error.is_transport_failure() => cached_cli_result(),
+        _ => None,
     }
 }
 
@@ -1427,6 +1586,23 @@ fn is_workspace_trust_prompt(text: &str) -> bool {
     text.contains("quick safety check")
         && text.contains("trust this folder")
         && text.contains("yes, i trust this folder")
+}
+
+/// Heading of the usage-insights list that follows the quota rows in Claude
+/// Code 2.1.294+ `/usage` panels (lowercased for ASCII-insensitive matching).
+const USAGE_INSIGHTS_HEADING: &str = "what's contributing to your limits usage?";
+
+/// Split a rendered `/usage` screen before its insights heading. Returns the
+/// quota text and whether an insights list was present. ASCII lowercasing
+/// keeps byte offsets aligned with `rendered`.
+fn split_usage_insights(mut rendered: String) -> (String, bool) {
+    match rendered.to_ascii_lowercase().find(USAGE_INSIGHTS_HEADING) {
+        Some(index) => {
+            rendered.truncate(index);
+            (rendered, true)
+        }
+        None => (rendered, false),
+    }
 }
 
 /// Current `/usage` panels show a local session summary above the plan limits,
@@ -1794,6 +1970,7 @@ mod tests {
             serde_json::from_str(&claude_usage_settings_args()[1]).unwrap();
         assert_eq!(settings["tui"], "default");
         assert_eq!(settings["remoteControlAtStartup"], false);
+        assert_eq!(settings["disableAllHooks"], true);
     }
 
     #[test]
@@ -1807,22 +1984,29 @@ mod tests {
         // Positional structure only: the settings pair is pinned once by
         // `claude_usage_settings_args` being the sole composer.
         assert_eq!(
-            args[..4],
-            ["--setting-sources", "user", "--allowed-tools", ""]
+            args[..5],
+            [
+                "--setting-sources",
+                "user",
+                "--allowed-tools",
+                "",
+                "--strict-mcp-config"
+            ]
         );
-        assert_eq!(args[4], claude_usage_settings_args()[0]);
-        assert_eq!(args[5], claude_usage_settings_args()[1]);
-        assert_eq!(args[6], "--session-id");
-        assert_eq!(args[7], first);
+        assert_eq!(args[5], claude_usage_settings_args()[0]);
+        assert_eq!(args[6], claude_usage_settings_args()[1]);
+        assert_eq!(args[7], "--session-id");
+        assert_eq!(args[8], first);
     }
 
     #[test]
-    fn usage_probe_settings_disable_remote_control_startup() {
+    fn usage_probe_settings_disable_remote_control_startup_and_user_hooks() {
         assert_eq!(
             claude_usage_settings_args(),
             [
                 "--settings".to_string(),
-                r#"{"remoteControlAtStartup":false,"tui":"default"}"#.to_string(),
+                r#"{"remoteControlAtStartup":false,"disableAllHooks":true,"tui":"default"}"#
+                    .to_string(),
             ]
         );
     }
@@ -2197,6 +2381,45 @@ Resets Dec 24 at 3:59pm (Europe/Paris)
         );
     }
 
+    /// Insights footer as Claude Code 2.1.294 prints it below the quota rows.
+    const USAGE_INSIGHTS: &str = "What's contributing to your limits usage?\n\
+        Approximate, based on local sessions on this machine.\n\
+        Last 24h · 100 requests · 2 sessions\n\
+        30% of your usage was at >150k context\n\
+        Top MCP servers: Claude Browser 10%, claude-in-chrome 5%\n\
+        Last 7d · 1000 requests · 20 sessions\n\
+        Top skills: Claude Max 20%";
+
+    #[test]
+    fn usage_insights_footer_cannot_set_identity_or_quota() {
+        let text = format!(
+            "Current session\n13% used\nResets 2:20pm (Asia/Singapore)\n\
+             Current week (all models)\n2% used\nResets Oct 3 at 8am (Asia/Singapore)\n{USAGE_INSIGHTS}"
+        );
+        let usage = ClaudeProvider::new().parse_cli_output(&text).unwrap().usage;
+        assert_eq!(usage.primary.used_percent, 13.0);
+        assert_eq!(
+            usage.primary.reset_description.as_deref(),
+            Some("Resets 2:20pm (Asia/Singapore)")
+        );
+        assert_eq!(usage.secondary.map(|w| w.used_percent), Some(2.0));
+        assert_eq!(usage.login_method.as_deref(), Some("Claude (CLI)"));
+    }
+
+    #[test]
+    fn usage_insights_without_quota_are_not_read_as_limits() {
+        let text = format!(
+            "You are currently using your subscription to power your Claude Code usage\n{USAGE_INSIGHTS}"
+        );
+        let error = ClaudeProvider::new().parse_cli_output(&text).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("returned usage insights without quota data"),
+            "{error}"
+        );
+    }
+
     #[test]
     fn cli_parse_usage_error_can_fallback_to_oauth() {
         let err = ProviderError::Parse("Claude CLI did not return usage data".to_string());
@@ -2506,8 +2729,12 @@ Usage:                 0 input, 0 output, 0 cache read
         assert!(!oauth_failure_uses_cli_cache(&ProviderError::AuthRequired));
     }
 
+    /// Serializes the tests that use the global CLI result cache.
+    static CLI_CACHE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[test]
     fn cli_result_cache_round_trips() {
+        let _guard = CLI_CACHE_TEST_LOCK.blocking_lock();
         let mut result = ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(42.0)), "cli");
         result.has_successful_claude_cli_quota = true;
         cache_cli_result(result.clone());
@@ -2516,10 +2743,290 @@ Usage:                 0 input, 0 output, 0 cache read
         assert_eq!(cached.source_label, "cli");
         assert!(!cached.has_successful_claude_cli_quota);
 
-        // A live non-CLI success clears the cache. Same test, because the
-        // global is shared and tests run in parallel without a lock.
+        // A live non-CLI success clears the cache.
         clear_cli_result_cache();
         assert!(cached_cli_result().is_none());
+    }
+
+    // ── Upstream #4155: CLI timeout resilience ───────────────────────────────
+
+    /// Run `probe_cli_with_retry` over scripted outcomes. Returns the result
+    /// and the timeout each probe call received, in order.
+    async fn run_scripted_cli_probe(
+        started: Instant,
+        outcomes: Vec<Result<String, ProviderError>>,
+    ) -> (Result<String, ProviderError>, Vec<Duration>) {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let outcomes = std::cell::RefCell::new(std::collections::VecDeque::from(outcomes));
+        let result = probe_cli_with_retry(started, |timeout| {
+            calls.borrow_mut().push(timeout);
+            let outcome = outcomes
+                .borrow_mut()
+                .pop_front()
+                .expect("probe called more times than scripted");
+            async move { outcome }
+        })
+        .await;
+        (result, calls.into_inner())
+    }
+
+    #[tokio::test]
+    async fn cli_probe_timeout_retries_once_with_longer_timeout() {
+        let (result, calls) = run_scripted_cli_probe(
+            Instant::now(),
+            vec![
+                Err(ProviderError::Timeout),
+                Ok("Current session 12% used".to_string()),
+            ],
+        )
+        .await;
+
+        assert_eq!(
+            result.expect("longer retry succeeds"),
+            "Current session 12% used"
+        );
+        assert_eq!(
+            calls,
+            vec![CLAUDE_CLI_PROBE_TIMEOUT, CLAUDE_CLI_RETRY_PROBE_TIMEOUT]
+        );
+    }
+
+    #[tokio::test]
+    async fn cli_probe_retries_at_most_once() {
+        let (result, calls) = run_scripted_cli_probe(
+            Instant::now(),
+            vec![Err(ProviderError::Timeout), Err(ProviderError::Timeout)],
+        )
+        .await;
+
+        assert!(matches!(result, Err(ProviderError::Timeout)));
+        assert_eq!(calls.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn cli_probe_does_not_retry_non_retryable_failures() {
+        let cases: [fn() -> ProviderError; 3] = [
+            || ProviderError::AuthRequired,
+            || ProviderError::OAuthExpired("Token expired. Run `claude login` to refresh.".into()),
+            || ProviderError::Parse("Claude CLI did not return usage data".to_string()),
+        ];
+        for make_error in cases {
+            let expected = make_error().to_string();
+            let (result, calls) =
+                run_scripted_cli_probe(Instant::now(), vec![Err(make_error())]).await;
+
+            assert_eq!(result.unwrap_err().to_string(), expected);
+            assert_eq!(calls, vec![CLAUDE_CLI_PROBE_TIMEOUT], "{expected}");
+        }
+    }
+
+    #[test]
+    fn cli_probe_retryable_errors_match_upstream_set() {
+        assert!(is_retryable_cli_probe_error(&ProviderError::Timeout));
+        assert!(is_retryable_cli_probe_error(&ProviderError::Other(
+            "Claude CLI failed: Command timed out".to_string()
+        )));
+        assert!(is_retryable_cli_probe_error(&ProviderError::Parse(
+            "Claude CLI /usage still loading usage".to_string()
+        )));
+        assert!(!is_retryable_cli_probe_error(&ProviderError::AuthRequired));
+        assert!(!is_retryable_cli_probe_error(&ProviderError::OAuth(
+            "Authentication error. Run `claude login`.".to_string()
+        )));
+        assert!(!is_retryable_cli_probe_error(&ProviderError::Parse(
+            "Claude CLI did not return usage data".to_string()
+        )));
+    }
+
+    #[test]
+    fn cli_usage_still_loading_checks_only_the_latest_panel() {
+        let loading = "Claude Code v2.1.29\n22:47 | Opus 4.5 | 0%\n\nSettings:  Status   Config   Usage  (tab to cycle)\nLoading usage data…\nEsc to cancel\n";
+        assert!(claude_cli_usage_still_loading(loading));
+
+        let retained = "Settings:  Status   Config   Usage  (tab to cycle)\nCurrent session\n15% used\n\nSettings:  Status   Config   Usage  (tab to cycle)\nLoading usage data…\nEsc to cancel\n";
+        assert!(claude_cli_usage_still_loading(retained));
+
+        let rendered =
+            "Settings:StatusConfigUsage(tabtocycle)\nLoadingusagedata...\nCurrentsession\n6%used\n";
+        assert!(!claude_cli_usage_still_loading(rendered));
+        assert!(!claude_cli_usage_still_loading("Current session 12% used"));
+    }
+
+    #[tokio::test]
+    async fn cli_probe_loading_stall_retries_with_longer_timeout() {
+        let (result, calls) = run_scripted_cli_probe(
+            Instant::now(),
+            vec![
+                Err(ProviderError::Parse(
+                    "Claude CLI /usage is still loading usage data.".to_string(),
+                )),
+                Ok("Current session 12% used".to_string()),
+            ],
+        )
+        .await;
+
+        assert_eq!(result.expect("retry succeeds"), "Current session 12% used");
+        assert_eq!(
+            calls,
+            vec![CLAUDE_CLI_PROBE_TIMEOUT, CLAUDE_CLI_RETRY_PROBE_TIMEOUT]
+        );
+    }
+
+    #[test]
+    fn cli_retry_timeout_is_capped_by_the_fetch_budget() {
+        // Fresh fetch: the full longer timeout.
+        assert_eq!(
+            cli_retry_timeout(Duration::ZERO),
+            Some(CLAUDE_CLI_RETRY_PROBE_TIMEOUT)
+        );
+        // 75 s budget - 26 s spent - 5 s margin = 44 s left for the retry.
+        assert_eq!(
+            cli_retry_timeout(Duration::from_secs(26)),
+            Some(Duration::from_secs(44))
+        );
+        // Exactly the minimum useful retry is still allowed.
+        assert_eq!(
+            cli_retry_timeout(Duration::from_secs(55)),
+            Some(CLAUDE_CLI_MIN_RETRY_TIMEOUT)
+        );
+        // Below the minimum, or past the budget, no retry at all.
+        assert_eq!(cli_retry_timeout(Duration::from_secs(56)), None);
+        assert_eq!(cli_retry_timeout(Duration::from_secs(80)), None);
+        // The worst single-retry case still ends inside the shell budget.
+        let elapsed = Duration::from_secs(26);
+        let retry = cli_retry_timeout(elapsed).expect("retry fits");
+        assert!(elapsed + retry + CLAUDE_FETCH_BUDGET_MARGIN <= CLAUDE_FETCH_BUDGET);
+    }
+
+    #[tokio::test]
+    async fn cli_probe_failure_keeps_cached_cli_result_as_stale_fallback() {
+        let _guard = CLI_CACHE_TEST_LOCK.lock().await;
+        cache_cli_result(ProviderFetchResult::new(
+            UsageSnapshot::new(RateWindow::new(42.0)),
+            "cli",
+        ));
+
+        // Every attempt times out: the probe reports the failure, and the
+        // retained CLI result stays available for the stale fallback.
+        let (result, _) = run_scripted_cli_probe(
+            Instant::now(),
+            vec![Err(ProviderError::Timeout), Err(ProviderError::Timeout)],
+        )
+        .await;
+        assert!(matches!(result, Err(ProviderError::Timeout)));
+
+        let stale = cached_cli_result().expect("retained CLI result survives failed probes");
+        assert!((stale.usage.primary.used_percent - 42.0).abs() < 0.01);
+        assert!(!stale.has_successful_claude_cli_quota);
+        clear_cli_result_cache();
+    }
+
+    #[tokio::test]
+    async fn cli_probe_timeout_returns_stale_cached_cli_result() {
+        let _guard = CLI_CACHE_TEST_LOCK.lock().await;
+        let mut live = ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(42.0)), "cli");
+        live.has_successful_claude_cli_quota = true;
+        cache_cli_result(live);
+
+        let (probe, _) = run_scripted_cli_probe(
+            Instant::now(),
+            vec![Err(ProviderError::Timeout), Err(ProviderError::Timeout)],
+        )
+        .await;
+        let cli_result: Result<ProviderFetchResult, ProviderError> =
+            probe.map(|_| unreachable!("every scripted probe times out"));
+
+        let stale = stale_cli_result_on_probe_timeout(&cli_result)
+            .expect("timeout with a retained CLI result falls back to it");
+        assert!((stale.usage.primary.used_percent - 42.0).abs() < 0.01);
+        assert_eq!(stale.source_label, "cli");
+        assert!(!stale.has_successful_claude_cli_quota);
+        clear_cli_result_cache();
+    }
+
+    #[test]
+    fn live_oauth_or_web_success_drops_retained_cli_result() {
+        let _guard = CLI_CACHE_TEST_LOCK.blocking_lock();
+        let timeout: Result<ProviderFetchResult, ProviderError> = Err(ProviderError::Timeout);
+
+        for source in ["OAuth", "Web"] {
+            cache_cli_result(ProviderFetchResult::new(
+                UsageSnapshot::new(RateWindow::new(42.0)),
+                "cli",
+            ));
+            let live = ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(10.0)), "oauth");
+            let mut failures = Vec::new();
+            let recorded = record_auto_source(&mut failures, source, Ok(live))
+                .expect("live success is not a failure")
+                .expect("live success yields a result");
+            let returned = live_auto_success(recorded);
+
+            assert!((returned.usage.primary.used_percent - 10.0).abs() < 0.01);
+            assert!(cached_cli_result().is_none(), "{source}");
+            assert!(
+                stale_cli_result_on_probe_timeout(&timeout).is_none(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn revoked_oauth_failure_keeps_retained_cli_result() {
+        let _guard = CLI_CACHE_TEST_LOCK.blocking_lock();
+        cache_cli_result(ProviderFetchResult::new(
+            UsageSnapshot::new(RateWindow::new(42.0)),
+            "cli",
+        ));
+
+        let revoked = ProviderError::OAuthRevoked("token revoked".to_string());
+        assert!(oauth_failure_uses_cli_cache(&revoked));
+        let mut failures = Vec::new();
+        let outcome = record_auto_source(&mut failures, "OAuth", Err(revoked));
+        assert!(matches!(outcome, Ok(None)));
+        assert!(cached_cli_result().is_some());
+        clear_cli_result_cache();
+    }
+
+    #[tokio::test]
+    async fn cli_probe_timeout_without_cache_still_propagates() {
+        let _guard = CLI_CACHE_TEST_LOCK.lock().await;
+        clear_cli_result_cache();
+
+        let (probe, _) = run_scripted_cli_probe(
+            Instant::now(),
+            vec![Err(ProviderError::Timeout), Err(ProviderError::Timeout)],
+        )
+        .await;
+        let cli_result: Result<ProviderFetchResult, ProviderError> =
+            probe.map(|_| unreachable!("every scripted probe times out"));
+
+        assert!(stale_cli_result_on_probe_timeout(&cli_result).is_none());
+        let mut failures = Vec::new();
+        let outcome = record_auto_source(&mut failures, "CLI", cli_result);
+        assert!(matches!(outcome, Err(ProviderError::Timeout)));
+        assert!(failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cli_auth_failure_skips_timeout_fallback_and_is_recorded() {
+        let _guard = CLI_CACHE_TEST_LOCK.lock().await;
+        cache_cli_result(ProviderFetchResult::new(
+            UsageSnapshot::new(RateWindow::new(42.0)),
+            "cli",
+        ));
+
+        let (probe, _) =
+            run_scripted_cli_probe(Instant::now(), vec![Err(ProviderError::AuthRequired)]).await;
+        let cli_result: Result<ProviderFetchResult, ProviderError> =
+            probe.map(|_| unreachable!("the scripted probe fails"));
+
+        assert!(stale_cli_result_on_probe_timeout(&cli_result).is_none());
+        let mut failures = Vec::new();
+        let outcome = record_auto_source(&mut failures, "CLI", cli_result);
+        assert!(matches!(outcome, Ok(None)));
+        assert_eq!(failures.len(), 1);
+        assert!(matches!(failures[0], ("CLI", ProviderError::AuthRequired)));
+        clear_cli_result_cache();
     }
 
     #[test]

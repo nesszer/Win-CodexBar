@@ -13,7 +13,7 @@
 use std::fmt;
 use std::sync::{PoisonError, RwLock};
 
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Offset, TimeZone, Timelike, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Largest rolling window a user can select.
@@ -131,6 +131,32 @@ impl CostTimeZone {
             Self::Local => Self::resolve(&Local, date),
             Self::Named(tz) => Self::resolve(tz, date),
         }
+    }
+
+    /// Minutes east of UTC this zone observes at `at`.
+    pub fn offset_minutes_at(&self, at: DateTime<Utc>) -> i32 {
+        match self {
+            Self::Local => Self::offset_in(&Local, at),
+            Self::Named(tz) => Self::offset_in(tz, at),
+        }
+    }
+
+    /// The instant the local clock hour containing `at` began, and the zone
+    /// offset in minutes during that hour.
+    ///
+    /// The fall-back hour that repeats on the local clock yields two distinct
+    /// instants with different offsets, so neither absorbs the other.
+    pub fn hour_start(&self, at: DateTime<Utc>) -> (DateTime<Utc>, i32) {
+        let offset = self.offset_minutes_at(at);
+        let local = at + Duration::minutes(i64::from(offset));
+        let into_hour = Duration::minutes(i64::from(local.minute()))
+            + Duration::seconds(i64::from(local.second()))
+            + Duration::nanoseconds(i64::from(local.nanosecond()));
+        (at - into_hour, offset)
+    }
+
+    fn offset_in<Tz: TimeZone>(tz: &Tz, at: DateTime<Utc>) -> i32 {
+        at.with_timezone(tz).offset().fix().local_minus_utc() / 60
     }
 
     fn resolve<Tz: TimeZone>(tz: &Tz, date: NaiveDate) -> DateTime<Utc> {
@@ -632,5 +658,37 @@ mod tests {
         assert_eq!(set_cost_bucket_zone("Mars/Olympus"), CostTimeZone::Local);
         assert_eq!(cost_bucket_zone(), CostTimeZone::Local);
         assert_eq!(set_cost_bucket_zone(""), CostTimeZone::Local);
+    }
+
+    #[test]
+    fn hour_starts_follow_the_local_clock_across_dst_and_half_hour_offsets() {
+        let berlin = CostTimeZone::Named(chrono_tz::Europe::Berlin);
+        // Winter: UTC+01:00.
+        assert_eq!(
+            berlin.hour_start(at("2026-01-10T09:42:13Z")),
+            (at("2026-01-10T09:00:00Z"), 60)
+        );
+        // Spring forward 2026-03-29 01:00Z: 01:59 CET then 03:00 CEST.
+        assert_eq!(
+            berlin.hour_start(at("2026-03-29T00:59:59Z")),
+            (at("2026-03-29T00:00:00Z"), 60)
+        );
+        assert_eq!(
+            berlin.hour_start(at("2026-03-29T01:00:00Z")),
+            (at("2026-03-29T01:00:00Z"), 120)
+        );
+        // Fall back 2026-10-25 01:00Z: the repeated 02:00 hour stays two hours.
+        let first = berlin.hour_start(at("2026-10-25T00:30:00Z"));
+        let second = berlin.hour_start(at("2026-10-25T01:30:00Z"));
+        assert_eq!(first, (at("2026-10-25T00:00:00Z"), 120));
+        assert_eq!(second, (at("2026-10-25T01:00:00Z"), 60));
+        // India is UTC+05:30, so the local hour begins on a UTC half hour.
+        let kolkata = CostTimeZone::Named(chrono_tz::Asia::Kolkata);
+        assert_eq!(
+            kolkata.hour_start(at("2026-05-01T10:10:00Z")),
+            (at("2026-05-01T09:30:00Z"), 330)
+        );
+        assert_eq!(UTC.offset_minutes_at(at("2026-05-01T10:10:00Z")), 0);
+        assert_eq!(LA.offset_minutes_at(at("2026-07-01T00:00:00Z")), -420);
     }
 }

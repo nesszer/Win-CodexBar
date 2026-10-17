@@ -381,6 +381,12 @@ static PLAYBACK_QUEUE: OnceLock<Result<mpsc::Sender<PlaybackRequest>, String>> =
 
 #[cfg(target_os = "windows")]
 fn enqueue_playback(request: PlaybackRequest) -> Result<(), SoundError> {
+    // Unit tests drive the real notification paths; without this every
+    // `cargo test` run plays alert sounds on the developer's speakers.
+    if cfg!(test) {
+        drop(request);
+        return Ok(());
+    }
     let sender = PLAYBACK_QUEUE.get_or_init(|| {
         let (sender, receiver) = mpsc::channel();
         std::thread::Builder::new()
@@ -443,6 +449,25 @@ mod tests {
         NotificationSoundEvent::SessionDepleted,
         NotificationSoundEvent::SessionRestored,
     ];
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn tests_never_start_the_playback_thread() {
+        let mut settings = Settings {
+            sound_enabled: true,
+            ..Settings::default()
+        };
+        for theme in [
+            NotificationSoundTheme::Windows,
+            NotificationSoundTheme::CodexBar,
+        ] {
+            settings.notification_sound_theme = theme;
+            for event in ALL_EVENTS {
+                play_alert(event, &settings).expect("silenced playback succeeds");
+            }
+        }
+        assert!(PLAYBACK_QUEUE.get().is_none());
+    }
 
     #[test]
     fn windows_defaults_preserve_existing_alert_mapping() {

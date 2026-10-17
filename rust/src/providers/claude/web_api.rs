@@ -5,11 +5,15 @@ use reqwest::{Client, StatusCode, header};
 use serde::Deserialize;
 
 use crate::core::{
-    CostSnapshot, NamedRateWindow, ProviderError, ProviderFetchResult, RateWindow, UsageSnapshot,
+    CostSnapshot, NamedRateWindow, ProviderDisplayDetail, ProviderError, ProviderFetchResult,
+    RateWindow, UsageSnapshot,
 };
 
 use super::CLOUDFLARE_CHALLENGE_MESSAGE;
+use super::cloud_credits;
 use super::reset_credits;
+use super::spend_window;
+use super::subscription_details;
 
 const CLOUDFLARE_BODY_PREFIX_BYTES: usize = 64 * 1024;
 
@@ -152,6 +156,17 @@ struct UsageResponse {
     /// Raw limit-reset block; decoded leniently by `reset_credits` so an
     /// unreadable block never fails the usage windows.
     cedar_ember: Option<serde_json::Value>,
+    /// Raw promotional cloud-credits block; decoded leniently by
+    /// `cloud_credits`. Display-only, never read by the quota windows.
+    iguana_necktie: Option<serde_json::Value>,
+}
+
+/// Display row for the promotional cloud-credits block, when present and valid.
+fn cloud_credits_row(usage: &UsageResponse, now: DateTime<Utc>) -> Option<ProviderDisplayDetail> {
+    usage
+        .iguana_necktie
+        .as_ref()
+        .and_then(|block| cloud_credits::detail_from_block(block, now))
 }
 
 impl<'de> Deserialize<'de> for UsageResponse {
@@ -228,6 +243,7 @@ impl<'de> Deserialize<'de> for UsageResponse {
                 .transpose()
                 .map_err(serde::de::Error::custom)?,
             cedar_ember: map.remove("cedar_ember"),
+            iguana_necktie: map.remove("iguana_necktie"),
         })
     }
 }
@@ -280,6 +296,16 @@ struct AccountOrganization {
 }
 
 impl AccountResponse {
+    fn is_member_of(&self, org_id: &str) -> bool {
+        self.memberships.iter().any(|membership| {
+            membership
+                .organization
+                .as_ref()
+                .and_then(|organization| organization.uuid.as_deref())
+                .is_some_and(|uuid| uuid.trim() == org_id)
+        })
+    }
+
     fn first_membership_org_id(&self) -> Option<String> {
         self.memberships.iter().find_map(|membership| {
             membership
@@ -343,11 +369,24 @@ impl ClaudeWebApiFetcher {
             }
         }
 
-        let cookie_header = crate::providers::browser_cookie_header(&domains)?;
-        let result = self.fetch_with_cookie_header(&cookie_header).await?;
-        let _stored =
-            CookieHeaderCache::store(crate::core::ProviderId::Claude, &cookie_header, "browser");
-        Ok(result)
+        // A signed-out browser session moves on to the next browser's session.
+        let mut sessions = crate::providers::unscoped_browser_cookie_sessions(&domains);
+        let mut rejected = None;
+        for cookie_header in sessions.by_ref() {
+            match self.fetch_with_cookie_header(&cookie_header).await {
+                Ok(result) => {
+                    let _stored = CookieHeaderCache::store(
+                        crate::core::ProviderId::Claude,
+                        &cookie_header,
+                        "browser",
+                    );
+                    return Ok(result);
+                }
+                Err(error) if is_cookie_authentication_failure(&error) => rejected = Some(error),
+                Err(error) => return Err(error),
+            }
+        }
+        Err(rejected.unwrap_or_else(|| sessions.exhaustion_error()))
     }
 
     /// Fetch usage with a provided cookie header
@@ -376,30 +415,7 @@ impl ClaudeWebApiFetcher {
         // Step 4: Fetch account info - optional
         let account = self.get_account_info(&headers).await.ok();
 
-        let (primary, secondary, model_specific) = self.build_rate_windows(&usage);
-
-        let mut snapshot = UsageSnapshot::new(primary);
-
-        if let Some(s) = secondary {
-            snapshot = snapshot.with_secondary(s);
-        }
-
-        if let Some(m) = model_specific {
-            snapshot = snapshot.with_model_specific(m);
-        }
-
-        append_web_extra_windows(
-            &mut snapshot,
-            usage
-                .seven_day_oauth_apps
-                .as_ref()
-                .map(|w| self.to_rate_window(w, Some(10080))),
-            super::scoped_weekly::scoped_weekly_windows(&usage.limits),
-            usage
-                .seven_day_routines
-                .as_ref()
-                .map(|w| self.to_rate_window(w, Some(10080))),
-        );
+        let (mut snapshot, mut cost) = self.build_usage_and_cost(&usage, extra_usage);
 
         if let Some(acc) = &account {
             if let Some(email) = &acc.email_address {
@@ -410,7 +426,8 @@ impl ClaudeWebApiFetcher {
             }
         }
 
-        let mut result = ProviderFetchResult::new(snapshot, "web");
+        let mut result = ProviderFetchResult::new(snapshot, "web")
+            .with_display_detail(cloud_credits_row(&usage, Utc::now()));
 
         // Web-only, display-only limit-reset inventory (never persisted).
         if let Some(item) = usage
@@ -421,40 +438,31 @@ impl ClaudeWebApiFetcher {
             result = result.with_inventory_item(item);
         }
 
-        // Add cost info if available
-        let mut cost = extra_usage.and_then(|extra| {
-            if !extra.is_enabled.unwrap_or(false) {
-                return None;
-            }
-            let used_cents = extra.used_credits.unwrap_or(0.0);
-            let limit_cents = extra.monthly_credit_limit;
-            let currency = extra.currency.unwrap_or_else(|| "USD".to_string());
-
-            let mut cost = CostSnapshot::new(
-                used_cents / 100.0, // Convert cents to dollars
-                currency,
-                "Monthly",
-            );
-
-            if let Some(limit) = limit_cents {
-                cost = cost.with_limit(limit / 100.0);
-            }
-            Some(cost)
-        });
-
         // Best-effort prepaid Extra usage balance (non-fatal).
         // Gate: cookie session is already available on this path; skip only when
         // cookie source is explicitly off.
         let settings = crate::settings::Settings::load();
         let cookie_source = settings.claude_cookie_source();
-        if !cookie_source.eq_ignore_ascii_case("off")
-            && let Some(balance) = self.get_prepaid_credits(&org_id, &headers).await
+        let cookie_source_on = !cookie_source.eq_ignore_ascii_case("off");
+        if cookie_source_on && let Some(balance) = self.get_prepaid_credits(&org_id, &headers).await
         {
             cost = Some(apply_prepaid_balance(balance, cost));
         }
 
         if let Some(cost) = cost {
             result = result.with_cost(cost);
+        }
+
+        // Best-effort plan renewal / expiration dates, only for an organization
+        // the authenticated account is a member of.
+        if cookie_source_on
+            && account
+                .as_ref()
+                .is_some_and(|account| account.is_member_of(&org_id))
+            && let Some(metadata) = self.get_subscription_details(&org_id, &headers).await
+            && !metadata.is_empty()
+        {
+            result.usage = result.usage.with_subscription(Some(metadata));
         }
 
         Ok(result)
@@ -674,6 +682,31 @@ impl ClaudeWebApiFetcher {
         parse_prepaid_balance(&body)
     }
 
+    /// Best-effort subscription dates with a two-second budget. Non-fatal.
+    async fn get_subscription_details(
+        &self,
+        org_id: &str,
+        headers: &reqwest::header::HeaderMap,
+    ) -> Option<crate::core::SubscriptionMetadata> {
+        let url = format!(
+            "{}/organizations/{}/subscription_details",
+            self.base_url, org_id
+        );
+        let response = self
+            .client
+            .get(&url)
+            .headers(headers.clone())
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await
+            .ok()?;
+        if response.status() != StatusCode::OK {
+            return None;
+        }
+        let body = response.text().await.ok()?;
+        subscription_details::parse(&body)
+    }
+
     /// Get account info
     async fn get_account_info(
         &self,
@@ -756,6 +789,49 @@ impl ClaudeWebApiFetcher {
         (primary, secondary, model_specific)
     }
 
+    /// Compose the usage snapshot and Extra usage cost from one usage response.
+    ///
+    /// A spend-only account (a capped monthly spend with no session, weekly,
+    /// model, or scoped lane) has its cap projected into the primary meter.
+    /// Quota accounts keep their lanes and cost unchanged.
+    fn build_usage_and_cost(
+        &self,
+        usage: &UsageResponse,
+        extra_usage: Option<ExtraUsageResponse>,
+    ) -> (UsageSnapshot, Option<CostSnapshot>) {
+        let (primary, secondary, model_specific) = self.build_rate_windows(usage);
+
+        let mut snapshot = UsageSnapshot::new(primary);
+
+        if let Some(s) = secondary {
+            snapshot = snapshot.with_secondary(s);
+        }
+
+        if let Some(m) = model_specific {
+            snapshot = snapshot.with_model_specific(m);
+        }
+
+        append_web_extra_windows(
+            &mut snapshot,
+            usage
+                .seven_day_oauth_apps
+                .as_ref()
+                .map(|w| self.to_rate_window(w, Some(10080))),
+            super::scoped_weekly::scoped_weekly_windows(&usage.limits),
+            usage
+                .seven_day_routines
+                .as_ref()
+                .map(|w| self.to_rate_window(w, Some(10080))),
+        );
+
+        let mut cost = web_extra_cost(extra_usage);
+        if let Some(cost) = cost.as_mut() {
+            spend_window::project_spend_only(&mut snapshot, cost);
+        }
+
+        (snapshot, cost)
+    }
+
     /// Parse ISO8601 date string
     fn parse_iso8601(s: &str) -> Option<DateTime<Utc>> {
         DateTime::parse_from_rfc3339(s)
@@ -830,6 +906,29 @@ fn parse_prepaid_balance(body: &str) -> Option<PrepaidBalance> {
         amount_dollars: response.amount / 100.0,
         currency_code: currency,
     })
+}
+
+/// Monthly Extra usage cost from the web credits block (cents → dollars).
+/// `None` when Extra usage is disabled or absent.
+fn web_extra_cost(extra: Option<ExtraUsageResponse>) -> Option<CostSnapshot> {
+    let extra = extra?;
+    if !extra.is_enabled.unwrap_or(false) {
+        return None;
+    }
+    let used_cents = extra.used_credits.unwrap_or(0.0);
+    let limit_cents = extra.monthly_credit_limit;
+    let currency = extra.currency.unwrap_or_else(|| "USD".to_string());
+
+    let mut cost = CostSnapshot::new(
+        used_cents / 100.0, // Convert cents to dollars
+        currency,
+        "Monthly",
+    );
+
+    if let Some(limit) = limit_cents {
+        cost = cost.with_limit(limit / 100.0);
+    }
+    Some(cost)
 }
 
 /// Attach prepaid balance onto an existing same-currency cost, otherwise create
@@ -1190,6 +1289,40 @@ mod tests {
     }
 
     #[test]
+    fn web_cloud_credits_block_becomes_display_row_and_leaves_windows_alone() {
+        let usage: super::UsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": { "utilization": 10.0 },
+                "iguana_necktie": {
+                    "limit_dollars": 20.0,
+                    "used_dollars": 8.0,
+                    "remaining_dollars": 12.0,
+                    "resets_at": "2099-01-01T00:00:00Z"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let row = super::cloud_credits_row(&usage, chrono::Utc::now()).expect("cloud credits row");
+        assert_eq!(row.title(), "Cloud credits");
+        assert_eq!(row.value(), "$12.00 of $20.00 remaining");
+        assert_eq!(row.secondary_value(), Some("Expires 2099-01-01"));
+        assert!(usage.extra_usage.is_none());
+        assert!(usage.seven_day.is_none());
+    }
+
+    #[test]
+    fn web_response_without_valid_cloud_credits_yields_no_row() {
+        let absent: super::UsageResponse =
+            serde_json::from_str(r#"{"five_hour": {"utilization": 1.0}}"#).unwrap();
+        assert!(super::cloud_credits_row(&absent, chrono::Utc::now()).is_none());
+
+        let malformed: super::UsageResponse =
+            serde_json::from_str(r#"{"iguana_necktie": {"remaining_dollars": 5.0}}"#).unwrap();
+        assert!(super::cloud_credits_row(&malformed, chrono::Utc::now()).is_none());
+    }
+
+    #[test]
     fn parses_oauth_apps_window_and_embedded_extra_usage() {
         let usage: super::UsageResponse = serde_json::from_str(
             r#"{
@@ -1217,6 +1350,81 @@ mod tests {
         assert_eq!(extra.is_enabled, Some(true));
         assert_eq!(extra.monthly_credit_limit, Some(2000.0));
         assert_eq!(extra.used_credits, Some(550.0));
+    }
+
+    #[test]
+    fn spend_only_web_response_projects_capped_spend_into_one_meter() {
+        let usage: super::UsageResponse = serde_json::from_str(
+            r#"{
+                "extra_usage": {
+                    "is_enabled": true,
+                    "monthly_credit_limit": 5000,
+                    "used_credits": 1234,
+                    "currency": "USD"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let fetcher = ClaudeWebApiFetcher::new();
+        let (snapshot, cost) = fetcher.build_usage_and_cost(&usage, usage.extra_usage.clone());
+        let cost = cost.expect("capped spend cost");
+
+        assert!(!snapshot.primary.is_informational);
+        assert!((snapshot.primary.used_percent - 24.68).abs() < 0.01);
+        assert_eq!(snapshot.primary_label.as_deref(), Some("Monthly"));
+        assert!(snapshot.secondary.is_none());
+        assert!(snapshot.extra_rate_windows.is_empty());
+        assert!(cost.folded_into_primary);
+        assert_eq!(cost.limit, Some(50.0));
+        assert!((cost.used - 12.34).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn quota_web_response_keeps_session_and_unfolded_cost() {
+        let usage: super::UsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": { "utilization": 10 },
+                "extra_usage": {
+                    "is_enabled": true,
+                    "monthly_credit_limit": 2000,
+                    "used_credits": 550,
+                    "currency": "USD"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let fetcher = ClaudeWebApiFetcher::new();
+        let (snapshot, cost) = fetcher.build_usage_and_cost(&usage, usage.extra_usage.clone());
+        let cost = cost.expect("quota cost");
+
+        assert!((snapshot.primary.used_percent - 10.0).abs() < f64::EPSILON);
+        assert!(snapshot.primary_label.is_none());
+        assert!(!cost.folded_into_primary);
+        assert_eq!(cost.limit, Some(20.0));
+    }
+
+    #[test]
+    fn disabled_extra_usage_web_response_has_no_meter_or_cost() {
+        let usage: super::UsageResponse = serde_json::from_str(
+            r#"{
+                "extra_usage": {
+                    "is_enabled": false,
+                    "monthly_credit_limit": 5000,
+                    "used_credits": 1234,
+                    "currency": "USD"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let fetcher = ClaudeWebApiFetcher::new();
+        let (snapshot, cost) = fetcher.build_usage_and_cost(&usage, usage.extra_usage.clone());
+
+        assert!(cost.is_none());
+        assert!(snapshot.primary.is_informational);
+        assert!(snapshot.primary_label.is_none());
     }
 
     #[test]
@@ -1388,3 +1596,7 @@ mod cloudflare_tests;
 #[cfg(test)]
 #[path = "reset_opt_in_tests.rs"]
 mod reset_opt_in_tests;
+
+#[cfg(test)]
+#[path = "subscription_details_wire_tests.rs"]
+mod subscription_details_wire_tests;

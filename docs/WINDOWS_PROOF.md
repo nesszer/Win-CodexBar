@@ -176,3 +176,89 @@ Tick each entry as it is verified on the Windows target.
 [ ] runtime.update-banner-flow
 [ ] runtime.single-instance-mutex
 ```
+
+---
+
+## 5. Mocked-IPC proof build
+
+`apps/desktop-tauri/proof.html` runs the real React surfaces in any browser.
+The Tauri bridge is replaced by `mockIPC` / `mockWindows` from
+`@tauri-apps/api/mocks`. Commands are answered by synthetic fixtures in
+`src/proof/fixtures/` (typed against `types/bridge.ts`). The desktop bundle
+(`index.html` → `src/main.tsx`) never imports `src/proof`.
+
+```powershell
+cd apps/desktop-tauri
+pnpm run dev:proof      # http://127.0.0.1:1420/proof.html
+pnpm run build:proof    # static output in dist-proof/
+```
+
+URL parameters:
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `window` | `main`, `settings`, `flyout`, `floatbar` | `main` |
+| `tab` | any settings tab id, or `providers:<id>` | `general` |
+| `fixture` | `default`, `two-codex-accounts`, `errors`, `empty` | `default` |
+| `theme` | `dark`, `light`, `auto` (overrides the fixture) | fixture value |
+
+Example: `proof.html?window=settings&tab=providers:codex&fixture=two-codex-accounts`.
+
+Every command the frontend invokes either has a fixture handler or is listed
+in `INERT_ACTIONS` (`src/proof/router.ts`): user actions such as sign-ins,
+credential writes, and OS side effects that return `null`.
+`src/proof/coverage.test.ts` fails when a new `invoke("...")` has neither, so
+the mocks cannot drift silently. An unknown command still returns `null` and
+logs `[proof-mock] unhandled command: <name>` once. Window, webview, dialog,
+and event plugin calls are inert.
+
+### Automated check: `pnpm proof:check`
+
+`scripts/proof-check.mjs` runs the scenarios in `scripts/proof-scenarios.json`
+in Chrome, Edge, or Chromium over CDP and prints `PASS` / `FAIL` per scenario.
+It uses Node built-ins only.
+
+```powershell
+cd apps/desktop-tauri
+pnpm proof:check                        # starts the proof server, headless browser
+pnpm proof:check -- --headed            # visible window, pauses on each screenshot
+pnpm proof:check -- --only tray         # scenarios whose name contains "tray"
+pnpm proof:check -- --url <base>        # an already-served proof build (dev or dist-proof/)
+pnpm proof:check -- --cdp <ws-url>      # attach to a running browser on this host
+pnpm proof:check -- --cdp <ws-url> --url <base>  # remote browser; <base> must be reachable from it
+```
+
+Without `--url`, the runner serves the proof build on `127.0.0.1`, which a
+browser on another host cannot reach.
+
+With `--cdp`, the runner drives whatever browser it is given, and its isolated
+`.proof/browser-profile/` applies only to browsers it launches itself. Point
+`--cdp` at a browser started with its own empty `--user-data-dir`, never one
+with real logins. CDP has no authentication, so keep a remote browser's
+debugging port bound to loopback and reach it through an SSH tunnel or an
+authenticated bridge, not an open port.
+
+Screenshots go to `apps/desktop-tauri/.proof/screens/` (git-ignored). The
+browser runs on its own profile in `.proof/browser-profile/`, never a user
+profile. Exit code `0` means every scenario passed, `1` means one failed, and
+`2` means setup failed.
+
+A scenario names the URL query and the window size, then runs its steps in
+order. Every scenario also fails on a console error or warning, an uncaught
+exception, or an unhandled backend command.
+
+| Step | Checks |
+| --- | --- |
+| `expectText` / `expectNoText` | page text (string or list), polled up to 8 s |
+| `expectSelector` | an element exists |
+| `expectTheme` | `<html data-theme>` |
+| `click` | `{ selector, label, near? }`: a real mouse click on the element whose aria-label or text equals `label`; `near` picks the match closest to that text |
+| `expectCall` | `{ cmd, args? }`: the frontend invoked that backend command (args are a subset match) |
+| `screenshot` | saves `<name>.png`; `"clip": "panel"` crops a tray panel to the height it committed for its window |
+
+Add or extend a scenario for the UI a PR changes.
+
+Screenshots from this build are labelled **"Chromium (Linux), mocked IPC"**
+(or the browser actually used). They support layout, copy, rendered data, and
+provider-siloing review; they do not replace the CUA proof for tray, theme,
+float-bar, DWM, or WebView2 behaviour (see AGENTS.md).

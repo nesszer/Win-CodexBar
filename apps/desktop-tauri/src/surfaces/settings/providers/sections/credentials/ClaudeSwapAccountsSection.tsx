@@ -24,7 +24,7 @@ interface Props {
   language?: Language;
   /** Settings `claudeSwapEnabled`; the switch lives in Claude > Options. */
   enabled: boolean;
-  /** Settings `claudeSwapExecutablePath`; the field lives in Claude's Fields group. */
+  /** Settings `claudeSwapExecutablePath`; the field sits under that switch. */
   executablePath: string;
 }
 

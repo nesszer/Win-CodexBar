@@ -41,6 +41,73 @@ fn session_meta_paginated_v2_subagents_have_independent_usage_identity() {
 }
 
 #[test]
+fn session_meta_creator_account_flags_only_non_blank_ids() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("creator.jsonl");
+    for (payload, expected) in [
+        (
+            serde_json::json!({"id": "s", "creator_account_id": "acct-123"}),
+            true,
+        ),
+        (
+            serde_json::json!({"id": "s", "creator_account_id": "  "}),
+            false,
+        ),
+        (
+            serde_json::json!({"id": "s", "creator_account_id": null}),
+            false,
+        ),
+        (serde_json::json!({"id": "s"}), false),
+    ] {
+        let row = serde_json::json!({"type": "session_meta", "payload": payload});
+        std::fs::write(&path, format!("{row}\n")).unwrap();
+        let metadata = JsonlScanner::read_codex_session_metadata(&path).unwrap();
+        assert_eq!(metadata.has_creator_account, expected, "payload: {payload}");
+    }
+}
+
+#[test]
+fn source_rows_key_auto_review_requests_only_for_chatgpt_rollouts() {
+    let root = tempfile::tempdir().unwrap();
+    let after = "2026-10-06T08:00:00Z";
+    for (creator, expected_model) in [
+        (Some("acct-123"), "codex-auto-review-included"),
+        (None, "codex-auto-review"),
+    ] {
+        let mut payload = serde_json::json!({"id": "auto-review-session"});
+        if let Some(creator) = creator {
+            payload["creator_account_id"] = serde_json::json!(creator);
+        }
+        let lines = [
+            serde_json::json!({"type": "session_meta", "timestamp": after, "payload": payload}),
+            serde_json::json!({
+                "type": "turn_context", "timestamp": after,
+                "payload": {"model": "codex-auto-review"}
+            }),
+            serde_json::json!({
+                "type": "event_msg", "timestamp": after,
+                "payload": {"type": "token_count", "info": {"last_token_usage": {
+                    "input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 10
+                }}}
+            }),
+        ];
+        let body: String = lines.iter().map(|line| format!("{line}\n")).collect();
+        let path = root
+            .path()
+            .join(format!("rollout-creator-{}.jsonl", creator.is_some()));
+        std::fs::write(&path, body).unwrap();
+        let range = CostUsageDayRange::new(
+            chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
+            chrono::NaiveDate::from_ymd_opt(2026, 10, 31).unwrap(),
+        );
+        let rows = read_source_rows(&path, &range).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, expected_model, "creator: {creator:?}");
+        assert_eq!(rows[0].input, 100);
+    }
+}
+
+#[test]
 fn session_meta_incomplete_v2_markers_preserve_inherited_fork_accounting() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("fork.jsonl");

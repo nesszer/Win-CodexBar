@@ -3,11 +3,19 @@
 //! The SSH wire contract lives in [`summary_contract`]; this module owns the
 //! local-scan aggregation and pricing logic.
 
+mod cost_cli;
 mod host_costs;
+pub(crate) mod identified_requests;
 mod quota_windows;
 mod summary_contract;
 
+pub(crate) use cost_cli::CODEX_COST_CLI;
+#[cfg(test)]
+pub(crate) use cost_cli::CodexCostCli;
 pub(crate) use host_costs::{CodexHostCostsArgs, HostOutputFormat, run_codex_host_costs};
+pub(crate) use identified_requests::{
+    IdentifiedUsageArgs, MAX_IDENTIFIED_OUTPUT_BYTES, run_codex_identified_usage,
+};
 pub use quota_windows::{CodexQuotaWindow, codex_quota_windows_from_cache};
 pub(crate) use summary_contract::{
     CodexCostSummary, CodexHostCostReport, CodexHostCostWindow, CodexHostOutcome,
@@ -318,6 +326,20 @@ fn add_codex_tokens_to_summary(
     }
     if !CostUsagePricing::counts_toward_codex_subscription(model) {
         return None;
+    }
+
+    // Included Auto-review requests (upstream #4452): the tokens stay in the
+    // totals, the cost is an exact $0, and the row is not marked unpriced.
+    // Explicit custom rates still price the model in the spend contract.
+    if crate::core::codex_included_pricing::is_included_model_key(model) {
+        let model_key = crate::core::codex_included_pricing::AUTO_REVIEW_MODEL.to_string();
+        add_summary_tokens(summary, tokens);
+        summary.by_model.entry(model_key.clone()).or_insert(0.0);
+        add_tokens(
+            summary.by_model_tokens.entry(model_key).or_default(),
+            tokens,
+        );
+        return Some(0.0);
     }
 
     let is_routing_unpriced = is_unpriced_codex_routing_model(model);

@@ -556,11 +556,13 @@ mod tests {
                 id: "codex".into(),
                 display_name: "Codex".into(),
                 cookie_domain: None,
+                cli_aliases: Vec::new(),
             },
             ProviderCatalogEntry {
                 id: "claude".into(),
                 display_name: "Claude".into(),
                 cookie_domain: None,
+                cli_aliases: Vec::new(),
             },
         ]
     }
@@ -767,6 +769,7 @@ mod tests {
                 account_id: None,
                 daily: Vec::new(),
                 always_visible: false,
+                folded_into_primary: false,
                 title_key: None,
             }),
             plan_name: None,
@@ -786,6 +789,7 @@ mod tests {
             wayfinder_usage: None,
             quota_burndown: None,
             open_ai_api_usage: None,
+            throughput: None,
             session_equivalent_forecast: None,
         }
     }

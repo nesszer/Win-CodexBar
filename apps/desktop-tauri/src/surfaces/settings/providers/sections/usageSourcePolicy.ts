@@ -132,6 +132,26 @@ const POLICIES: Readonly<Record<string, UsageSourcePolicy>> = {
       },
     ],
   },
+  commandcode: {
+    options: [
+      {
+        value: "auto",
+        label: "Auto",
+        description: "Uses the configured Command Code API key, then falls back to browser cookies.",
+      },
+      {
+        value: "oauth",
+        label: "API",
+        description: "Uses the configured Command Code API key only; browser cookies are never read.",
+      },
+      {
+        value: "web",
+        label: "Browser cookies",
+        description: "Uses the commandcode.ai browser session or manual cookie header only.",
+      },
+    ],
+    hideCookieSourceValues: ["oauth"],
+  },
 };
 
 export function usageSourcePolicy(providerId: string): UsageSourcePolicy | null {

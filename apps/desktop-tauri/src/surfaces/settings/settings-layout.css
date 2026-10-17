@@ -585,7 +585,8 @@
 }
 
 .settings-sidebar__search-clear svg,
-.settings-sidebar__sort svg {
+.settings-sidebar__sort svg,
+.settings-sidebar__filter svg {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
@@ -607,23 +608,43 @@
   cursor: pointer;
 }
 
+/* Options chevron: the sort button's look at a narrower width. */
+.settings-sidebar__filter {
+  width: 18px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
 .settings-sidebar__search-clear:hover,
-.settings-sidebar__sort:hover:not(:disabled) {
+.settings-sidebar__sort:hover:not(:disabled),
+.settings-sidebar__filter:hover:not(:disabled),
+.settings-sidebar__filter[aria-expanded="true"] {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
 }
 
-.settings-sidebar__sort--on {
+.settings-sidebar__sort--on,
+.settings-sidebar__filter--on {
   color: var(--accent);
 }
 
-.settings-sidebar__sort:disabled {
+.settings-sidebar__sort:disabled,
+.settings-sidebar__filter:disabled {
   cursor: default;
   opacity: 0.5;
 }
 
 .settings-sidebar__search-clear:focus-visible,
 .settings-sidebar__sort:focus-visible,
+.settings-sidebar__filter:focus-visible,
 .settings-sidebar__pane:focus-visible,
 .providers-sidebar__row:focus-visible {
   outline: 2px solid var(--accent);
@@ -782,6 +803,9 @@
 }
 
 .providers-sidebar-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 8px;
   border: 0;
   border-radius: 4px;
@@ -791,6 +815,20 @@
   font-size: 13px;
   text-align: left;
   cursor: pointer;
+}
+
+/* Check column of a checkbox item; empty when unchecked so labels stay aligned. */
+.providers-sidebar-menu__check {
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 11px;
+  text-align: center;
+}
+
+.providers-sidebar-menu__separator {
+  height: 1px;
+  margin: 4px 4px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .providers-sidebar-menu__item:hover:not(:disabled),
@@ -975,9 +1013,258 @@
   margin: 0 0 12px;
 }
 
+/* Token activity grid: upstream SpendActivityPalette (dark is the :root default). */
+.token-activity {
+  --activity-l0: #30353a;
+  --activity-l1: #347d4e;
+  --activity-l2: #43985d;
+  --activity-l3: #58b872;
+  --activity-l4: #7ddf96;
+  --activity-gap-fill: #282d34;
+  --activity-gap-stroke: #8a959f;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-theme="light"] .token-activity {
+  --activity-l0: #ebedf0;
+  --activity-l1: #9be9a8;
+  --activity-l2: #40c463;
+  --activity-l3: #30a14e;
+  --activity-l4: #216e39;
+  --activity-gap-fill: #e1e6ec;
+  --activity-gap-stroke: #6d7888;
+}
+
+@media (prefers-contrast: more) {
+  .token-activity {
+    --activity-l0: #484c52;
+    --activity-l1: #469960;
+    --activity-l2: #58b872;
+    --activity-l3: #7ddf96;
+    --activity-l4: #adf0bc;
+  }
+
+  [data-theme="light"] .token-activity {
+    --activity-l0: #e1e5e9;
+    --activity-l1: #519c66;
+    --activity-l2: #34804c;
+    --activity-l3: #24693b;
+    --activity-l4: #17552e;
+  }
+}
+
+.token-activity__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.token-activity__title {
+  margin: 0;
+}
+
+.token-activity__summary {
+  margin: 2px 0 0;
+}
+
+.token-activity__modes {
+  margin: 0;
+}
+
+.token-activity__focus {
+  border-radius: 4px;
+  outline: none;
+}
+
+.token-activity__focus:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.token-activity__scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.token-activity__content {
+  position: relative;
+}
+
+.token-activity__months {
+  position: relative;
+  margin-bottom: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.token-activity__months > span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+.token-activity__grid {
+  position: relative;
+}
+
+.token-activity__grid > svg {
+  display: block;
+}
+
+.token-activity__cell--l0 { fill: var(--activity-l0); }
+.token-activity__cell--l1 { fill: var(--activity-l1); }
+.token-activity__cell--l2 { fill: var(--activity-l2); }
+.token-activity__cell--l3 { fill: var(--activity-l3); }
+.token-activity__cell--l4 { fill: var(--activity-l4); }
+
+.token-activity__gap-fill {
+  fill: var(--activity-gap-fill);
+}
+
+.token-activity__gap-stroke {
+  fill: none;
+  stroke: var(--activity-gap-stroke);
+  stroke-width: 0.75;
+}
+
+.token-activity__selected > .token-activity__cell {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.token-activity__highlight {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-opacity: 0.7;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+.token-activity__tooltip {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  /* The tooltip sits over the cells, so it needs the near-opaque panel fill;
+     the translucent elevated-surface tint leaves the cells showing through. */
+  background: var(--panel-bg);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.token-activity__tooltip > strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.token-activity__tooltip > span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.token-activity__nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.token-activity__legend,
+.token-activity__caption {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.token-activity__legend {
+  justify-content: flex-end;
+}
+
+.token-activity__caption {
+  justify-content: space-between;
+}
+
+.token-activity__caption-gap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.token-activity__swatch {
+  flex: none;
+}
+
+.token-activity__swatch--gap {
+  margin-left: 6px;
+}
+
+.token-activity__empty {
+  margin: 0;
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.token-activity__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .usage-spend-provider__detail {
   display: block;
   margin: 4px 0 0;
+}
+
+/* Provider groups (upstream 0.73.0 row padding: heading 7 to 5, child rows 6 to 4). */
+.usage-spend__card .usage-spend-provider {
+  padding: 5px 12px;
+}
+
+.usage-spend-provider__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.usage-spend-provider__name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Subsection labels keep their case (upstream dropped uppercase styling). */
+.usage-spend-provider__subsection {
+  display: block;
+  margin: 0;
+  text-transform: none;
+}
+
+.usage-spend-provider__model {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
 }
 
 .usage-spend__row-button {
@@ -992,6 +1279,13 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.usage-spend__project-path {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .usage-spend__controls {
@@ -1032,6 +1326,232 @@
 
 .usage-spend__share {
   margin-left: auto;
+}
+
+/* ── Usage & Spend trend explorer (upstream 0.73.0 SpendDashboardTrendPanel) ── */
+
+.spend-trend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spend-trend__header,
+.spend-trend__scope,
+.spend-trend__day-nav,
+.spend-trend__summary,
+.spend-trend__inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.spend-trend__header h4 {
+  margin: 0;
+  flex: 1;
+}
+
+.spend-trend__scope > .settings-section__caption,
+.spend-trend__day-nav > select {
+  margin: 0;
+}
+
+.spend-trend__spacer {
+  flex: 1;
+}
+
+.spend-trend__summary {
+  justify-content: space-between;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-trend__summary-label {
+  color: var(--text-secondary);
+  margin-right: 8px;
+}
+
+.spend-trend__summary-total {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.spend-trend__zone {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.spend-trend__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 210px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.spend-trend-chart {
+  display: flex;
+  align-items: flex-start;
+}
+
+.spend-trend-chart__y-axis {
+  position: relative;
+  flex: none;
+}
+
+.spend-trend-chart__y-axis span {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text-primary) 85%, transparent);
+  white-space: nowrap;
+}
+
+.spend-trend-chart__scroller {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.spend-trend-chart__scroller.is-scrolling {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.spend-trend-chart__svg {
+  display: block;
+  overflow: visible;
+}
+
+.spend-trend-chart__svg:focus {
+  outline: none;
+}
+
+.spend-trend-chart__bucket:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.spend-trend-chart__grid {
+  stroke: color-mix(in srgb, var(--text-secondary) 15%, transparent);
+  stroke-width: 1;
+}
+
+.spend-trend-chart__rule {
+  stroke: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.spend-trend-chart__hit {
+  cursor: pointer;
+}
+
+.spend-trend-chart__x-axis {
+  position: relative;
+  height: 20px;
+}
+
+.spend-trend-chart__tick {
+  position: absolute;
+  top: 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text-primary) 85%, transparent);
+  white-space: nowrap;
+}
+
+.spend-trend-chart__tick--middle {
+  transform: translateX(-50%);
+}
+
+.spend-trend-chart__tick--end {
+  transform: translateX(-100%);
+}
+
+.spend-trend__inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 58px;
+  padding: 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
+  font-size: 13px;
+}
+
+.spend-trend__inspector-head select {
+  max-width: 240px;
+}
+
+.spend-trend__inspector-total {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-trend__inspector-rows,
+.spend-trend__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spend-trend__legend {
+  gap: 8px;
+}
+
+.spend-trend__source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-trend__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.spend-trend__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.spend-trend__legend-item.is-dimmed {
+  opacity: 0.6;
+}
+
+.spend-trend__legend-item.is-selected {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.spend-trend__legend-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* ── Provider detail pane (macOS PreferencesProviderDetailView) ──────
@@ -1215,6 +1735,43 @@
   display: flex;
   justify-content: flex-end;
   padding: 10px 0;
+}
+
+/* Antigravity extra Gemini profile folders: one row per folder, path truncated. */
+.antigravity-profile-homes__list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.antigravity-profile-homes__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.antigravity-profile-homes__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* The folder list needs the full row, so stack the control under the label
+   instead of letting the auto-width control column squeeze the text. */
+.settings-field:has(.antigravity-profile-homes) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-field:has(.antigravity-profile-homes) > .settings-field__control {
+  grid-column: 1 / -1;
+  display: block;
+  width: 100%;
 }
 
 /* Quota warnings: window label, Global / Custom / Off, then the values. */

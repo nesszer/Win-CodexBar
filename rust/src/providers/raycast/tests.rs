@@ -1,5 +1,6 @@
 use super::*;
 use crate::browser::cookies::Cookie;
+use crate::browser::detection::BrowserType;
 use chrono::TimeZone;
 use parse::parse_credits;
 
@@ -705,4 +706,190 @@ async fn malformed_success_body_is_a_parse_failure_that_stops_retries() {
 
     mock.assert_async().await;
     assert!(matches!(error, ProviderError::Parse(_)));
+}
+
+// ---- browser order -------------------------------------------------------
+
+#[test]
+fn browser_groups_keep_the_shared_order_and_skip_browsers_without_a_session() {
+    let scan = vec![
+        (
+            BrowserType::Chrome,
+            vec![cookie("csrf_token", "chrome-csrf", "www.raycast.com")],
+        ),
+        (
+            BrowserType::Edge,
+            vec![
+                cookie("__raycast_session", "edge-session", "www.raycast.com"),
+                cookie("csrf_token", "edge-csrf", "www.raycast.com"),
+            ],
+        ),
+    ];
+
+    let groups = cookies::browser_groups(&scan);
+
+    assert_eq!(
+        groups,
+        vec![
+            ("Google Chrome", Vec::new()),
+            (
+                "Microsoft Edge",
+                vec!["__raycast_session=edge-session; csrf_token=edge-csrf".to_string()],
+            ),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn browser_groups_move_past_a_rejected_browser_to_the_next_session() {
+    let mut server = mockito::Server::new_async().await;
+    let rejected = server
+        .mock("GET", "/frontend_api/current_user/ai_credits")
+        .match_header("cookie", "__raycast_session=chrome-rejected")
+        .with_status(401)
+        .expect(1)
+        .create_async()
+        .await;
+    let accepted = server
+        .mock("GET", "/frontend_api/current_user/ai_credits")
+        .match_header("cookie", FIXTURE_COOKIE)
+        .with_status(200)
+        .with_body(CREDITS)
+        .expect(1)
+        .create_async()
+        .await;
+
+    let provider = RaycastProvider::with_origin(&server.url());
+    let groups = vec![
+        (
+            "Google Chrome",
+            headers(&["__raycast_session=chrome-rejected"]),
+        ),
+        ("Microsoft Edge", headers(&[FIXTURE_COOKIE])),
+    ];
+    let result = provider
+        .fetch_browser_groups(&groups, Duration::from_secs(5))
+        .await
+        .expect("the Edge session should be accepted");
+
+    rejected.assert_async().await;
+    accepted.assert_async().await;
+    assert_eq!(result.source_label, "Microsoft Edge");
+    assert_eq!(result.usage.primary.used_percent, 75.0);
+}
+
+#[tokio::test]
+async fn browser_groups_stop_at_the_first_accepted_session() {
+    let mut server = mockito::Server::new_async().await;
+    let chrome = server
+        .mock("GET", "/frontend_api/current_user/ai_credits")
+        .match_header("cookie", FIXTURE_COOKIE)
+        .with_status(200)
+        .with_body(CREDITS)
+        .expect(1)
+        .create_async()
+        .await;
+    let edge = server
+        .mock("GET", mockito::Matcher::Any)
+        .expect(0)
+        .create_async()
+        .await;
+
+    let provider = RaycastProvider::with_origin(&server.url());
+    let groups = vec![
+        ("Google Chrome", headers(&[FIXTURE_COOKIE])),
+        (
+            "Microsoft Edge",
+            headers(&["__raycast_session=edge-fixture-session"]),
+        ),
+    ];
+    let result = provider
+        .fetch_browser_groups(&groups, Duration::from_secs(5))
+        .await
+        .expect("Chrome session should be accepted");
+
+    chrome.assert_async().await;
+    edge.assert_async().await;
+    assert_eq!(result.source_label, "Google Chrome");
+}
+
+#[tokio::test]
+async fn browser_groups_without_any_session_make_no_request() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", mockito::Matcher::Any)
+        .expect(0)
+        .create_async()
+        .await;
+
+    let provider = RaycastProvider::with_origin(&server.url());
+    let groups = vec![
+        ("Google Chrome", Vec::new()),
+        ("Microsoft Edge", Vec::new()),
+    ];
+    let error = provider
+        .fetch_browser_groups(&groups, Duration::from_secs(5))
+        .await
+        .expect_err("no browser holds a session");
+
+    mock.assert_async().await;
+    assert_eq!(error_message(error), MISSING_SESSION);
+}
+
+#[tokio::test]
+async fn browser_groups_report_expiry_only_when_every_browser_rejects() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/frontend_api/current_user/ai_credits")
+        .with_status(401)
+        .expect(2)
+        .create_async()
+        .await;
+
+    let provider = RaycastProvider::with_origin(&server.url());
+    let groups = vec![
+        ("Google Chrome", headers(&["__raycast_session=chrome-a"])),
+        ("Microsoft Edge", headers(&["__raycast_session=edge-b"])),
+    ];
+    let error = provider
+        .fetch_browser_groups(&groups, Duration::from_secs(5))
+        .await
+        .expect_err("every session rejected");
+
+    mock.assert_async().await;
+    assert_eq!(error_message(error), SESSION_EXPIRED);
+}
+
+#[tokio::test]
+async fn browser_groups_stop_on_a_service_failure_instead_of_trying_the_next_browser() {
+    let mut server = mockito::Server::new_async().await;
+    let unavailable = server
+        .mock("GET", "/frontend_api/current_user/ai_credits")
+        .match_header("cookie", "__raycast_session=chrome-session")
+        .with_status(503)
+        .expect(1)
+        .create_async()
+        .await;
+    let edge = server
+        .mock("GET", mockito::Matcher::Any)
+        .expect(0)
+        .create_async()
+        .await;
+
+    let provider = RaycastProvider::with_origin(&server.url());
+    let groups = vec![
+        (
+            "Google Chrome",
+            headers(&["__raycast_session=chrome-session"]),
+        ),
+        ("Microsoft Edge", headers(&[FIXTURE_COOKIE])),
+    ];
+    let error = provider
+        .fetch_browser_groups(&groups, Duration::from_secs(5))
+        .await
+        .expect_err("service outage");
+
+    unavailable.assert_async().await;
+    edge.assert_async().await;
+    assert!(error_message(error).contains("unavailable"));
 }

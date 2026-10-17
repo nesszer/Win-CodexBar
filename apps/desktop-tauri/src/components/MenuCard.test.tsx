@@ -753,6 +753,40 @@ describe("MenuCard", () => {
     });
   });
 
+  it("cancels the pending layout frame when it unmounts", async () => {
+    const onLayoutChange = vi.fn();
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    const raf = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        frames.set(++nextFrame, callback);
+        return nextFrame;
+      });
+    const cancel = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation((id) => {
+        frames.delete(id);
+      });
+    try {
+      const { unmount } = renderCard(provider(null), { onLayoutChange });
+      await waitFor(() => expect(tauriMocks.getProviderChartData).toHaveBeenCalled());
+      // Let the resolved chart data land so its layout frame is queued.
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(frames.size).toBeGreaterThan(0));
+
+      unmount();
+      for (const callback of frames.values()) callback(0);
+
+      expect(onLayoutChange).not.toHaveBeenCalled();
+    } finally {
+      raf.mockRestore();
+      cancel.mockRestore();
+    }
+  });
+
   it("leaves the provider-level exhaustion ETA to Settings > Providers", async () => {
     const snapshot = provider(null, 40);
     snapshot.pace = {
@@ -1369,6 +1403,93 @@ describe("MenuCard", () => {
     expect(screen.getAllByText(/\$42\.50/)).toHaveLength(1);
     expect(screen.queryByText("Extra usage")).not.toBeInTheDocument();
     expect(container.querySelector(".card-extra")).toBeNull();
+  });
+
+  describe("Claude reset credits, Extra usage and plan dates (upstream #4484)", () => {
+    function claude(hidden: string[] = []): ProviderUsageSnapshot {
+      const snapshot = provider(null, 20);
+      snapshot.sourceLabel = "web";
+      snapshot.hiddenUsageItemIds = hidden;
+      snapshot.inventory = [
+        { id: "reset-credits", title: "Limit Reset Credits", availableCount: 2, nextExpiresAt: null },
+      ];
+      snapshot.cost = {
+        used: 0,
+        limit: null,
+        remaining: null,
+        currencyCode: "USD",
+        period: "Extra usage",
+        resetsAt: null,
+        formattedUsed: "$0.00",
+        formattedLimit: null,
+        balance: 5,
+        formattedBalance: "$5.00",
+      };
+      snapshot.subscription = {
+        startsAt: null,
+        expiresAt: null,
+        renewsAt: "2026-12-01T00:00:00+00:00",
+        renewsAtIsDateOnly: true,
+      };
+      return snapshot;
+    }
+
+    beforeEach(() => {
+      tauriMocks.getLocaleStrings.mockResolvedValue(
+        buildBundle({
+          ExtraUsage: "Extra usage",
+          DetailCostBalance: "Balance",
+          InventoryAvailableCount: "{} available",
+          IntlLocale: "en-US",
+          PlanRenewsOn: "Renews: {}",
+          PlanExpiresOn: "Plan expires: {}",
+        }),
+      );
+    });
+
+    it("shows the plan date under the quota rows, before saved resets and Extra usage", async () => {
+      const { container } = renderCard(claude());
+      const note = await screen.findByText("Renews: Dec 1, 2026");
+      const content = container.querySelector(".menu-card__content");
+      const order = [...(content?.children ?? [])].map((el) => el.className);
+      expect(order.indexOf("menu-card__metrics")).toBeLessThan(order.indexOf(note.className));
+      expect(order.indexOf(note.className)).toBeLessThan(order.indexOf("card-kv"));
+      expect(screen.getByText("2 available")).toBeInTheDocument();
+      expect(container.querySelector(".card-extra")).not.toBeNull();
+    });
+
+    it("hides each section independently", async () => {
+      const { container, unmount } = renderCard(claude(["section:subscription"]));
+      expect(await screen.findByText("2 available")).toBeInTheDocument();
+      expect(screen.queryByText(/Renews:/)).not.toBeInTheDocument();
+      expect(container.querySelector(".card-extra")).not.toBeNull();
+      unmount();
+
+      const resets = renderCard(claude(["section:claude-reset-credits"]));
+      expect(await screen.findByText("Renews: Dec 1, 2026")).toBeInTheDocument();
+      expect(screen.queryByText("2 available")).not.toBeInTheDocument();
+      expect(resets.container.querySelector(".card-extra")).not.toBeNull();
+      resets.unmount();
+
+      const extra = renderCard(claude(["section:claude-extra-usage"]));
+      expect(await screen.findByText("Renews: Dec 1, 2026")).toBeInTheDocument();
+      expect(screen.getByText("2 available")).toBeInTheDocument();
+      expect(extra.container.querySelector(".card-extra")).toBeNull();
+    });
+
+    it("never hides Admin API spend through the Extra usage choice", async () => {
+      const snapshot = claude(["section:claude-extra-usage"]);
+      snapshot.sourceLabel = "admin-api";
+      const { container } = renderCard(snapshot);
+      await screen.findByText("Renews: Dec 1, 2026");
+      expect(container.querySelector(".card-extra")).not.toBeNull();
+    });
+
+    it("keeps the plan date off the compact Overview when quota bars are present", async () => {
+      const { container } = renderCard(claude(), { compactOverview: true });
+      await waitFor(() => expect(container.querySelector(".menu-metric__title")).not.toBeNull());
+      expect(screen.queryByText(/Renews:/)).not.toBeInTheDocument();
+    });
   });
 
   describe("LithosAI shows its balance twice, as on the Mac", () => {

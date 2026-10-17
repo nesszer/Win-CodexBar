@@ -119,6 +119,7 @@ const PROVIDER_LABEL_KEYS: Record<string, LocaleKey> = {
   "weekly spend": "ProviderLabelWeeklySpend",
   "monthly spend": "ProviderLabelMonthlySpend",
   "limit reset credits": "ProviderLabelLimitResetCredits",
+  "cloud credits": "ProviderLabelCloudCredits",
   "reset credits": "ProviderLabelResetCredits",
   "additional credits": "ProviderLabelAdditionalCredits",
   "overage usage": "ProviderLabelOverageUsage",

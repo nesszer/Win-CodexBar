@@ -189,7 +189,7 @@ impl TokenAccountSupport {
                 placeholder: "Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value",
                 injection: TokenInjection::CookieHeader,
                 requires_manual_cookie_source: true,
-                cookie_name: Some("__Secure-better-auth.session_token"),
+                cookie_name: Some("__Secure-commandcode_prod_.session_token"),
             }),
             ProviderId::Qoder => Some(TokenAccountSupport {
                 title: "Session tokens",
@@ -450,7 +450,17 @@ impl TokenAccountSupport {
             | ProviderId::Linkup
             | ProviderId::MuseAI
             | ProviderId::WorkBuddy
-            | ProviderId::SailResearch => None,
+            | ProviderId::SailResearch
+            | ProviderId::Sofya
+            | ProviderId::TinyApi
+            | ProviderId::Xapi
+            | ProviderId::Tavily
+            | ProviderId::Exa
+            | ProviderId::Cosmic
+            | ProviderId::Aerostack
+            | ProviderId::Parallel
+            | ProviderId::Fal
+            | ProviderId::Flora => None,
         }
     }
 
@@ -935,6 +945,23 @@ mod tests {
         assert!(!TokenAccountSupport::is_supported(ProviderId::Hyper));
         assert!(!TokenAccountSupport::is_supported(ProviderId::GitKraken));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Bifrost));
+    }
+
+    #[test]
+    fn command_code_bare_token_uses_production_cookie_name() {
+        // Upstream #4212: a pasted bare token gets the live production cookie name.
+        assert_eq!(
+            TokenAccountSupport::normalized_cookie_header(ProviderId::CommandCode, "bare-value"),
+            "__Secure-commandcode_prod_.session_token=bare-value"
+        );
+        // Explicit cookie headers are preserved untouched.
+        assert_eq!(
+            TokenAccountSupport::normalized_cookie_header(
+                ProviderId::CommandCode,
+                "__Secure-better-auth.session_token=legacy"
+            ),
+            "__Secure-better-auth.session_token=legacy"
+        );
     }
 
     #[test]

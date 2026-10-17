@@ -365,6 +365,49 @@ mod tests {
         }
     }
 
+    /// Firefox Developer Edition keeps its profiles under the shared Roaming
+    /// root with a `<salt>.dev-edition-default` name. It must be detected as
+    /// the default profile, like `.default-release`, and not be dropped.
+    #[test]
+    fn firefox_developer_edition_profiles_are_detected_as_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let roaming = temp.path().join("Roaming");
+        let profiles = roaming.join("Mozilla/Firefox/Profiles");
+        let dev_edition = profiles.join("k7x2m9ab.dev-edition-default");
+        std::fs::create_dir_all(&dev_edition).unwrap();
+        std::fs::create_dir_all(profiles.join("q3w8e1rt.default-release")).unwrap();
+        std::fs::create_dir_all(profiles.join("z9y8x7wv.other")).unwrap();
+
+        let detected = BrowserDetector::detect_in_roots(
+            BrowserType::Firefox,
+            temp.path(),
+            Some(roaming.as_path()),
+        )
+        .unwrap();
+
+        assert_eq!(detected.user_data_dir, profiles);
+        assert_eq!(detected.profiles.len(), 3);
+        let dev = detected
+            .profiles
+            .iter()
+            .find(|profile| profile.name == "k7x2m9ab.dev-edition-default")
+            .expect("Developer Edition profile should be detected");
+        assert_eq!(dev.path, dev_edition);
+        assert!(dev.is_default);
+        assert!(
+            detected
+                .profiles
+                .iter()
+                .any(|profile| profile.name == "q3w8e1rt.default-release" && profile.is_default)
+        );
+        assert!(
+            detected
+                .profiles
+                .iter()
+                .any(|profile| profile.name == "z9y8x7wv.other" && !profile.is_default)
+        );
+    }
+
     #[test]
     fn test_browser_detection() {
         let browsers = BrowserDetector::detect_all();

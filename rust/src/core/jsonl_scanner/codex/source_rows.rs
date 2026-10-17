@@ -106,7 +106,12 @@ pub(crate) fn read_source_rows(
         scan_since_key: range.scan_since_key.clone(),
         scan_until_key: range.scan_until_key.clone(),
     };
-    let parsed = JsonlScanner::parse_codex_file(file_path, &source_range, 0, None, None)?;
+    let mut parsed = JsonlScanner::parse_codex_file(file_path, &source_range, 0, None, None)?;
+    let metadata = JsonlScanner::read_codex_session_metadata(file_path).unwrap_or_default();
+    crate::core::codex_included_pricing::mark_included_records(
+        &mut parsed.records,
+        metadata.has_creator_account,
+    );
     Ok(rows_from_records(&parsed.records))
 }
 

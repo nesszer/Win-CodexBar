@@ -20,6 +20,7 @@ fn session(id: &str, cost: Option<f64>, tokens: u64, minutes: i64) -> SessionUsa
             },
         },
         top_model: None,
+        turn_performance: None,
     }
 }
 

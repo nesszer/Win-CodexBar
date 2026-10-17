@@ -11,7 +11,7 @@ use super::local_storage::{
 };
 use super::snappy::{self, SnappyError};
 use super::table::{TableError, read_table};
-use super::{Entry, Record, log, read_entries};
+use super::{Entry, LevelDbError, Record, log, read_current_value_strict, read_entries};
 
 // ---------------------------------------------------------------------------------------------
 // Fixture builders
@@ -517,6 +517,87 @@ fn read_entries_skips_corrupt_files_and_keeps_good_ones() {
 fn read_entries_reports_a_missing_directory() {
     let dir = tempfile::tempdir().unwrap();
     assert!(read_entries(&dir.path().join("absent")).is_err());
+}
+
+fn strict_dir(files: &[(&str, Vec<u8>)]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("CURRENT"), b"MANIFEST-000001\n").unwrap();
+    for (name, data) in files {
+        std::fs::write(dir.path().join(name), data).unwrap();
+    }
+    dir
+}
+
+#[test]
+fn strict_read_returns_the_newest_value_of_the_exact_key() {
+    let table: &[TableRecord] = &[(b"token", 1, 1, b"old"), (b"token-other", 2, 1, b"x")];
+    let dir = strict_dir(&[
+        ("000002.ldb", write_table(&[(table, Compression::None)])),
+        (
+            "000003.log",
+            write_log(&[write_batch(5, &[Op::Put(b"token", b"new")])]),
+        ),
+    ]);
+    assert_eq!(
+        read_current_value_strict(dir.path(), b"token").unwrap(),
+        Some(b"new".to_vec())
+    );
+    assert_eq!(
+        read_current_value_strict(dir.path(), b"absent").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn strict_read_honors_a_newer_delete() {
+    let dir = strict_dir(&[(
+        "000003.log",
+        write_log(&[
+            write_batch(1, &[Op::Put(b"token", b"old")]),
+            write_batch(2, &[Op::Delete(b"token")]),
+        ]),
+    )]);
+    assert_eq!(
+        read_current_value_strict(dir.path(), b"token").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn strict_read_fails_instead_of_skipping_a_file() {
+    let good = write_log(&[write_batch(1, &[Op::Put(b"token", b"old")])]);
+    let mut torn = write_log(&[write_batch(2, &[Op::Delete(b"token")])]);
+    torn.truncate(torn.len() - 1);
+    let cases = [
+        vec![
+            ("000003.log", good.clone()),
+            ("000004.ldb", b"not a table".to_vec()),
+        ],
+        vec![("000003.log", good.clone()), ("000004.log", torn)],
+    ];
+    for files in cases {
+        let dir = strict_dir(&files);
+        assert!(matches!(
+            read_current_value_strict(dir.path(), b"token"),
+            Err(LevelDbError::Incomplete)
+        ));
+        // The best-effort reader still returns the stale value from the readable file.
+        assert_eq!(read_entries(dir.path()).unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn strict_read_requires_current() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("000003.log"),
+        write_log(&[write_batch(1, &[Op::Put(b"token", b"v")])]),
+    )
+    .unwrap();
+    assert!(matches!(
+        read_current_value_strict(dir.path(), b"token"),
+        Err(LevelDbError::Incomplete)
+    ));
 }
 
 // ---------------------------------------------------------------------------------------------

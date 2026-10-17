@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type {
   ProviderDetail,
   SettingsSnapshot,
@@ -7,9 +8,15 @@ import type { LocaleKey } from "../../../../i18n/keys";
 import { Field, SettingsGroup, Toggle } from "../../../../components/FormControls";
 import { AutoResumeSection } from "./AutoResumeSection";
 import { OptionalDetailsSection } from "./OptionalDetailsSection";
+import { ClaudeSwapPathField } from "./credentials/ClaudeSwapPathField";
+import { AntigravityProfileHomesField } from "./AntigravityProfileHomesField";
+import { OpenAiLiveUsageSection } from "./OpenAiLiveUsageSection";
 
 export type OptionSettings = Pick<
   SettingsSnapshot,
+  | "antigravityAdditionalProfileHomes"
+  | "openAiLiveUsageEnabled"
+  | "openAiModelRateLimits"
   | "codexOpenaiWebExtras"
   | "codexHistoricalTracking"
   | "codexExternalOauthSourcesAllowed"
@@ -18,6 +25,7 @@ export type OptionSettings = Pick<
   | "claudeAvoidKeychainPrompts"
   | "claudeAllowReadingClaudeCodeCredentials"
   | "claudeSwapEnabled"
+  | "claudeSwapExecutablePath"
   | "disableKeychainAccess"
 >;
 
@@ -160,23 +168,49 @@ export function OptionsSection({
         onChanged={onReload}
       />
       {rows.map((row) => (
-        <Field
-          key={row.key}
-          label={t(row.label)}
-          description={
-            row.inert
-              ? `${t(row.help)} ${t("ProviderOptionNotUsedOnWindows")}`
-              : t(row.help)
-          }
-        >
-          <Toggle
-            variant="switch"
-            checked={row.checked}
-            disabled={disabled || row.locked}
-            onChange={(on) => onSettingsChange(row.patch(on))}
-          />
-        </Field>
+        <Fragment key={row.key}>
+          <Field
+            label={t(row.label)}
+            description={
+              row.inert
+                ? `${t(row.help)} ${t("ProviderOptionNotUsedOnWindows")}`
+                : t(row.help)
+            }
+          >
+            <Toggle
+              variant="switch"
+              checked={row.checked}
+              disabled={disabled || row.locked}
+              onChange={(on) => onSettingsChange(row.patch(on))}
+            />
+          </Field>
+          {/* macOS attaches the cswap path to this toggle as an inline field. */}
+          {row.key === "claude-swap" && row.checked && (
+            <ClaudeSwapPathField
+              value={settings.claudeSwapExecutablePath ?? ""}
+              disabled={disabled}
+              t={t}
+              onSettingsChange={onSettingsChange}
+            />
+          )}
+        </Fragment>
       ))}
+      {detail.id === "openaiapi" && (
+        <OpenAiLiveUsageSection
+          settings={settings}
+          disabled={disabled}
+          t={t}
+          onSettingsChange={onSettingsChange}
+        />
+      )}
+      {detail.id === "antigravity" && (
+        <AntigravityProfileHomesField
+          value={settings.antigravityAdditionalProfileHomes}
+          disabled={disabled}
+          t={t}
+          onSettingsChange={onSettingsChange}
+        />
+      )}
       <AutoResumeSection
         providerId={detail.id}
         enabled={detail.autoResumeAfterQuotaReset}

@@ -1,5 +1,6 @@
+use super::local_sqlite::SessionIdentity;
 use super::{local_sessions_reader as local_sessions, local_sqlite};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -7,6 +8,7 @@ use std::sync::{LazyLock, Mutex};
 
 use chrono::{DateTime, Utc};
 
+use crate::settings::Settings;
 use crate::spend_contract::{LocalHistoryCoverage, LocalTokenHistorySummary};
 
 fn clean_env_path(value: Option<&str>) -> Option<PathBuf> {
@@ -16,26 +18,98 @@ fn clean_env_path(value: Option<&str>) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn configured_database_roots(home: &Path) -> [PathBuf; 3] {
+/// One opt-in entry from settings. Empty, NUL-containing, and relative entries
+/// are ignored; `~` and `~/` expand against the refresh environment's home.
+fn expand_additional_home(home: &Path, raw: &str) -> Option<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return None;
+    }
+    if trimmed == "~" {
+        return Some(home.to_path_buf());
+    }
+    if let Some(rest) = trimmed
+        .strip_prefix("~/")
+        .or_else(|| trimmed.strip_prefix("~\\"))
+    {
+        return Some(home.join(rest));
+    }
+    let path = PathBuf::from(trimmed);
+    path.is_absolute().then_some(path)
+}
+
+/// Two homes are the same when they resolve to one directory. Windows paths
+/// compare case-insensitively.
+fn home_identity_key(path: &Path) -> String {
+    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let key = resolved.to_string_lossy().into_owned();
+    if cfg!(windows) {
+        key.to_lowercase()
+    } else {
+        key
+    }
+}
+
+/// Gemini homes whose conversation roots are scanned: the primary home
+/// (`GEMINI_CLI_HOME`, else `~/.gemini`) first, then each opt-in home in
+/// settings order, with duplicates removed. Missing homes stay in the list;
+/// the reader treats their roots as absent.
+pub(super) fn gemini_home_directories(
+    home: &Path,
+    gemini_cli_home: Option<&str>,
+    additional: &[String],
+) -> Vec<PathBuf> {
+    let primary = clean_env_path(gemini_cli_home).unwrap_or_else(|| home.join(".gemini"));
+    let mut seen = HashSet::new();
+    std::iter::once(primary)
+        .chain(
+            additional
+                .iter()
+                .filter_map(|raw| expand_additional_home(home, raw)),
+        )
+        .filter(|path| seen.insert(home_identity_key(path)))
+        .collect()
+}
+
+/// Multi-home reads key a copied conversation by filename, so the same
+/// conversation in two homes counts once. A single home keeps path identity,
+/// so same-named databases in different roots stay separate sessions.
+fn session_identity_for_homes(home_count: usize) -> SessionIdentity {
+    if home_count > 1 {
+        SessionIdentity::FileStem
+    } else {
+        SessionIdentity::Path
+    }
+}
+
+fn roots_for_homes(homes: &[PathBuf]) -> Vec<PathBuf> {
+    homes
+        .iter()
+        .flat_map(|gemini_base| local_sqlite::database_roots(gemini_base))
+        .collect()
+}
+
+fn configured_database_roots(home: &Path, additional: &[String]) -> Vec<PathBuf> {
     let gemini_cli_home = std::env::var("GEMINI_CLI_HOME").ok();
-    configured_database_roots_from_values(home, gemini_cli_home.as_deref())
+    configured_database_roots_from_values(home, gemini_cli_home.as_deref(), additional)
 }
 
 fn configured_database_roots_from_values(
     home: &Path,
     gemini_cli_home: Option<&str>,
-) -> [PathBuf; 3] {
-    let gemini_base = clean_env_path(gemini_cli_home).unwrap_or_else(|| home.join(".gemini"));
-    local_sqlite::database_roots(&gemini_base)
+    additional: &[String],
+) -> Vec<PathBuf> {
+    roots_for_homes(&gemini_home_directories(home, gemini_cli_home, additional))
 }
 
 fn summarize_local_usage_from(
     roots: &[PathBuf],
+    identity: SessionIdentity,
     now: DateTime<Utc>,
     days: u32,
     jsonl_fallback: impl FnOnce() -> LocalTokenHistorySummary,
 ) -> LocalTokenHistorySummary {
-    match local_sqlite::summarize(roots, now, days) {
+    match local_sqlite::summarize_with_identity(roots, now, days, identity) {
         local_sqlite::SQLiteScan::Summary(summary) => summary,
         local_sqlite::SQLiteScan::NoDatabases | local_sqlite::SQLiteScan::Unsupported => {
             jsonl_fallback()
@@ -84,11 +158,20 @@ pub fn summarize_local_usage(days: u32) -> LocalTokenHistorySummary {
     let Some(home) = dirs::home_dir() else {
         return LocalTokenHistorySummary::default();
     };
-    let roots = configured_database_roots(&home);
+    // Opt-in homes come from settings; the retention scope below includes the
+    // resolved roots, so changing the home set starts a fresh history scope.
+    let additional = Settings::load().antigravity_additional_profile_homes;
+    let gemini_cli_home = std::env::var("GEMINI_CLI_HOME").ok();
+    let homes = gemini_home_directories(&home, gemini_cli_home.as_deref(), &additional);
+    let roots = roots_for_homes(&homes);
     let tokscale_sessions = local_sessions::configured_tokscale_sessions(&home);
-    let fresh = summarize_local_usage_from(&roots, now, days, || {
-        local_sessions::summarize_jsonl_at(&tokscale_sessions, now, days)
-    });
+    let fresh = summarize_local_usage_from(
+        &roots,
+        session_identity_for_homes(homes.len()),
+        now,
+        days,
+        || local_sessions::summarize_jsonl_at(&tokscale_sessions, now, days),
+    );
     COMPLETE_HISTORY.resolve(&retention_scope(&roots, &tokscale_sessions, days), fresh)
 }
 
@@ -149,7 +232,9 @@ pub fn offline_conversation_count() -> usize {
     let Some(home) = dirs::home_dir() else {
         return 0;
     };
-    let roots = configured_database_roots(&home);
+    // The quota offline fallback counts the primary home only: opt-in homes
+    // change local history, not account or quota lookups.
+    let roots = configured_database_roots(&home, &[]);
     let tokscale_sessions = local_sessions::configured_tokscale_sessions(&home);
     offline_conversation_count_with_roots(&roots, &tokscale_sessions)
 }
@@ -219,7 +304,7 @@ mod tests {
 
         let roots = local_sqlite::database_roots(&gemini_base);
         let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
-        let summary = summarize_local_usage_from(&roots, now, 7, || {
+        let summary = summarize_local_usage_from(&roots, SessionIdentity::Path, now, 7, || {
             local_sessions::summarize_jsonl_paths(
                 std::slice::from_ref(&session_path),
                 now,
@@ -246,7 +331,13 @@ mod tests {
 
         let roots = local_sqlite::database_roots(&gemini_base);
         let now = Utc.timestamp_millis_opt(1787576400000).single().unwrap();
-        let summary = summarize_local_usage_from(&roots, now, 7, LocalTokenHistorySummary::default);
+        let summary = summarize_local_usage_from(
+            &roots,
+            SessionIdentity::Path,
+            now,
+            7,
+            LocalTokenHistorySummary::default,
+        );
 
         assert_eq!(summary, LocalTokenHistorySummary::default());
         assert_eq!(summary.coverage, LocalHistoryCoverage::Unavailable);
@@ -257,7 +348,7 @@ mod tests {
         let home = Path::new(r"C:\Users\test");
         let tokscale_sessions =
             local_sessions::tokscale_sessions_from_values(home, Some(r"E:\tokscale-root"));
-        let roots = configured_database_roots_from_values(home, Some(r"D:\gemini-root"));
+        let roots = configured_database_roots_from_values(home, Some(r"D:\gemini-root"), &[]);
         assert_eq!(
             roots[0],
             PathBuf::from(r"D:\gemini-root")
@@ -271,7 +362,7 @@ mod tests {
                 .join("sessions")
         );
         let defaults = local_sessions::tokscale_sessions_from_values(home, Some(""));
-        let default_roots = configured_database_roots_from_values(home, Some("  "));
+        let default_roots = configured_database_roots_from_values(home, Some("  "), &[]);
         assert_eq!(default_roots[1], home.join(".gemini").join("antigravity"));
         assert_eq!(
             defaults,
@@ -407,5 +498,92 @@ mod tests {
         let upgraded =
             rescan_after_pricing_refresh(partial, Some(async { true }), || repriced.clone()).await;
         assert_eq!(upgraded, repriced);
+    }
+
+    #[test]
+    fn additional_homes_default_to_the_primary_home_only() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            gemini_home_directories(dir.path(), None, &[]),
+            vec![dir.path().join(".gemini")]
+        );
+    }
+
+    #[test]
+    fn gemini_cli_home_stays_the_primary_home_with_additional_homes_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let primary = dir.path().join("isolated-gemini");
+        let profile = dir.path().join("profile").join(".gemini");
+        let homes = gemini_home_directories(
+            dir.path(),
+            Some(primary.to_str().unwrap()),
+            &[profile.to_string_lossy().into_owned()],
+        );
+        assert_eq!(homes, vec![primary, profile]);
+    }
+
+    #[test]
+    fn additional_homes_expand_tilde_and_ignore_empty_relative_and_nul_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("profiles").join("work").join(".gemini");
+        let homes = gemini_home_directories(
+            dir.path(),
+            None,
+            &[
+                // Same as the primary home once `~` expands: dropped.
+                "~/.gemini".to_string(),
+                profile.to_string_lossy().into_owned(),
+                String::new(),
+                "   ".to_string(),
+                "relative/.gemini".to_string(),
+                "bad\0path".to_string(),
+            ],
+        );
+        assert_eq!(homes, vec![dir.path().join(".gemini"), profile]);
+    }
+
+    #[test]
+    fn missing_additional_home_is_kept_as_a_home_and_adds_no_history_later() {
+        // Missing homes are not an error here: the reader treats their roots as NotFound.
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("not-created").join(".gemini");
+        let homes =
+            gemini_home_directories(dir.path(), None, &[missing.to_string_lossy().into_owned()]);
+        assert_eq!(homes, vec![dir.path().join(".gemini"), missing]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn additional_homes_dedupe_case_insensitively_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let upper = dir.path().join(".GEMINI").to_string_lossy().into_owned();
+        assert_eq!(
+            gemini_home_directories(dir.path(), None, &[upper]),
+            vec![dir.path().join(".gemini")]
+        );
+    }
+
+    #[test]
+    fn multiple_homes_switch_to_file_stem_identity() {
+        assert_eq!(session_identity_for_homes(1), SessionIdentity::Path);
+        assert_eq!(session_identity_for_homes(2), SessionIdentity::FileStem);
+    }
+
+    #[test]
+    fn each_home_contributes_the_three_recognized_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("profile").join(".gemini");
+        let roots = configured_database_roots_from_values(
+            dir.path(),
+            None,
+            &[profile.to_string_lossy().into_owned()],
+        );
+        assert_eq!(roots.len(), 6);
+        assert_eq!(
+            roots[3],
+            profile.join("antigravity-cli").join("conversations")
+        );
+        assert_eq!(roots[4], profile.join("antigravity"));
+        assert_eq!(roots[5], profile.join("antigravity").join("conversations"));
     }
 }

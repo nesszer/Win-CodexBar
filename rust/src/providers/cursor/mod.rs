@@ -74,22 +74,28 @@ impl CursorProvider {
         ),
         ProviderError,
     > {
-        let cookie_header = if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
-            cookie_header.to_string()
-        } else {
-            // Upstream 0.50.0 #2398: Automatic mode prefers the signed-in
-            // Cursor app's read-only local session over browser cookies.
-            // A rejected app session (stale token, account mismatch)
-            // surfaces in the log and falls back to the browser import.
-            if ctx.source_mode == SourceMode::Auto
-                && let Some(app_result) = self.fetch_via_app_session().await
-            {
-                return Ok(app_result);
+        if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
+            return self.fetch_usage_and_token_report(cookie_header).await;
+        }
+        // Upstream 0.50.0 #2398: Automatic mode prefers the signed-in
+        // Cursor app's read-only local session over browser cookies.
+        // A rejected app session (stale token, account mismatch)
+        // surfaces in the log and falls back to the browser import.
+        if ctx.source_mode == SourceMode::Auto
+            && let Some(app_result) = self.fetch_via_app_session().await
+        {
+            return Ok(app_result);
+        }
+        let mut sessions =
+            crate::providers::browser_cookie_sessions(ctx, &["cursor.com", "cursor.sh"]);
+        let mut rejected = None;
+        for cookie_header in sessions.by_ref() {
+            match self.fetch_usage_and_token_report(&cookie_header).await {
+                Err(ProviderError::AuthRequired) => rejected = Some(ProviderError::AuthRequired),
+                result => return result,
             }
-            crate::providers::browser_cookie_header(&["cursor.com", "cursor.sh"])?
-        };
-
-        self.fetch_usage_and_token_report(&cookie_header).await
+        }
+        Err(rejected.unwrap_or_else(|| sessions.exhaustion_error()))
     }
 
     /// One usage pass with the app's local session; `None` means the app

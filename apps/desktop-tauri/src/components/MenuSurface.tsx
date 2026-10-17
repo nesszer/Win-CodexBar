@@ -71,6 +71,9 @@ interface MenuSurfaceProps {
   /** Inline style applied to the root `menu-surface` element (e.g. CSS
    *  `zoom` for the tray flyout). */
   style?: CSSProperties;
+  /** Settings "Highlight menu cards on hover"; off keeps the Refresh row
+   *  unhighlighted under the pointer while keyboard focus still shows. */
+  hoverHighlight?: boolean;
   children: ReactNode;
 }
 
@@ -84,12 +87,16 @@ export default function MenuSurface({
   footerGroups = [],
   statusLine = null,
   style,
+  hoverHighlight = true,
   children,
 }: MenuSurfaceProps) {
   const { t } = useLocale();
   const groups = footerGroups.filter((group) => group.length > 0);
   return (
-    <div className="menu-surface menu-surface--tray" style={style}>
+    <div
+      className={`menu-surface menu-surface--tray${hoverHighlight ? "" : " menu-surface--hover-highlight-off"}`}
+      style={style}
+    >
       {banner}
       {summary}
       <div className="menu-surface__body">{children}</div>

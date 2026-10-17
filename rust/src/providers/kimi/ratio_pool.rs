@@ -1,17 +1,18 @@
-//! Kimi Code API ratio-pool reconciliation (upstream 0.63.0 `fd2414d`,
-//! #3755).
+//! Kimi Code API ratio-pool reconciliation (upstream #4311 fixing #4306,
+//! building on 0.63.0 `fd2414d`, #3755).
 //!
-//! Mixed legacy responses can carry zero ratio placeholders next to populated
-//! counters for the same quota. A zero ratio stays authoritative unless all
-//! upstream conditions hold: no monthly ratio pool, reliable legacy weekly
-//! counters, a count window of the same duration with nonzero reliable use,
-//! and a count reset within two seconds of the ratio reset.
+//! The usages endpoint can return a self-contradictory body: a legacy counter
+//! and a ratio pool may describe the same quota window with different
+//! readings (the #4306 response reported a 5-hour counter at 100/100 next to a
+//! zero 5-hour ratio). When a reliable legacy counter has the same duration as
+//! the ratio window and its reset is within two seconds of the ratio reset,
+//! the more-exhausted reading wins. Equal readings keep the ratio metadata.
+//! Mismatched durations or reset periods never borrow counts. A monthly pool
+//! or unreliable weekly counters do not block the comparison.
 
 use chrono::TimeDelta;
 
-use super::{
-    KimiCodeApiUsageResponse, KimiRatioPool, KimiUsageDetail, RateWindow, format_usage_amount,
-};
+use super::{KimiRatioPool, KimiUsageDetail, RateWindow, format_usage_amount};
 
 /// Upstream observed the legacy and ratio reset clocks about 1.45 s apart.
 const MATCHING_RESET_TOLERANCE_SECS: i64 = 2;
@@ -74,53 +75,38 @@ fn integer_counter(value: Option<&serde_json::Value>) -> Option<i64> {
     }
 }
 
-/// Resolve a ratio pool, replacing a zero placeholder with the matching
-/// legacy count window when the response proves the counters are the same
-/// quota. `count_window_minutes` is the duration the legacy counters report.
+/// Resolve a ratio pool. When a reliable legacy counter describes the same
+/// quota window, the more-exhausted reading wins (see
+/// [`matching_count_window`]). `count_window_minutes` is the duration the
+/// legacy counters report.
 pub(super) fn resolved_ratio_window(
-    response: &KimiCodeApiUsageResponse,
     pool: &KimiRatioPool,
     detail: Option<&KimiUsageDetail>,
     window_minutes: u32,
     count_window_minutes: Option<u32>,
 ) -> Option<RateWindow> {
     let ratio_window = pool.rate_window(window_minutes)?;
-    let count_window = matching_count_window(
-        response,
-        &ratio_window,
-        detail,
-        window_minutes,
-        count_window_minutes,
-    );
+    let count_window =
+        matching_count_window(&ratio_window, detail, window_minutes, count_window_minutes);
     Some(count_window.unwrap_or(ratio_window))
 }
 
+/// Upstream `resolvedRatioWindow`: the counters replace the ratio only when
+/// they report the same duration, are reliable, reset within
+/// [`MATCHING_RESET_TOLERANCE_SECS`] of the ratio reset, and show a strictly
+/// higher percent. Equal readings keep the ratio window and its metadata.
 fn matching_count_window(
-    response: &KimiCodeApiUsageResponse,
     ratio_window: &RateWindow,
     detail: Option<&KimiUsageDetail>,
     window_minutes: u32,
     count_window_minutes: Option<u32>,
 ) -> Option<RateWindow> {
-    let has_monthly_pool = response
-        .usages
-        .as_ref()
-        .is_some_and(|pools| pools.monthly.is_some());
-    let weekly_counts_reliable = response
-        .usage
-        .as_ref()
-        .and_then(usage_counts)
-        .is_some_and(|counts| counts.reliable);
-    if ratio_window.used_percent != 0.0
-        || has_monthly_pool
-        || !weekly_counts_reliable
-        || count_window_minutes != Some(window_minutes)
-    {
+    if count_window_minutes != Some(window_minutes) {
         return None;
     }
 
     let detail = detail?;
-    let counts = usage_counts(detail).filter(|counts| counts.reliable && counts.used > 0)?;
+    let counts = usage_counts(detail).filter(|counts| counts.reliable)?;
     let count_reset = detail
         .reset_time
         .as_ref()
@@ -135,8 +121,12 @@ fn matching_count_window(
         reason = "quota counters are far below 2^52; the percent is display-only"
     )]
     let (used, limit) = (counts.used as f64, counts.limit as f64);
+    let counts_percent = (used / limit * 100.0).clamp(0.0, 100.0);
+    if counts_percent <= ratio_window.used_percent {
+        return None;
+    }
     Some(RateWindow::with_details(
-        used / limit * 100.0,
+        counts_percent,
         Some(window_minutes),
         Some(count_reset),
         Some(format!(
@@ -504,22 +494,36 @@ mod tests {
         assert!(snapshot.extra_rate_windows.is_empty());
     }
 
-    // Upstream: `nonzero ratios remain authoritative over legacy counts`.
+    // Upstream #4311: `matching nonzero ratios and counts use the more exhausted
+    // reading`. Counts at 19% beat an 18.69% ratio; a 50% ratio beats counts at
+    // 19%; an equal 19% ratio keeps the ratio window and its metadata.
     #[test]
-    fn nonzero_ratios_remain_authoritative_over_legacy_counts() {
-        for ratio in [0.1869, 0.5] {
+    fn matching_nonzero_ratios_and_counts_use_the_more_exhausted_reading() {
+        for (ratio, expected, description) in [
+            (0.1869, 19.0, Some("19/100 credits")),
+            (0.19, 19.0, None),
+            (0.5, 50.0, None),
+        ] {
             let snapshot = parse(weekly_fixture(
                 json!({ "limit": "100", "used": "19", "resetTime": "2026-09-19T16:45:59Z" }),
                 json!({ "used_ratio": ratio, "reset_time": "2026-09-19T16:45:59Z" }),
             ));
-            assert!(close(snapshot.primary.used_percent, ratio * 100.0));
+            assert!(
+                close(snapshot.primary.used_percent, expected),
+                "ratio {ratio}"
+            );
+            assert_eq!(
+                snapshot.primary.reset_description.as_deref(),
+                description,
+                "ratio {ratio}"
+            );
         }
     }
 
-    // Upstream: `monthly ratio accounts retain zero ratios even with matching
-    // legacy counts`.
+    // Upstream #4311: `monthly ratio accounts also reconcile matching weekly
+    // counters`. The monthly pool no longer blocks the weekly comparison.
     #[test]
-    fn monthly_ratio_accounts_retain_zero_ratios_even_with_matching_legacy_counts() {
+    fn monthly_ratio_accounts_also_reconcile_matching_weekly_counters() {
         let snapshot = parse(json!({
             "usage": { "limit": "100", "used": "19", "resetTime": "2026-09-19T16:45:59Z" },
             "usages": {
@@ -527,7 +531,7 @@ mod tests {
                 "limit_month_total": { "used_ratio": 0.0313 }
             }
         }));
-        assert_eq!(snapshot.primary.used_percent, 0.0);
+        assert_eq!(snapshot.primary.used_percent, 19.0);
         let monthly = snapshot.extra_rate_windows.first().expect("monthly pool");
         assert!(close(monthly.window.used_percent, 3.13));
     }
@@ -586,9 +590,11 @@ mod tests {
         );
     }
 
-    // Upstream gates every override on reliable legacy weekly counters.
+    // Upstream #4311 dropped the reliable-weekly-counters gate: a matching
+    // 5-hour count overrides the zero session ratio whatever the weekly counts
+    // report. The weekly lane still needs its own reliable counts to change.
     #[test]
-    fn session_override_requires_reliable_weekly_counters() {
+    fn session_override_does_not_require_reliable_weekly_counters() {
         for weekly_usage in [
             None,
             Some(json!({ "limit": "100", "used": "invalid", "remaining": "101" })),
@@ -608,7 +614,7 @@ mod tests {
             assert_eq!(snapshot.primary.used_percent, 0.0);
             assert_eq!(snapshot.primary.window_minutes, Some(10_080));
             let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
-            assert_eq!(rate_limit.used_percent, 0.0);
+            assert_eq!(rate_limit.used_percent, 1.0);
             assert_eq!(rate_limit.window_minutes, Some(300));
         }
     }
@@ -664,5 +670,49 @@ mod tests {
         let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
         assert_eq!(rate_limit.window_minutes, Some(300));
         assert_eq!(rate_limit.used_percent, 0.0);
+    }
+
+    // Upstream #4311 (fixes #4306, fixture from the issue): the legacy 5-hour
+    // counter is exhausted (100/100) while the matching 5-hour ratio reports 0
+    // with the same reset. The more-exhausted reading wins even though a
+    // monthly pool is present and weekly counters are absent. The monthly
+    // Total pool is still reported.
+    #[test]
+    fn exhausted_legacy_counter_beats_zero_session_ratio_with_monthly_pool() {
+        let snapshot = parse(json!({
+            "limits": [{
+                "window": { "duration": 300, "timeUnit": "TIME_UNIT_MINUTE" },
+                "detail": {
+                    "limit": "100",
+                    "used": "100",
+                    "resetTime": "2026-10-06T13:23:46.915474Z"
+                }
+            }],
+            "usages": {
+                "limit_5h": { "used_ratio": 0, "reset_time": "2026-10-06T13:23:46Z" },
+                "limit_month_total": {
+                    "used_ratio": 0.5531,
+                    "reset_time": "2026-10-22T14:26:29Z"
+                },
+                "limit_month_code": { "used_ratio": 0, "reset_time": "2026-10-22T14:26:29Z" }
+            }
+        }));
+        assert_weekly_absent(&snapshot);
+        let rate_limit = snapshot.secondary.as_ref().expect("rate-limit lane");
+        assert_eq!(rate_limit.used_percent, 100.0);
+        assert_eq!(rate_limit.window_minutes, Some(300));
+        assert_eq!(rate_limit.resets_at, at("2026-10-06T13:23:46.915474Z"));
+        assert_eq!(
+            rate_limit.reset_description.as_deref(),
+            Some("100/100 credits")
+        );
+        let [monthly] = snapshot.extra_rate_windows.as_slice() else {
+            panic!("monthly Total lane");
+        };
+        assert_eq!(monthly.id, MONTHLY_WINDOW_ID);
+        assert_eq!(monthly.title, "Total usage");
+        assert!(close(monthly.window.used_percent, 55.31));
+        assert_eq!(monthly.window.window_minutes, Some(43_200));
+        assert_eq!(monthly.window.resets_at, at("2026-10-22T14:26:29Z"));
     }
 }

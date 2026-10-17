@@ -45,6 +45,7 @@ mod diagnostics;
 mod grok_accounts;
 mod hooks;
 mod locale_cmd;
+mod openai_live;
 mod preferences_transfer;
 mod provider_detail;
 mod provider_refresh;
@@ -70,6 +71,7 @@ pub use diagnostics::*;
 pub use grok_accounts::*;
 pub use hooks::*;
 pub use locale_cmd::*;
+pub use openai_live::*;
 pub use preferences_transfer::*;
 pub use provider_detail::*;
 #[cfg(test)]
@@ -84,7 +86,11 @@ pub use system::*;
 pub(crate) use usage_items::*;
 
 #[cfg(test)]
+mod credential_lane_tests;
+#[cfg(test)]
 mod last_good_owner_tests;
+#[cfg(test)]
+mod openai_live_tests;
 #[cfg(test)]
 mod session_cookie_scope_tests;
 #[cfg(test)]

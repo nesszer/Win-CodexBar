@@ -103,6 +103,30 @@ describe("cardCostSection", () => {
     expect(section?.balanceLine).toBe("Balance: $8.00");
   });
 
+  it("keeps a folded capped spend as a caption without a second bar", () => {
+    const section = cardCostSection(
+      cost({
+        used: 12.5,
+        limit: 50,
+        period: "Monthly",
+        formattedUsed: "$12.50",
+        formattedLimit: "$50.00",
+        balance: 8,
+        foldedIntoPrimary: true,
+      }),
+      "detailed",
+      t,
+    );
+    expect(section).toEqual({
+      title: "Extra usage",
+      spendLine: "Monthly: $12.50 / $50.00",
+      percentUsed: null,
+      percentLine: null,
+      balanceLine: "Balance: $8.00",
+      inline: false,
+    });
+  });
+
   it("drops the balance line in the compact summary style", () => {
     const section = cardCostSection(cost({ used: 1, limit: 4, balance: 8 }), "compact", t);
     expect(section?.balanceLine).toBeNull();

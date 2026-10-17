@@ -21,6 +21,10 @@ Chromium App-Bound Encryption (ABE) binds protected cookie keys to the browser i
 3. Only cookies for enabled providers are extracted (e.g., `claude.ai`, `cursor.com`)
 4. Cookies are stored in-memory and refreshed on each provider poll
 
+### Automatic browser order
+
+With the cookie source set to automatic, browsers are read one at a time in the shared detection order, and only when the provider asks for the next session. Typesafe, HelmCode, Hyper, Claude (web), OpenCode Go (web), Zed, Notion, and Cursor try each browser's session in turn, checking every site domain in one browser before moving to the next browser: a session the site rejects (signed out or expired) moves on to the next browser, and the first accepted session ends the scan, so later browsers are never opened or decrypted. Providers that have not been moved to this scan yet still use the first browser that has any cookies for the site. Cookie source Off or Manual never reads a browser, and the **Import** button reads only the browser you chose.
+
 ## Setting Up Cookie Import
 
 1. Open **Settings** → **Providers** tab

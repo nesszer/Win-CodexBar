@@ -91,6 +91,14 @@ export function buildSpendProviderRowGroups(
     .sort(compareSpendProviderGroups);
 }
 
+/**
+ * Upstream `SpendProviderBreakdownRows`: the repeated Models label only shows
+ * for several models or a partial model history; a single model needs no heading.
+ */
+export function showsSpendModelsLabel(group: SpendProviderGroup): boolean {
+  return group.models.length > 1 || group.hasPartialModelHistory;
+}
+
 /** The daily point for `day`, or null when that day is not in the current range. */
 export function findSpendDay(daily: SpendDailyPoint[], day: string | null): SpendDailyPoint | null {
   if (!day) return null;

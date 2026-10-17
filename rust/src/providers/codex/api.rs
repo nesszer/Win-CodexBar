@@ -485,7 +485,9 @@ impl CodexApi {
         if !response.status().is_success() {
             return Err(super::authenticated_http_error(response, "Codex reset credits").await);
         }
-        decode_reset_credits(&response.bytes().await?)
+        let mut credits = decode_reset_credits(&response.bytes().await?)?;
+        credits.observed_at = Some(Utc::now());
+        Ok(credits)
     }
 
     /// Load credentials, tolerating a brief owner publication of `auth.json`.
@@ -1325,6 +1327,10 @@ pub(super) struct ResetCredits {
     #[serde(default)]
     pub(super) credits: Vec<ResetCredit>,
     pub(super) available_count: u32,
+    /// When the endpoint answered. A cached inventory keeps its original time
+    /// so weekly-reset evidence can tell it apart from a fresh read.
+    #[serde(skip)]
+    pub(super) observed_at: Option<DateTime<Utc>>,
 }
 
 fn decode_reset_credits(data: &[u8]) -> Result<ResetCredits, ProviderError> {
@@ -1777,6 +1783,7 @@ mod tests {
                     expires_at: Some("2026-07-10T12:00:00Z".into()),
                 },
             ],
+            observed_at: None,
         };
         let window = reset_credits_rate_window(&reset, now);
         assert!(window.is_informational);
@@ -1802,6 +1809,7 @@ mod tests {
         let reset = ResetCredits {
             available_count: 1,
             credits: vec![],
+            observed_at: None,
         };
         let window = reset_credits_rate_window(&reset, now);
         assert!(window.is_informational);

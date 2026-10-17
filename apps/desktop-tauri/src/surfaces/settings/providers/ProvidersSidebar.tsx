@@ -1,4 +1,5 @@
 import {
+  Fragment,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -283,16 +284,22 @@ export function ProvidersSidebar({
   );
 }
 
-interface MenuItem {
+export interface MenuItem {
   label: string;
   disabled: boolean;
   run: () => void;
+  /** Set for a checkbox item; its state shows as a check mark. */
+  checked?: boolean;
+  /** Native-style tooltip for the item. */
+  title?: string;
+  /** Draws a divider above the item. */
+  separatorBefore?: boolean;
 }
 
 const MENU_EDGE = 4;
 
 /** A small floating menu at a point, kept inside the window. */
-function ProviderRowMenu({
+export function ProviderRowMenu({
   x,
   y,
   items,
@@ -323,7 +330,10 @@ function ProviderRowMenu({
 
   useEffect(() => {
     const onPointer = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onCloseRef.current(false);
+      if (ref.current?.contains(e.target as Node)) return;
+      // A `data-menu-toggle` button closes its own menu on click, not here.
+      if ((e.target as Element | null)?.closest?.("[data-menu-toggle]")) return;
+      onCloseRef.current(false);
     };
     const onDismiss = () => onCloseRef.current(false);
     document.addEventListener("mousedown", onPointer, true);
@@ -364,19 +374,30 @@ function ProviderRowMenu({
       onContextMenu={(e) => e.preventDefault()}
     >
       {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          className="providers-sidebar-menu__item"
-          disabled={item.disabled}
-          onClick={() => {
-            item.run();
-            onClose(true);
-          }}
-        >
-          {item.label}
-        </button>
+        <Fragment key={item.label}>
+          {item.separatorBefore && (
+            <div className="providers-sidebar-menu__separator" role="separator" />
+          )}
+          <button
+            type="button"
+            role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+            aria-checked={item.checked}
+            className="providers-sidebar-menu__item"
+            title={item.title}
+            disabled={item.disabled}
+            onClick={() => {
+              item.run();
+              onClose(true);
+            }}
+          >
+            {item.checked !== undefined && (
+              <span className="providers-sidebar-menu__check" aria-hidden="true">
+                {item.checked ? "✓" : ""}
+              </span>
+            )}
+            {item.label}
+          </button>
+        </Fragment>
       ))}
     </div>,
     document.body,

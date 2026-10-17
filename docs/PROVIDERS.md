@@ -182,6 +182,36 @@ to `https://muse.ai/` with the session cookies and `Sec-Fetch-*` headers.
 - A 401, a 403 or a redirect to `auth.muse.ai` is reported as an expired
   session. Response bodies and cookies are never logged or echoed in errors.
 
+### TinyApi
+
+TinyApi reads available credit balance from the signed-in dashboard using
+`GET https://tinyapi.rest/api/user/credits` with session cookies or a manual
+Cookie header. The response returns a JSON object with a `data.totalAvailable`
+field containing the available credits as a number.
+
+- The cookie source in Settings → Providers → TinyApi picks the session and
+  defaults to Automatic. Automatic imports the `tinyapi.rest` cookies from the
+  browser you select (Chrome, Edge, Brave, Firefox); Manual accepts a pasted
+  Cookie header. Without an imported or pasted header, Automatic tries each
+  detected browser's `tinyapi.rest` cookies in turn, and Manual fails closed.
+  Off reads nothing.
+- Requests send the Cookie header and expect a JSON response with `success: true`
+  and `data.totalAvailable` as a finite non-negative number. HTTP 401 or 403
+  indicates an expired session; the provider skips to the next browser session
+  if Automatic has more candidates, and reports "TinyApi session expired. Sign
+  in again or paste a fresh Cookie header." if none remain. HTTP 429 is
+  rate-limited, and 500+ is unavailable. Other HTTP codes are reported with
+  their status code. Bodies over 256 KiB or without a valid balance report a
+  missing balance, and non-JSON bodies report invalid JSON. Response bodies and
+  cookies are never logged or echoed in errors.
+- The card shows a single "Available credits" detail row with the balance
+  formatted to up to two decimal places and the "credits" unit (e.g. "125.5
+  credits" or "100 credits"). The menu bar reads "Available credits: <value>"
+  from an informational window that is hidden on the card. Login method is
+  shown as "Browser session".
+- No multi-account support. A transport or timeout error while reading the
+  body keeps its cause instead of being reported as an invalid response.
+
 ### WorkBuddy credits
 
 WorkBuddy is Tencent's desktop AI work assistant, billed in credits. It is
@@ -333,6 +363,60 @@ authentication. Configure the API key in Settings → Providers → Linkup (or
   not an object with a finite numeric `balance` reports "Linkup returned an
   unrecognized credit balance.". Response bodies are never echoed in errors.
 
+### Sofya
+
+Sofya reads `GET https://sofya.co/v1/auth/me` with bearer authentication.
+Configure the API key in Settings → Providers → Sofya (or `SOFYA_API_KEY`).
+
+- The "Account credits" section shows "Available credits" (`credits`),
+  "Plan credits" and "Purchased credits" when present, with up to six decimals.
+  At least one must be present; negative or non-numeric values fail closed.
+- `is_free_tier` sets the login label: "Free tier", "Pay as you go", or "API"
+  when absent. A free-tier account with `credits_reset_at` also shows
+  "Monthly reset" in UTC. The reset timestamp must include a time zone and is
+  validated even when it is not shown.
+- Every non-200 status reports "Sofya returned HTTP <status>."; other account
+  fields (email, API key, usernames) are never read or displayed.
+
+### Tavily
+
+Tavily reads `GET https://api.tavily.com/usage` with bearer authentication.
+Configure the API key in Settings → Providers → Tavily (or `TAVILY_API_KEY`).
+
+- The "Account plan" lane reads `account.plan_usage` / `account.plan_limit`.
+  The "API key" lane reads `key.usage` / `key.limit`. A null key limit means
+  Unlimited; zero limits and unlimited keys display their rows without a
+  usage percentage. Remaining credits are the nonnegative difference between
+  reported cap and usage.
+- Pay-as-you-go totals, when present (`account.paygo_usage` and
+  `account.paygo_limit`), appear in a separate detail section.
+- The plan name (`account.current_plan`) identifies the account plan. No email
+  or account ID is inferred; unknown plans do not create a phantom identity.
+- Non-200 responses report "Tavily returned HTTP <status>."; response bodies
+  are never echoed in errors.
+- Tavily limits the usage endpoint to 10 requests per 10 minutes. Keep
+  refreshes at least one minute apart and avoid repeated manual refreshes. A
+  throttled request fails as rate-limited without automatic replay.
+
+### Exa
+
+Exa reads selected API key monthly spend from `GET https://admin-api.exa.ai/team-management/api-keys/{id}/usage`
+with Team Management service key authentication (`x-api-key` header). Request dates are rounded down to whole
+seconds. Configure both the service key and the API key ID in Settings → Providers → Exa (or `EXA_SERVICE_KEY`
+and `EXA_API_KEY_ID`).
+
+- Exa requires Team Management API access, enabled per-team by Exa support (`support@exa.ai`). Create a service
+  account API key under **Service keys** on the API keys page; ordinary search API keys are not supported.
+- The scope field (API key ID) is the identifier of the API key whose spend you want to monitor, not its secret.
+  Both keys must belong to the same team. API key IDs reject empty strings and path normalization values ("." and "..").
+- The "Spend" lane shows selected-key month-to-date USD (UTC calendar month start to request time). Zero spend
+  stays visible. Window percentage is a placeholder; only the detail section is meaningful.
+- No team balance, allowance, reset date, or quota is inferred. Account history and burn-down widgets are
+  unavailable because the plugin does not expose a stable account identity. No browser cookies are imported.
+- 401 reports "Exa rejected the service key. Ordinary search API keys are not supported."; 403 reports "Exa Team
+  Management must be enabled and both keys must belong to the same team." Response bodies are never echoed in
+  errors. Malformed, nonfinite, negative, or period-mismatched spend values fail parsing.
+
 ### ClawRouter
 
 ClawRouter reports the monthly budget, spend and routed-provider usage of one
@@ -371,6 +455,185 @@ portal in Settings → Providers → IBM Bob, as token accounts, or with
   with its plan, and the plan names are shown as the organization.
 - 401 and 403 report that the key was rejected; response bodies are never
   echoed in errors.
+
+### X API prepaid credits
+
+X API is disabled by default and reads prepaid credit balances from the X
+(Twitter) API console. Sign in to console.x.com in your browser, and CodexBar
+will read the `auth_token` and `ct0` cookies from that session.
+
+- **Automatic:** A previously imported Cookie header is used on its own.
+  Otherwise CodexBar tries each detected browser (Chrome, Edge, Brave,
+  Firefox) holding both cookies. If a browser session expires (401), it moves
+  to the next browser. No session means sign in to console.x.com.
+- **Manual:** Paste the Cookie header from a console.x.com request (with
+  `auth_token` and `ct0`). Manual mode does not fall back to browser sessions.
+- **Off:** Cookies are disabled.
+
+The primary lane shows the balance (paid + free credits). Details rows show:
+- Balance (total: paid + free)
+- Purchased credits
+- Free credits
+
+Balance is a prepaid meter (no quota percentage); costs are always zero (no
+usage tracking available). The provider reports identity as "Browser session".
+Cost resets are never inferred. Session rotation on 401 is implemented: sessions
+are tried in browser order, stale sessions are skipped, and a missing session
+after all attempts triggers "sign in to console.x.com". Errors never echo
+response bodies.
+
+### Parallel
+
+Parallel is disabled by default and reads the prepaid account balance from the
+Parallel platform console. Sign in to platform.parallel.ai in your browser, and
+CodexBar will use that session's cookies.
+
+- **Automatic:** A previously imported Cookie header is used on its own.
+  Otherwise CodexBar tries each detected browser (Chrome, Edge, Brave, Firefox)
+  holding a platform.parallel.ai session. If a session is signed out, it moves
+  to the next browser. No session means sign in to platform.parallel.ai.
+- **Manual:** Paste the Cookie header from a platform.parallel.ai request.
+  Manual mode does not fall back to browser sessions.
+- **Off:** Cookies are disabled.
+
+The provider makes one read-only request:
+
+```text
+POST https://platform.parallel.ai/api/rpc/billing/payments/refresh-balance
+Cookie: <session cookies>
+Origin: https://platform.parallel.ai
+```
+
+- The **Balance** row shows the account balance in USD (cents divided by 100).
+- **Pending debit** appears only when the account reports a non-zero pending debit.
+- The balance is informational: it has no quota percentage and no cost.
+- The provider reports identity as "Browser session".
+- A signed-out response (401, 403, a redirect, or an HTML page) moves to the next
+  session; when every session is signed out, CodexBar reports an expired session.
+- Malformed responses fail parsing without echoing the response body.
+- Parallel's upstream plugin reads only Chrome. This port uses the shared browser
+  order and the explicit browser selection in Preferences.
+
+### fal
+
+fal is disabled by default. In Settings → Providers → fal, enter an **API key**
+with billing read access (the BILLING or READONLY preset), or set `FAL_KEY`. The
+key is stored with the other API keys and is never written to logs.
+
+The provider makes one read-only request:
+
+```text
+GET https://api.fal.ai/v1/account/billing?expand=credits
+Authorization: Key <API key>
+```
+
+- The **Credit balance** row shows `credits.current_balance` in the reported
+  currency (`credits.currency` when it is a three-letter uppercase code, otherwise
+  USD). A numeric string such as `"12.50"` is accepted.
+- The account name (`username`) is shown as the organization. The provider
+  reports identity as "API key".
+- The balance is informational: it has no quota percentage and no cost.
+- 401 reports a rejected key; 403 reports that the key needs the
+  `billing:usage:read` permission; other HTTP errors report their status. A
+  successful response without a readable balance reports the balance as
+  unavailable, and Refresh can retry it.
+- Response bodies are never echoed in errors.
+
+### FLORA
+
+FLORA is disabled by default. In Settings → Providers → FLORA, enter an **API
+key** (or set `FLORA_API_KEY`) and the **workspace ID** (`ws_…`, or set
+`FLORA_WORKSPACE_ID`). API keys cannot list their workspaces, so the workspace ID
+is required. The workspace ID is stored in the provider's workspace slot and is
+validated before any request. The key needs billing permission on that workspace.
+
+The provider makes one read-only request for the current UTC month, from the
+first day through today:
+
+```text
+GET https://app.flora.ai/api/v1/workspaces/<ws_id>/usage?start_date=YYYY-MM-01&end_date=YYYY-MM-DD
+Authorization: Bearer <API key>
+```
+
+Rows in the **Workspace balance** section:
+
+- **Available** shows `available_cost`. The secondary text is "Workspace pool"
+  for a workspace balance and "Your allowance" for a per-caller balance.
+- **Member limit** appears only for a per-caller balance with a finite
+  `member_limit.limit_cost`. The secondary text is "Monthly" or "All time".
+- **Spent this month** shows `spend.total_cost` when spend is reported, with a
+  **Runs this month** row for a whole-number `classified_runs`. When spend is
+  unavailable it shows "Unavailable" with the reason (no usage reporting, billing
+  permission missing, or totals not yet computed).
+- The currency is `currency` when it is a three-letter uppercase code, otherwise
+  USD. The provider reports identity as "API key" and has no quota percentage.
+
+Errors: 401 reports a rejected key; 403 reports that the key needs billing
+permission on the workspace; 404 reports an unknown workspace ID; other HTTP
+errors report their status. A response without a finite `available_cost` is
+reported as unrecognized. Response bodies are never echoed in errors.
+
+### Aerostack
+
+Aerostack is disabled by default. In Settings → Providers → Aerostack, enter an
+**account JWT** to monitor usage and allowance. Alternatively, set `AEROSTACK_TOKEN`.
+The masked token is saved in CodexBar's local config file. This is the account
+bearer token used by the billing API, not an Agent Endpoint key (`aek_…`).
+Replace it when it expires; CodexBar does not sign in, refresh tokens, or import
+browser credentials.
+
+The provider makes one read-only request:
+
+```text
+GET https://api.aerostack.dev/api/billing/usage
+Authorization: Bearer <account JWT>
+```
+
+- The **Monthly AI tokens** meter uses `usage.ai_tokens.used` and `usage.ai_tokens.limit`.
+- Detail rows show tokens used, allowance, remaining tokens, any usage above the
+  allowance, and the reported period (for example, `2026-03`). The account tier
+  supplies the plan label.
+- The account's returned limit is authoritative; CodexBar does not hardcode
+  Free or paid quotas.
+- Missing counters remain unknown. A zero or absent allowance has no percentage
+  meter; any reported counters remain visible. Usage above the allowance is not
+  a claim that the account is blocked: Aerostack documents a grace buffer.
+- Invalid counters fail parsing without including the response body in the error.
+- 401 reports authentication failure (expired or rejected JWT); 403, 429, and
+  other errors report their status; response bodies are never echoed in errors.
+
+### Cosmic AI
+
+Cosmic AI is disabled by default. In Settings → Providers → Cosmic AI, enter a
+**Personal Access Token** and the **Project ID** to monitor. Create a token in
+[Cosmic Account Settings → API Tokens](https://app.cosmicjs.com/account/api-tokens).
+Alternatively, set `COSMIC_TOKEN` and `COSMIC_PROJECT_ID`. The masked token and
+Project ID are saved in CodexBar's local config file (`apiKey` and `workspaceID`
+in the `cosmic` provider entry). Bucket read/write keys are not supported.
+
+The provider uses the read-only endpoint underlying the official `cosmic billing usage` command:
+
+```text
+GET https://dapi.cosmicjs.com/v3/projects/usage?project_id=<Project ID>
+Origin: https://app.cosmicjs.com
+```
+
+- The **Input tokens** and **Output tokens** meters pair `usage.ai.input_tokens`
+  / `output_tokens` with `plan_info.ai_tokens.max_input` / `max_output`.
+- Allowances can be decimal strings with `k` or `M` suffixes (as in the
+  official CLI), explicit `unlimited` allowances, or absent.
+- Detail rows show usage, allowance, remaining tokens, and any amount above the
+  allowance separately for each dimension.
+- Usage covers only the configured project; it is not summed across projects or
+  workspaces.
+- Missing counters remain unknown. A zero, absent, or nonnumeric allowance has
+  no percentage meter; any reported counters remain visible. An explicit
+  unlimited allowance stays labeled unlimited, and other unrecognized strings
+  leave the allowance unknown.
+- Invalid numeric counters fail parsing without including the response body in
+  the error.
+- 401, 403, and 429 report their status; response bodies are never echoed in
+  errors.
 
 ## Listing what is enabled
 

@@ -97,7 +97,14 @@ export function visibleUsageSpendSummary(summary: UsageSpendSummary, hidden: rea
   const contract = isContractHidden(summary, hidden)
     ? emptySpendContract(summary.contract.providerId, summary.contract)
     : summary.contract;
-  return { ...summary, rows, contract };
+  const shown = (sourceId: string) => !ids.has(sourceId.trim().toLowerCase());
+  const trend = summary.trend && {
+    ...summary.trend,
+    sources: summary.trend.sources.filter((source) => shown(source.id)),
+    daily: summary.trend.daily.filter((point) => shown(point.sourceId)),
+    hourly: summary.trend.hourly.filter((point) => shown(point.sourceId)),
+  };
+  return { ...summary, rows, contract, trend };
 }
 
 export interface CurrencyTotals {

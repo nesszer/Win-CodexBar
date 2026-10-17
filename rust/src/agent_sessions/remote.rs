@@ -171,14 +171,62 @@ impl RemoteSessionFetcher {
         history_days: u32,
         force_refresh: bool,
     ) -> Result<CommandOptions, String> {
-        let host = Self::validate_codex_cost_host(host)?;
         if !(1..=365).contains(&history_days) {
             return Err("history days must be between 1 and 365".to_string());
         }
-
         let refresh = if force_refresh { " --refresh" } else { "" };
+        Self::codex_cli_options(
+            host,
+            &format!(
+                "cost --provider codex --format json --summary-only --provider-native-only --days {history_days}{refresh}"
+            ),
+        )
+    }
+
+    /// Fetch the identified-request ledger (upstream #4447) over the same
+    /// one-shot SSH boundary, with an explicit UTC millisecond window.
+    pub(crate) async fn fetch_codex_identified_usage(
+        &self,
+        host: &str,
+        history_days: u32,
+        end_unix_ms: i64,
+    ) -> Result<String, String> {
+        let options = Self::codex_identified_options(host, history_days, end_unix_ms)?;
+        let result = Self::codex_cost_runner()
+            .run_async("ssh", None, &options)
+            .await
+            .map_err(|error| error.to_string())?;
+        if result.timed_out || result.exit_code != Some(0) {
+            return Err("remote identified usage command failed".to_string());
+        }
+        if result.text.len() > crate::codex_costs::MAX_IDENTIFIED_OUTPUT_BYTES {
+            return Err("remote identified usage output is too large".to_string());
+        }
+        Ok(result.text)
+    }
+
+    pub(crate) fn codex_identified_options(
+        host: &str,
+        history_days: u32,
+        end_unix_ms: i64,
+    ) -> Result<CommandOptions, String> {
+        if !(1..=365).contains(&history_days) || end_unix_ms < 0 {
+            return Err("invalid identified usage window".to_string());
+        }
+        Self::codex_cli_options(
+            host,
+            &format!(
+                "cost --provider codex --format json --identified-only --days {history_days} --identified-end {end_unix_ms}"
+            ),
+        )
+    }
+
+    /// Select the executable before scanning: a failed scan must never invoke
+    /// a fallback scan.
+    fn codex_cli_options(host: &str, cli_arguments: &str) -> Result<CommandOptions, String> {
+        let host = Self::validate_codex_cost_host(host)?;
         let command = format!(
-            "if command -v codexbar >/dev/null 2>&1; then exec codexbar cost --provider codex --format json --summary-only --provider-native-only --days {history_days}{refresh}; else exec /Applications/CodexBar.app/Contents/Helpers/CodexBarCLI cost --provider codex --format json --summary-only --provider-native-only --days {history_days}{refresh}; fi"
+            "if command -v codexbar >/dev/null 2>&1; then exec codexbar {cli_arguments}; else exec /Applications/CodexBar.app/Contents/Helpers/CodexBarCLI {cli_arguments}; fi"
         );
         let remote_command = format!("'{command}'");
 
@@ -419,5 +467,26 @@ mod tests {
         assert!(RemoteSessionFetcher::codex_cost_options("build host", 30, false).is_err());
         assert!(RemoteSessionFetcher::codex_cost_options("build-host", 0, false).is_err());
         assert!(RemoteSessionFetcher::codex_cost_options("build-host", 366, false).is_err());
+    }
+
+    #[test]
+    fn codex_identified_options_request_the_exact_window_noninteractively() {
+        let options =
+            RemoteSessionFetcher::codex_identified_options("build-host", 7, 1_700_000_000_000)
+                .unwrap();
+        assert!(options.extra_args.contains(&"BatchMode=yes".to_string()));
+        assert!(
+            options
+                .extra_args
+                .contains(&"StrictHostKeyChecking=yes".to_string())
+        );
+        let command = options.extra_args.last().unwrap();
+        assert!(command.contains(
+            "cost --provider codex --format json --identified-only --days 7 --identified-end 1700000000000"
+        ));
+        assert!(!command.contains("--summary-only"));
+        assert!(RemoteSessionFetcher::codex_identified_options("-oProxyCommand=x", 7, 0).is_err());
+        assert!(RemoteSessionFetcher::codex_identified_options("build-host", 0, 0).is_err());
+        assert!(RemoteSessionFetcher::codex_identified_options("build-host", 7, -1).is_err());
     }
 }

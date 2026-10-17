@@ -5,6 +5,11 @@
 // supersede these).
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: "utf8"): string;
+  export interface Dirent {
+    name: string;
+    isDirectory(): boolean;
+  }
+  export function readdirSync(path: string, options: { withFileTypes: true }): Dirent[];
 }
 
 // Node 20.11+ / vite-node inject import.meta.dirname|filename; those types

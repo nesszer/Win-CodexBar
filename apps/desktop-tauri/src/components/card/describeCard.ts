@@ -1,6 +1,7 @@
 import type {
   CostSummaryDisplayStyle,
   ProviderChartData,
+  ProviderThroughputSnapshot,
   ProviderUsageSnapshot,
 } from "../../types/bridge";
 import { formatCostAmount } from "../../lib/cardCost";
@@ -19,7 +20,14 @@ export interface MenuCardPresence {
   hasCost: boolean;
   localUsage: ProviderChartData["localUsage"] | null;
   wayfinderUsage: ProviderUsageSnapshot["wayfinderUsage"] | null;
+  /** Last-hour Tokens/min grid (OpenAI API Live Usage); full card only. */
+  openAiThroughput: ProviderThroughputSnapshot | null;
   hasDetails: boolean;
+  /**
+   * Plan renewal / expiry line under the quota rows. The compact Overview
+   * drops it when quota bars are present (upstream 0.75.0 #4484).
+   */
+  planDateNote: string | null;
 }
 
 /**
@@ -49,6 +57,7 @@ export function describeCard(
   visibleMetrics: MetricEntry[],
   costSummaryDisplayStyle: CostSummaryDisplayStyle = "detailed",
   compactOverview = false,
+  planNote: string | null = null,
 ): MenuCardPresence {
   const hasError = !!provider.error;
   const hasMetrics = !hasError && visibleMetrics.length > 0;
@@ -64,9 +73,21 @@ export function describeCard(
   const localUsage = hasError ? null : chartData?.localUsage ?? null;
   const wayfinderUsage =
     !hasError && provider.providerId === "wayfinder" ? provider.wayfinderUsage ?? null : null;
+  const planDateNote = !hasError && planNote && (!compactOverview || !hasMetrics) ? planNote : null;
+  // The Tokens/min grid is a full-card section; the compact Overview leaves it out.
+  const openAiThroughput =
+    !hasError && !compactOverview && provider.providerId === "openaiapi"
+      ? provider.throughput ?? null
+      : null;
   const hasDetails = compactOverview
-    ? hasMetrics || showsDetailSections || !!wayfinderUsage
-    : hasMetrics || hasDetailSections || hasCost || !!localUsage || !!wayfinderUsage;
+    ? hasMetrics || showsDetailSections || !!wayfinderUsage || !!planDateNote
+    : hasMetrics ||
+      hasDetailSections ||
+      hasCost ||
+      !!localUsage ||
+      !!wayfinderUsage ||
+      !!openAiThroughput ||
+      !!planDateNote;
   return {
     hasMetrics,
     hasDetailSections,
@@ -74,6 +95,8 @@ export function describeCard(
     hasCost,
     localUsage,
     wayfinderUsage,
+    openAiThroughput,
     hasDetails,
+    planDateNote,
   };
 }

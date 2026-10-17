@@ -4,6 +4,7 @@ pub mod cookie_cache;
 pub mod cookies;
 pub mod detection;
 pub mod leveldb;
+pub mod session_scan;
 pub mod storage_discovery;
 pub mod watchdog;
 pub mod wsl_paths;

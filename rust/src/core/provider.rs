@@ -66,6 +66,7 @@ pub enum ProviderId {
     HuggingFace,
     Helmcode,
     V0,
+    TinyApi,
     TypeSafe,
     LLMProxy,
     Chutes,
@@ -77,6 +78,7 @@ pub enum ProviderId {
     Qoder,
     CodeBuddy,
     Sakana,
+    Sofya,
     Sub2Api,
     Wayfinder,
     ZenMux,
@@ -87,6 +89,7 @@ pub enum ProviderId {
     QwenCloud,
     Notion,
     Xai,
+    Xapi,
     Fireworks,
     AtlasCloud,
     #[serde(alias = "metaspark")]
@@ -112,6 +115,13 @@ pub enum ProviderId {
     MuseAI,
     WorkBuddy,
     SailResearch,
+    Tavily,
+    Exa,
+    Cosmic,
+    Aerostack,
+    Parallel,
+    Fal,
+    Flora,
 }
 
 impl ProviderId {
@@ -171,6 +181,7 @@ impl ProviderId {
             ProviderId::HuggingFace,
             ProviderId::Helmcode,
             ProviderId::V0,
+            ProviderId::TinyApi,
             ProviderId::TypeSafe,
             ProviderId::LLMProxy,
             ProviderId::Chutes,
@@ -182,6 +193,7 @@ impl ProviderId {
             ProviderId::Qoder,
             ProviderId::CodeBuddy,
             ProviderId::Sakana,
+            ProviderId::Sofya,
             ProviderId::Sub2Api,
             ProviderId::Wayfinder,
             ProviderId::ZenMux,
@@ -192,6 +204,7 @@ impl ProviderId {
             ProviderId::QwenCloud,
             ProviderId::Notion,
             ProviderId::Xai,
+            ProviderId::Xapi,
             ProviderId::Fireworks,
             ProviderId::AtlasCloud,
             ProviderId::Meta,
@@ -216,6 +229,13 @@ impl ProviderId {
             ProviderId::MuseAI,
             ProviderId::WorkBuddy,
             ProviderId::SailResearch,
+            ProviderId::Tavily,
+            ProviderId::Exa,
+            ProviderId::Cosmic,
+            ProviderId::Aerostack,
+            ProviderId::Parallel,
+            ProviderId::Fal,
+            ProviderId::Flora,
         ]
     }
 
@@ -281,6 +301,7 @@ impl ProviderId {
             ProviderId::MuseAI => "museai",
             ProviderId::WorkBuddy => "workbuddy",
             ProviderId::SailResearch => "sailresearch",
+            ProviderId::Tavily => "tavily",
             ProviderId::AiAnd => "aiand",
             ProviderId::Windsurf => "windsurf",
             ProviderId::Manus => "manus",
@@ -297,6 +318,7 @@ impl ProviderId {
             ProviderId::HuggingFace => "huggingface",
             ProviderId::Helmcode => "helmcode",
             ProviderId::V0 => "v0",
+            ProviderId::TinyApi => "tinyapi",
             ProviderId::TypeSafe => "typesafe",
             ProviderId::LLMProxy => "llmproxy",
             ProviderId::Chutes => "chutes",
@@ -308,6 +330,7 @@ impl ProviderId {
             ProviderId::Qoder => "qoder",
             ProviderId::CodeBuddy => "codebuddy",
             ProviderId::Sakana => "sakana",
+            ProviderId::Sofya => "sofya",
             ProviderId::Sub2Api => "sub2api",
             ProviderId::Wayfinder => "wayfinder",
             ProviderId::ZenMux => "zenmux",
@@ -318,8 +341,15 @@ impl ProviderId {
             ProviderId::QwenCloud => "qwen-cloud",
             ProviderId::Notion => "notion",
             ProviderId::Xai => "xai",
+            ProviderId::Xapi => "xapi",
             ProviderId::Replicate => "replicate",
             ProviderId::AtlasCloud => "atlascloud",
+            ProviderId::Exa => "exa",
+            ProviderId::Cosmic => "cosmic",
+            ProviderId::Aerostack => "aerostack",
+            ProviderId::Parallel => "parallel",
+            ProviderId::Fal => "fal",
+            ProviderId::Flora => "flora",
         }
     }
 
@@ -386,6 +416,7 @@ impl ProviderId {
             ProviderId::MuseAI => "Muse (muse.ai)",
             ProviderId::WorkBuddy => "WorkBuddy",
             ProviderId::SailResearch => "Sail Research",
+            ProviderId::Tavily => "Tavily",
             ProviderId::AiAnd => "ai&",
             ProviderId::Windsurf => "Windsurf",
             ProviderId::Manus => "Manus",
@@ -402,6 +433,7 @@ impl ProviderId {
             ProviderId::HuggingFace => "Hugging Face",
             ProviderId::Helmcode => "Helmcode",
             ProviderId::V0 => "v0",
+            ProviderId::TinyApi => "TinyApi",
             ProviderId::TypeSafe => "TypeSafe",
             ProviderId::LLMProxy => "LLM Proxy",
             ProviderId::Chutes => "Chutes",
@@ -414,6 +446,7 @@ impl ProviderId {
             ProviderId::Qoder => "Qoder",
             ProviderId::CodeBuddy => "CodeBuddy",
             ProviderId::Sakana => "Sakana AI",
+            ProviderId::Sofya => "Sofya",
             ProviderId::Sub2Api => "sub2api",
             ProviderId::Wayfinder => "Wayfinder",
             ProviderId::ZenMux => "ZenMux",
@@ -424,8 +457,15 @@ impl ProviderId {
             ProviderId::QwenCloud => "Qwen Cloud",
             ProviderId::Notion => "Notion AI",
             ProviderId::Xai => "xAI",
+            ProviderId::Xapi => "X API",
             ProviderId::Replicate => "Replicate",
             ProviderId::AtlasCloud => "Atlas Cloud",
+            ProviderId::Exa => "Exa",
+            ProviderId::Cosmic => "Cosmic AI",
+            ProviderId::Aerostack => "Aerostack",
+            ProviderId::Parallel => "Parallel",
+            ProviderId::Fal => "fal",
+            ProviderId::Flora => "FLORA",
         }
     }
 
@@ -466,6 +506,7 @@ impl ProviderId {
             ProviderId::Qoder => Some("qoder.com"),
             ProviderId::CodeBuddy => Some("codebuddy.cn"),
             ProviderId::Sakana => Some("console.sakana.ai"),
+            ProviderId::Sofya => None,
             ProviderId::LongCat => Some("longcat.chat"),
             ProviderId::Replicate => Some("replicate.com"),
             ProviderId::AtlasCloud => None,
@@ -507,6 +548,7 @@ impl ProviderId {
             ProviderId::MuseAI => Some("muse.ai"),
             ProviderId::WorkBuddy => Some("workbuddy.cn"),
             ProviderId::SailResearch => None,
+            ProviderId::Tavily => None,
             ProviderId::AiAnd => None,
             ProviderId::Windsurf => None,
             ProviderId::Doubao => None,
@@ -519,6 +561,7 @@ impl ProviderId {
             ProviderId::Groq => Some("groq.com"),
             ProviderId::HuggingFace => None,
             ProviderId::Helmcode => Some("helmcode.com"),
+            ProviderId::TinyApi => Some("tinyapi.rest"),
             ProviderId::TypeSafe => Some("typesafe.ai"),
             ProviderId::V0 => None,
             ProviderId::LLMProxy => None,
@@ -536,7 +579,14 @@ impl ProviderId {
             ProviderId::ZoomMate => Some("zoommate.zoom.us"),
             ProviderId::QwenCloud => Some("qwencloud.com"),
             ProviderId::Notion => Some("app.notion.com"),
+            ProviderId::Xapi => Some("x.com"),
             ProviderId::Xai => None,
+            ProviderId::Exa => None,
+            ProviderId::Cosmic => None,
+            ProviderId::Aerostack => None,
+            ProviderId::Parallel => Some("platform.parallel.ai"),
+            ProviderId::Fal => None,
+            ProviderId::Flora => None,
         }
     }
 
@@ -554,6 +604,12 @@ impl ProviderId {
     /// in `provider_factory::pace_capability`.
     pub fn pace_capability(&self) -> super::ProviderPaceCapability {
         super::provider_factory::pace_capability(*self)
+    }
+
+    /// Limit reset detector rule. Each provider declares its rule in its own
+    /// module; the dispatch lives in `provider_factory::limit_reset_policy`.
+    pub fn limit_reset_policy(&self) -> super::ProviderLimitResetPolicy {
+        super::provider_factory::limit_reset_policy(*self)
     }
 
     /// Parse from CLI name string
@@ -631,12 +687,14 @@ impl ProviderId {
             }
             "grok" | "supergrok" | "super-grok" => Some(ProviderId::Grok),
             "xai" | "x.ai" | "x-ai" => Some(ProviderId::Xai),
+            "xapi" | "x-api" | "x api" => Some(ProviderId::Xapi),
             "elevenlabs" | "eleven-labs" | "11labs" => Some(ProviderId::ElevenLabs),
             "deepgram" | "dg" => Some(ProviderId::Deepgram),
             "groq" | "groqcloud" | "groq-cloud" | "groq cloud" => Some(ProviderId::Groq),
             "huggingface" | "hugging-face" | "hugging face" | "hf" => Some(ProviderId::HuggingFace),
             "helmcode" | "nan-builders" | "nan builders" => Some(ProviderId::Helmcode),
             "v0" | "v0-dev" | "v0.dev" => Some(ProviderId::V0),
+            "tinyapi" | "tiny-api" => Some(ProviderId::TinyApi),
             "typesafe" | "type-safe" | "type safe" => Some(ProviderId::TypeSafe),
             "llmproxy" | "llm-proxy" | "llm proxy" => Some(ProviderId::LLMProxy),
             "chutes" | "chutes-ai" | "chutes ai" => Some(ProviderId::Chutes),
@@ -652,6 +710,7 @@ impl ProviderId {
                 Some(ProviderId::CodeBuddy)
             }
             "sakana" | "sakana-ai" | "sakana ai" => Some(ProviderId::Sakana),
+            "sofya" => Some(ProviderId::Sofya),
             "sub2api" | "sub-2-api" | "sub 2 api" => Some(ProviderId::Sub2Api),
             "wayfinder" => Some(ProviderId::Wayfinder),
             "zenmux" | "zen-mux" => Some(ProviderId::ZenMux),
@@ -675,7 +734,148 @@ impl ProviderId {
             "museai" | "muse (muse.ai)" => Some(ProviderId::MuseAI),
             "workbuddy" => Some(ProviderId::WorkBuddy),
             "sailresearch" | "sail research" => Some(ProviderId::SailResearch),
+            "tavily" => Some(ProviderId::Tavily),
+            "exa" => Some(ProviderId::Exa),
+            "cosmic" | "cosmic ai" => Some(ProviderId::Cosmic),
+            "aerostack" => Some(ProviderId::Aerostack),
+            "parallel" | "parallel.ai" => Some(ProviderId::Parallel),
+            "fal" => Some(ProviderId::Fal),
+            "flora" => Some(ProviderId::Flora),
             _ => None,
+        }
+    }
+
+    /// Lowercase CLI aliases that `from_cli_name` also resolves to this provider,
+    /// excluding `cli_name` itself. Feeds the Settings provider search.
+    pub fn cli_aliases(&self) -> &'static [&'static str] {
+        match self {
+            ProviderId::DevPass => &[],
+            ProviderId::Manus => &[],
+            ProviderId::Xapi => &["x-api", "x api"],
+            ProviderId::Kilo => &[],
+            ProviderId::Devin => &[],
+            ProviderId::Warp => &["warp-ai", "warp-terminal"],
+            ProviderId::DeepInfra => &["deep-infra", "di"],
+            ProviderId::Fireworks => &["fireworks-ai", "fw"],
+            ProviderId::MuseAI => &["muse (muse.ai)"],
+            ProviderId::AzureOpenAI => &["azure-openai", "azure openai"],
+            ProviderId::Nous => &["nous-portal", "nous portal", "hermes"],
+            ProviderId::Venice => &[],
+            ProviderId::OpenCodeGo => &["opencode-go", "opencode go"],
+            ProviderId::Bifrost => &["bifrost-gateway", "bifrost gateway"],
+            ProviderId::Claude => &["anthropic"],
+            ProviderId::Tavily => &[],
+            ProviderId::LLMMan => &[],
+            ProviderId::IBMBob => &["ibm-bob", "ibm bob", "bob", "bobshell"],
+            ProviderId::Pi => &["pi-mono"],
+            ProviderId::Poe => &[],
+            ProviderId::Sakana => &["sakana-ai", "sakana ai"],
+            ProviderId::Linkup => &[],
+            ProviderId::Zed => &["zed-ai"],
+            ProviderId::WorkBuddy => &[],
+            ProviderId::JetBrains => &["jetbrains-ai", "jetbrains ai", "intellij"],
+            ProviderId::CodeBuddy => {
+                &["code-buddy", "codebuddy-cn", "codebuddycn", "腾讯codebuddy"]
+            }
+            ProviderId::NanoGPT => &["nano-gpt"],
+            ProviderId::Deepgram => &["dg"],
+            ProviderId::Wayfinder => &[],
+            ProviderId::Hyper => &["charm-hyper", "charm hyper"],
+            ProviderId::MiMo => &["xiaomi", "xiaomimimo", "xiaomi-mimo", "xiaomi mimo"],
+            ProviderId::Langdock => &[],
+            ProviderId::Infini => &["infini-ai"],
+            ProviderId::Kiro => &["aws"],
+            ProviderId::OpenRouter => &["or"],
+            ProviderId::Sub2Api => &["sub-2-api", "sub 2 api"],
+            ProviderId::Mistral => &["mistral-ai", "mistral ai"],
+            ProviderId::ZenMux => &["zen-mux"],
+            ProviderId::CommandCode => &["command-code", "command code"],
+            ProviderId::Factory => &["droid"],
+            ProviderId::XKiro => &["x-kiro"],
+            ProviderId::Flora => &[],
+            ProviderId::QwenCloud => &["qwencloud", "qwen", "qwen-token-plan", "qwen cloud"],
+            ProviderId::Doubao => &["ark", "volcengine"],
+            ProviderId::SailResearch => &["sail research"],
+            ProviderId::Raycast => &["raycast-ai"],
+            ProviderId::DeepSeek => &["deep-seek", "ds"],
+            ProviderId::Augment => &[],
+            ProviderId::Notion => &["notion-ai", "notionai", "notion ai"],
+            ProviderId::Xai => &["x.ai", "x-ai"],
+            ProviderId::AtlasCloud => &["atlas-cloud", "atlas cloud"],
+            ProviderId::Copilot => &["github"],
+            ProviderId::CrossModel => &["cross-model", "cross model", "crossmodel (removed)"],
+            ProviderId::LongCat => &["long-cat", "lc"],
+            ProviderId::Aixy => &["aixy-gateway", "aixy gateway"],
+            ProviderId::GitKraken => &["gitkraken-ai", "gitkraken ai"],
+            ProviderId::Windsurf => &["codeium"],
+            ProviderId::Vercel => &[
+                "vercel-ai-gateway",
+                "vercel ai gateway",
+                "ai-gateway",
+                "ai gateway",
+            ],
+            ProviderId::LithosAI => &[],
+            ProviderId::Sofya => &[],
+            ProviderId::TypeSafe => &["type-safe", "type safe"],
+            ProviderId::T3Chat => &["t3-chat", "t3 chat"],
+            ProviderId::OpenCode => &[],
+            ProviderId::ClinePass => &["cline-pass", "cline"],
+            ProviderId::TinyApi => &["tiny-api"],
+            ProviderId::MiniMax => &[],
+            ProviderId::Ollama => &[],
+            ProviderId::Grok => &["supergrok", "super-grok"],
+            ProviderId::HuggingFace => &["hugging-face", "hugging face", "hf"],
+            ProviderId::Meta => &[
+                "metaspark",
+                "meta-spark",
+                "muse-spark",
+                "musespark",
+                "muse spark",
+                "meta muse spark",
+            ],
+            ProviderId::ZoomMate => &["zoom-mate", "zoom mate"],
+            ProviderId::Abacus => &["abacus ai", "abacus-ai"],
+            ProviderId::Qoder => &[],
+            ProviderId::Kimi => &["moonshot"],
+            ProviderId::Replicate => &["r8"],
+            ProviderId::Perplexity => &["pplx"],
+            ProviderId::Helmcode => &["nan-builders", "nan builders"],
+            ProviderId::Cosmic => &["cosmic ai"],
+            ProviderId::Synthetic => &["synthetic.new"],
+            ProviderId::V0 => &["v0-dev", "v0.dev"],
+            ProviderId::AiAnd => &["ai&", "ai-and", "ai and"],
+            ProviderId::Cursor => &[],
+            ProviderId::CodeRabbit => &["code-rabbit", "code rabbit"],
+            ProviderId::Aerostack => &[],
+            ProviderId::ClawRouter => &["claw-router"],
+            ProviderId::Bedrock => &["aws-bedrock", "aws bedrock"],
+            ProviderId::Zai => &["z.ai"],
+            ProviderId::AlibabaTokenPlan => &[
+                "alibaba-token-plan",
+                "alibaba token plan",
+                "alibaba-token",
+                "bailian-token-plan",
+            ],
+            ProviderId::LiteLLM => &["lite-llm", "lite llm"],
+            ProviderId::Fal => &[],
+            ProviderId::Chutes => &["chutes-ai", "chutes ai"],
+            ProviderId::Codex => &["openai"],
+            ProviderId::Antigravity => &["agy"],
+            ProviderId::Alibaba => &["tongyi", "qianwen"],
+            ProviderId::ElevenLabs => &["eleven-labs", "11labs"],
+            ProviderId::Groq => &["groqcloud", "groq-cloud", "groq cloud"],
+            ProviderId::OpenAIApi => &["openai-api", "openai api", "openai-balance"],
+            ProviderId::LLMProxy => &["llm-proxy", "llm proxy"],
+            ProviderId::Codebuff => &["manicode"],
+            ProviderId::Exa => &[],
+            ProviderId::Parallel => &["parallel.ai"],
+            ProviderId::KimiK2 => &["kimi-k2", "kimi k2", "k2", "kimi k2 (removed)"],
+            ProviderId::Neuralwatt => &["neural-watt", "nw", "neural"],
+            ProviderId::Gemini => &["google"],
+            ProviderId::StepFun => &["step-fun", "step fun"],
+            ProviderId::Muse => &["muse-code", "muse code"],
+            ProviderId::Amp => &["sourcegraph"],
+            ProviderId::VertexAI => &["vertex", "vertex ai"],
         }
     }
 
@@ -945,6 +1145,11 @@ pub struct FetchContext {
     /// (LiteLLM model activity, Claude workspace spend). Scoped to the provider
     /// being fetched; false everywhere the setting is not consulted.
     pub optional_details_enabled: bool,
+
+    /// OpenAI API: also fetch the last hour of 1-minute usage for the Tokens/min chart
+    /// (upstream `OPENAI_LIVE_MINUTES`). The app sets it from settings (default on);
+    /// paths with no throughput consumer leave it off to save the request.
+    pub live_usage_enabled: bool,
 }
 
 impl Default for FetchContext {
@@ -967,6 +1172,7 @@ impl Default for FetchContext {
             browser_cookie_import: false,
             requires_optional_usage_completeness: false,
             optional_details_enabled: false,
+            live_usage_enabled: false,
         }
     }
 }
@@ -1124,6 +1330,18 @@ pub trait Provider: Send + Sync {
         false
     }
 
+    /// Whether the provider picks between its API-key and cookie lanes itself.
+    ///
+    /// When true, the shell keeps the usage source for Auto and API (OAuth)
+    /// under every cookie source instead of remapping it to Web or Cli. It
+    /// forwards a stored or token-account cookie header when the cookie source
+    /// is not `off`; `off` sets [`FetchContext::manual_cookie_missing`]. The
+    /// shell never reads a browser for this provider, which does that only on
+    /// its own cookie lane.
+    fn owns_credential_lane_routing(&self) -> bool {
+        false
+    }
+
     /// Whether the web lane is used only when the usage source is explicitly
     /// `web`. A cookie domain otherwise lets the shell turn Auto into Web
     /// (manual cookie present or browser import), which would replace a
@@ -1275,6 +1493,7 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("llm-proxy", ProviderId::LLMProxy);
     map.insert("cross-model", ProviderId::CrossModel);
     map.insert("sakana-ai", ProviderId::Sakana);
+    map.insert("sofya", ProviderId::Sofya);
     map.insert("sub-2-api", ProviderId::Sub2Api);
     map.insert("notion-ai", ProviderId::Notion);
     map.insert("notionai", ProviderId::Notion);
@@ -1346,6 +1565,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::HuggingFace => "#FFD21E",
         ProviderId::Helmcode => "#4934E1",
         ProviderId::V0 => "#111111",
+        ProviderId::TinyApi => "#F97316",
         ProviderId::TypeSafe => "#111111",
         ProviderId::LLMProxy => "#24B47E",
         ProviderId::Chutes => "#3184FF",
@@ -1357,6 +1577,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::Qoder => "#10B981",
         ProviderId::CodeBuddy => "#0052D9",
         ProviderId::Sakana => "#2975DB",
+        ProviderId::Sofya => "#B0B820",
         ProviderId::Sub2Api => "#14B8A6",
         ProviderId::Wayfinder => "#10A37F",
         ProviderId::ZenMux => "#6C5CE7",
@@ -1367,6 +1588,7 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::QwenCloud => "#615CED",
         ProviderId::Notion => "#337EA9",
         ProviderId::Xai => "#8E8E93",
+        ProviderId::Xapi => "#71767B",
         ProviderId::Fireworks => "#F25B1C",
         ProviderId::Meta => "#0467DF",
         ProviderId::Muse => "#0668E1",
@@ -1394,6 +1616,13 @@ pub fn brand_color(id: ProviderId) -> &'static str {
         ProviderId::MuseAI => "#0668E1",
         ProviderId::WorkBuddy => "#0DC8A6",
         ProviderId::SailResearch => "#2C4681",
+        ProviderId::Tavily => "#0F766E",
+        ProviderId::Exa => "#0143D9",
+        ProviderId::Cosmic => "#6366F1",
+        ProviderId::Aerostack => "#6366F1",
+        ProviderId::Parallel => "#1D1C1A",
+        ProviderId::Fal => "#7C3AED",
+        ProviderId::Flora => "#111111",
     }
 }
 
@@ -1408,7 +1637,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 98);
+        assert_eq!(all.len(), 108);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Pi));
@@ -1454,6 +1683,7 @@ mod tests {
         assert!(all.contains(&ProviderId::Qoder));
         assert!(all.contains(&ProviderId::CodeBuddy));
         assert!(all.contains(&ProviderId::Sakana));
+        assert!(all.contains(&ProviderId::Sofya));
         assert!(all.contains(&ProviderId::Sub2Api));
         assert!(all.contains(&ProviderId::Wayfinder));
         assert!(all.contains(&ProviderId::ZenMux));
@@ -1464,6 +1694,7 @@ mod tests {
         assert!(all.contains(&ProviderId::QwenCloud));
         assert!(all.contains(&ProviderId::Notion));
         assert!(all.contains(&ProviderId::Xai));
+        assert!(all.contains(&ProviderId::Xapi));
         assert!(all.contains(&ProviderId::Meta));
         assert!(all.contains(&ProviderId::Replicate));
         assert!(all.contains(&ProviderId::Muse));
@@ -1487,6 +1718,13 @@ mod tests {
         assert!(all.contains(&ProviderId::MuseAI));
         assert!(all.contains(&ProviderId::WorkBuddy));
         assert!(all.contains(&ProviderId::SailResearch));
+        assert!(all.contains(&ProviderId::TinyApi));
+        assert!(all.contains(&ProviderId::Tavily));
+        assert!(all.contains(&ProviderId::Exa));
+        assert!(all.contains(&ProviderId::Aerostack));
+        assert!(all.contains(&ProviderId::Parallel));
+        assert!(all.contains(&ProviderId::Fal));
+        assert!(all.contains(&ProviderId::Flora));
     }
 
     #[test]
@@ -1619,6 +1857,40 @@ mod tests {
         assert_eq!(map.get("codex"), Some(&ProviderId::Codex));
         assert_eq!(map.get("openai"), Some(&ProviderId::Codex));
         assert_eq!(map.get("agy"), Some(&ProviderId::Antigravity));
+    }
+
+    #[test]
+    fn cli_aliases_resolve_back_to_their_provider_and_are_unique() {
+        let mut seen = std::collections::HashMap::new();
+        for id in ProviderId::all() {
+            for alias in id.cli_aliases() {
+                assert_ne!(*alias, id.cli_name(), "alias repeats cli_name for {id:?}");
+                assert_eq!(
+                    ProviderId::from_cli_name(alias),
+                    Some(*id),
+                    "alias {alias:?} does not resolve to {id:?}"
+                );
+                assert_eq!(
+                    alias.to_lowercase(),
+                    *alias,
+                    "alias {alias:?} must be lowercase"
+                );
+                assert!(
+                    seen.insert(*alias, *id).is_none(),
+                    "alias {alias:?} is claimed by more than one provider"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cli_aliases_cover_the_documented_search_aliases() {
+        assert!(ProviderId::Codex.cli_aliases().contains(&"openai"));
+        assert!(ProviderId::Claude.cli_aliases().contains(&"anthropic"));
+        assert!(ProviderId::Factory.cli_aliases().contains(&"droid"));
+        assert!(ProviderId::Antigravity.cli_aliases().contains(&"agy"));
+        assert!(!ProviderId::Zai.cli_aliases().is_empty());
+        assert!(!ProviderId::Codex.cli_aliases().contains(&"codex"));
     }
 
     #[test]

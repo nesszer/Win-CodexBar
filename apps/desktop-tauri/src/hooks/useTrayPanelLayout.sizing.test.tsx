@@ -356,4 +356,20 @@ describe("useTrayPanelLayout sizing", () => {
     expect(windowMocks.setSize.mock.calls[0][0]).toEqual({ width: 465, height: 200 });
     expect(lastResize()).toEqual({ width: 465, height: 600 });
   });
+
+  it("ignores layout requests that arrive after unmount", () => {
+    const { result, unmount } = renderHook(() =>
+      useTrayPanelLayout(hookProps({ canMeasure: false })),
+    );
+    const { requestLayout } = hookResult(result).current;
+    unmount();
+
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    try {
+      requestLayout();
+      expect(setTimeoutSpy).not.toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
 });

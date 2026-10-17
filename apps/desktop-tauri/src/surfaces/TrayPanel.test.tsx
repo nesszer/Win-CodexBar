@@ -162,6 +162,8 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     quotaWarningMarkersVisible: true,
     workdayTickStyle: "subtle",
     menuBarColorPace: false,
+    menuBarColorByProvider: false,
+    menuBarPaceReservePositive: false,
     providersSortedAlphabetically: false,
     showAsUsed: true,
     showAllTokenAccountsInMenu: false,
@@ -177,6 +179,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     globalShortcut: "Ctrl+Shift+U",
     switcherShortcuts: {},
     codexCustomSessionsDirs: [],
+    antigravityAdditionalProfileHomes: [],
     uiLanguage: "english",
     uiLanguageFollowsSystem: false,
     theme: "dark",
@@ -1334,5 +1337,21 @@ describe("TrayPanel provider grid", () => {
         expect.objectContaining({ width: 465, height: 884 }),
       );
     });
+  });
+
+  it("keeps the Refresh row hover highlight unless the Menu setting turns it off", async () => {
+    const on = renderTrayPanel([provider("codex", "Codex", 61)]);
+    await screen.findByRole("button", { name: "Refresh" });
+    const surface = () => on.container.querySelector(".menu-surface")!;
+    expect(surface()).not.toHaveClass("menu-surface--hover-highlight-off");
+    on.unmount();
+
+    const off = renderTrayPanel([provider("codex", "Codex", 61)], {
+      highlightMenuCardsOnHover: false,
+    });
+    await screen.findByRole("button", { name: "Refresh" });
+    expect(off.container.querySelector(".menu-surface")).toHaveClass(
+      "menu-surface--hover-highlight-off",
+    );
   });
 });

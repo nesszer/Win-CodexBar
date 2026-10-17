@@ -28,6 +28,7 @@ pub struct SettingsUpdate {
     pub provider_quota_warnings:
         Option<std::collections::HashMap<String, codexbar::settings::ProviderQuotaWarnings>>,
     pub predictive_pace_warning_enabled: Option<bool>,
+    pub limit_reset_notifications_enabled: Option<bool>,
     pub credential_expiry_notifications_enabled: Option<bool>,
     pub session_quota_notifications_enabled: Option<bool>,
     pub show_pace: Option<bool>,
@@ -40,9 +41,13 @@ pub struct SettingsUpdate {
     pub menu_bar_icon_style: Option<codexbar::settings::MenuBarIconStyle>,
     pub merged_overview_selected_providers: Option<Vec<String>>,
     pub quota_warning_markers_visible: Option<bool>,
+    pub highlight_menu_cards_on_hover: Option<bool>,
     pub workday_tick_style: Option<codexbar::settings::WorkdayTickStyle>,
     pub menu_bar_color_pace: Option<bool>,
+    pub menu_bar_color_by_provider: Option<bool>,
+    pub menu_bar_pace_reserve_positive: Option<bool>,
     pub providers_sorted_alphabetically: Option<bool>,
+    pub providers_enabled_only: Option<bool>,
     pub show_as_used: Option<bool>,
     pub show_all_token_accounts_in_menu: Option<bool>,
     pub enable_animations: Option<bool>,
@@ -58,6 +63,8 @@ pub struct SettingsUpdate {
     /// Provider-switcher shortcut overrides; replaces the stored overrides.
     pub switcher_shortcuts: Option<std::collections::BTreeMap<String, String>>,
     pub codex_custom_sessions_dirs: Option<Vec<String>>,
+    /// Extra Gemini profile homes scanned for Antigravity local history.
+    pub antigravity_additional_profile_homes: Option<Vec<String>>,
     pub agent_sessions_enabled: Option<bool>,
     pub stay_awake_enabled: Option<bool>,
     pub agent_session_ssh_hosts: Option<Vec<String>>,
@@ -83,6 +90,13 @@ pub struct SettingsUpdate {
     pub codex_external_oauth_sources_allowed: Option<bool>,
     pub codex_local_session_cost_ledger_enabled: Option<bool>,
     pub codex_openai_web_battery_saver_enabled: Option<bool>,
+    /// OpenAI API: fetch the last hour of Tokens/min on each refresh (upstream #4495).
+    #[serde(rename = "openAiLiveUsageEnabled")]
+    pub openai_live_usage_enabled: Option<bool>,
+    /// OpenAI API: manual per-model organization limits; replaces the stored list, and an
+    /// empty list clears it.
+    #[serde(rename = "openAiModelRateLimits")]
+    pub openai_model_rate_limits: Option<Vec<ModelRateLimitSnapshot>>,
     pub disable_keychain_access: Option<bool>,
     /// Map of provider CLI name → metric preference label.
     pub provider_metrics: Option<std::collections::HashMap<String, String>>,
@@ -125,6 +139,7 @@ impl SettingsUpdate {
         self.enabled_providers.is_some()
             || self.claude_allow_reading_claude_code_credentials.is_some()
             || self.codex_openai_web_extras.is_some()
+            || self.openai_live_usage_enabled.is_some()
             || self.codex_external_oauth_sources_allowed.is_some()
             || self.alibaba_token_plan_region.is_some()
             || self.copilot_seat_credit_entitlement.is_some()
@@ -180,6 +195,7 @@ impl SettingsUpdate {
             || self.menu_bar_shows_percent.is_some()
             || self.menu_bar_icon_style.is_some()
             || self.menu_bar_color_pace.is_some()
+            || self.menu_bar_color_by_provider.is_some()
             || self.show_as_used.is_some()
             || self.reset_time_relative.is_some()
             || self.menu_bar_display_mode.is_some()
@@ -213,6 +229,22 @@ impl SettingsUpdate {
         }
 
         Ok(())
+    }
+
+    /// OpenAI API Live Usage switches. Limits are validated strictly: a bad row is
+    /// reported and nothing is saved.
+    pub(super) fn apply_openai_live_settings(
+        self,
+        settings: &mut Settings,
+    ) -> Result<Self, String> {
+        if let Some(v) = self.openai_live_usage_enabled {
+            settings.set_live_usage_enabled(ProviderId::OpenAIApi, v);
+        }
+        if let Some(rows) = self.openai_model_rate_limits.as_deref() {
+            let limits = super::openai_live::validated_model_rate_limits(rows)?;
+            settings.set_model_rate_limits(ProviderId::OpenAIApi, limits);
+        }
+        Ok(self)
     }
 
     fn apply_provider_settings(self, settings: &mut Settings) -> Self {
@@ -381,14 +413,26 @@ impl SettingsUpdate {
         if let Some(v) = self.quota_warning_markers_visible {
             settings.quota_warning_markers_visible = v;
         }
+        if let Some(v) = self.highlight_menu_cards_on_hover {
+            settings.highlight_menu_cards_on_hover = v;
+        }
         if let Some(v) = self.workday_tick_style {
             settings.workday_tick_style = v;
         }
         if let Some(v) = self.menu_bar_color_pace {
             settings.menu_bar_color_pace = v;
         }
+        if let Some(v) = self.menu_bar_color_by_provider {
+            settings.menu_bar_color_by_provider = v;
+        }
+        if let Some(v) = self.menu_bar_pace_reserve_positive {
+            settings.menu_bar_pace_reserve_positive = v;
+        }
         if let Some(v) = self.providers_sorted_alphabetically {
             settings.providers_sorted_alphabetically = v;
+        }
+        if let Some(v) = self.providers_enabled_only {
+            settings.providers_enabled_only = v;
         }
         if let Some(v) = self.show_all_token_accounts_in_menu {
             settings.show_all_token_accounts_in_menu = v;
@@ -429,6 +473,9 @@ impl SettingsUpdate {
         if let Some(v) = self.predictive_pace_warning_enabled {
             settings.predictive_pace_warning_enabled = v;
         }
+        if let Some(v) = self.limit_reset_notifications_enabled {
+            settings.limit_reset_notifications_enabled = v;
+        }
         if let Some(v) = self.credential_expiry_notifications_enabled {
             settings.credential_expiry_notifications_enabled = v;
         }
@@ -460,6 +507,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.codex_custom_sessions_dirs.clone() {
             settings.codex_custom_sessions_dirs = normalize_custom_sessions_dirs(v);
+        }
+        if let Some(v) = self.antigravity_additional_profile_homes.clone() {
+            settings.antigravity_additional_profile_homes = normalize_custom_sessions_dirs(v);
         }
         if let Some(v) = self.agent_sessions_enabled {
             settings.agent_sessions_enabled = v;
@@ -592,7 +642,8 @@ impl SettingsUpdate {
             settings.set_seat_credit_entitlement(codexbar::core::ProviderId::Copilot, value)?;
         }
         let float_bar_patch = self.float_bar_patch();
-        self.apply_provider_settings(settings)
+        self.apply_openai_live_settings(settings)?
+            .apply_provider_settings(settings)
             .apply_general_settings(settings)?
             .apply_display_settings(settings)
             .apply_notification_settings(settings)?
@@ -706,6 +757,7 @@ pub async fn update_settings(
     let notify_float_bar = patch.notifies_float_bar();
     let refresh_provider_data = patch.refreshes_provider_data();
     let clear_local_usage_cache = patch.codex_custom_sessions_dirs.is_some()
+        || patch.antigravity_additional_profile_homes.is_some()
         || patch.cost_reporting_period.is_some()
         || patch.cost_usage_enabled.is_some();
     let rebuild_tray_menu = patch.rebuilds_tray_menu();
@@ -715,6 +767,7 @@ pub async fn update_settings(
     let tray_panel_always_on_top_changed = patch.tray_panel_always_on_top.is_some();
     let previous_promoted = settings.promote_tray_icon;
     let previous_language = settings.ui_language;
+    let previous_limit_reset = settings.limit_reset_notifications_enabled;
     let status_targets_changed =
         patch.status_checks_enabled.is_some() || patch.enabled_providers.is_some();
 
@@ -727,6 +780,18 @@ pub async fn update_settings(
 
     settings.save().map_err(|e| e.to_string())?;
     drop(write_guard);
+    if previous_limit_reset && !settings.limit_reset_notifications_enabled {
+        // The next refresh batch also clears it; doing it here forgets the
+        // saved reset state even if the app quits before that refresh.
+        let removal = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.notification_manager.clear_limit_reset_state());
+        if let Some(removal) = removal {
+            removal.apply();
+        }
+    }
     if clear_local_usage_cache {
         crate::commands::clear_provider_local_usage_cache();
     }
@@ -1110,6 +1175,44 @@ mod tests {
     }
 
     #[test]
+    fn apply_display_settings_updates_color_by_provider() {
+        let mut settings = Settings::default();
+        assert!(!settings.menu_bar_color_by_provider);
+
+        SettingsUpdate {
+            menu_bar_color_by_provider: Some(true),
+            ..Default::default()
+        }
+        .apply_display_settings(&mut settings);
+        assert!(settings.menu_bar_color_by_provider);
+
+        SettingsUpdate {
+            menu_bar_color_by_provider: Some(false),
+            ..Default::default()
+        }
+        .apply_display_settings(&mut settings);
+        assert!(!settings.menu_bar_color_by_provider);
+    }
+
+    #[test]
+    fn apply_display_settings_updates_pace_sign() {
+        let mut settings = Settings::default();
+        assert!(!settings.menu_bar_pace_reserve_positive);
+
+        let update: SettingsUpdate =
+            serde_json::from_str(r#"{"menuBarPaceReservePositive":true}"#).unwrap();
+        update.apply_display_settings(&mut settings);
+        assert!(settings.menu_bar_pace_reserve_positive);
+
+        SettingsUpdate {
+            menu_bar_pace_reserve_positive: Some(false),
+            ..Default::default()
+        }
+        .apply_display_settings(&mut settings);
+        assert!(!settings.menu_bar_pace_reserve_positive);
+    }
+
+    #[test]
     fn menu_bar_icon_style_update_repaints_tray_and_mirrors_legacy_flag() {
         let mut settings = Settings::default();
         let update: SettingsUpdate =
@@ -1130,6 +1233,17 @@ mod tests {
             codexbar::settings::MenuBarIconStyle::Bars
         );
         assert!(!settings.menu_bar_shows_percent);
+
+        // Progress bars stacked is not the percent style, so the legacy flag stays off.
+        let update: SettingsUpdate =
+            serde_json::from_str(r#"{"menuBarIconStyle":"stackedBars"}"#).unwrap();
+        assert!(update.refreshes_tray_presentation());
+        update.apply_display_settings(&mut settings);
+        assert_eq!(
+            settings.menu_bar_icon_style,
+            codexbar::settings::MenuBarIconStyle::StackedBars
+        );
+        assert!(!settings.menu_bar_shows_percent);
     }
 
     #[test]
@@ -1137,6 +1251,7 @@ mod tests {
         let mut settings = Settings::default();
         let update: SettingsUpdate = serde_json::from_str(
             r#"{"quotaWarningMarkersVisible":false,"workdayTickStyle":"high_contrast",
+                "highlightMenuCardsOnHover":false,
                 "mergedOverviewSelectedProviders":["claude","Codex","claude","gemini","cursor","copilot","zai","kimi"],
                 "weeklyProgressWorkDays":7}"#,
         )
@@ -1145,6 +1260,7 @@ mod tests {
             .apply_display_settings(&mut settings)
             .apply_advanced_settings(&mut settings);
         assert!(!settings.quota_warning_markers_visible);
+        assert!(!settings.highlight_menu_cards_on_hover);
         assert_eq!(
             settings.workday_tick_style,
             codexbar::settings::WorkdayTickStyle::HighContrast
@@ -1188,6 +1304,7 @@ mod tests {
         assert_eq!(json["menuBarIconStyle"], "percent");
         assert_eq!(json["workdayTickStyle"], "high_contrast");
         assert_eq!(json["quotaWarningMarkersVisible"], true);
+        assert_eq!(json["highlightMenuCardsOnHover"], true);
         assert_eq!(
             json["mergedOverviewSelectedProviders"],
             serde_json::json!([])
@@ -1454,5 +1571,25 @@ mod tests {
         assert_eq!(map["previous"], "left");
         assert_eq!(map["select9"], "ctrl+9");
         assert_eq!(map.as_object().unwrap().len(), 11);
+    }
+
+    #[test]
+    fn limit_reset_toggle_travels_through_patch_and_snapshot() {
+        let snapshot = |settings: &Settings| {
+            serde_json::to_value(super::super::bridge::SettingsSnapshot::from(
+                settings.clone(),
+            ))
+            .unwrap()["limitResetNotificationsEnabled"]
+                .clone()
+        };
+        let mut settings = Settings::default();
+        assert_eq!(snapshot(&settings), serde_json::Value::Bool(false));
+
+        serde_json::from_str::<SettingsUpdate>(r#"{"limitResetNotificationsEnabled":true}"#)
+            .unwrap()
+            .apply_to(&mut settings)
+            .unwrap();
+        assert!(settings.limit_reset_notifications_enabled);
+        assert_eq!(snapshot(&settings), serde_json::Value::Bool(true));
     }
 }

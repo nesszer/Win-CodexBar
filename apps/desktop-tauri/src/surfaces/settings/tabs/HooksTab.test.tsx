@@ -256,11 +256,16 @@ describe("HooksTab", () => {
     );
     await renderTab(snapshot({ rules: full }));
     expect(screen.getAllByTestId("hook-rule")).toHaveLength(32);
-    expect(screen.getByRole("button", { name: "+ HooksAddRule" })).toBeDisabled();
-    for (const add of screen.getAllByRole("button", { name: "+ HooksAddArgument" })) {
-      expect(add).toBeDisabled();
+    // Role queries over 32 × 32 argument rows are slow enough under a loaded
+    // CI runner to hit the default 5 s timeout; text queries find the same
+    // buttons, and the larger timeout covers the heavy render itself.
+    expect(screen.getByText("+ HooksAddRule").closest("button")).toBeDisabled();
+    const addArguments = screen.getAllByText("+ HooksAddArgument");
+    expect(addArguments).toHaveLength(32);
+    for (const add of addArguments) {
+      expect(add.closest("button")).toBeDisabled();
     }
-  });
+  }, 20_000);
 
   it("keeps an unreadable hooks.json read-only and shows why", async () => {
     await renderTab(snapshot({ error: "expected value at line 1 column 1" }));

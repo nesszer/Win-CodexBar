@@ -26,6 +26,11 @@ use crate::core::{
 };
 use crate::providers::{BoundedBodyError, read_bounded_response};
 
+/// Usage history cannot back a limit reset detector (upstream excludes this
+/// provider from plan-utilization history).
+pub(crate) const LIMIT_RESET_POLICY: crate::core::ProviderLimitResetPolicy =
+    crate::core::ProviderLimitResetPolicy::UNSUPPORTED;
+
 const BASE_URL: &str = "https://app.langdock.com";
 const USAGE_PATH: &str = "/api/trpc/usageSettings.getPersonalUsage";
 /// `encodeURIComponent(JSON.stringify({0: {json: null, meta: {values:

@@ -1,5 +1,5 @@
-use codexbar::core::ProviderId;
-use codexbar::notifications::WarningScope;
+use codexbar::core::{MissingIdentityRule, ProviderId};
+use codexbar::notifications::{LimitResetAccount, WarningScope};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WarningSourceLane {
@@ -120,6 +120,48 @@ impl WarningIdentity {
             },
             _ => WarningScope::Independent(key),
         }
+    }
+
+    /// Reset-detector account for this identity (upstream
+    /// `limitResetAccountIdentifier`). `None` skips detection: an unresolved
+    /// lane other than Claude CLI, or a missing identity when the provider's
+    /// [`MissingIdentityRule`] skips it. Otherwise the rule decides whether an
+    /// identity-less sample needs a second low sample before a reset is
+    /// announced.
+    pub(super) fn limit_reset_account(
+        &self,
+        label: Option<&str>,
+        hide_personal_info: bool,
+    ) -> Option<LimitResetAccount> {
+        let (key, requires_low_confirmation) = match &self.account {
+            WarningAccountState::Token(_)
+            | WarningAccountState::Email(_)
+            | WarningAccountState::Organization(_) => (self.threshold_key(), false),
+            WarningAccountState::Unresolved => match self.source_lane {
+                Some(WarningSourceLane::ClaudeCli) => (self.unresolved_key()?, true),
+                _ => return None,
+            },
+            WarningAccountState::Missing => {
+                match self.provider.limit_reset_policy().missing_identity {
+                    MissingIdentityRule::Skip => return None,
+                    MissingIdentityRule::Track {
+                        requires_low_confirmation,
+                    } => (
+                        self.provider.cli_name().to_string(),
+                        requires_low_confirmation,
+                    ),
+                }
+            }
+        };
+        let label = label
+            .map(str::trim)
+            .filter(|label| !label.is_empty() && !hide_personal_info)
+            .map(str::to_string);
+        Some(LimitResetAccount {
+            key,
+            label,
+            requires_low_confirmation,
+        })
     }
 
     pub(super) fn predictive_key(&self) -> Option<String> {
@@ -278,5 +320,72 @@ mod tests {
         assert!(matches!(web.gap_scope(), WarningScope::Independent(_)));
         let codex = WarningIdentity::new(ProviderId::Codex, "cli", Some("a@b.c"), None, None);
         assert!(matches!(codex.gap_scope(), WarningScope::Independent(_)));
+    }
+
+    #[test]
+    fn limit_reset_account_skips_ownerless_codex_and_claude_oauth() {
+        let codex = WarningIdentity::new(ProviderId::Codex, "oauth", None, None, None);
+        assert_eq!(codex.limit_reset_account(Some("label"), false), None);
+        let oauth = WarningIdentity::new(ProviderId::Claude, "oauth", None, None, None);
+        assert_eq!(oauth.limit_reset_account(None, false), None);
+    }
+
+    #[test]
+    fn limit_reset_account_keys_and_low_confirmation_follow_identity() {
+        let account = |provider, source, email: Option<&str>| {
+            WarningIdentity::new(provider, source, email, None, None)
+                .limit_reset_account(None, false)
+                .map(|account| (account.key, account.requires_low_confirmation))
+        };
+        assert_eq!(
+            account(ProviderId::Codex, "oauth", Some("Person@Example.com")),
+            Some(("person@example.com".to_string(), false))
+        );
+        assert_eq!(
+            account(ProviderId::Claude, "cli", None),
+            Some(("claude:cli:unknown".to_string(), true))
+        );
+        assert_eq!(
+            account(ProviderId::Claude, "web", None),
+            Some(("claude".to_string(), true))
+        );
+        assert_eq!(
+            account(ProviderId::Cursor, "web", None),
+            Some(("cursor".to_string(), false))
+        );
+        let token = WarningIdentity::new(
+            ProviderId::Codex,
+            "oauth",
+            Some("person@example.com"),
+            None,
+            Some(uuid::Uuid::nil()),
+        )
+        .limit_reset_account(None, false)
+        .unwrap();
+        assert_eq!(
+            token.key,
+            "token-account:00000000-0000-0000-0000-000000000000"
+        );
+    }
+
+    #[test]
+    fn limit_reset_label_is_trimmed_and_hidden_with_personal_info() {
+        let identity = WarningIdentity::new(ProviderId::Codex, "oauth", Some("a@b.c"), None, None);
+        let label = |label, hide| {
+            identity
+                .limit_reset_account(label, hide)
+                .and_then(|account| account.label)
+        };
+        assert_eq!(label(Some("  Work  "), false).as_deref(), Some("Work"));
+        assert_eq!(label(Some("   "), false), None);
+        assert_eq!(label(Some("Work"), true), None);
+        // The detector key is still the owner even when the label is hidden.
+        assert_eq!(
+            identity
+                .limit_reset_account(Some("Work"), true)
+                .unwrap()
+                .key,
+            "a@b.c"
+        );
     }
 }

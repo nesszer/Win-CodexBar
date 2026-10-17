@@ -84,6 +84,7 @@ const ALLOWED_PREFERENCES: &[(&str, Validator)] = &[
     ("high_usage_threshold", percent),
     ("critical_usage_threshold", percent),
     ("predictive_pace_warning_enabled", typed::<bool>),
+    ("limit_reset_notifications_enabled", typed::<bool>),
     ("show_pace", typed::<bool>),
     ("show_as_used", typed::<bool>),
     ("reset_time_relative", typed::<bool>),
@@ -91,7 +92,10 @@ const ALLOWED_PREFERENCES: &[(&str, Validator)] = &[
     ("hide_personal_info", typed::<bool>),
     ("menu_bar_shows_highest_usage", typed::<bool>),
     ("menu_bar_shows_percent", typed::<bool>),
-    ("menu_bar_icon_style", |v| one_of(v, &["bars", "percent"])),
+    ("menu_bar_icon_style", |v| {
+        one_of(v, &["bars", "percent", "stackedBars"])
+    }),
+    ("menu_bar_color_by_provider", typed::<bool>),
     (
         "merged_overview_selected_providers",
         merged_overview_selection,
@@ -151,6 +155,7 @@ pub const EXCLUDED_KEYS: &[&str] = &[
     // Machine-specific paths, hosts and state.
     "notification_sound_paths",
     "codex_custom_sessions_dirs",
+    "antigravity_additional_profile_homes",
     "agent_session_ssh_hosts",
     // Pinned to this machine's zone on first launch; no settings control.
     "cost_usage_bucket_time_zone",
@@ -184,11 +189,15 @@ pub const EXCLUDED_KEYS: &[&str] = &[
     "weekly_progress_work_days",
     "alibaba_token_plan_region",
     "cost_summary_display_style",
+    // Settings sidebar view filter: local to this machine, as upstream keeps it.
+    "providers_enabled_only",
     // Kept out of the portable set, as upstream (0.70.0) keeps them.
     "menu_bar_color_pace",
+    "menu_bar_pace_reserve_positive",
     "stacked_tray_top_provider",
     "stacked_tray_bottom_provider",
     "credential_expiry_notifications_enabled",
+    "highlight_menu_cards_on_hover",
     // No reader anywhere in the app.
     "merge_tray_icons",
 ];

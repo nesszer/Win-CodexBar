@@ -76,8 +76,37 @@ impl ZedProvider {
         snapshot::editor_result(&body, chrono::Utc::now())
     }
 
+    /// A pasted header is the only session tried. Otherwise each browser's
+    /// session is tried in turn, moving on only after an expired session.
     async fn fetch_web(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
-        let cookie = web_cookie(ctx)?;
+        let missing = || ProviderError::NotInstalled(MISSING_SESSION.into());
+        if let Some(raw) = ctx.manual_cookie_header.as_deref() {
+            let cookie = crate::providers::normalize_cookie_header(raw).ok_or_else(missing)?;
+            return self.fetch_billing(cookie).await;
+        }
+        if ctx.manual_cookie_missing {
+            return Err(missing());
+        }
+        let mut sessions = crate::providers::browser_cookie_sessions(ctx, &[COOKIE_DOMAIN]);
+        let mut rejected = None;
+        for header in sessions.by_ref() {
+            let Some(cookie) = crate::providers::normalize_cookie_header(&header) else {
+                continue;
+            };
+            match self.fetch_billing(cookie).await {
+                Err(error) if is_session_expired(&error) => rejected = Some(error),
+                result => return result,
+            }
+        }
+        Err(
+            rejected.unwrap_or_else(|| match sessions.exhaustion_error() {
+                ProviderError::NoCookies => missing(),
+                error => error,
+            }),
+        )
+    }
+
+    async fn fetch_billing(&self, cookie: String) -> Result<ProviderFetchResult, ProviderError> {
         let request = self
             .client
             .get(&self.billing_url)
@@ -132,11 +161,15 @@ impl Provider for ZedProvider {
         ManualEmptyCookiePolicy::FailClosedWeb
     }
 
+    /// The shell would import only the first browser's cookies; the provider
+    /// tries each browser so an expired session can move to the next one.
+    fn owns_browser_cookie_resolution(&self) -> bool {
+        true
+    }
+
     fn error_state_kind(&self, error: &ProviderError) -> ProviderStateKind {
         match error {
-            ProviderError::Other(message) if message == SESSION_EXPIRED => {
-                ProviderStateKind::ExpiredSession
-            }
+            error if is_session_expired(error) => ProviderStateKind::ExpiredSession,
             other => other.state_kind(),
         }
     }
@@ -158,21 +191,8 @@ async fn read_body(request: reqwest::RequestBuilder, web: bool) -> Result<Vec<u8
         })
 }
 
-/// Cookie for the browser lane: a pasted header, else the browser session.
-/// A manual source with no usable header never falls back to the browser.
-fn web_cookie(ctx: &FetchContext) -> Result<String, ProviderError> {
-    let missing = || ProviderError::NotInstalled(MISSING_SESSION.into());
-    if let Some(raw) = ctx.manual_cookie_header.as_deref() {
-        return crate::providers::normalize_cookie_header(raw).ok_or_else(missing);
-    }
-    if ctx.manual_cookie_missing {
-        return Err(missing());
-    }
-    match crate::providers::browser_cookie_header(&[COOKIE_DOMAIN]) {
-        Ok(header) => crate::providers::normalize_cookie_header(&header).ok_or_else(missing),
-        Err(ProviderError::NoCookies) => Err(missing()),
-        Err(error) => Err(error),
-    }
+fn is_session_expired(error: &ProviderError) -> bool {
+    matches!(error, ProviderError::Other(message) if message == SESSION_EXPIRED)
 }
 
 fn status_error(status: StatusCode, web: bool) -> ProviderError {

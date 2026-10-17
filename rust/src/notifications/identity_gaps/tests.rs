@@ -284,3 +284,160 @@ fn session_depleted_state_follows_the_merged_account() {
         .count();
     assert_eq!(depleted, 1, "depleted toast must not repeat after merge");
 }
+
+#[test]
+fn session_baseline_bridges_an_identity_gap_into_the_merged_account() {
+    let settings = settings();
+    let mut manager = NotificationManager::new();
+    let base = Utc.timestamp_opt(1_900_000_000, 0).unwrap();
+    let reset = Some(base + chrono::Duration::hours(1));
+
+    // The unresolved sample is a normal (non-depleted) baseline.
+    let unresolved = manager.resolve_warning_account(
+        ProviderId::Claude,
+        &scope_for(None),
+        "session",
+        50.0,
+        reset,
+        &settings,
+    );
+    manager.check_session_lane(ProviderId::Claude, &unresolved, 50.0, false, &settings);
+    // Once the identity resolves, the bridged baseline must still produce the depletion edge.
+    let account = manager.resolve_warning_account(
+        ProviderId::Claude,
+        &scope_for(Some(ACCOUNT_A)),
+        "session",
+        100.0,
+        reset,
+        &settings,
+    );
+    manager.check_session_lane(ProviderId::Claude, &account, 100.0, false, &settings);
+
+    let depleted = manager
+        .toasts
+        .borrow()
+        .iter()
+        .filter(|toast| {
+            toast.starts_with(&NotificationType::SessionDepleted.title(Language::English))
+        })
+        .count();
+    assert_eq!(
+        depleted, 1,
+        "bridged baseline must still announce depletion"
+    );
+}
+
+#[test]
+fn claude_unresolved_source_fallback_keeps_the_session_owner() {
+    let settings = settings();
+    let mut manager = NotificationManager::new();
+
+    manager.check_session_transition(ProviderId::Claude, "claude:oauth:unknown", 50.0, &settings);
+    manager.check_session_transition(ProviderId::Claude, "claude:oauth:unknown", 100.0, &settings);
+    // One CLI fallback sample keeps the same unresolved Claude owner (upstream
+    // `claude-account:unknown`), so OAuth's pending depletion is not dropped.
+    manager.check_session_transition(ProviderId::Claude, "claude:cli:unknown", 40.0, &settings);
+    manager.check_session_transition(ProviderId::Claude, "claude:oauth:unknown", 0.0, &settings);
+
+    let restored = manager
+        .toasts
+        .borrow()
+        .iter()
+        .filter(|toast| {
+            toast.starts_with(&NotificationType::SessionRestored.title(Language::English))
+        })
+        .count();
+    assert_eq!(
+        restored, 1,
+        "source fallback must not reset the session owner"
+    );
+}
+
+fn toast_count(manager: &NotificationManager, notification: NotificationType) -> usize {
+    let prefix = notification.title(Language::English);
+    manager
+        .toasts
+        .borrow()
+        .iter()
+        .filter(|toast| toast.starts_with(&prefix))
+        .count()
+}
+
+#[test]
+fn claude_unresolved_sources_share_one_session_depletion() {
+    let settings = settings();
+    let mut manager = NotificationManager::new();
+
+    manager.check_session_transition(ProviderId::Claude, "claude:oauth:unknown", 50.0, &settings);
+    manager.check_session_transition(ProviderId::Claude, "claude:oauth:unknown", 100.0, &settings);
+    assert_eq!(toast_count(&manager, NotificationType::SessionDepleted), 1);
+
+    // The CLI fallback shares the unresolved owner, so its 100% sample is not a new edge.
+    manager.check_session_transition(ProviderId::Claude, "claude:cli:unknown", 100.0, &settings);
+    assert_eq!(
+        toast_count(&manager, NotificationType::SessionDepleted),
+        1,
+        "CLI fallback must not repeat the depleted toast"
+    );
+
+    // Recovery observed on the other source still announces the restore.
+    manager.check_session_transition(ProviderId::Claude, "claude:cli:unknown", 20.0, &settings);
+    assert_eq!(toast_count(&manager, NotificationType::SessionRestored), 1);
+}
+
+#[test]
+fn reverse_identity_gap_copy_does_not_carry_the_account_depletion() {
+    let settings = settings();
+    let mut manager = NotificationManager::new();
+    let base = Utc.timestamp_opt(1_900_000_000, 0).unwrap();
+    let reset = Some(base + chrono::Duration::hours(1));
+    let next_reset = Some(base + chrono::Duration::hours(3));
+
+    // The unresolved sample establishes a baseline, then account A resolves and absorbs it.
+    let unresolved = manager.resolve_warning_account(
+        ProviderId::Claude,
+        &scope_for(None),
+        "session",
+        50.0,
+        reset,
+        &settings,
+    );
+    manager.check_session_lane(ProviderId::Claude, &unresolved, 50.0, false, &settings);
+    let account = manager.resolve_warning_account(
+        ProviderId::Claude,
+        &scope_for(Some(ACCOUNT_A)),
+        "session",
+        50.0,
+        reset,
+        &settings,
+    );
+    manager.check_session_lane(ProviderId::Claude, &account, 50.0, false, &settings);
+    let account = manager.resolve_warning_account(
+        ProviderId::Claude,
+        &scope_for(Some(ACCOUNT_A)),
+        "session",
+        100.0,
+        reset,
+        &settings,
+    );
+    manager.check_session_lane(ProviderId::Claude, &account, 100.0, false, &settings);
+    assert_eq!(toast_count(&manager, NotificationType::SessionDepleted), 1);
+
+    // A discontinuous unresolved sample (new reset, usage dropped) is a new owner. A's
+    // depletion stays with A; the unresolved owner starts a fresh baseline.
+    let unresolved = manager.resolve_warning_account(
+        ProviderId::Claude,
+        &scope_for(None),
+        "session",
+        20.0,
+        next_reset,
+        &settings,
+    );
+    assert_eq!(unresolved, CLI_UNKNOWN);
+    manager.check_session_lane(ProviderId::Claude, &unresolved, 20.0, false, &settings);
+    assert_eq!(
+        toast_count(&manager, NotificationType::SessionRestored),
+        0,
+        "reverse copy must not announce a restore from A's depletion"
+    );
+}

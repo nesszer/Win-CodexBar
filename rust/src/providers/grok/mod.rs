@@ -21,8 +21,8 @@ use std::time::Duration;
 use std::os::windows::process::CommandExt;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderInventoryItem,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
+    ProviderInventoryItem, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
 use self::accounts::{GrokAuthKind, ParsedGrokAuthFile};
@@ -162,6 +162,7 @@ impl GrokProvider {
         let BearerBilling {
             billing,
             subscription_tier,
+            prepaid_balance_usd,
         } = match self.fetch_bearer_billing(credentials).await {
             Ok(bearer) => bearer,
             Err(error) => {
@@ -179,16 +180,19 @@ impl GrokProvider {
         let reset_credits = reset_lookup
             .join(ctx.requires_optional_usage_completeness)
             .await;
-        let result = result_from_billing(
-            billing,
-            if kind == GrokAuthKind::Cli {
-                "grok-cli"
-            } else {
-                "grok-oauth"
-            },
-            credentials.email.clone(),
-            credentials.team_id.clone(),
-            plan,
+        let result = attach_prepaid_balance(
+            result_from_billing(
+                billing,
+                if kind == GrokAuthKind::Cli {
+                    "grok-cli"
+                } else {
+                    "grok-oauth"
+                },
+                credentials.email.clone(),
+                credentials.team_id.clone(),
+                plan,
+            ),
+            prepaid_balance_usd,
         );
         Ok(match reset_credits {
             Some(credits) => result.with_inventory_item(credits),
@@ -802,6 +806,25 @@ pub(crate) fn reset_window_pace_matches(window: &RateWindow, now: DateTime<Utc>)
     window_minutes > 0
         && until_reset > chrono::Duration::zero()
         && until_reset <= chrono::Duration::minutes(i64::from(window_minutes))
+}
+
+/// Period label for the purchased-credit cost. It ends in "balance", so the
+/// shared card treats the cost as balance-only.
+const PREPAID_BALANCE_PERIOD: &str = "Prepaid balance";
+
+/// Attach the purchased-credit wallet as a balance-only cost (upstream
+/// `GrokUsageSnapshot.toUsageSnapshot`). Quota meters are left untouched. No
+/// `limit` is set: a zero limit would read as a full meter, and the balance-only
+/// settings view keys on an absent limit.
+fn attach_prepaid_balance(
+    result: ProviderFetchResult,
+    balance_usd: Option<f64>,
+) -> ProviderFetchResult {
+    match balance_usd {
+        Some(balance) => result
+            .with_cost(CostSnapshot::new(0.0, "USD", PREPAID_BALANCE_PERIOD).with_balance(balance)),
+        None => result,
+    }
 }
 
 fn result_from_cookie_billing(billing: GrokBillingSnapshot) -> ProviderFetchResult {

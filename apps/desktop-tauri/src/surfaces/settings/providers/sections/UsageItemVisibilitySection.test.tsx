@@ -70,4 +70,42 @@ describe("UsageItemVisibilitySection", () => {
       providerHiddenUsageItemIds: { codex: [] },
     });
   });
+
+  it("explains a cost-gated row only while Cost summary display is Hidden", () => {
+    const claude = {
+      ...provider(),
+      id: "claude",
+      usageItems: [
+        { id: "section:subscription", title: "Plan renewal / expiry", available: true },
+        {
+          id: "section:claude-extra-usage",
+          title: "Extra usage",
+          available: true,
+          requiresCostSummary: true,
+        },
+      ],
+      hiddenUsageItemIds: [],
+    };
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <UsageItemVisibilitySection provider={claude} disabled={false} t={(key) => key} onChange={onChange} />,
+    );
+    expect(screen.queryByText("UsageItemHiddenByCostSummary")).not.toBeInTheDocument();
+
+    rerender(
+      <UsageItemVisibilitySection
+        provider={claude}
+        disabled={false}
+        t={(key) => key}
+        onChange={onChange}
+        costSummaryHidden
+      />,
+    );
+    expect(screen.getAllByText("UsageItemHiddenByCostSummary")).toHaveLength(1);
+    // The choice stays usable; it does not override the global display style.
+    fireEvent.click(screen.getByRole("checkbox", { name: /Extra/ }));
+    expect(onChange).toHaveBeenCalledWith({
+      providerHiddenUsageItemIds: { claude: ["section:claude-extra-usage"] },
+    });
+  });
 });

@@ -19,6 +19,19 @@ use crate::core::{
 
 pub use api::CodexApi;
 
+/// Limit reset detection (upstream `UsageStore+LimitResetCelebration.swift`):
+/// a weekly reset needs a known boundary that advanced, and samples without an
+/// owner key are not tracked.
+pub(crate) const LIMIT_RESET_POLICY: crate::core::ProviderLimitResetPolicy =
+    crate::core::ProviderLimitResetPolicy {
+        supported: true,
+        weekly: crate::core::WeeklyResetRule::AdvancedBoundary {
+            reset_threshold_percent: 5.0,
+            requires_previous_boundary: true,
+        },
+        missing_identity: crate::core::MissingIdentityRule::Skip,
+    };
+
 /// Codex provider for fetching AI usage limits
 pub struct CodexProvider {
     metadata: ProviderMetadata,

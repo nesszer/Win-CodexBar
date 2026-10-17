@@ -1,12 +1,20 @@
+mod openai_live;
+#[cfg(test)]
+mod openai_live_tests;
 mod openai_usage;
 #[cfg(test)]
 mod openai_usage_tests;
 pub(crate) mod pace;
 mod quota_block;
 mod status;
+mod throughput;
+#[cfg(test)]
+mod throughput_tests;
+pub(crate) use openai_live::{ModelRateLimitSnapshot, OrgRateLimitsSnapshot};
 pub(crate) use openai_usage::OpenAiApiUsageSnapshot;
 pub use quota_block::MonthlyLimitBlockSnapshot;
 pub(crate) use status::{compact_tray_status_label, friendly_provider_error};
+pub(crate) use throughput::ProviderThroughputSnapshot;
 
 use super::*;
 use codexbar::core::BlockedWindows;
@@ -155,6 +163,9 @@ pub struct CostSnapshotBridge {
     pub daily: Vec<CostDailyPointBridge>,
     #[serde(default)]
     pub always_visible: bool,
+    /// The primary meter already shows this cap, so the cost block omits its bar.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub folded_into_primary: bool,
     /// Provider-owned cost-block title as a locale key name; absent keeps the shared title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_key: Option<String>,
@@ -268,6 +279,11 @@ pub struct SubscriptionMetadataSnapshot {
     pub starts_at: Option<String>,
     pub expires_at: Option<String>,
     pub renews_at: Option<String>,
+    /// Date-only values are UTC midnight and must be formatted in UTC.
+    #[serde(default)]
+    pub renews_at_is_date_only: bool,
+    #[serde(default)]
+    pub expires_at_is_date_only: bool,
 }
 
 /// Display-only provider inventory. Redemption identifiers never cross the
@@ -373,6 +389,9 @@ pub struct ProviderUsageSnapshot {
     /// Per-day OpenAI Admin API history for the daily usage chart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_ai_api_usage: Option<OpenAiApiUsageSnapshot>,
+    /// Last-hour Tokens/min grid (OpenAI Admin API 1-minute buckets).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub throughput: Option<ProviderThroughputSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_equivalent_forecast: Option<SessionEquivalentForecastSnapshot>,
     /// Recorded remaining-quota burndown for the selected window
@@ -678,6 +697,7 @@ impl ProviderUsageSnapshot {
                     })
                     .collect(),
                 always_visible: c.always_visible,
+                folded_into_primary: c.folded_into_primary,
                 title_key: c.card_title_key.map(|key| key.name().to_string()),
             }),
             plan_name: usage.login_method.clone(),
@@ -688,6 +708,8 @@ impl ProviderUsageSnapshot {
                     starts_at: subscription.starts_at.map(|date| date.to_rfc3339()),
                     expires_at: subscription.expires_at.map(|date| date.to_rfc3339()),
                     renews_at: subscription.renews_at.map(|date| date.to_rfc3339()),
+                    renews_at_is_date_only: subscription.renews_at_is_date_only,
+                    expires_at_is_date_only: subscription.expires_at_is_date_only,
                 }
             }),
             source_label: result.source_label.clone(),
@@ -702,6 +724,7 @@ impl ProviderUsageSnapshot {
             fetch_duration_ms: None,
             wayfinder_usage: result.wayfinder_usage.clone(),
             open_ai_api_usage: result.open_ai_api_usage.as_ref().map(Into::into),
+            throughput: result.throughput.as_ref().map(Into::into),
             session_equivalent_forecast,
             quota_burndown,
         }
@@ -762,6 +785,7 @@ impl ProviderUsageSnapshot {
             fetch_duration_ms: None,
             wayfinder_usage: None,
             open_ai_api_usage: None,
+            throughput: None,
             session_equivalent_forecast: None,
             quota_burndown: None,
         }
@@ -925,6 +949,8 @@ pub struct ProviderCatalogEntry {
     pub(crate) id: String,
     pub(crate) display_name: String,
     pub(crate) cookie_domain: Option<String>,
+    /// CLI aliases the Settings search also matches (see `ProviderId::cli_aliases`).
+    pub(crate) cli_aliases: Vec<String>,
 }
 
 /// One provider's service status for the sidebar dot and the tray panel.
@@ -980,6 +1006,7 @@ pub struct SettingsSnapshot {
     provider_quota_warnings:
         std::collections::HashMap<String, codexbar::settings::ProviderQuotaWarnings>,
     predictive_pace_warning_enabled: bool,
+    limit_reset_notifications_enabled: bool,
     credential_expiry_notifications_enabled: bool,
     session_quota_notifications_enabled: bool,
     show_pace: bool,
@@ -992,9 +1019,13 @@ pub struct SettingsSnapshot {
     menu_bar_icon_style: codexbar::settings::MenuBarIconStyle,
     merged_overview_selected_providers: Vec<String>,
     quota_warning_markers_visible: bool,
+    highlight_menu_cards_on_hover: bool,
     workday_tick_style: codexbar::settings::WorkdayTickStyle,
     menu_bar_color_pace: bool,
+    menu_bar_color_by_provider: bool,
+    menu_bar_pace_reserve_positive: bool,
     providers_sorted_alphabetically: bool,
+    providers_enabled_only: bool,
     show_as_used: bool,
     show_all_token_accounts_in_menu: bool,
     enable_animations: bool,
@@ -1009,6 +1040,7 @@ pub struct SettingsSnapshot {
     global_shortcut: String,
     switcher_shortcuts: std::collections::BTreeMap<String, String>,
     codex_custom_sessions_dirs: Vec<String>,
+    antigravity_additional_profile_homes: Vec<String>,
     agent_sessions_enabled: bool,
     stay_awake_enabled: bool,
     agent_session_ssh_hosts: Vec<String>,
@@ -1033,6 +1065,12 @@ pub struct SettingsSnapshot {
     codex_external_oauth_sources_allowed: bool,
     codex_local_session_cost_ledger_enabled: bool,
     codex_openai_web_battery_saver_enabled: bool,
+    /// OpenAI API Live Usage (upstream #4495): fetch Tokens/min on each refresh.
+    #[serde(rename = "openAiLiveUsageEnabled")]
+    openai_live_usage_enabled: bool,
+    /// Manual per-model organization limits, read by the card's limit line and the editor.
+    #[serde(rename = "openAiModelRateLimits")]
+    openai_model_rate_limits: Vec<ModelRateLimitSnapshot>,
     disable_keychain_access: bool,
     wayfinder_gateway_url: String,
     provider_metrics: std::collections::HashMap<String, &'static str>,
@@ -1094,6 +1132,12 @@ impl From<Settings> for SettingsSnapshot {
         let claude_swap_enabled = settings.claude_swap_enabled();
         let claude_swap_executable_path = settings.claude_swap_executable_path().to_string();
         let codex_spark_usage_visible = settings.codex_spark_usage_visible();
+        let openai_live_usage_enabled = settings.live_usage_enabled(ProviderId::OpenAIApi);
+        let openai_model_rate_limits = settings
+            .model_rate_limits(ProviderId::OpenAIApi)
+            .iter()
+            .map(ModelRateLimitSnapshot::from)
+            .collect();
         let codex_openai_web_extras = settings.codex_openai_web_extras();
         let codex_historical_tracking = settings.codex_historical_tracking();
         let codex_local_session_cost_ledger_enabled =
@@ -1144,6 +1188,7 @@ impl From<Settings> for SettingsSnapshot {
             critical_usage_threshold: settings.critical_usage_threshold,
             provider_quota_warnings,
             predictive_pace_warning_enabled: settings.predictive_pace_warning_enabled,
+            limit_reset_notifications_enabled: settings.limit_reset_notifications_enabled,
             credential_expiry_notifications_enabled: settings
                 .credential_expiry_notifications_enabled,
             session_quota_notifications_enabled: settings.session_quota_notifications_enabled,
@@ -1157,9 +1202,13 @@ impl From<Settings> for SettingsSnapshot {
             menu_bar_icon_style: settings.menu_bar_icon_style,
             merged_overview_selected_providers: settings.merged_overview_selected_providers,
             quota_warning_markers_visible: settings.quota_warning_markers_visible,
+            highlight_menu_cards_on_hover: settings.highlight_menu_cards_on_hover,
             workday_tick_style: settings.workday_tick_style,
             menu_bar_color_pace: settings.menu_bar_color_pace,
+            menu_bar_color_by_provider: settings.menu_bar_color_by_provider,
+            menu_bar_pace_reserve_positive: settings.menu_bar_pace_reserve_positive,
             providers_sorted_alphabetically: settings.providers_sorted_alphabetically,
+            providers_enabled_only: settings.providers_enabled_only,
             show_as_used: settings.show_as_used,
             show_all_token_accounts_in_menu: settings.show_all_token_accounts_in_menu,
             enable_animations: settings.enable_animations,
@@ -1176,10 +1225,13 @@ impl From<Settings> for SettingsSnapshot {
             ),
             global_shortcut: settings.global_shortcut,
             codex_custom_sessions_dirs: settings.codex_custom_sessions_dirs,
+            antigravity_additional_profile_homes: settings.antigravity_additional_profile_homes,
             agent_sessions_enabled: settings.agent_sessions_enabled,
             stay_awake_enabled: settings.stay_awake_enabled,
             agent_session_ssh_hosts: settings.agent_session_ssh_hosts,
             hooks_enabled: settings.hooks_enabled,
+            openai_live_usage_enabled,
+            openai_model_rate_limits,
             http_proxy_enabled: settings.http_proxy_enabled,
             http_proxy_url: settings.http_proxy_url,
             http_proxy_username: settings.http_proxy_username,
@@ -1254,6 +1306,11 @@ pub(crate) fn provider_catalog_for(settings: &Settings) -> Vec<ProviderCatalogEn
             id: provider.cli_name().to_string(),
             display_name: provider.display_name().to_string(),
             cookie_domain: provider.cookie_domain().map(ToString::to_string),
+            cli_aliases: provider
+                .cli_aliases()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
         })
         .collect()
 }

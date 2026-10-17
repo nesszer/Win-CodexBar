@@ -19,6 +19,7 @@ use rusqlite::Connection;
 use thiserror::Error;
 
 use super::detection::{BrowserProfile, BrowserType, DetectedBrowser};
+use super::session_scan::BrowserCookieScan;
 
 /// Errors that can occur during cookie extraction
 #[derive(Debug, Error)]
@@ -660,112 +661,34 @@ fn domain_matches(host_key: &str, domain: &str) -> bool {
     host == domain || host == format!(".{domain}") || host.ends_with(&format!(".{domain}"))
 }
 
-/// Per-browser cookies found while scanning every detected browser.
-struct BrowserCookieCandidates {
-    candidates: Vec<(BrowserType, Vec<Cookie>)>,
-    abe_error_seen: bool,
-}
-
-/// Scan every detected browser for readable cookies of `domain`.
-///
-/// Returns the per-browser candidates in detection order, ignoring browsers
-/// with no cookies, plus whether any browser was blocked by App-Bound
-/// Encryption so callers can surface that specific, actionable error when no
-/// other browser succeeded.
-fn extract_domain_candidates(domain: &str) -> Result<BrowserCookieCandidates, CookieError> {
-    use super::detection::BrowserDetector;
-
-    let browsers = BrowserDetector::detect_all();
-
-    if browsers.is_empty() {
-        return Err(CookieError::BrowserNotInstalled);
-    }
-
-    let mut candidates = Vec::new();
-    let mut abe_error_seen = false;
-
-    for browser in browsers {
-        match CookieExtractor::extract_for_domain(&browser, domain) {
-            Ok(cookies) if !cookies.is_empty() => {
-                candidates.push((browser.browser_type, cookies));
-            }
-            Ok(_) => {}
-            Err(CookieError::AppBoundEncryption) => {
-                // Chromium ABE is blocking this browser; log a warning and keep
-                // trying the remaining browsers; Firefox does not use Chromium ABE.
-                tracing::warn!(
-                    browser = %browser.browser_type.display_name(),
-                    "App-Bound Encryption prevents automatic cookie import; \
-                     trying remaining browsers"
-                );
-                abe_error_seen = true;
-            }
-            Err(error) => {
-                tracing::debug!(
-                    browser = %browser.browser_type.display_name(),
-                    "Failed to get cookies from {}: {}",
-                    browser.browser_type.display_name(),
-                    error
-                );
-            }
-        }
-    }
-
-    Ok(BrowserCookieCandidates {
-        candidates,
-        abe_error_seen,
-    })
-}
-
 /// Helper to get cookies for a specific domain from any available browser.
 ///
-/// Stops at the first browser with any matching cookie; providers that must
-/// try every browser after an auth failure use `get_cookie_headers_for_domain`.
+/// Stops at the first browser with any matching cookie and reads no further
+/// browser. Providers that validate the session and must move on after an
+/// auth failure iterate a [`BrowserCookieScan`] instead.
 pub fn get_cookies_for_domain(domain: &str) -> Result<Vec<Cookie>, CookieError> {
-    let scan = extract_domain_candidates(domain)?;
-
-    if let Some((browser, cookies)) = scan.candidates.into_iter().next() {
-        tracing::debug!(
-            "Found {} cookies for {} in {}",
-            cookies.len(),
-            domain,
-            browser.display_name()
-        );
-        return Ok(cookies);
+    let mut scan = BrowserCookieScan::new(&[domain]);
+    match scan.next() {
+        Some(candidate) => Ok(candidate.cookies),
+        None => Err(scan.exhaustion_error()),
     }
-
-    // Surface a clear ABE error if it was the only kind of failure encountered,
-    // so the UI can show an actionable message instead of a generic "not found".
-    if scan.abe_error_seen {
-        return Err(CookieError::AppBoundEncryption);
-    }
-
-    Err(CookieError::NotFound(domain.to_string()))
 }
 
 /// Get cookie-header candidates from every detected browser that has readable
 /// cookies for a domain.
 ///
-/// Providers whose session cookie is only in one browser need the complete
-/// candidate set so they can validate the session-bearing header and try the
-/// next browser after an auth failure.
+/// Reads every browser up front; prefer iterating a [`BrowserCookieScan`] so
+/// later browsers are read only when an earlier session is rejected.
 pub fn get_cookie_headers_for_domain(
     domain: &str,
 ) -> Result<Vec<(BrowserType, String)>, CookieError> {
-    let scan = extract_domain_candidates(domain)?;
-
+    let mut scan = BrowserCookieScan::new(&[domain]);
     let headers = scan
-        .candidates
-        .into_iter()
-        .map(|(browser, cookies)| (browser, CookieExtractor::build_cookie_header(&cookies)))
-        .filter(|(_, header)| !header.trim().is_empty())
+        .by_ref()
+        .map(|candidate| (candidate.browser, candidate.header()))
         .collect::<Vec<_>>();
-
-    if headers.is_empty() && scan.abe_error_seen {
-        return Err(CookieError::AppBoundEncryption);
-    }
     if headers.is_empty() {
-        return Err(CookieError::NotFound(domain.to_string()));
+        return Err(scan.exhaustion_error());
     }
     Ok(headers)
 }
@@ -776,14 +699,15 @@ pub fn get_cookie_headers_for_domain(
 pub fn get_cookies_by_browser_for_domain(
     domain: &str,
 ) -> Result<Vec<(BrowserType, Vec<Cookie>)>, CookieError> {
-    let scan = extract_domain_candidates(domain)?;
-    if scan.candidates.is_empty() && scan.abe_error_seen {
-        return Err(CookieError::AppBoundEncryption);
+    let mut scan = BrowserCookieScan::new(&[domain]);
+    let candidates = scan
+        .by_ref()
+        .map(|candidate| (candidate.browser, candidate.cookies))
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return Err(scan.exhaustion_error());
     }
-    if scan.candidates.is_empty() {
-        return Err(CookieError::NotFound(domain.to_string()));
-    }
-    Ok(scan.candidates)
+    Ok(candidates)
 }
 
 /// Get a cookie header string for a domain
@@ -794,25 +718,12 @@ pub fn get_cookie_header(domain: &str) -> Result<String, CookieError> {
 
 /// Get a cookie header string from the first domain that has readable cookies.
 pub fn get_cookie_header_for_domains(domains: &[&str]) -> Result<String, CookieError> {
-    let mut app_bound_encryption_seen = false;
-    let mut last_error = None;
-
-    for domain in domains {
-        match get_cookie_header(domain) {
-            Ok(header) if !header.trim().is_empty() => return Ok(header),
-            Ok(_) => {}
-            Err(CookieError::AppBoundEncryption) => app_bound_encryption_seen = true,
-            Err(error) => last_error = Some(error),
-        }
-    }
-
-    if app_bound_encryption_seen {
-        Err(CookieError::AppBoundEncryption)
-    } else {
-        Err(last_error.unwrap_or_else(|| CookieError::NotFound(domains.join(", "))))
+    let mut scan = BrowserCookieScan::new(domains);
+    match scan.next() {
+        Some(candidate) => Ok(candidate.header()),
+        None => Err(scan.exhaustion_error()),
     }
 }
-
 /// Get a cookie header string for a domain from a specific browser
 pub fn get_cookie_header_from_browser(
     domain: &str,
@@ -839,18 +750,22 @@ mod tests {
         assert!(!domain_matches("chatgpt.com.evil.test", "chatgpt.com"));
     }
 
+    /// Manual live check against this machine's installed browsers. It reads
+    /// and decrypts real `claude.ai` cookies, so it is ignored by default and
+    /// also requires `CODEXBAR_LIVE_COOKIE_TEST=1`. Prints counts and cookie
+    /// names only, never values.
     #[test]
+    #[ignore = "reads real browser cookie stores; opt in with --ignored and CODEXBAR_LIVE_COOKIE_TEST=1"]
     fn test_cookie_extraction() {
-        // This test will only work on a machine with Chrome installed
+        if std::env::var("CODEXBAR_LIVE_COOKIE_TEST").as_deref() != Ok("1") {
+            eprintln!("skipping: set CODEXBAR_LIVE_COOKIE_TEST=1 to run the live cookie check");
+            return;
+        }
         match get_cookies_for_domain("claude.ai") {
             Ok(cookies) => {
                 println!("Found {} cookies for claude.ai", cookies.len());
                 for cookie in &cookies {
-                    println!(
-                        "  {}={}",
-                        cookie.name,
-                        &cookie.value[..20.min(cookie.value.len())]
-                    );
+                    println!("  {}", cookie.name);
                 }
             }
             Err(e) => {

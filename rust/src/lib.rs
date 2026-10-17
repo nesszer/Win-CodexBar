@@ -28,6 +28,7 @@ pub mod secure_file;
 pub mod settings;
 pub mod sound;
 pub mod spend_contract;
+pub mod spend_trend;
 
 pub mod status;
 pub mod switcher_shortcuts;

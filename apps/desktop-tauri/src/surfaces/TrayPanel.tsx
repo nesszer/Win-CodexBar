@@ -57,6 +57,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     zoom: trayScale,
     ...accentSelectionStyle(accentColor),
   } as CSSProperties;
+  const hoverHighlight = settings.highlightMenuCardsOnHover ?? true;
 
   const banner = (
     <UpdateBanner
@@ -113,7 +114,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     return (
       <div className={revealClassName} data-theme="light">
         <MenuSurface banner={banner} footerGroups={footerGroups}
-          statusLine={statusLine} style={surfaceStyle}>
+          statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}>
           {stayAwakeStatus}
           {settings.agentSessionsEnabled && <AgentSessions />}
           <MenuEmpty
@@ -128,7 +129,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   return (
     <div className={revealClassName} data-theme="light">
       <MenuSurface banner={banner} footerGroups={footerGroups}
-        statusLine={statusLine} style={surfaceStyle}>
+        statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}>
         {stayAwakeStatus}
         {settings.agentSessionsEnabled && <AgentSessions />}
         <ProviderGrid

@@ -8,17 +8,21 @@ import type {
 } from "../../types/bridge";
 import { useLocale } from "../../hooks/useLocale";
 import { useProviderStatuses } from "../../hooks/useProviderStatuses";
-import { reorderProviders } from "../../lib/tauri";
+import { reorderVisibleProviders, restoreDefaultProviderOrder } from "../../lib/tauri";
 import codexbarIcon from "../../assets/codexbar-icon.png";
 import {
   SIDEBAR_PANES,
   canReorderProviders,
+  canUndoProviderOrder,
   filterProvidersByQuery,
   nextEnabledProviders,
+  sameIds,
   sortProvidersAlphabetically,
+  type ProviderOrderUndo,
   type SidebarPane,
 } from "./settingsTabs";
 import {
+  ProviderRowMenu,
   ProvidersSidebar,
   type ProviderSidebarRow,
   type ProviderSidebarStatus,
@@ -162,19 +166,25 @@ export function SettingsSidebar({
   }
 
   const sorted = settings.providersSortedAlphabetically;
+  const enabledOnly = settings.providersEnabledOnly === true;
   const enabled = useMemo(() => new Set(settings.enabledProviders), [settings.enabledProviders]);
   const enabledCount = ordered.filter((p) => enabled.has(p.id)).length;
   const serviceStatuses = useProviderStatuses();
+  // The last saved order change, for Undo. It goes stale once the order moves again.
+  const [undo, setUndo] = useState<ProviderOrderUndo | null>(null);
+  const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(null);
+  const undoable = canUndoProviderOrder(undo, ordered.map((p) => p.id));
 
   const rows: ProviderSidebarRow[] = useMemo(() => {
     const snapshotMap = new Map(snapshots.map((s) => [s.providerId, s]));
     const serviceMap = new Map(
       serviceStatuses.map((e) => [e.providerId, e.status?.indicator ?? "unknown"] as const),
     );
-    const shown = filterProvidersByQuery(
+    const searched = filterProvidersByQuery(
       sorted ? sortProvidersAlphabetically(ordered, enabled) : ordered,
       searchText,
     );
+    const shown = enabledOnly ? searched.filter((p) => enabled.has(p.id)) : searched;
     return shown.map((p) => {
       const isOn = enabled.has(p.id);
       return {
@@ -185,22 +195,74 @@ export function SettingsSidebar({
         service: isOn ? serviceMap.get(p.id) : undefined,
       };
     });
-  }, [enabled, ordered, searchText, serviceStatuses, snapshots, sorted]);
+  }, [enabled, enabledOnly, ordered, searchText, serviceStatuses, snapshots, sorted]);
 
   const toggleEnabled = (id: string, on: boolean) => {
     set({ enabledProviders: nextEnabledProviders(ordered, enabled, id, on) });
   };
 
-  const handleReorder = (ids: string[]) => {
+  /** Shows `ids` at once; the saved order follows from the command. */
+  const showOrder = (ids: string[]) => {
     const byId = new Map(ordered.map((p) => [p.id, p]));
     setOrdered(ids.map((id) => byId.get(id)).filter((p): p is ProviderCatalogEntry => Boolean(p)));
-    void reorderProviders(ids).catch(() => setOrdered(providers));
+  };
+
+  const handleReorder = (ids: string[]) => {
+    const entry: ProviderOrderUndo = {
+      before: ordered.map((p) => p.id),
+      after: ids,
+      restoreAlphabetical: null,
+    };
+    showOrder(ids);
+    setUndo(entry);
+    void reorderVisibleProviders(ids).catch(() => {
+      setOrdered(providers);
+      setUndo((current) => (current === entry ? null : current));
+    });
+  };
+
+  /** Restores the built-in order and turns alphabetical sorting off; undo brings both back. */
+  const restoreOrder = () => {
+    const before = ordered.map((p) => p.id);
+    const wasSorted = sorted;
+    if (wasSorted) set({ providersSortedAlphabetically: false });
+    void restoreDefaultProviderOrder()
+      .then((summaries) => {
+        const ids = summaries.map((s) => s.id);
+        showOrder(ids);
+        if (wasSorted || !sameIds(before, ids)) {
+          setUndo({ before, after: ids, restoreAlphabetical: wasSorted ? true : null });
+        }
+      })
+      .catch(() => {
+        if (wasSorted) set({ providersSortedAlphabetically: true });
+      });
+  };
+
+  const undoOrder = () => {
+    if (!undo || !undoable || saving) return;
+    const entry = undo;
+    setUndo(null);
+    showOrder(entry.before);
+    if (entry.restoreAlphabetical) set({ providersSortedAlphabetically: true });
+    void reorderVisibleProviders(entry.before).catch(() => setOrdered(providers));
   };
 
   const sortHint = t(sorted ? "SettingsSidebarSortOnHint" : "SettingsSidebarSortOffHint");
 
   return (
-    <aside className="settings-sidebar" aria-label={t("SettingsSidebarAriaLabel")}>
+    <aside
+      className="settings-sidebar"
+      aria-label={t("SettingsSidebarAriaLabel")}
+      onKeyDown={(e) => {
+        // Ctrl+Z undoes the last provider order change, unless a text field has focus.
+        if (!undoable || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+        if (e.key.toLowerCase() !== "z") return;
+        if ((e.target as HTMLElement).closest("input, textarea")) return;
+        e.preventDefault();
+        undoOrder();
+      }}
+    >
       <div className="settings-sidebar__toolbar">
         <div className="settings-sidebar__search">
           <svg
@@ -254,7 +316,54 @@ export function SettingsSidebar({
             <path d="M5 3v10M2.5 10.5 5 13l2.5-2.5M11 13V3M8.5 5.5 11 3l2.5 2.5" />
           </svg>
         </button>
+        <button
+          type="button"
+          className={`settings-sidebar__filter${enabledOnly ? " settings-sidebar__filter--on" : ""}`}
+          aria-haspopup="menu"
+          aria-expanded={filterMenu !== null}
+          aria-label={t("ProviderSidebarOptions")}
+          title={t("ProviderSidebarOptions")}
+          data-menu-toggle
+          onClick={(e) => {
+            if (filterMenu) {
+              setFilterMenu(null);
+              return;
+            }
+            const rect = e.currentTarget.getBoundingClientRect();
+            setFilterMenu({ x: rect.left, y: rect.bottom });
+          }}
+        >
+          <svg viewBox="0 0 16 16" width={10} height={10} aria-hidden>
+            <path d="M4 6l4 4 4-4" />
+          </svg>
+        </button>
       </div>
+      {filterMenu && (
+        <ProviderRowMenu
+          x={filterMenu.x}
+          y={filterMenu.y}
+          onClose={() => setFilterMenu(null)}
+          items={[
+            {
+              label: t("ProviderSidebarShowEnabledOnly"),
+              disabled: saving,
+              checked: enabledOnly,
+              run: () => set({ providersEnabledOnly: !enabledOnly }),
+            },
+            {
+              label: t("ProviderSidebarRestoreDefaultOrder"),
+              disabled: saving,
+              separatorBefore: true,
+              run: restoreOrder,
+            },
+            {
+              label: t("ProviderSidebarUndoOrder"),
+              disabled: saving || !undoable,
+              run: undoOrder,
+            },
+          ]}
+        />
+      )}
 
       <div className="settings-sidebar__scroll">
         <ul className="settings-sidebar__panes">
@@ -286,7 +395,7 @@ export function SettingsSidebar({
         <ProvidersSidebar
           providers={rows}
           selectedId={activeTab === "providers" ? selectedProviderId : null}
-          canReorder={canReorderProviders(sorted, searchText)}
+          canReorder={canReorderProviders(sorted, searchText, enabledOnly)}
           onSelect={onSelectProvider}
           onReorder={handleReorder}
           onToggleEnabled={toggleEnabled}

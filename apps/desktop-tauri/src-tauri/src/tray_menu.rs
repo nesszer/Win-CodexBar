@@ -195,11 +195,13 @@ mod tests {
                 id: "codex".into(),
                 display_name: "Codex".into(),
                 cookie_domain: None,
+                cli_aliases: Vec::new(),
             },
             ProviderCatalogEntry {
                 id: "claude".into(),
                 display_name: "Claude".into(),
                 cookie_domain: None,
+                cli_aliases: Vec::new(),
             },
         ]
     }

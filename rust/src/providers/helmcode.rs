@@ -109,18 +109,24 @@ impl HelmcodeProvider {
         };
         let mut rejected = false;
         for tenant in candidates {
-            let cookie = match ctx.manual_cookie_header.as_deref() {
-                Some(raw) => crate::providers::normalize_cookie_header(raw)
-                    .ok_or(ProviderError::NoCookies)?,
-                None => match crate::providers::browser_cookie_header(&[tenant.domain()]) {
-                    Ok(header) => header,
-                    Err(_) => continue,
-                },
-            };
-            match self.fetch_tenant(tenant, &cookie).await {
-                Ok(result) => return Ok(result),
-                Err(ProviderError::AuthRequired) => rejected = true,
-                Err(error) => return Err(error),
+            let cookies: Box<dyn Iterator<Item = String> + Send> =
+                match ctx.manual_cookie_header.as_deref() {
+                    Some(raw) => Box::new(std::iter::once(
+                        crate::providers::normalize_cookie_header(raw)
+                            .ok_or(ProviderError::NoCookies)?,
+                    )),
+                    // A signed-out browser session moves on to the next browser.
+                    None => Box::new(crate::providers::browser_cookie_sessions(
+                        ctx,
+                        &[tenant.domain()],
+                    )),
+                };
+            for cookie in cookies {
+                match self.fetch_tenant(tenant, &cookie).await {
+                    Ok(result) => return Ok(result),
+                    Err(ProviderError::AuthRequired) => rejected = true,
+                    Err(error) => return Err(error),
+                }
             }
         }
         if rejected {

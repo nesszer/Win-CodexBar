@@ -1,7 +1,7 @@
 use super::*;
 use crate::settings::{
-    Language, ProviderConfig, ProviderQuotaWarnings, QuotaWarningWindow, ThemePreference,
-    TrayIconMode,
+    Language, MenuBarIconStyle, ProviderConfig, ProviderQuotaWarnings, QuotaWarningWindow,
+    ThemePreference, TrayIconMode,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -40,6 +40,7 @@ fn customized_settings() -> Settings {
         high_usage_threshold: 55.5,
         critical_usage_threshold: 80.0,
         predictive_pace_warning_enabled: true,
+        limit_reset_notifications_enabled: true,
         show_pace: false,
         show_as_used: false,
         reset_time_relative: false,
@@ -48,6 +49,7 @@ fn customized_settings() -> Settings {
         menu_bar_shows_highest_usage: true,
         menu_bar_shows_percent: true,
         menu_bar_icon_style: crate::settings::MenuBarIconStyle::Percent,
+        menu_bar_color_by_provider: true,
         merged_overview_selected_providers: vec!["claude".to_string(), "codex".to_string()],
         quota_warning_markers_visible: false,
         workday_tick_style: crate::settings::WorkdayTickStyle::HighContrast,
@@ -109,12 +111,14 @@ fn secret_settings() -> Settings {
     settings.http_proxy_username = "SECRET-PROXY-USER".to_string();
     settings.http_proxy_password = "SECRET-PROXY-PASSWORD".to_string();
     settings.codex_custom_sessions_dirs = vec!["C:\\secret\\sessions".to_string()];
+    settings.antigravity_additional_profile_homes = vec!["C:\\secret\\gemini-home".to_string()];
     settings.agent_session_ssh_hosts = vec!["secret-host.invalid".to_string()];
     settings.notification_sound_paths.high_usage = Some("C:\\secret\\ding.wav".to_string());
     settings.cost_usage_bucket_time_zone = "Asia/Tokyo".to_string();
     settings.stay_awake_enabled = true;
     settings.credential_expiry_notifications_enabled = true;
     settings.menu_bar_color_pace = true;
+    settings.menu_bar_pace_reserve_positive = true;
     settings.stacked_tray_top_provider = Some("claude".to_string());
     settings.stacked_tray_bottom_provider = Some("codex".to_string());
     settings
@@ -176,6 +180,21 @@ fn round_trips_every_allowlisted_preference() {
     // Non-portable state on the receiving machine is untouched.
     assert!(target.start_at_login);
     assert_eq!(target.global_shortcut, "Ctrl+Alt+K");
+}
+
+#[test]
+fn menu_bar_icon_style_import_accepts_stacked_bars_and_rejects_junk() {
+    let document =
+        parse(json!({ "menu_bar_icon_style": "stackedBars" })).expect("stackedBars imports");
+    let mut target = Settings::default();
+    document.apply_to(&mut target).expect("apply");
+    assert_eq!(target.menu_bar_icon_style, MenuBarIconStyle::StackedBars);
+
+    let rejected = parse(json!({ "menu_bar_icon_style": "stacked_bars" }));
+    assert!(
+        rejected.is_err(),
+        "unknown style must be rejected on import"
+    );
 }
 
 #[test]
@@ -707,6 +726,43 @@ fn missing_keys_leave_settings_unchanged() {
 }
 
 #[test]
+fn reset_notification_toggle_travels_in_both_directions() {
+    let mut source = Settings {
+        limit_reset_notifications_enabled: true,
+        ..Settings::default()
+    };
+    let exported = PreferencesDocument::from_json(
+        &PreferencesDocument::from_settings(&source)
+            .expect("export")
+            .to_json(),
+    )
+    .expect("reimport");
+    assert!(
+        exported
+            .to_json()
+            .contains("\"limit_reset_notifications_enabled\": true")
+    );
+
+    let mut target = Settings::default();
+    exported.apply_to(&mut target).expect("apply");
+    assert!(target.limit_reset_notifications_enabled);
+
+    // A document without the key keeps the receiving machine's choice.
+    parse(json!({}))
+        .expect("empty")
+        .apply_to(&mut target)
+        .expect("apply");
+    assert!(target.limit_reset_notifications_enabled);
+
+    source.limit_reset_notifications_enabled = false;
+    PreferencesDocument::from_settings(&source)
+        .expect("export")
+        .apply_to(&mut target)
+        .expect("apply");
+    assert!(!target.limit_reset_notifications_enabled);
+}
+
+#[test]
 fn null_restores_the_default() {
     let mut settings = customized_settings();
     let applied = parse(json!({
@@ -803,6 +859,8 @@ fn export_never_contains_secrets_or_machine_state() {
         "stacked_tray",
         "credential_expiry",
         "menu_bar_color_pace",
+        "menu_bar_pace_reserve_positive",
+        "highlight_menu_cards_on_hover",
     ] {
         assert!(!text.contains(secret), "export leaked `{secret}`");
     }

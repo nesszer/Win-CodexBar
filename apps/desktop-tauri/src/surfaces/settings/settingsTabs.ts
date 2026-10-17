@@ -77,17 +77,29 @@ export const SIDEBAR_PANES: SidebarPane[] = [
 interface NamedProvider {
   id: string;
   displayName: string;
+  /** CLI aliases the search also matches; absent on older shells. */
+  cliAliases?: readonly string[];
 }
 
-/** Case-insensitive match on display name or id; a blank query keeps every provider. */
+/** Lowercase with diacritics removed, so "Zâi" and "zai" compare equal. */
+function searchKey(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+}
+
+/**
+ * Search the sidebar list (macOS `ProvidersPane.filteredProviders`). Every word
+ * of the query must match the display name, the id or a CLI alias, ignoring
+ * case and accents. A blank query keeps every provider.
+ */
 export function filterProvidersByQuery<T extends NamedProvider>(providers: T[], query: string): T[] {
-  const needle = query.trim().toLocaleLowerCase();
-  if (!needle) return providers;
-  return providers.filter(
-    (provider) =>
-      provider.displayName.toLocaleLowerCase().includes(needle) ||
-      provider.id.toLocaleLowerCase().includes(needle),
-  );
+  const words = query.trim().split(/\s+/).filter(Boolean).map(searchKey);
+  if (words.length === 0) return providers;
+  return providers.filter((provider) => {
+    const fields = [provider.displayName, provider.id, ...(provider.cliAliases ?? [])].map(
+      searchKey,
+    );
+    return words.every((word) => fields.some((field) => field.includes(word)));
+  });
 }
 
 /**
@@ -110,9 +122,39 @@ export function sortProvidersAlphabetically<T extends NamedProvider>(
   });
 }
 
-/** Reordering is only meaningful in the saved order with nothing filtered out (macOS). */
-export function canReorderProviders(sortedAlphabetically: boolean, query: string): boolean {
-  return !sortedAlphabetically && query.trim() === "";
+/**
+ * Reordering is only meaningful in the saved order with nothing filtered out
+ * (macOS `SettingsSidebarView.canReorderProviders`).
+ */
+export function canReorderProviders(
+  sortedAlphabetically: boolean,
+  query: string,
+  enabledOnly = false,
+): boolean {
+  return !sortedAlphabetically && !enabledOnly && query.trim() === "";
+}
+
+/**
+ * The last sidebar order change, kept so it can be reverted. `restoreAlphabetical`
+ * is set when a restore turned alphabetical sorting off; undo turns it back on.
+ */
+export interface ProviderOrderUndo {
+  before: string[];
+  after: string[];
+  restoreAlphabetical: boolean | null;
+}
+
+/**
+ * Undo is offered only while the order still matches what the change left
+ * behind, so a later move or an external change makes it stale (macOS
+ * `canUndoProviderOrderChange`).
+ */
+export function canUndoProviderOrder(undo: ProviderOrderUndo | null, currentIds: string[]): boolean {
+  return undo !== null && sameIds(currentIds, undo.after);
+}
+
+export function sameIds(lhs: readonly string[], rhs: readonly string[]): boolean {
+  return lhs.length === rhs.length && lhs.every((id, index) => id === rhs[index]);
 }
 
 /**

@@ -62,7 +62,6 @@ import { AzureApiVersionSection } from "./sections/AzureApiVersionSection";
 import { MuseBrowserTeamSection } from "./sections/MuseBrowserTeamSection";
 import { QuotaWarningsSection } from "./sections/QuotaWarningsSection";
 import { OptionsSection } from "./sections/OptionsSection";
-import { ClaudeSwapPathField } from "./sections/credentials/ClaudeSwapPathField";
 
 interface Props {
   providerId: string | null;
@@ -353,7 +352,6 @@ export function ProviderDetailPane({
       : hasFetchError
         ? t("ProviderTextUnavailable")
         : t("ProviderNotFetchedYetTitle");
-  const showClaudeSwapPath = detail.id === "claude" && (settings.claudeSwapEnabled ?? false);
 
   return (
     <div className="provider-detail">
@@ -393,6 +391,7 @@ export function ProviderDetailPane({
         <CostSection cost={detail.cost} t={t} />
         <UsageDetailsSection
           provider={liveSnapshot?.providerId === detail.id ? liveSnapshot : null}
+          paceReservePositive={settings.menuBarPaceReservePositive ?? false}
         />
         <ChartsSection
           providerId={detail.id}
@@ -417,6 +416,7 @@ export function ProviderDetailPane({
         disabled={settingsDisabled}
         t={t}
         onChange={onSettingsChange}
+        costSummaryHidden={settings.costSummaryDisplayStyle === "hidden"}
       />
 
       {hasFetchError && (
@@ -518,14 +518,6 @@ export function ProviderDetailPane({
           cookieDomain={cookieDomain}
           onChanged={reload}
         />
-        {showClaudeSwapPath && (
-          <ClaudeSwapPathField
-            value={settings.claudeSwapExecutablePath ?? ""}
-            disabled={settingsDisabled}
-            t={t}
-            onSettingsChange={onSettingsChange}
-          />
-        )}
       </SettingsGroup>
 
       <SettingsGroup className="provider-detail-group provider-accounts-group">

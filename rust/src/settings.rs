@@ -27,11 +27,21 @@ pub const CODEX_SPARK_USAGE_ITEM_IDS: [&str; 2] = [
     "metric:extra-codex-spark-weekly",
 ];
 pub const CLAUDE_DAILY_ROUTINES_USAGE_ITEM_ID: &str = "metric:extra-claude-routines";
+/// Namespace for non-metric card sections with their own visibility choice
+/// (upstream 0.75.0 #4484). The raw IDs match upstream's.
+pub const USAGE_ITEM_SECTION_PREFIX: &str = "section:";
+/// Claude saved limit-reset credits (the `reset-credits` inventory row).
+pub const CLAUDE_RESET_CREDITS_USAGE_ITEM_ID: &str = "section:claude-reset-credits";
+/// Claude Extra usage / prepaid balance block. Admin API spend is excluded.
+pub const CLAUDE_EXTRA_USAGE_USAGE_ITEM_ID: &str = "section:claude-extra-usage";
+/// Plan renewal / expiry dates shown beside the quota rows.
+pub const SUBSCRIPTION_USAGE_ITEM_ID: &str = "section:subscription";
 
 mod api_keys;
 mod config_path;
 mod cost_time_zone;
 mod manual_cookies;
+mod model_rate_limits;
 mod optional_details;
 mod preferences_document;
 mod provider_workspace;
@@ -48,6 +58,7 @@ pub use config_path::{
 };
 pub use cost_time_zone::*;
 pub use manual_cookies::*;
+pub use model_rate_limits::{ModelRateLimit, rate_limit_number};
 pub use optional_details::provider_has_optional_details;
 pub use preferences_document::*;
 pub use provider_workspace::*;
@@ -198,6 +209,11 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub quota_warning_markers_visible: bool,
 
+    /// Tray panel Refresh row highlights under the pointer. Keyboard focus
+    /// stays highlighted either way.
+    #[serde(default = "default_true")]
+    pub highlight_menu_cards_on_hover: bool,
+
     /// How workday boundaries appear on weekly usage bars.
     #[serde(default)]
     pub workday_tick_style: WorkdayTickStyle,
@@ -206,10 +222,26 @@ pub struct Settings {
     #[serde(default)]
     pub menu_bar_color_pace: bool,
 
+    /// Tint the Windows tray usage indicator with each shown provider's accent
+    /// color (upstream "Color by provider", #4321). Defaults off.
+    #[serde(default)]
+    pub menu_bar_color_by_provider: bool,
+
+    /// Show reserve as `+` and deficit as `-` in signed pace text (upstream
+    /// `menuBarPaceReservePositive`). Display only: the stored pace delta stays
+    /// usage-ahead, so pace colours and stages keep their meaning.
+    #[serde(default)]
+    pub menu_bar_pace_reserve_positive: bool,
+
     /// Settings sidebar lists providers alphabetically (enabled first)
     /// instead of in `provider_order`. Display only; never rewrites the order.
     #[serde(default)]
     pub providers_sorted_alphabetically: bool,
+
+    /// Settings sidebar lists only enabled providers (upstream `providersEnabledOnly`).
+    /// Local browsing filter: not part of the portable preferences document.
+    #[serde(default)]
+    pub providers_enabled_only: bool,
 
     /// Show usage bars as "used" (true) or "remaining" (false)
     pub show_as_used: bool,
@@ -227,6 +259,10 @@ pub struct Settings {
     /// Warn when Codex or Claude pace predicts exhaustion before reset.
     #[serde(default)]
     pub predictive_pace_warning_enabled: bool,
+
+    /// Announce when a session or weekly limit resets (opt-in).
+    #[serde(default)]
+    pub limit_reset_notifications_enabled: bool,
 
     /// Notify once per failure episode when a provider account needs sign-in again.
     #[serde(default)]
@@ -295,6 +331,12 @@ pub struct Settings {
     /// Additional Codex home or sessions directories to include in local cost scans.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub codex_custom_sessions_dirs: Vec<String>,
+
+    /// Extra Gemini home directories (each one's `.gemini`) whose Antigravity
+    /// local token history is combined with the primary home. Empty keeps the
+    /// single-home default. Affects local history only, not sign-in or quotas.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub antigravity_additional_profile_homes: Vec<String>,
 
     /// Discover local and configured SSH Codex/Claude sessions.
     #[serde(default)]
@@ -597,6 +639,33 @@ pub fn normalize_provider_order(requested: &[String]) -> Vec<String> {
     out
 }
 
+/// Replace only the slots held by `visible` inside `full`, so every other
+/// provider (for example a soft-removed one) keeps its position. Returns
+/// `None` unless `full` and `visible` have no repeats and every visible id is
+/// present in `full`.
+pub fn merge_visible_provider_order(full: &[String], visible: &[String]) -> Option<Vec<String>> {
+    let full_set: HashSet<&str> = full.iter().map(String::as_str).collect();
+    let visible_set: HashSet<&str> = visible.iter().map(String::as_str).collect();
+    if full_set.len() != full.len()
+        || visible_set.len() != visible.len()
+        || !visible_set.is_subset(&full_set)
+    {
+        return None;
+    }
+    let mut next = visible.iter();
+    Some(
+        full.iter()
+            .map(|id| {
+                if visible_set.contains(id.as_str()) {
+                    next.next().cloned().unwrap_or_else(|| id.clone())
+                } else {
+                    id.clone()
+                }
+            })
+            .collect(),
+    )
+}
+
 fn default_global_shortcut() -> String {
     "Ctrl+Shift+U".to_string()
 }
@@ -639,7 +708,8 @@ fn normalize_hidden_usage_item_ids(ids: Vec<String>) -> Vec<String> {
                 && id.len() <= 128
                 && !id.chars().any(char::is_control)
                 && (id.starts_with(USAGE_ITEM_METRIC_PREFIX)
-                    || id.starts_with(USAGE_ITEM_DETAIL_SECTION_PREFIX))
+                    || id.starts_with(USAGE_ITEM_DETAIL_SECTION_PREFIX)
+                    || id.starts_with(USAGE_ITEM_SECTION_PREFIX))
         })
         .filter(|id| seen.insert(id.clone()))
         .collect::<Vec<_>>();
@@ -682,14 +752,19 @@ impl Default for Settings {
             menu_bar_icon_style: MenuBarIconStyle::Bars,
             merged_overview_selected_providers: Vec::new(),
             quota_warning_markers_visible: true,
+            highlight_menu_cards_on_hover: true,
             workday_tick_style: WorkdayTickStyle::Subtle,
             menu_bar_color_pace: false,
+            menu_bar_color_by_provider: false,
+            menu_bar_pace_reserve_positive: false,
             providers_sorted_alphabetically: false,
+            providers_enabled_only: false,
             show_as_used: false,
             enable_animations: true,   // Animations enabled by default
             reset_time_relative: true, // Show relative times by default
             show_reset_when_exhausted: false,
             predictive_pace_warning_enabled: false,
+            limit_reset_notifications_enabled: false,
             credential_expiry_notifications_enabled: false,
             session_quota_notifications_enabled: true,
             show_pace: true,
@@ -705,6 +780,7 @@ impl Default for Settings {
             global_shortcut: default_global_shortcut(), // Ctrl+Shift+U by default
             switcher_shortcuts: BTreeMap::new(),
             codex_custom_sessions_dirs: Vec::new(),
+            antigravity_additional_profile_homes: Vec::new(),
             agent_sessions_enabled: false,
             stay_awake_enabled: false,
             agent_session_ssh_hosts: Vec::new(),
@@ -1209,7 +1285,10 @@ impl Settings {
                 | ProviderId::Langdock
                 | ProviderId::LithosAI
                 | ProviderId::MuseAI
-                | ProviderId::WorkBuddy => "auto",
+                | ProviderId::WorkBuddy
+                | ProviderId::TinyApi
+                | ProviderId::Xapi
+                | ProviderId::Parallel => "auto",
                 _ => DEFAULT_COOKIE_SOURCE,
             })
     }

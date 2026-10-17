@@ -5,9 +5,12 @@ use chrono::{DateTime, Utc};
 use codexbar::core::{IconLane, ProviderId, UsagePace};
 use codexbar::settings::{Language, MetricPreference, Settings, TrayIconMode};
 use codexbar::tray::{
-    TrayPaceColor, render_bar_icon_rgba_with_pace, render_percent_icon_rgba_with_pace,
-    render_stacked_bar_icon_rgba,
+    TrayPaceColor, render_bar_icon_rgba_tinted, render_percent_icon_rgba_tinted,
+    render_stacked_bar_icon_rgba_tinted, render_stacked_bars_icon_rgba_tinted,
 };
+
+/// Opt-in provider accent for a tray meter (`menu_bar_color_by_provider`).
+type ProviderRgb = (u8, u8, u8);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TrayIconPlan {
@@ -15,15 +18,26 @@ enum TrayIconPlan {
         primary_percent: f64,
         secondary_percent: Option<f64>,
         has_error: bool,
+        provider_tint: Option<ProviderRgb>,
+    },
+    /// The same session and weekly windows as `Bars`, drawn as equal rows.
+    StackedBars {
+        primary_percent: f64,
+        secondary_percent: Option<f64>,
+        has_error: bool,
+        provider_tint: Option<ProviderRgb>,
     },
     Percent {
         percent: f64,
         has_error: bool,
+        provider_tint: Option<ProviderRgb>,
     },
     Stacked {
         top_percent: f64,
         bottom_percent: f64,
         has_error: bool,
+        top_tint: Option<ProviderRgb>,
+        bottom_tint: Option<ProviderRgb>,
     },
 }
 
@@ -79,6 +93,7 @@ impl<'a> TrayPresentationPlan<'a> {
         let prefer_highest = settings.menu_bar_shows_highest_usage;
         let selected = pick_tray_provider(&healthy, prefer_highest);
         let icon_pace = tray_pace_color(settings, selected, now);
+        let single_tint = provider_tint(settings, selected);
 
         let (icon, status_rows) = match settings.tray_icon_mode {
             TrayIconMode::Stacked => {
@@ -88,6 +103,8 @@ impl<'a> TrayPresentationPlan<'a> {
                             top_percent: selected_tray_percents(top, settings).0,
                             bottom_percent: selected_tray_percents(bottom, settings).0,
                             has_error,
+                            top_tint: provider_tint(settings, Some(top)),
+                            bottom_tint: provider_tint(settings, Some(bottom)),
                         },
                         vec![
                             TrayStatusRow {
@@ -114,7 +131,11 @@ impl<'a> TrayPresentationPlan<'a> {
                         .collect();
                     (
                         resolve_single_provider_icon_plan(
-                            settings, percents.0, percents.1, has_error,
+                            settings,
+                            percents.0,
+                            percents.1,
+                            has_error,
+                            single_tint,
                         ),
                         rows,
                     )
@@ -133,7 +154,13 @@ impl<'a> TrayPresentationPlan<'a> {
                     })
                     .collect();
                 (
-                    resolve_single_provider_icon_plan(settings, percents.0, percents.1, has_error),
+                    resolve_single_provider_icon_plan(
+                        settings,
+                        percents.0,
+                        percents.1,
+                        has_error,
+                        single_tint,
+                    ),
                     rows,
                 )
             }
@@ -149,7 +176,13 @@ impl<'a> TrayPresentationPlan<'a> {
                     .into_iter()
                     .collect();
                 (
-                    resolve_single_provider_icon_plan(settings, percents.0, percents.1, has_error),
+                    resolve_single_provider_icon_plan(
+                        settings,
+                        percents.0,
+                        percents.1,
+                        has_error,
+                        single_tint,
+                    ),
                     rows,
                 )
             }
@@ -157,7 +190,9 @@ impl<'a> TrayPresentationPlan<'a> {
 
         let icon_pace = match icon {
             TrayIconPlan::Stacked { .. } => None,
-            TrayIconPlan::Bars { .. } | TrayIconPlan::Percent { .. } => icon_pace,
+            TrayIconPlan::Bars { .. }
+            | TrayIconPlan::StackedBars { .. }
+            | TrayIconPlan::Percent { .. } => icon_pace,
         };
 
         Self {
@@ -175,20 +210,44 @@ impl<'a> TrayPresentationPlan<'a> {
                 primary_percent,
                 secondary_percent,
                 has_error,
-            } => render_bar_icon_rgba_with_pace(
+                provider_tint,
+            } => render_bar_icon_rgba_tinted(
                 primary_percent,
                 secondary_percent,
                 has_error,
                 self.icon_pace,
+                provider_tint,
             ),
-            TrayIconPlan::Percent { percent, has_error } => {
-                render_percent_icon_rgba_with_pace(percent, has_error, self.icon_pace)
-            }
+            TrayIconPlan::Percent {
+                percent,
+                has_error,
+                provider_tint,
+            } => render_percent_icon_rgba_tinted(percent, has_error, self.icon_pace, provider_tint),
+            TrayIconPlan::StackedBars {
+                primary_percent,
+                secondary_percent,
+                has_error,
+                provider_tint,
+            } => render_stacked_bars_icon_rgba_tinted(
+                primary_percent,
+                secondary_percent,
+                has_error,
+                self.icon_pace,
+                provider_tint,
+            ),
             TrayIconPlan::Stacked {
                 top_percent,
                 bottom_percent,
                 has_error,
-            } => render_stacked_bar_icon_rgba(top_percent, bottom_percent, has_error),
+                top_tint,
+                bottom_tint,
+            } => render_stacked_bar_icon_rgba_tinted(
+                top_percent,
+                bottom_percent,
+                has_error,
+                top_tint,
+                bottom_tint,
+            ),
         }
     }
 
@@ -213,19 +272,54 @@ fn resolve_single_provider_icon_plan(
     primary_percent: f64,
     secondary_percent: Option<f64>,
     has_error: bool,
+    provider_tint: Option<ProviderRgb>,
 ) -> TrayIconPlan {
-    if settings.menu_bar_icon_style == codexbar::settings::MenuBarIconStyle::Percent {
-        TrayIconPlan::Percent {
+    use codexbar::settings::MenuBarIconStyle;
+    match settings.menu_bar_icon_style {
+        MenuBarIconStyle::Percent => TrayIconPlan::Percent {
             percent: primary_percent,
             has_error,
-        }
-    } else {
-        TrayIconPlan::Bars {
+            provider_tint,
+        },
+        MenuBarIconStyle::StackedBars => TrayIconPlan::StackedBars {
             primary_percent,
             secondary_percent,
             has_error,
-        }
+            provider_tint,
+        },
+        MenuBarIconStyle::Bars => TrayIconPlan::Bars {
+            primary_percent,
+            secondary_percent,
+            has_error,
+            provider_tint,
+        },
     }
+}
+
+/// Accent tint for the meter of `snapshot` (upstream "Color by provider").
+///
+/// Opt-in through `menu_bar_color_by_provider`. Uses the effective accent, so
+/// a per-provider override applies too. A malformed override yields no tint.
+/// Legibility against the tray canvas is checked by the renderer.
+fn provider_tint(
+    settings: &Settings,
+    snapshot: Option<&ProviderUsageSnapshot>,
+) -> Option<ProviderRgb> {
+    if !settings.menu_bar_color_by_provider {
+        return None;
+    }
+    let id = ProviderId::from_cli_name(&snapshot?.provider_id)?;
+    parse_hex_rgb(&settings.effective_accent_color(id))
+}
+
+/// Parse `#RRGGBB` (the leading `#` is optional and case is ignored).
+fn parse_hex_rgb(value: &str) -> Option<ProviderRgb> {
+    let hex = value.trim().strip_prefix('#').unwrap_or(value.trim());
+    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let channel = |range: std::ops::Range<usize>| u8::from_str_radix(&hex[range], 16).ok();
+    Some((channel(0..2)?, channel(2..4)?, channel(4..6)?))
 }
 
 /// Pace tint for the provider that drives a single-provider tray icon.

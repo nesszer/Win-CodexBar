@@ -8,8 +8,9 @@
 //!   `/v1/organization/usage/completions` (`group_by=model`) use `bucket_width=1d`,
 //!   `limit <= 31` and UTC-day-aligned 31-day ranges, following `has_more` / `next_page`
 //!   (at most 100 pages per range; a missing or repeated cursor is an error).
-//! - Token totals are `input + input_audio + output + output_audio`; cached input is a
-//!   subset of input and is never added on top.
+//! - Token totals are `input + output`: `input_tokens`/`output_tokens` already include the
+//!   audio breakdowns, so audio fields are never added again; cached input is a subset of
+//!   input and is never added on top.
 //! - Each Admin GET gets one transient retry (see [`RetryPolicy`]).
 //!
 //! The Admin path also returns a per-UTC-day [`crate::core::OpenAiApiUsageHistory`] (upstream's
@@ -18,6 +19,11 @@
 //! The history window is fixed at 30 days. Upstream's `OPENAI_HISTORY_DAYS` (1-365) is
 //! deferred until a Windows setting exists for it; [`usage_ranges`] already takes the day
 //! count, so honoring it later only needs to pass the setting through.
+//!
+//! Upstream v0.75.0 (#4495) adds OpenAI Live Usage: when
+//! [`FetchContext::live_usage_enabled`] is set, a successful Admin refresh also attaches the
+//! last hour of tokens per minute ([`live`]); manual organization rate-limit headroom and
+//! project caps live in [`org_limits`].
 
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
@@ -28,6 +34,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 mod history;
+pub mod live;
+pub mod org_limits;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
@@ -37,6 +45,7 @@ use crate::core::{
 const OPENAI_CREDIT_GRANTS_URL: &str = "https://api.openai.com/v1/dashboard/billing/credit_grants";
 const OPENAI_ORG_COSTS_URL: &str = "https://api.openai.com/v1/organization/costs";
 const OPENAI_ORG_COMPLETIONS_URL: &str = "https://api.openai.com/v1/organization/usage/completions";
+const OPENAI_ORG_PROJECTS_URL: &str = "https://api.openai.com/v1/organization/projects";
 const OPENAI_API_CREDENTIAL_TARGET: &str = "codexbar-openaiapi";
 
 /// Days of history requested from the Admin API (period label `Last 30 days`).
@@ -155,6 +164,7 @@ struct Endpoints {
     credit_grants: String,
     costs: String,
     completions: String,
+    projects: String,
 }
 
 impl Endpoints {
@@ -163,6 +173,7 @@ impl Endpoints {
             credit_grants: OPENAI_CREDIT_GRANTS_URL.to_string(),
             costs: OPENAI_ORG_COSTS_URL.to_string(),
             completions: OPENAI_ORG_COMPLETIONS_URL.to_string(),
+            projects: OPENAI_ORG_PROJECTS_URL.to_string(),
         }
     }
 }
@@ -660,6 +671,27 @@ fn number_value(value: &serde_json::Value) -> Option<f64> {
     value.is_finite().then_some(value)
 }
 
+impl OpenAIApiProvider {
+    async fn fetch_refresh(
+        &self,
+        credential: &ApiCredential,
+        project_id: Option<&str>,
+        now: DateTime<Utc>,
+        live_usage_enabled: bool,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        let mut result = self
+            .fetch_admin_or_balance(credential, project_id, now)
+            .await?;
+        // The balance fallback has no organization usage, so no live minutes either.
+        if live_usage_enabled && result.source_label == "admin-api" {
+            result.throughput = self
+                .fetch_refresh_throughput(&credential.key, project_id, now)
+                .await;
+        }
+        Ok(result)
+    }
+}
+
 impl Default for OpenAIApiProvider {
     fn default() -> Self {
         Self::new()
@@ -681,8 +713,13 @@ impl Provider for OpenAIApiProvider {
             SourceMode::Auto | SourceMode::OAuth => {
                 let credential = Self::credential(ctx.api_key.as_deref())?;
                 let project_id = clean_project_id(ctx.workspace_id.as_deref());
-                self.fetch_admin_or_balance(&credential, project_id.as_deref(), Utc::now())
-                    .await
+                self.fetch_refresh(
+                    &credential,
+                    project_id.as_deref(),
+                    Utc::now(),
+                    ctx.live_usage_enabled,
+                )
+                .await
             }
             SourceMode::Web | SourceMode::Cli => {
                 Err(ProviderError::UnsupportedSource(ctx.source_mode))
@@ -744,5 +781,7 @@ fn _assert_datetime_send(_: DateTime<Utc>) {}
 
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod live_tests;
 #[cfg(test)]
 mod tests;

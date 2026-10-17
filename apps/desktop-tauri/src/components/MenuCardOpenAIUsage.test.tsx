@@ -132,6 +132,12 @@ describe("MenuCard OpenAI daily usage", () => {
     expect(container).not.toHaveTextContent("OpenAIChartTitle");
   });
 
+  it("renders the Tokens/min grid in the full card", async () => {
+    const { container } = renderCard(withThroughput(snapshot("openaiapi", null)));
+    await waitFor(() => expect(container.querySelector(".card-header__name")).not.toBeNull());
+    expect(container.querySelector(".openai-tpm")).not.toBeNull();
+  });
+
   it("masks the Admin project id in the card identity when privacy is enabled", async () => {
     const provider = snapshot("openaiapi", usage());
     provider.planName = "Admin API: proj-private";
@@ -139,6 +145,42 @@ describe("MenuCard OpenAI daily usage", () => {
     await waitFor(() => expect(container.querySelector(".card-header__plan")).not.toBeNull());
     expect(container.querySelector(".card-header__plan")).toHaveTextContent("Admin API: ••••");
     expect(container).not.toHaveTextContent("proj-private");
+  });
+});
+
+function withThroughput(snap: ProviderUsageSnapshot): ProviderUsageSnapshot {
+  snap.throughput = {
+    minutes: [{ start: START, totalTokens: 1_000, requests: 1, isPending: false }],
+    frontier: START,
+    latestTokensPerMinute: 1_000,
+    peakTokensPerMinute: 1_000,
+    peakAt: START,
+    fiveMinuteAverageTokensPerMinute: 1_000,
+    models: [],
+    windowMinutes: 60,
+    fetchedAt: START,
+    projectId: null,
+  };
+  return snap;
+}
+
+describe("describeCard OpenAI Tokens/min grid", () => {
+  it("surfaces the grid as full-card content for the OpenAI API", () => {
+    const presence = describeCard(withThroughput(snapshot("openaiapi", null)), null, []);
+    expect(presence.openAiThroughput).not.toBeNull();
+    expect(presence.hasDetails).toBe(true);
+  });
+
+  it("keeps the grid out of the compact Overview", () => {
+    const presence = describeCard(withThroughput(snapshot("openaiapi", null)), null, [], "detailed", true);
+    expect(presence.openAiThroughput).toBeNull();
+  });
+
+  it("keeps the grid out of other providers and errored cards", () => {
+    expect(describeCard(withThroughput(snapshot("codex", null)), null, []).openAiThroughput).toBeNull();
+    expect(
+      describeCard(withThroughput(snapshot("openaiapi", null, "boom")), null, []).openAiThroughput,
+    ).toBeNull();
   });
 });
 

@@ -147,6 +147,7 @@ pub(super) async fn usage_response(
         // for the full completeness window.
         requires_optional_usage_completeness: false,
         optional_details_enabled: false,
+        live_usage_enabled: false,
     };
 
     let rows = collect_usage_rows(

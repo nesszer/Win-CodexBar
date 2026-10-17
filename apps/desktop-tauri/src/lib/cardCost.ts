@@ -96,11 +96,13 @@ export function cardCostSection(
 
   if (limit > 0) {
     const percentUsed = clampPercent((cost.used / limit) * 100);
+    // A folded cap is the primary meter's bar, so only the caption remains.
+    const folded = cost.foldedIntoPrimary === true;
     return {
       title: title(isQuota ? "QuotaUsageTitle" : "ExtraUsage"),
       spendLine: `${periodLabel(cost.period, t("CostPeriodThisMonth"), t)}: ${money(cost.used, cost.formattedUsed)} / ${money(limit, cost.formattedLimit)}`,
-      percentUsed,
-      percentLine: t("UsedPercent").replace(/\{[^}]*\}/, percentUsed.toFixed(0)),
+      percentUsed: folded ? null : percentUsed,
+      percentLine: folded ? null : t("UsedPercent").replace(/\{[^}]*\}/, percentUsed.toFixed(0)),
       balanceLine:
         style !== "compact" && cost.balance != null ? balanceText(cost.balance) : null,
       inline: false,

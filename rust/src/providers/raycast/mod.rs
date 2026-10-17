@@ -2,10 +2,11 @@
 //!
 //! Raycast has no public credits API for a website session, so this provider
 //! calls the unofficial `frontend_api/current_user/ai_credits` route with the
-//! `__raycast_session` and `csrf_token` cookies only. Automatic import reads
-//! Chrome alone to avoid unrelated browser prompts; a Manual Cookie header is
-//! pinned and never falls back to a browser; Off makes no request. Cookie
-//! material stays in memory for the current fetch and is never logged.
+//! `__raycast_session` and `csrf_token` cookies only. Automatic import walks
+//! every detected browser in the shared browser order and stops at the first
+//! accepted session; a Manual Cookie header is pinned and never falls back to a
+//! browser; Off makes no request. Cookie material stays in memory for the
+//! current fetch and is never logged.
 
 mod cookies;
 mod parse;
@@ -16,7 +17,6 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
 
-use crate::browser::detection::BrowserType;
 use crate::core::{
     FetchContext, ManualEmptyCookiePolicy, Provider, ProviderError, ProviderFetchResult,
     ProviderId, ProviderMetadata, ProviderStateKind, SourceMode,
@@ -30,7 +30,6 @@ const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MIN_TIMEOUT_SECONDS: u64 = 1;
 const MAX_TIMEOUT_SECONDS: u64 = 30;
-const BROWSER: BrowserType = BrowserType::Chrome;
 
 const MISSING_SESSION: &str = "No Raycast session cookies found. Sign in at www.raycast.com/settings or paste a Cookie header.";
 const SESSION_EXPIRED: &str = "Raycast website session expired. Sign in at www.raycast.com/settings or paste a fresh Cookie header.";
@@ -141,18 +140,49 @@ impl RaycastProvider {
         if ctx.manual_cookie_missing {
             return Err(ProviderError::Other(MISSING_SESSION.to_string()));
         }
-        let extracted = tokio::task::spawn_blocking(|| {
-            crate::providers::browser_cookies_from_browser(BROWSER, cookies::EXTRACT_DOMAIN)
+        let scanned = tokio::task::spawn_blocking(|| {
+            crate::providers::browser_cookie_candidates_for_domain(cookies::EXTRACT_DOMAIN)
         })
         .await
         .map_err(|_| ProviderError::Other("Raycast cookie import was interrupted.".into()))?;
-        let headers = match extracted {
-            Ok(found) => cookies::browser_candidates(&found),
+        let groups = match scanned {
+            Ok(scan) => cookies::browser_groups(&scan),
             Err(ProviderError::NoCookies) => Vec::new(),
             Err(error) => return Err(error),
         };
-        self.fetch_candidates(&headers, BROWSER.display_name(), timeout)
-            .await
+        self.fetch_browser_groups(&groups, timeout).await
+    }
+
+    /// Try each browser's candidate headers in the shared browser order. A
+    /// browser whose sessions are all rejected yields to the next browser; a
+    /// browser with no session is skipped without a request; any other outcome
+    /// (success or a non-authentication failure) ends the search.
+    async fn fetch_browser_groups(
+        &self,
+        groups: &[(&str, Vec<String>)],
+        timeout: Duration,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        let mut rejected = false;
+        for (source_label, headers) in groups {
+            if headers.is_empty() {
+                continue;
+            }
+            match self.fetch_candidates(headers, source_label, timeout).await {
+                Ok(result) => return Ok(result),
+                Err(ProviderError::Other(message)) if message == SESSION_EXPIRED => {
+                    rejected = true;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(ProviderError::Other(
+            if rejected {
+                SESSION_EXPIRED
+            } else {
+                MISSING_SESSION
+            }
+            .to_string(),
+        ))
     }
 }
 

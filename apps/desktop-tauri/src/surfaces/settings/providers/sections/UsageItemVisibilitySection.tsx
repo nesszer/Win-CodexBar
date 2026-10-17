@@ -9,6 +9,8 @@ interface Props {
   disabled: boolean;
   t: (key: LocaleKey) => string;
   onChange: (patch: SettingsUpdate) => void;
+  /** Cost summary display is Hidden, which also suppresses cost-gated rows. */
+  costSummaryHidden?: boolean;
 }
 
 /**
@@ -21,6 +23,7 @@ export function UsageItemVisibilitySection({
   disabled,
   t,
   onChange,
+  costSummaryHidden = false,
 }: Props) {
   const items = provider.usageItems ?? [];
   const [hidden, setHidden] = useState<Set<string>>(
@@ -75,6 +78,11 @@ export function UsageItemVisibilitySection({
             {!item.available && (
               <span className="provider-usage-item__helper">
                 {t("ProviderUsageNotFetchedYet")}
+              </span>
+            )}
+            {item.requiresCostSummary && costSummaryHidden && (
+              <span className="provider-usage-item__helper">
+                {t("UsageItemHiddenByCostSummary")}
               </span>
             )}
           </span>

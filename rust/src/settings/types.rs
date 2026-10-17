@@ -606,6 +606,18 @@ pub struct ProviderConfig {
     /// publish this denominator; it is only used when a valid value is set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seat_credit_entitlement: Option<f64>,
+    /// OpenAI API-only: `Some(false)` opts out of the per-refresh Tokens/min fetch.
+    /// `None` keeps upstream's default of on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_usage_enabled: Option<bool>,
+    /// OpenAI API-only: manual per-model organization rate limits for Live Usage
+    /// headroom. Validated on load; `None` when no valid row is stored.
+    #[serde(
+        default,
+        deserialize_with = "super::model_rate_limits::deserialize_model_rate_limits",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_rate_limits: Option<Vec<super::ModelRateLimit>>,
 }
 
 /// How the single tray icon is drawn (Mac "Menu bar style").
@@ -617,6 +629,10 @@ pub enum MenuBarIconStyle {
     Bars,
     /// Provider icon plus the percent text.
     Percent,
+    /// Session and weekly meters drawn as two equal-height rows (upstream
+    /// "Progress bars stacked", #4436). Older builds read it as `Bars`.
+    #[serde(rename = "stackedBars")]
+    StackedBars,
 }
 
 impl MenuBarIconStyle {
@@ -625,6 +641,7 @@ impl MenuBarIconStyle {
         match value.trim().to_ascii_lowercase().as_str() {
             "bars" => Some(Self::Bars),
             "percent" => Some(Self::Percent),
+            "stackedbars" => Some(Self::StackedBars),
             _ => None,
         }
     }
@@ -633,6 +650,7 @@ impl MenuBarIconStyle {
         match self {
             Self::Bars => "bars",
             Self::Percent => "percent",
+            Self::StackedBars => "stackedBars",
         }
     }
 }

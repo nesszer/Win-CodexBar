@@ -2760,6 +2760,126 @@ body:has(.tray-panel-reveal),
   margin-bottom: 2px;
 }
 
+/* OpenAI API Tokens/min grid (Live Usage, upstream #4495). */
+.openai-tpm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.openai-tpm__title {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.openai-tpm__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.openai-tpm__stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.openai-tpm__stats dt {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.openai-tpm__stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.openai-tpm__chart {
+  width: 100%;
+  height: 56px;
+  display: block;
+}
+
+.openai-tpm__bar {
+  fill: var(--provider-accent, #6aa9ff);
+}
+
+.openai-tpm__bar--pending {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.6;
+}
+
+.openai-tpm__legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.openai-tpm__swatch--pending {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1px dashed var(--text-secondary);
+  box-sizing: border-box;
+}
+
+.openai-tpm__empty,
+.openai-tpm__limit {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.openai-tpm__models ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.openai-tpm__models li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  padding: 2px 0;
+}
+
+.openai-tpm__model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.openai-tpm__muted {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.openai-limits__row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 6px;
+}
+
+.openai-live {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .openai-usage__list ul {
   list-style: none;
   margin: 0;
@@ -3727,6 +3847,18 @@ html:has(.menu-surface--tray) {
 .menu-surface__footer-row:hover:not(:disabled) .menu-surface__footer-shortcut,
 .menu-surface__footer-row:focus-visible .menu-surface__footer-shortcut {
   color: var(--mac-selection-text);
+}
+/* "Highlight menu cards on hover" off: only Refresh is a hosted menu card
+   upstream; the other footer rows stand in for native items, which always
+   highlight. Keyboard focus keeps its highlight. */
+.menu-surface--hover-highlight-off .menu-surface__footer-row--refresh:hover:not(:disabled):not(:focus-visible) {
+  color: var(--mac-text);
+}
+.menu-surface--hover-highlight-off .menu-surface__footer-row--refresh:hover:not(:disabled):not(:focus-visible)::before {
+  background: transparent;
+}
+.menu-surface--hover-highlight-off .menu-surface__footer-row--refresh:hover:not(:disabled):not(:focus-visible) .menu-surface__footer-shortcut {
+  color: var(--mac-text-3);
 }
 
 /* ── Provider icon grid ──────────────────────────────────────────────

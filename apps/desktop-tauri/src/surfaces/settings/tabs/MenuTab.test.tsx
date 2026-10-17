@@ -173,6 +173,27 @@ describe("MenuTab Content section", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "ShowAllTokenAccountsLabel" }));
     expect(set).toHaveBeenCalledWith({ showAllTokenAccountsInMenu: true });
   });
+
+  it("leads with the hover highlight toggle, on unless saved off", () => {
+    const { set, unmount } = renderTab();
+    const content = screen.getByRole("region", { name: "MenuContentSectionTitle" });
+    const labels = Array.from(content.querySelectorAll(".settings-field__label"), (n) => n.textContent);
+    expect(labels).toEqual([
+      "HighlightMenuCardsOnHoverLabel",
+      "OverviewLayoutLabel",
+      "ShowAllTokenAccountsLabel",
+    ]);
+    const toggle = screen.getByRole("checkbox", { name: "HighlightMenuCardsOnHoverLabel" });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(set).toHaveBeenCalledWith({ highlightMenuCardsOnHover: false });
+    unmount();
+
+    renderTab({ highlightMenuCardsOnHover: false });
+    expect(
+      screen.getByRole("checkbox", { name: "HighlightMenuCardsOnHoverLabel" }),
+    ).not.toBeChecked();
+  });
 });
 
 describe("MenuTab Agent sessions section", () => {

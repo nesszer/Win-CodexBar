@@ -138,7 +138,27 @@ pub(super) fn database_roots(gemini_base: &Path) -> [PathBuf; 3] {
     ]
 }
 
+/// How the reader keys one conversation across database files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SessionIdentity {
+    /// Full canonical database path. Same-named databases in different roots
+    /// are different sessions (the single Gemini home default).
+    Path,
+    /// Database file stem. A conversation copied into another selected Gemini
+    /// home is the same conversation, so its rows and responses count once.
+    FileStem,
+}
+
 pub(super) fn summarize(roots: &[PathBuf], now: DateTime<Utc>, days: u32) -> SQLiteScan {
+    summarize_with_identity(roots, now, days, SessionIdentity::Path)
+}
+
+pub(super) fn summarize_with_identity(
+    roots: &[PathBuf],
+    now: DateTime<Utc>,
+    days: u32,
+    identity: SessionIdentity,
+) -> SQLiteScan {
     let mut budget = Budget::new();
     let (paths, discovery_complete) = discover_databases(roots, &mut budget);
     if paths.is_empty() && discovery_complete {
@@ -155,7 +175,7 @@ pub(super) fn summarize(roots: &[PathBuf], now: DateTime<Utc>, days: u32) -> SQL
     let mut authoritative_database = false;
     let mut unsupported_database = false;
 
-    for path in &paths {
+    for database in &paths {
         if !budget.check() {
             complete = false;
             budget.exhausted = true;
@@ -167,7 +187,7 @@ pub(super) fn summarize(roots: &[PathBuf], now: DateTime<Utc>, days: u32) -> SQL
             budget.exhausted = true;
             break;
         }
-        match read_database(path, &mut budget) {
+        match read_database(database, identity, &mut budget) {
             Ok(DatabaseScan::Supported {
                 events: mut database_events,
                 complete: database_complete,
@@ -315,7 +335,34 @@ pub(super) fn summarize(roots: &[PathBuf], now: DateTime<Utc>, days: u32) -> SQL
     )
 }
 
-fn discover_databases(roots: &[PathBuf], budget: &mut Budget) -> (Vec<PathBuf>, bool) {
+/// One discovered database file. `root_label` is the root's relative position
+/// inside its Gemini home, so the same stem in another root stays distinct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiscoveredDatabase {
+    path: PathBuf,
+    root_label: String,
+}
+
+/// The three roots from `database_roots`, relative to a Gemini home.
+const RELATIVE_ROOTS: [&str; 3] = [
+    "antigravity-cli/conversations",
+    "antigravity",
+    "antigravity/conversations",
+];
+
+/// Matches a root on its trailing components, so the label is the same for
+/// every home. Unrecognized roots fall back to their own path.
+fn relative_root_label(root: &Path) -> String {
+    RELATIVE_ROOTS
+        .iter()
+        .find(|relative| root.ends_with(relative))
+        .map_or_else(
+            || root.to_string_lossy().into_owned(),
+            |label| label.to_string(),
+        )
+}
+
+fn discover_databases(roots: &[PathBuf], budget: &mut Budget) -> (Vec<DiscoveredDatabase>, bool) {
     let mut paths = Vec::new();
     let mut complete = true;
 
@@ -324,6 +371,7 @@ fn discover_databases(roots: &[PathBuf], budget: &mut Budget) -> (Vec<PathBuf>, 
             budget.exhausted = true;
             return (paths, false);
         }
+        let root_label = relative_root_label(root);
         let resolved_root = match fs::canonicalize(root) {
             Ok(path) => path,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -396,15 +444,42 @@ fn discover_databases(roots: &[PathBuf], budget: &mut Budget) -> (Vec<PathBuf>, 
                 budget.exhausted = true;
                 return (paths, false);
             }
-            paths.push(resolved);
+            paths.push(DiscoveredDatabase {
+                path: resolved,
+                root_label: root_label.clone(),
+            });
         }
     }
-    paths.sort();
-    paths.dedup();
+    // The same file reached through two roots is one database.
+    paths.sort_by(|left, right| left.path.cmp(&right.path));
+    paths.dedup_by(|later, kept| later.path == kept.path);
     (paths, complete)
 }
 
-fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<DatabaseScan> {
+fn session_key(path: &Path, root_label: &str, identity: SessionIdentity) -> String {
+    match identity {
+        SessionIdentity::Path => path
+            .canonicalize()
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .into_owned(),
+        // NUL cannot appear in a path, so the label and stem cannot collide.
+        SessionIdentity::FileStem => {
+            let stem = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned);
+            format!("{root_label}\0{stem}")
+        }
+    }
+}
+
+fn read_database(
+    database: &DiscoveredDatabase,
+    identity: SessionIdentity,
+    budget: &mut Budget,
+) -> rusqlite::Result<DatabaseScan> {
+    let path = database.path.as_path();
     if !budget.check() {
         return Ok(DatabaseScan::Supported {
             events: Vec::new(),
@@ -424,11 +499,7 @@ fn read_database(path: &Path, budget: &mut Budget) -> rusqlite::Result<DatabaseS
         }
     }
 
-    let session = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .into_owned();
+    let session = session_key(path, &database.root_label, identity);
     let mut rows = read_generation_rows(&tx, &session, budget)?;
     if rows.pending.is_empty() {
         return Ok(DatabaseScan::Supported {
@@ -891,3 +962,7 @@ mod synthetic_tests;
 #[cfg(test)]
 #[path = "local_sqlite_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "local_sqlite_profile_homes_tests.rs"]
+mod profile_homes_tests;

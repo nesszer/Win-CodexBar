@@ -136,7 +136,7 @@ pnpm run tauri:build
 
 ### UI validation with CUA ([trycua/cua](https://github.com/trycua/cua))
 
-Unit tests and `local-check` do **not** prove tray, settings, float bar, theme, or WebView2 behavior. For UI / tray / settings / float-bar / visual changes, agents **must** retest on a real Windows desktop build using **Cua Drivers** (background computer-use: click, type, screenshot, UIA) from the open-source [trycua/cua](https://github.com/trycua/cua) project. Docs: [cua.ai/docs](https://cua.ai/docs), driver install: [install guide](https://cua.ai/docs/how-to-guides/driver/install), CLI reference: [cua-driver CLI](https://cua.ai/docs/reference/cua-driver/cli-reference).
+Unit tests and `local-check` do **not** prove tray, settings, float bar, theme, or WebView2 behavior. Changes confined to webview content may use the [browser proof](#browser-proof-pnpm-proofcheck) instead. For every other UI / tray / settings / float-bar / visual change, agents **must** retest on a real Windows desktop build using **Cua Drivers** (background computer-use: click, type, screenshot, UIA) from the open-source [trycua/cua](https://github.com/trycua/cua) project. Docs: [cua.ai/docs](https://cua.ai/docs), driver install: [install guide](https://cua.ai/docs/how-to-guides/driver/install), CLI reference: [cua-driver CLI](https://cua.ai/docs/reference/cua-driver/cli-reference).
 
 **Install (Windows PowerShell, from upstream README):**
 
@@ -167,6 +167,26 @@ Then follow post-install instructions (permissions / accessibility as prompted).
 
 **Do not** treat Vitest/jsdom or `cargo test` alone as sufficient for tray icon, DWM, WebView2 theme, float bar z-order, or settings chrome. **Do not** open issues/PRs against trycua/cua unless the user explicitly asks; use it as tooling.
 
+### Browser proof (`pnpm proof:check`)
+
+The React surfaces also run in a plain browser over mocked IPC (`apps/desktop-tauri/proof.html`, fixtures in `src/proof/`). `pnpm proof:check` (in `apps/desktop-tauri`) drives Chrome, Edge, or Chromium over CDP through `scripts/proof-scenarios.json` and prints PASS/FAIL per scenario plus screenshots. It runs on any OS, so subagents and CI can run it without a Windows desktop. Details: `docs/WINDOWS_PROOF.md` §5.
+
+- **Enough on its own** when the change only touches webview content: layout, copy / i18n, rendered data and states, settings pages and controls, provider siloing. Add or extend a scenario that covers the change, run `pnpm proof:check`, and attach the PASS output and screenshots labelled "Chromium, mocked IPC".
+- **Still needs the CUA loop** when the change touches the tray icon or tray menu, window chrome, frame, size or position, DWM / WebView2 theme behavior under `auto`, float bar always-on-top or window behavior, blur-dismiss, or real provider data, cookies, or credential storage. When unsure, run both.
+- **Mocks follow the bridge:** a new `invoke("...")` command needs a fixture handler or an `INERT_ACTIONS` entry in `src/proof/router.ts`; `src/proof/coverage.test.ts` fails otherwise. Fixtures stay synthetic (`example.com` identities, no real settings, cookies, tokens, or provider responses).
+- **Headed runs** (`pnpm proof:check -- --headed`) use the runner's own isolated browser profile. Do not attach automation to the user's browser profile.
+
+### Off-machine proof (Cloudflare)
+
+Every Cloudflare runtime (Workers, Containers, Sandbox, Browser Rendering) is Linux. None can run the Tauri shell, WebView2, the tray, or DWM. Off-machine evidence supplements the CUA loop above; it never replaces it for tray, theme, float-bar, or window-chrome changes.
+
+- **What it can prove:** React surface layout, copy / i18n, rendered data, provider siloing, DOM and accessibility tree, and console errors (Browser Rendering's headless Chromium against a static frontend build); tray icon pixels from `codexbar::tray::{render_bar_icon_rgba, render_percent_icon_rgba}` exported without a desktop.
+- **Frontend adapter:** the [browser proof](#browser-proof-pnpm-proofcheck) build. `pnpm build:proof` emits a static `dist-proof/`; `pnpm proof:check -- --url <base>` or `--cdp <ws-url>` runs the same scenarios against a hosted copy or a remote browser. The mock stays out of the production bundle (`src/proof/isolation.test.ts`).
+- **Fixtures only:** never upload real settings, cookies, tokens, account emails, or provider responses.
+- **Labeling:** mark these screenshots in PRs as "Chromium (Linux), mocked IPC". Fonts, scrollbars, and DPI differ from WebView2.
+- **Windows-only checks away from the dev machine:** use a Windows host (CircleCI `windows` orb or a disposable Windows VM) running the same rebuild → proof mode → CDP + CUA loop. Cloudflare may front that host (`cloudflared` tunnel behind Cloudflare Access) and store its artifacts, but the proof itself comes from Windows.
+- **Account safety:** the Cloudflare account is shared with unrelated projects, and no Win-CodexBar resources exist on it yet. Read-only `list` / `get` calls are fine. Do not reuse, redeploy, or bind into another project's Workers, Browser Rendering bindings, or containers. Creating, deploying, or editing any Cloudflare resource needs explicit user approval in the current turn; never delete Cloudflare resources. Keep Cloudflare tokens out of the repo, logs, and PR text.
+
 
 ## Commit & PR Guidelines
 
@@ -178,7 +198,8 @@ Then follow post-install instructions (permissions / accessibility as prompted).
   - Screenshots / GIFs for UI changes (Windows)
   - Linked issue / reference when relevant
 - Hosted PR check exists: `ci/circleci: pr-check` is the primary Windows gate; `.github/workflows/pr-check.yml` is manual Blacksmith backup. Porting micro PRs targeting `port/upstream-*` use focused local evidence and intentionally skip automatic hosted Windows CI; same-repository `main`-bound PRs always get the hosted gate; fork PRs never do (see Fork PRs and reviews).
-- UI / tray / settings / float-bar / visual PRs: **hybrid proof is the default** — CDP for actions and state assertions, CUA Driver ([trycua/cua](https://github.com/trycua/cua)) for real-pixel screenshots and native checks — after a **fresh local rebuild** — see [UI validation with CUA](#ui-validation-with-cua-trycuacua). If CUA cannot be used, explain why and attach equivalent manual proof (PR template checkboxes).
+- Webview-only UI PRs may attach `pnpm proof:check` output and screenshots instead (see [Browser proof](#browser-proof-pnpm-proofcheck)).
+- Other UI / tray / settings / float-bar / visual PRs: **hybrid proof is the default** — CDP for actions and state assertions, CUA Driver ([trycua/cua](https://github.com/trycua/cua)) for real-pixel screenshots and native checks — after a **fresh local rebuild** — see [UI validation with CUA](#ui-validation-with-cua-trycuacua). If CUA cannot be used, explain why and attach equivalent manual proof (PR template checkboxes).
 - Before non-trivial merge: thermo-nuclear structure review when the project process requires it.
 
 

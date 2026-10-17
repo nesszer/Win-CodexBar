@@ -10,7 +10,11 @@ import { useLocale } from "../hooks/useLocale";
 import { providerSupportsChartData } from "../lib/providerCharts";
 import { providerAllowsPace } from "../lib/providerPace";
 import { hideOpenAiApiProjectId } from "../lib/openAiApiIdentity";
-import { isUsageItemVisible } from "../lib/usageItemVisibility";
+import {
+  claudePlanDateNote,
+  isUsageItemVisible,
+  projectClaudeSections,
+} from "../lib/usageItemVisibility";
 import { localizeWindowLabel } from "../lib/windowLabels";
 import { inlineDashboardModel } from "../lib/inlineDashboard";
 import { useMonthlyLimitBlockNow } from "../hooks/useMonthlyLimitBlockNow";
@@ -22,6 +26,7 @@ import DetailSections from "./card/DetailSections";
 import InlineDashboard from "./card/InlineDashboard";
 import ExtraUsageBlock from "./card/ExtraUsageBlock";
 import WayfinderBlock from "./card/WayfinderBlock";
+import { OpenAITokensPerMinuteChart } from "./OpenAITokensPerMinuteChart";
 import { describeCard } from "./card/describeCard";
 import { hideEmailsInText } from "../lib/personalInfo";
 
@@ -136,7 +141,7 @@ function cardMetrics(
  * forecasts, burndown and pricing details live in Settings > Providers.
  */
 export default function MenuCard({
-  provider,
+  provider: reportedProvider,
   display,
   isRefreshing = false,
   accentColor,
@@ -157,6 +162,7 @@ export default function MenuCard({
     costTrackingEnabled = true,
   } = display;
   const { t, language } = useLocale();
+  const provider = projectClaudeSections(reportedProvider.providerId, reportedProvider);
   const [chartData, setChartData] = useState<ProviderChartData | null>(null);
 
   // Another provider or account must not show the previous card's chart.
@@ -171,11 +177,12 @@ export default function MenuCard({
   useEffect(() => {
     if (!providerSupportsChartData(provider.providerId)) return;
     let cancelled = false;
+    let frame: number | undefined;
     getProviderChartData(provider.providerId, provider.accountEmail ?? undefined)
       .then((data) => {
         if (!cancelled) {
           setChartData(data);
-          requestAnimationFrame(() => onLayoutChange?.());
+          frame = requestAnimationFrame(() => onLayoutChange?.());
         }
       })
       .catch(() => {
@@ -183,6 +190,7 @@ export default function MenuCard({
       });
     return () => {
       cancelled = true;
+      if (frame !== undefined) cancelAnimationFrame(frame);
     };
     // "Track costs" flips local estimates on or off; the backend answers for the new value.
   }, [provider.providerId, provider.accountEmail, localDay, costTrackingEnabled, onLayoutChange]);
@@ -208,6 +216,7 @@ export default function MenuCard({
     metrics,
     costSummaryDisplayStyle,
     compactOverview,
+    claudePlanDateNote(provider.providerId, provider.subscription, t),
   );
   const dashboard =
     !compactOverview && presence.localUsage
@@ -279,6 +288,7 @@ export default function MenuCard({
               ))}
             </section>
           )}
+          {presence.planDateNote && <p className="card-notes">{presence.planDateNote}</p>}
           {showDetailSections && (
             <DetailSections
               details={provider.displayDetails ?? []}
@@ -288,10 +298,17 @@ export default function MenuCard({
             />
           )}
           {presence.wayfinderUsage && <WayfinderBlock usage={presence.wayfinderUsage} />}
+          {presence.openAiThroughput && (
+            <OpenAITokensPerMinuteChart throughput={presence.openAiThroughput} t={t} />
+          )}
           {dashboard && <InlineDashboard model={dashboard} />}
           {showCost && provider.cost && (
             <>
-              {(presence.hasMetrics || showDetailSections || dashboard) && (
+              {(presence.hasMetrics ||
+                presence.planDateNote ||
+                showDetailSections ||
+                presence.openAiThroughput ||
+                dashboard) && (
                 <div className="menu-card__separator" />
               )}
               <ExtraUsageBlock

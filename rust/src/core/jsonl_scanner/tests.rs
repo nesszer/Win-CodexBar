@@ -1205,6 +1205,7 @@ fn session_meta_pre_read_accepts_snake_and_camel_fork_identity() {
             history_base_thread_id: Some("history-snake".to_string()),
             is_subagent: false,
             subagent_history_start_ordinal: None,
+            has_creator_account: false,
         }
     );
 
@@ -1546,6 +1547,9 @@ fn codex_cache_schema_policy_helpers_rebuild_mismatched_load() {
 
     assert!(codex_cache_schema_is_current(CODEX_CACHE_SCHEMA_VERSION));
     assert!(!codex_cache_schema_is_current(0));
+    // Version 6 caches priced ChatGPT-plan Auto-review requests as unpriced
+    // (upstream #4452), so they must be rebuilt.
+    assert!(!codex_cache_schema_is_current(6));
 
     let mut stamped = CostUsageCache::default();
     codex_cache_stamp_schema_version(&mut stamped);

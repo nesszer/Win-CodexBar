@@ -156,7 +156,9 @@ fn upstream_fixture_result_carries_history_and_summary() {
 }
 
 #[test]
-fn audio_tokens_join_input_and_output_but_cached_stays_a_subset() {
+fn audio_tokens_are_already_included_in_input_and_output_and_not_added_again() {
+    // The Admin API's `input_tokens`/`output_tokens` already include the audio portions
+    // reported in the breakdown fields, so audio must not be counted a second time.
     let completions = [completions_bucket(
         NOW - DAY,
         vec![CompletionsUsageResult {
@@ -170,12 +172,31 @@ fn audio_tokens_join_input_and_output_but_cached_stays_a_subset() {
         }],
     )];
     let day = &daily(&[], &completions)[0];
-    assert_eq!(day.input_tokens, 1040);
+    assert_eq!(day.input_tokens, 1000);
     assert_eq!(day.cached_input_tokens, 400);
-    assert_eq!(day.output_tokens, 510);
-    assert_eq!(day.total_tokens, 1550);
-    assert_eq!(day.models[0].total_tokens, 1550);
+    assert_eq!(day.output_tokens, 500);
+    assert_eq!(day.total_tokens, 1500);
+    assert_eq!(day.models[0].input_tokens, 1000);
+    assert_eq!(day.models[0].output_tokens, 500);
+    assert_eq!(day.models[0].total_tokens, 1500);
     assert!(day.line_items.is_empty());
+}
+
+#[test]
+fn audio_breakdown_fields_are_validated_but_not_added_to_totals() {
+    let completions = [completions_bucket(
+        NOW - DAY,
+        vec![CompletionsUsageResult {
+            model: Some("gpt-audio".to_string()),
+            input_tokens: Some(200),
+            input_cached_tokens: None,
+            output_tokens: Some(100),
+            input_audio_tokens: Some(-1),
+            output_audio_tokens: None,
+            num_model_requests: Some(1),
+        }],
+    )];
+    assert!(history::daily_usage(&[], &completions, now(), HISTORY_DAYS).is_err());
 }
 
 #[test]

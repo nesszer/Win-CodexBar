@@ -45,6 +45,7 @@ export function useTrayPanelLayout({
   const resizeRunRef = useRef(0);
   const activeResizeRef = useRef<Promise<void>>(Promise.resolve());
   const layoutTimerRef = useRef<number | undefined>(undefined);
+  const mountedRef = useRef(false);
   const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
   const programmaticInFlightRef = useRef(0);
   const sizingStateRef = useRef<TrayAutoFitState>(EMPTY_AUTOFIT_STATE);
@@ -59,10 +60,28 @@ export function useTrayPanelLayout({
   const requestLayout = useCallback(() => {
     if (layoutTimerRef.current !== undefined) {
       window.clearTimeout(layoutTimerRef.current);
+      layoutTimerRef.current = undefined;
     }
+    // Children report layout changes from async callbacks (chart data, rAF)
+    // that can land after unmount; a timer armed then outlives the cleanup.
+    if (!mountedRef.current) return;
     layoutTimerRef.current = window.setTimeout(() => {
+      layoutTimerRef.current = undefined;
       setLayoutRevision((current) => current + 1);
     }, layoutReadyRef.current ? 100 : 16);
+  }, []);
+
+  // Declared before the effects that call requestLayout so a StrictMode
+  // remount marks the hook mounted before they re-run.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (layoutTimerRef.current !== undefined) {
+        window.clearTimeout(layoutTimerRef.current);
+        layoutTimerRef.current = undefined;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -87,14 +106,6 @@ export function useTrayPanelLayout({
     }
     return () => observer.disconnect();
   }, [requestLayout]);
-
-  useEffect(() => {
-    return () => {
-      if (layoutTimerRef.current !== undefined) {
-        window.clearTimeout(layoutTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!canMeasure) return;
