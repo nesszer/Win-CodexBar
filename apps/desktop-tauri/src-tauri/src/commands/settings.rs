@@ -79,6 +79,7 @@ pub struct SettingsUpdate {
     pub window_scale_percent: Option<u16>,
     pub tray_scale_percent: Option<u16>,
     pub tray_panel_always_on_top: Option<bool>,
+    pub tray_panel_movable: Option<bool>,
     pub powertoys_status_pipe_enabled: Option<bool>,
     pub share_usage_with_cli: Option<bool>,
     pub claude_avoid_keychain_prompts: Option<bool>,
@@ -387,6 +388,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.tray_panel_always_on_top {
             settings.tray_panel_always_on_top = v;
+        }
+        if let Some(v) = self.tray_panel_movable {
+            settings.tray_panel_movable = v;
         }
         if let Some(v) = self.switcher_shows_icons {
             settings.switcher_shows_icons = v;
@@ -791,6 +795,7 @@ pub async fn update_settings(
     let tray_promotion_changed = patch.changes_tray_promotion();
     let tray_panel_always_on_top_changed = patch.tray_panel_always_on_top.is_some();
     let share_usage_with_cli_changed = patch.share_usage_with_cli.is_some();
+    let tray_panel_movable_changed = patch.tray_panel_movable.is_some();
     let previous_promoted = settings.promote_tray_icon;
     let previous_language = settings.ui_language;
     let previous_limit_reset = settings.limit_reset_notifications_enabled;
@@ -859,6 +864,9 @@ pub async fn update_settings(
     }
     if tray_panel_always_on_top_changed {
         crate::shell::flyout_window::apply_always_on_top(&app, &settings);
+    }
+    if tray_panel_movable_changed {
+        crate::shell::flyout_window::apply_movable(&app, &settings);
     }
 
     // Notify other windows (PopOut dashboard, tray, float bar) so they re-read

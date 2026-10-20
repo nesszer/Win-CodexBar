@@ -133,6 +133,14 @@ export default function MenuTab({ settings, set, saving }: TabProps) {
             onChange={(v) => set({ trayPanelAlwaysOnTop: v })}
           />
         </Field>
+        <Field label={t("TrayPanelMovableLabel")} description={t("TrayPanelMovableHelper")}>
+          <Toggle
+            variant="switch"
+            checked={settings.trayPanelMovable ?? false}
+            disabled={saving}
+            onChange={(v) => set({ trayPanelMovable: v })}
+          />
+        </Field>
         <Field
           label={t("ShowResetWhenExhausted")}
           description={t("ShowResetWhenExhaustedHelper")}

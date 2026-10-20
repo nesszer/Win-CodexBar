@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useState, type CSSProperties } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot, UsageSpendSummary } from "../types/bridge";
 import type { LocaleKey } from "../i18n/keys";
 import { costPeriodShortLabel } from "../lib/costPeriod";
 import { useCurrency } from "../hooks/CurrencyProvider";
 import { sumDisplayCurrencyAmounts } from "../lib/currency";
-import { getUsageSpendSummary } from "../lib/tauri";
+import { getUsageSpendSummary, resetFlyoutPosition } from "../lib/tauri";
 import { useTrayPanelController } from "../hooks/useTrayPanelController";
 import { useStayAwakeStatus } from "../hooks/useStayAwakeStatus";
 import MenuCard from "../components/MenuCard";
@@ -58,6 +59,11 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     ...accentSelectionStyle(accentColor),
   } as CSSProperties;
   const hoverHighlight = settings.highlightMenuCardsOnHover ?? true;
+  const movable = settings.trayPanelMovable ?? false;
+  const containerClassName = movable
+    ? `${revealClassName} tray-panel-reveal--movable`
+    : revealClassName;
+  const moveHandle = movable ? <TrayMoveHandle hint={t("TrayMoveHandleHint")} /> : null;
 
   const banner = (
     <UpdateBanner
@@ -113,7 +119,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
 
   if (sorted.length === 0) {
     return (
-      <div className={revealClassName} data-theme="light">
+      <div className={containerClassName} data-theme="light">
+        {moveHandle}
         <MenuSurface banner={banner} footerGroups={footerGroups}
           statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}>
           {stayAwakeStatus}
@@ -128,7 +135,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   }
 
   return (
-    <div className={revealClassName} data-theme="light">
+    <div className={containerClassName} data-theme="light">
+      {moveHandle}
       <MenuSurface banner={banner} footerGroups={footerGroups}
         statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}>
         {stayAwakeStatus}
@@ -163,6 +171,39 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           ))}
         </div>
       </MenuSurface>
+    </div>
+  );
+}
+
+/**
+ * The move strip of the **Movable panel** setting: a thin band along the top
+ * of the panel with a small grab bar. Dragging it moves the window
+ * (`startDragging` enters the native Win32 move loop; the backend records
+ * where the panel lands when that loop ends and keeps the panel open while
+ * the button is held). Double-clicking it anchors the panel to the tray
+ * again. Primary button only, so a right-click doesn't start a drag.
+ */
+function TrayMoveHandle({ hint }: { hint: string }) {
+  return (
+    <div
+      className="tray-move-handle"
+      aria-hidden
+      title={hint}
+      onMouseDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        if (e.detail === 2) {
+          void resetFlyoutPosition().catch((err) =>
+            console.error("[tray-move] resetFlyoutPosition failed:", err),
+          );
+          return;
+        }
+        void getCurrentWindow()
+          .startDragging()
+          .catch((err) => console.error("[tray-move] startDragging failed:", err));
+      }}
+    >
+      <span className="tray-move-handle__grip" />
     </div>
   );
 }

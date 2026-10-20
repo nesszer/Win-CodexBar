@@ -124,6 +124,18 @@ pub fn save_entry(key: &str, geometry: StoredGeometry) {
     }
 }
 
+/// Forget the geometry stored under an arbitrary key. No-op (and no write)
+/// when nothing is stored there.
+pub fn remove_entry(key: &str) {
+    let mut file = load_file();
+    if file.entries.remove(key).is_none() {
+        return;
+    }
+    if let Err(err) = save_file(&file) {
+        tracing::warn!(target: "codexbar::geometry", %err, "failed to persist geometry");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -30,6 +30,7 @@ const tauriMocks = vi.hoisted(() => ({
   quitApp: vi.fn(),
   getWorkAreaRect: vi.fn(),
   reanchorTrayPanel: vi.fn(),
+  resetFlyoutPosition: vi.fn().mockResolvedValue(undefined),
   revealTrayPanelWindow: vi.fn(),
   getAppInfo: vi.fn(),
   getSystemAccentColor: vi.fn(),
@@ -52,8 +53,10 @@ const eventMocks = vi.hoisted(() => ({
 }));
 
 const windowMocks = vi.hoisted(() => ({
+  startDragging: vi.fn().mockResolvedValue(undefined),
   // Loosely typed so tests can swap in windows with only the methods they use.
   getCurrentWindow: vi.fn((): Record<string, unknown> => ({
+    startDragging: windowMocks.startDragging,
     setSize: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     innerSize: vi.fn().mockResolvedValue({ width: 310, height: 200 }),
@@ -186,6 +189,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     windowScalePercent: 125,
     trayScalePercent: 100,
     trayPanelAlwaysOnTop: false,
+    trayPanelMovable: false,
     powertoysStatusPipeEnabled: false,
     shareUsageWithCli: false,
     claudeAvoidKeychainPrompts: false,
@@ -298,6 +302,8 @@ describe("TrayPanel provider grid", () => {
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
     tauriMocks.dismissTrayPanel.mockResolvedValue(undefined);
     tauriMocks.reanchorTrayPanel.mockResolvedValue(undefined);
+    tauriMocks.resetFlyoutPosition.mockResolvedValue(undefined);
+    windowMocks.startDragging.mockResolvedValue(undefined);
     tauriMocks.getWorkAreaRect.mockResolvedValue({
       x: 0,
       y: 0,
@@ -364,6 +370,59 @@ describe("TrayPanel provider grid", () => {
     // effect against a restored (undefined-returning) mock.
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it("shows no move strip while Movable panel is off", async () => {
+    const { container, unmount } = renderTrayPanel([provider("cursor", "Cursor", 20)]);
+    await waitFor(() => {
+      expect(container.querySelector(".provider-grid")).not.toBeNull();
+    });
+    expect(container.querySelector(".tray-move-handle")).toBeNull();
+    expect(container.querySelector(".tray-panel-reveal--movable")).toBeNull();
+    // Unmount while the mocks still resolve; the shared afterEach resets
+    // them before the automatic cleanup runs.
+    unmount();
+  });
+
+  it("drags the panel from the move strip and puts it back next to the tray on double-click", async () => {
+    const { container, unmount } = renderTrayPanel([provider("cursor", "Cursor", 20)], {
+      trayPanelMovable: true,
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".tray-move-handle")).not.toBeNull();
+    });
+    expect(container.querySelector(".tray-panel-reveal--movable")).not.toBeNull();
+    const strip = container.querySelector(".tray-move-handle")!;
+
+    fireEvent.mouseDown(strip, { button: 0, detail: 1 });
+    await waitFor(() => {
+      expect(windowMocks.startDragging).toHaveBeenCalledTimes(1);
+    });
+    // The backend keeps the panel open while the button is held on it, so no
+    // gesture guard is armed (one would swallow the next real outside click).
+    expect(tauriMocks.beginFlyoutGesture).not.toHaveBeenCalled();
+
+    fireEvent.mouseDown(strip, { button: 0, detail: 2 });
+    await waitFor(() => {
+      expect(tauriMocks.resetFlyoutPosition).toHaveBeenCalledTimes(1);
+    });
+    expect(windowMocks.startDragging).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("ignores non-primary presses on the move strip", async () => {
+    const { container, unmount } = renderTrayPanel([provider("cursor", "Cursor", 20)], {
+      trayPanelMovable: true,
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".tray-move-handle")).not.toBeNull();
+    });
+
+    fireEvent.mouseDown(container.querySelector(".tray-move-handle")!, { button: 2, detail: 1 });
+
+    expect(windowMocks.startDragging).not.toHaveBeenCalled();
+    expect(tauriMocks.resetFlyoutPosition).not.toHaveBeenCalled();
+    unmount();
   });
 
   it("reveals regardless of the shared surface-mode snapshot (TrayPanel now runs in its own dedicated window)", async () => {

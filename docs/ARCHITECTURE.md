@@ -37,8 +37,8 @@ The tray panel is the only dashboard layout. Tray left-click, **Pop Out Dashboar
 
 - It is a light panel in the Mac style. It is 310 px wide, times the **Panel scale** setting, and its height fits its content.
 - It paints `#DEDEE2` before the page loads, so it never flashes white.
-- It opens next to the tray and can't be moved or resized.
-- It closes when it loses focus. Proof mode, `CODEXBAR_START_VISIBLE` and dragging a provider tab to reorder keep it open.
+- It opens next to the tray and can't be resized. With **Settings > Menu > Movable panel** on, a strip along its top drags it elsewhere; `shell/flyout_placement.rs` records the spot when the native move loop ends (so the panel's own re-anchoring never counts as a move), later opens and content-driven resizes keep the panel there, clamped into the work area it overlaps most, and double-clicking the strip puts it back next to the tray.
+- It closes when it loses focus. Proof mode, `CODEXBAR_START_VISIBLE` and dragging a provider tab to reorder keep it open, as does a mouse button held on a movable panel (a native move blurs the WebView before the drag begins).
 
 The panel shows one card per provider. A card has metric rows for each usage window, with a bar, the reset time and, when the provider supports it, a pace line. [PROVIDERS.md](./PROVIDERS.md) lists the windows and pace support per provider.
 

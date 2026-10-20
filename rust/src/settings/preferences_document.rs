@@ -175,6 +175,7 @@ pub const EXCLUDED_KEYS: &[&str] = &[
     "float_bar_enabled",
     "float_bar_click_through",
     "tray_panel_always_on_top",
+    "tray_panel_movable",
     "promote_tray_icon",
     "stay_awake_enabled",
     // Update settings.

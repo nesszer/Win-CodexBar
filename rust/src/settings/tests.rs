@@ -42,6 +42,7 @@ fn test_settings_default() {
     assert!(settings.adaptive_refresh);
     assert!(!settings.float_bar_show_cost);
     assert!(!settings.tray_panel_always_on_top);
+    assert!(!settings.tray_panel_movable);
     assert_eq!(settings.overview_layout, "detailed");
     assert!(settings.promote_tray_icon);
     assert!(settings.claude_daily_routines_usage_visible);
@@ -126,6 +127,21 @@ fn tray_panel_always_on_top_defaults_off_and_round_trips() {
     assert!(json.contains(r#""tray_panel_always_on_top":true"#));
 
     assert!(loaded.tray_panel_always_on_top);
+}
+
+#[test]
+fn tray_panel_movable_defaults_off_and_round_trips() {
+    let defaulted = defaulted();
+    assert!(!defaulted.tray_panel_movable);
+
+    let enabled = Settings {
+        tray_panel_movable: true,
+        ..Settings::default()
+    };
+    let (json, loaded) = round_trip(&enabled);
+    assert!(json.contains(r#""tray_panel_movable":true"#));
+
+    assert!(loaded.tray_panel_movable);
 }
 
 #[test]

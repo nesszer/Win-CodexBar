@@ -618,6 +618,26 @@ fn apply_display_settings_clamps_tray_scale_percent() {
 }
 
 #[test]
+fn apply_display_settings_updates_tray_panel_movable() {
+    let mut settings = Settings::default();
+    assert!(!settings.tray_panel_movable);
+
+    SettingsUpdate {
+        tray_panel_movable: Some(true),
+        ..Default::default()
+    }
+    .apply_display_settings(&mut settings);
+    assert!(settings.tray_panel_movable);
+
+    SettingsUpdate {
+        tray_panel_movable: Some(false),
+        ..Default::default()
+    }
+    .apply_display_settings(&mut settings);
+    assert!(!settings.tray_panel_movable);
+}
+
+#[test]
 fn apply_display_settings_updates_tray_panel_always_on_top() {
     let mut settings = Settings::default();
     assert!(!settings.tray_panel_always_on_top);

@@ -16,6 +16,7 @@ const baseSettings = {
   enabledProviders: ["codex", "claude"],
   trayIconMode: "single",
   trayPanelAlwaysOnTop: false,
+  trayPanelMovable: false,
   overviewLayout: "detailed",
   showAsUsed: false,
   showAllTokenAccountsInMenu: false,
@@ -147,6 +148,8 @@ describe("MenuTab Windows section", () => {
     const { set } = renderTab();
     fireEvent.click(screen.getByRole("checkbox", { name: "TrayPanelAlwaysOnTopLabel" }));
     expect(set).toHaveBeenCalledWith({ trayPanelAlwaysOnTop: true });
+    fireEvent.click(screen.getByRole("checkbox", { name: "TrayPanelMovableLabel" }));
+    expect(set).toHaveBeenCalledWith({ trayPanelMovable: true });
     fireEvent.click(screen.getByRole("checkbox", { name: "ShowResetWhenExhausted" }));
     expect(set).toHaveBeenCalledWith({ showResetWhenExhausted: true });
   });

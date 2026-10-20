@@ -227,6 +227,7 @@ fn main() {
             commands::save_hooks_config,
             commands::set_surface_mode,
             commands::dismiss_tray_panel,
+            commands::reset_flyout_position,
             commands::begin_flyout_gesture,
             commands::end_flyout_gesture,
             commands::reveal_tray_panel_window,
