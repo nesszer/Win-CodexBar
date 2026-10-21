@@ -202,9 +202,14 @@ fn is_placed(settings: &Settings) -> bool {
     settings.tray_panel_movable && super::flyout_placement::stored_position().is_some()
 }
 
-/// Forget where the user dragged the flyout and anchor it to the tray again.
+/// Forget where the user dragged the flyout and anchor it to the tray again
+/// (double-click on the move strip, or the Settings > Menu button).
 pub fn reset_position(app: &AppHandle) -> Result<(), String> {
     super::flyout_placement::clear_position();
+    // From Settings the panel may be closed; the next open anchors it.
+    if app.get_webview_window(FLYOUT_LABEL).is_none() {
+        return Ok(());
+    }
     reanchor(app)
 }
 

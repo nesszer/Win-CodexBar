@@ -682,6 +682,7 @@ TrayPanelAlwaysOnTopHelper = フォーカスを失っても、トレイパネル
 TrayPanelMovableLabel = 移動できるパネル
 TrayPanelMovableHelper = トレイパネル上端の帯をドラッグして移動します。トレイから離した位置では普通のウィンドウのように開いたままになり、次回も同じ場所に開きます。帯をダブルクリックするとトレイの横に戻ります。
 TrayMoveHandleHint = ドラッグで移動。ダブルクリックでトレイの横に戻します。
+TrayPanelResetPositionButton = トレイの横に戻す
 PanelScaleLabel = パネルの拡大率
 PanelScaleHelper = トレイパネルの幅、文字、余白を拡大します。
 WindowMinimize = 最小化

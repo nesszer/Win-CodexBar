@@ -714,6 +714,7 @@ TrayPanelAlwaysOnTopHelper = Odak kaybolduğunda bile tepsi panelini diğer penc
 TrayPanelMovableLabel = Taşınabilir panel
 TrayPanelMovableHelper = Tepsi panelini taşımak için üst kenarındaki şeridi sürükleyin. Tepsiden uzakta bir pencere gibi açık kalır ve bir sonraki açılışta aynı yerde açılır; şeride çift tıklayınca tepsinin yanına geri döner.
 TrayMoveHandleHint = Taşımak için sürükleyin. Tepsinin yanına geri döndürmek için çift tıklayın.
+TrayPanelResetPositionButton = Tepsinin yanına geri koy
 PanelScaleLabel = Panel ölçeği
 PanelScaleHelper = Tepsi panelinin genişliğini, metnini ve boşluklarını ölçekler.
 WindowMinimize = Simge durumuna küçült

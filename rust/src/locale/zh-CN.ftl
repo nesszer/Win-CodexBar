@@ -682,6 +682,7 @@ TrayPanelAlwaysOnTopHelper = 即使失去焦点，也让托盘面板保持在其
 TrayPanelMovableLabel = 可移动面板
 TrayPanelMovableHelper = 拖动托盘面板顶部的横条即可移动。离开托盘后，面板会像普通窗口一样保持打开，下次在同一位置打开；双击横条可放回托盘旁。
 TrayMoveHandleHint = 拖动以移动。双击可放回托盘旁。
+TrayPanelResetPositionButton = 放回托盘旁
 PanelScaleLabel = 面板缩放
 PanelScaleHelper = 缩放托盘面板的宽度、文字和间距。
 WindowMinimize = 最小化

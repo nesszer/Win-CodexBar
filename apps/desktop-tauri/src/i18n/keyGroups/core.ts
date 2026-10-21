@@ -896,6 +896,7 @@ export const CORE_LOCALE_KEYS = [
   "TrayPanelMovableLabel",
   "TrayPanelMovableHelper",
   "TrayMoveHandleHint",
+  "TrayPanelResetPositionButton",
   "PanelScaleLabel",
   "PanelScaleHelper",
   "WindowMinimize",

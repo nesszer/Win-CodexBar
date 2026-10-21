@@ -735,6 +735,7 @@ TrayPanelAlwaysOnTopHelper = Mantén el panel de bandeja sobre otras ventanas, i
 TrayPanelMovableLabel = Panel móvil
 TrayPanelMovableHelper = Arrastra la franja superior del panel de bandeja para moverlo. Lejos de la bandeja se queda abierto como una ventana y vuelve a abrirse donde lo dejaste; haz doble clic en la franja para devolverlo junto a la bandeja.
 TrayMoveHandleHint = Arrastra para mover. Haz doble clic para devolverlo junto a la bandeja.
+TrayPanelResetPositionButton = Devolverlo junto a la bandeja
 PanelScaleLabel = Escala del panel
 PanelScaleHelper = Ajusta el ancho, el texto y el espaciado del panel de la bandeja.
 WindowMinimize = Minimizar

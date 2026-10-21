@@ -1171,6 +1171,7 @@ locale_keys! {
     TrayPanelMovableLabel,
     TrayPanelMovableHelper,
     TrayMoveHandleHint,
+    TrayPanelResetPositionButton,
     PanelScaleLabel,
     PanelScaleHelper,
     WindowMinimize,

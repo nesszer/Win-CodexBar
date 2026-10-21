@@ -735,6 +735,7 @@ TrayPanelAlwaysOnTopHelper = 포커스를 잃어도 트레이 패널을 다른 �
 TrayPanelMovableLabel = 이동 가능한 패널
 TrayPanelMovableHelper = 트레이 패널 위쪽의 띠를 드래그하여 이동합니다. 트레이에서 떨어진 위치에서는 일반 창처럼 열린 채 유지되고 다음에도 같은 위치에 열립니다. 띠를 두 번 클릭하면 트레이 옆으로 돌아갑니다.
 TrayMoveHandleHint = 드래그하여 이동합니다. 두 번 클릭하면 트레이 옆으로 돌아갑니다.
+TrayPanelResetPositionButton = 트레이 옆으로 되돌리기
 PanelScaleLabel = 패널 배율
 PanelScaleHelper = 트레이 패널의 너비, 글자, 간격을 조정합니다.
 WindowMinimize = 최소화

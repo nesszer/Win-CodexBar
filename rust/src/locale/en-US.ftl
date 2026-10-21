@@ -714,6 +714,7 @@ TrayPanelAlwaysOnTopHelper = Keep the tray panel above other windows, even when 
 TrayPanelMovableLabel = Movable panel
 TrayPanelMovableHelper = Drag the strip at the top of the tray panel to move it. Away from the tray it stays open like a window and reopens where you left it; double-click the strip to put it back next to the tray.
 TrayMoveHandleHint = Drag to move. Double-click to put it back next to the tray.
+TrayPanelResetPositionButton = Put it back next to the tray
 PanelScaleLabel = Panel scale
 PanelScaleHelper = Scales the tray panel width, text, and spacing.
 WindowMinimize = Minimize

@@ -682,6 +682,7 @@ TrayPanelAlwaysOnTopHelper = 即使失去焦點，也讓系統匣面板保持在
 TrayPanelMovableLabel = 可移動面板
 TrayPanelMovableHelper = 拖曳系統匣面板頂部的橫條即可移動。離開系統匣後，面板會像一般視窗一樣保持開啟，下次在同一位置開啟；按兩下橫條可放回系統匣旁。
 TrayMoveHandleHint = 拖曳以移動。按兩下可放回系統匣旁。
+TrayPanelResetPositionButton = 放回系統匣旁
 PanelScaleLabel = 面板縮放
 PanelScaleHelper = 縮放系統匣面板的寬度、文字和間距。
 WindowMinimize = 最小化
