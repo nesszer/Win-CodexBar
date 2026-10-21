@@ -188,8 +188,12 @@ pub fn apply_always_on_top(app: &AppHandle, settings: &Settings) {
     }
 }
 
-fn should_dismiss_on_blur(settings: &Settings) -> bool {
-    !settings.tray_panel_always_on_top
+/// Whether losing focus hides the flyout. Next to the tray it behaves like a
+/// menu and closes. Always on top keeps it. A panel the user moved away from
+/// the tray (`placed`) stays open like a window too: it can be covered, and
+/// closes from the tray icon, Escape, or by being put back next to the tray.
+fn should_dismiss_on_blur(settings: &Settings, placed: bool) -> bool {
+    !settings.tray_panel_always_on_top && !placed
 }
 
 /// Whether the flyout opens at a spot the user dragged it to rather than
@@ -306,11 +310,14 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
     match event {
         tauri::WindowEvent::Focused(false) => {
             let settings = Settings::load();
-            if !should_dismiss_on_blur(&settings) {
+            if !should_dismiss_on_blur(&settings, is_placed(&settings)) {
                 // Keep the opt-in flyout visible when focus moves elsewhere;
                 // reapplying the native state also repairs any transient z-order
-                // change caused by the focus transition.
-                let _ = window.set_always_on_top(true);
+                // change caused by the focus transition. A placed panel without
+                // Always on top stacks like any window.
+                if settings.tray_panel_always_on_top {
+                    let _ = window.set_always_on_top(true);
+                }
                 return true;
             }
             if crate::proof_harness::is_proof_mode(app) || KEEP_OPEN_ON_BLUR.load(Ordering::Relaxed)
@@ -526,10 +533,18 @@ mod tests {
 
     #[test]
     fn tray_panel_blur_dismissal_is_disabled_only_when_opted_in() {
-        assert!(should_dismiss_on_blur(&Settings::default()));
-        assert!(!should_dismiss_on_blur(&Settings {
-            tray_panel_always_on_top: true,
-            ..Settings::default()
-        }));
+        assert!(should_dismiss_on_blur(&Settings::default(), false));
+        assert!(!should_dismiss_on_blur(
+            &Settings {
+                tray_panel_always_on_top: true,
+                ..Settings::default()
+            },
+            false
+        ));
+    }
+
+    #[test]
+    fn a_panel_the_user_moved_away_from_the_tray_stays_open_on_blur() {
+        assert!(!should_dismiss_on_blur(&Settings::default(), true));
     }
 }

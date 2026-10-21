@@ -406,9 +406,10 @@ pub struct Settings {
     #[serde(default)]
     pub tray_panel_always_on_top: bool,
 
-    /// Let the user drag the tray flyout by the strip along its top and
-    /// reopen it where they left it. Disabled by default so the flyout stays
-    /// anchored to the tray like the Mac menu.
+    /// Let the user drag the tray flyout by the strip along its top. Away from
+    /// the tray it stays open like a window and reopens where they left it.
+    /// Disabled by default so the flyout stays anchored to the tray like the
+    /// Mac menu.
     #[serde(default)]
     pub tray_panel_movable: bool,
 
