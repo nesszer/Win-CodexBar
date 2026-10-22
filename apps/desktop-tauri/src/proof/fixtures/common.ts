@@ -185,6 +185,7 @@ export function baseSettings(overrides: Partial<SettingsSnapshot> = {}): Setting
     windowScalePercent: 100,
     trayScalePercent: 100,
     trayPanelAlwaysOnTop: false,
+    trayPanelMovable: false,
     powertoysStatusPipeEnabled: false,
     shareUsageWithCli: false,
     claudeAvoidKeychainPrompts: false,

@@ -311,6 +311,8 @@ export interface SettingsSnapshot {
   trayScalePercent: number;
   /** Keep the tray panel above other windows after it loses focus. */
   trayPanelAlwaysOnTop: boolean;
+  /** Drag the tray panel by the strip along its top and reopen it where it was left. */
+  trayPanelMovable: boolean;
   powertoysStatusPipeEnabled: boolean;
   /** Write the usage cache the `codexbar` CLI falls back to. Machine-local. */
   shareUsageWithCli: boolean;
@@ -475,6 +477,7 @@ export interface SettingsUpdate {
   windowScalePercent?: number;
   trayScalePercent?: number;
   trayPanelAlwaysOnTop?: boolean;
+  trayPanelMovable?: boolean;
   powertoysStatusPipeEnabled?: boolean;
   shareUsageWithCli?: boolean;
   claudeAvoidKeychainPrompts?: boolean;

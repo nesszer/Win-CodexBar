@@ -407,6 +407,7 @@ export function createProofRouter(
     open_flyout_window: () => null,
     close_settings_window: () => null,
     reanchor_tray_panel: () => null,
+    reset_flyout_position: () => null,
     reveal_tray_panel_window: () => null,
     resize_float_bar: () => null,
     open_external_url: () => null,

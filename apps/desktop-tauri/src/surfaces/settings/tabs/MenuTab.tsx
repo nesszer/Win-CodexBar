@@ -17,6 +17,7 @@ import {
   TRAY_SCALE_STEP,
 } from "../../../lib/trayScale";
 import CostPeriodControl from "./CostPeriodControl";
+import { resetFlyoutPosition } from "../../../lib/tauri";
 
 /** macOS "Work days" choices; Automatic (empty) saves null. */
 const WORK_DAY_PRESETS = [4, 5, 6, 7];
@@ -133,6 +134,25 @@ export default function MenuTab({ settings, set, saving }: TabProps) {
             onChange={(v) => set({ trayPanelAlwaysOnTop: v })}
           />
         </Field>
+        <Field label={t("TrayPanelMovableLabel")} description={t("TrayPanelMovableHelper")}>
+          <Toggle
+            variant="switch"
+            checked={settings.trayPanelMovable ?? false}
+            disabled={saving}
+            onChange={(v) => set({ trayPanelMovable: v })}
+          />
+        </Field>
+        {/* Keyboard-reachable twin of double-clicking the panel's move strip. */}
+        <div className="settings-group__row">
+          <button
+            type="button"
+            className="credential-btn"
+            disabled={saving}
+            onClick={() => void resetFlyoutPosition().catch(() => {})}
+          >
+            {t("TrayPanelResetPositionButton")}
+          </button>
+        </div>
         <Field
           label={t("ShowResetWhenExhausted")}
           description={t("ShowResetWhenExhaustedHelper")}

@@ -214,6 +214,7 @@ These controls set the tray panel and the float bar.
 | Workday ticks | `workday_tick_style` (`hidden`, `subtle`, `high_contrast`) | `subtle` |
 | Reset times as countdown | `reset_time_relative` | on |
 | Keep the tray panel on top | `tray_panel_always_on_top` | off |
+| Movable panel | `tray_panel_movable` | off |
 | Show reset time when exhausted | `show_reset_when_exhausted` | off |
 | Panel scale | `tray_scale_percent` (100 to 200, step 5) | 100 |
 | Overview layout | `overview_layout` (`detailed`, `compact`) | `detailed` |

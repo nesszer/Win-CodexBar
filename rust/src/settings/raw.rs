@@ -328,6 +328,8 @@ pub(super) struct RawSettings {
     #[serde(default)]
     tray_panel_always_on_top: bool,
     #[serde(default)]
+    tray_panel_movable: bool,
+    #[serde(default)]
     powertoys_status_pipe_enabled: bool,
     #[serde(default)]
     share_usage_with_cli: bool,
@@ -493,6 +495,7 @@ impl Default for RawSettings {
             window_scale_percent: s.window_scale_percent,
             tray_scale_percent: s.tray_scale_percent,
             tray_panel_always_on_top: s.tray_panel_always_on_top,
+            tray_panel_movable: s.tray_panel_movable,
             powertoys_status_pipe_enabled: s.powertoys_status_pipe_enabled,
             share_usage_with_cli: s.share_usage_with_cli,
             float_bar_enabled: s.float_bar_enabled,
@@ -855,6 +858,7 @@ impl From<RawSettings> for Settings {
             window_scale_percent: clamp_window_scale_percent(raw.window_scale_percent),
             tray_scale_percent: clamp_tray_scale_percent(raw.tray_scale_percent),
             tray_panel_always_on_top: raw.tray_panel_always_on_top,
+            tray_panel_movable: raw.tray_panel_movable,
             powertoys_status_pipe_enabled: raw.powertoys_status_pipe_enabled,
             share_usage_with_cli: raw.share_usage_with_cli,
             float_bar_enabled: raw.float_bar_enabled,

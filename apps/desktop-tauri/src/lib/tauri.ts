@@ -647,6 +647,11 @@ export function reanchorTrayPanel(): Promise<void> {
   return invoke<void>("reanchor_tray_panel");
 }
 
+/** Forget where the user dragged the tray panel and anchor it to the tray again. */
+export function resetFlyoutPosition(): Promise<void> {
+  return invoke<void>("reset_flyout_position");
+}
+
 export function revealTrayPanelWindow(): Promise<void> {
   return invoke<void>("reveal_tray_panel_window");
 }

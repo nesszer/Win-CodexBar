@@ -115,6 +115,7 @@ describe("Language type", () => {
       windowScalePercent: 125,
       trayScalePercent: 100,
       trayPanelAlwaysOnTop: false,
+      trayPanelMovable: false,
       powertoysStatusPipeEnabled: false,
       shareUsageWithCli: false,
       hidePersonalInfo: false,

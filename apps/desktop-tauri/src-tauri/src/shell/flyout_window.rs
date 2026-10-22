@@ -3,6 +3,10 @@
 //! tray left-click, "Pop Out Dashboard", the global shortcut, app launch and
 //! single-instance relaunch all open it. The legacy PopOut layout on `main`
 //! is retired.
+//!
+//! It opens next to the tray. With the **Movable panel** setting on, the
+//! user can drag it elsewhere by the strip along its top and
+//! `super::flyout_placement` remembers that spot.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,6 +37,10 @@ const RECENTLY_SHOWN_GRACE: Duration = Duration::from_millis(500);
 /// Set once at startup by `CODEXBAR_START_VISIBLE`: keeps the flyout open
 /// when it loses focus, for automation flows that need it to stay visible.
 static KEEP_OPEN_ON_BLUR: AtomicBool = AtomicBool::new(false);
+
+/// Set by a DPI change of the flyout; the next `Resized` (the rescale itself)
+/// re-clamps a user-placed flyout at its new size.
+static RECLAMP_AFTER_RESCALE: AtomicBool = AtomicBool::new(false);
 
 /// Keep the flyout open on focus loss for the rest of this process.
 pub fn keep_open_on_blur() {
@@ -141,8 +149,9 @@ fn open_with_anchor(
     apply_window_always_on_top(&win, settings.tray_panel_always_on_top)?;
 
     super::dwm::light_panel_chrome(&win);
+    super::flyout_placement::track_user_moves(&win);
 
-    if cursor.is_some() {
+    if cursor.is_some() || (position.is_none() && is_placed(&settings)) {
         reanchor(app)?;
     } else if let Some((x, y)) =
         position.or_else(|| super::position::default_surface_position(app, SurfaceMode::TrayPanel))
@@ -179,8 +188,41 @@ pub fn apply_always_on_top(app: &AppHandle, settings: &Settings) {
     }
 }
 
-fn should_dismiss_on_blur(settings: &Settings) -> bool {
-    !settings.tray_panel_always_on_top
+/// Whether losing focus hides the flyout. Next to the tray it behaves like a
+/// menu and closes. Always on top keeps it. A panel the user moved away from
+/// the tray (`placed`) stays open like a window too: it can be covered, and
+/// closes from the tray icon, Escape, or by being put back next to the tray.
+fn should_dismiss_on_blur(settings: &Settings, placed: bool) -> bool {
+    !settings.tray_panel_always_on_top && !placed
+}
+
+/// Whether the flyout opens at a spot the user dragged it to rather than
+/// next to the tray: the Movable panel setting is on and a spot is stored.
+fn is_placed(settings: &Settings) -> bool {
+    settings.tray_panel_movable && super::flyout_placement::stored_position().is_some()
+}
+
+/// Forget where the user dragged the flyout and anchor it to the tray again
+/// (double-click on the move strip, or the Settings > Menu button).
+pub fn reset_position(app: &AppHandle) -> Result<(), String> {
+    super::flyout_placement::clear_position();
+    // From Settings the panel may be closed; the next open anchors it.
+    if app.get_webview_window(FLYOUT_LABEL).is_none() {
+        return Ok(());
+    }
+    reanchor(app)
+}
+
+/// Reapply the Movable panel setting to an open flyout: turning it off puts
+/// the panel back next to the tray. The remembered spot is kept, so turning
+/// the setting on again reopens the panel there.
+pub fn apply_movable(app: &AppHandle, settings: &Settings) {
+    if settings.tray_panel_movable || !is_open(app) {
+        return;
+    }
+    if let Err(error) = reanchor(app) {
+        tracing::warn!(%error, "failed to re-anchor the tray panel after Movable panel was turned off");
+    }
 }
 
 fn show_grace_starts_now(first_build_hidden: bool) -> bool {
@@ -273,14 +315,24 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
     match event {
         tauri::WindowEvent::Focused(false) => {
             let settings = Settings::load();
-            if !should_dismiss_on_blur(&settings) {
+            if !should_dismiss_on_blur(&settings, is_placed(&settings)) {
                 // Keep the opt-in flyout visible when focus moves elsewhere;
                 // reapplying the native state also repairs any transient z-order
-                // change caused by the focus transition.
-                let _ = window.set_always_on_top(true);
+                // change caused by the focus transition. A placed panel without
+                // Always on top stacks like any window.
+                if settings.tray_panel_always_on_top {
+                    let _ = window.set_always_on_top(true);
+                }
                 return true;
             }
             if crate::proof_harness::is_proof_mode(app) || KEEP_OPEN_ON_BLUR.load(Ordering::Relaxed)
+            {
+                return true;
+            }
+            // Movable panel: a press on the panel starts a native move, which
+            // blurs the WebView before the drag begins.
+            if settings.tray_panel_movable
+                && super::flyout_placement::pointer_pressed_inside(window)
             {
                 return true;
             }
@@ -309,6 +361,25 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
             }
             true
         }
+        tauri::WindowEvent::ScaleFactorChanged { .. } => {
+            // The window is rescaled right after this event; clamp on that
+            // `Resized`, when the new size is in place.
+            RECLAMP_AFTER_RESCALE.store(true, Ordering::Relaxed);
+            true
+        }
+        tauri::WindowEvent::Resized(_) => {
+            // Landing on a monitor with another DPI rescales a placed flyout
+            // after it was clamped at the old size, which can push it past the
+            // work area. Not while the user is still dragging it.
+            if RECLAMP_AFTER_RESCALE.swap(false, Ordering::Relaxed)
+                && is_placed(&Settings::load())
+                && !super::flyout_placement::user_move_in_progress()
+            {
+                // Best-effort; a failure leaves the panel where Windows put it.
+                let _reclamp = reanchor(app);
+            }
+            true
+        }
         tauri::WindowEvent::CloseRequested { api, .. } => {
             // Hide-not-close on a native close request (Alt+F4-equivalent from
             // a screen reader): the flyout survives so it can be reopened without
@@ -328,6 +399,22 @@ pub fn reanchor(app: &AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window(FLYOUT_LABEL)
         .ok_or_else(|| "flyout window unavailable".to_string())?;
+
+    // Never move the window out from under the user's drag; the loop's end
+    // records where it landed.
+    if super::flyout_placement::user_move_in_progress() {
+        return Ok(());
+    }
+
+    // A flyout the user dragged elsewhere stays there; only its on-screen
+    // clamp follows the current size.
+    if Settings::load().tray_panel_movable
+        && let Some((x, y)) = super::flyout_placement::placed_position(&window)
+    {
+        // Best-effort, like the anchored set_position below.
+        let _set_placed = window.set_position(PhysicalPosition::new(x, y));
+        return Ok(());
+    }
 
     let scale = window.scale_factor().unwrap_or(1.0).max(1.0);
 
@@ -443,11 +530,26 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_spot_only_counts_while_movable_panel_is_on() {
+        // Whatever the geometry file holds, the default setting keeps the
+        // panel next to the tray.
+        assert!(!is_placed(&Settings::default()));
+    }
+
+    #[test]
     fn tray_panel_blur_dismissal_is_disabled_only_when_opted_in() {
-        assert!(should_dismiss_on_blur(&Settings::default()));
-        assert!(!should_dismiss_on_blur(&Settings {
-            tray_panel_always_on_top: true,
-            ..Settings::default()
-        }));
+        assert!(should_dismiss_on_blur(&Settings::default(), false));
+        assert!(!should_dismiss_on_blur(
+            &Settings {
+                tray_panel_always_on_top: true,
+                ..Settings::default()
+            },
+            false
+        ));
+    }
+
+    #[test]
+    fn a_panel_the_user_moved_away_from_the_tray_stays_open_on_blur() {
+        assert!(!should_dismiss_on_blur(&Settings::default(), true));
     }
 }
