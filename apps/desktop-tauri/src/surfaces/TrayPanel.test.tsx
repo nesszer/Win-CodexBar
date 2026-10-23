@@ -780,6 +780,7 @@ describe("TrayPanel provider grid", () => {
       buildBundle(
         {
           ActionRefresh: "更新",
+          CostTitle: "コスト",
           MenuAbout: "CodexBar について",
           MenuQuit: "終了",
           MenuSettings: "設定...",
@@ -826,8 +827,9 @@ describe("TrayPanel provider grid", () => {
     expect(container.querySelector(".provider-grid__item")?.textContent).toContain("すべて");
     expect(screen.getByText("更新")).toBeInTheDocument();
     expect(screen.getByText("設定...")).toBeInTheDocument();
-    expect(await screen.findByText("CodexBar について (v0.70.0)")).toBeInTheDocument();
+    expect(await screen.findByText("CodexBar について")).toBeInTheDocument();
     expect(screen.getByText("終了")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "コスト" }));
     expect(await screen.findByText("30日間のコスト")).toBeInTheDocument();
     expect(container.querySelector(".card-header__subtitle")?.textContent).toContain("日前");
     expect(screen.getByText("最新トークン")).toBeInTheDocument();
@@ -1164,7 +1166,7 @@ describe("TrayPanel provider grid", () => {
 
     const menu = await screen.findByRole("navigation", { name: "Menu" });
     expect(
-      await within(menu).findByRole("button", { name: "About CodexBar (v0.70.0)" }),
+      await within(menu).findByRole("button", { name: "About CodexBar" }),
     ).toBeInTheDocument();
 
     const surface = container.querySelector(".menu-surface");
@@ -1180,7 +1182,7 @@ describe("TrayPanel provider grid", () => {
     ).toEqual([
       ["RefreshCtrl+R", "Control+R"],
       ["Settings...Ctrl+,", "Control+,"],
-      ["About CodexBar (v0.70.0)", null],
+      ["About CodexBar", null],
       ["QuitCtrl+Q", "Control+Q"],
     ]);
     expect(tauriMocks.setSurfaceMode).not.toHaveBeenCalled();

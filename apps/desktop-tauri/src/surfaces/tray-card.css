@@ -1,8 +1,55 @@
 /*
- * Tray card anatomy, after upstream 0.70.0 `UsageMenuCardView` (spec 3.1-3.8, 5).
+ * Tray panel look: a soft tinted surface, labelled provider tabs with a quota
+ * underline, large card headers, thick quota bars with the percent and reset
+ * under them, hairline-separated sections and a text-only menu.
  * Imported last so it wins over the older layered tray rules. Every rule is
  * scoped to the tray panel; Settings and the float bar keep their own styles.
  */
+
+/* ── Surface and type scale ── */
+.menu-surface--tray {
+  --mac-text-headline: 600 16px/20px var(--mac-font);
+  --mac-text-body-medium: 600 14px/18px var(--mac-font);
+  --mac-text-subheadline: 400 12px/16px var(--mac-font);
+  --mac-text-footnote: 400 12px/16px var(--mac-font);
+  --mac-text-caption: 400 12px/16px var(--mac-font);
+  --mac-text-caption2: 400 11px/14px var(--mac-font);
+  --mac-text-section: 600 11px/14px var(--mac-font);
+  --mac-text-menu: 400 14px/18px var(--mac-font);
+  --mac-text-shortcut: 400 14px/18px var(--mac-font);
+
+  --mac-text: rgba(22, 22, 46, 0.92);
+  --mac-text-2: rgba(40, 40, 84, 0.6);
+  --mac-text-3: rgba(40, 40, 84, 0.34);
+  --mac-track: rgba(84, 84, 150, 0.17);
+  --mac-divider: rgba(70, 70, 130, 0.24);
+  --mac-separator: rgba(70, 70, 130, 0.2);
+  --mac-selection-bg: #2f6bf2;
+  --mac-panel-fill:
+    radial-gradient(120% 55% at 0% 0%, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(168deg, #ece7fb 0%, #dfdbfa 42%, #cfd2f8 100%);
+
+  --mac-pad-x: 16px;
+  --mac-pad-header-y: 10px;
+  --mac-gap-header: 10px;
+  --mac-after-divider: 16px;
+  --mac-metric-gap: 14px;
+  --mac-metric-inner: 6px;
+  --mac-row-h: 26px;
+  --mac-menu-row-h: 26px;
+  --mac-row-pl: 16px;
+  --mac-row-icon: 16px;
+  --mac-row-icon-gap: 9px;
+  --mac-sel-inset-x: 6px;
+  --mac-sel-inset-y: 1px;
+  --mac-sel-r: 8px;
+
+  padding: 8px 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--mac-panel-fill);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
 
 /* ── Card frame: 20 px sides, 6 px top and bottom, blocks stacked by margins ── */
 .menu-surface--tray .menu-card {
@@ -22,7 +69,11 @@
   margin: var(--mac-gap-header) 0 var(--mac-after-divider);
 }
 
-.menu-surface--tray .menu-card__content,
+.menu-surface--tray .menu-card__content {
+  gap: 16px;
+  padding-bottom: 0;
+}
+
 .menu-surface--tray .menu-card__metrics {
   gap: var(--mac-metric-gap);
   padding-bottom: 0;
@@ -134,7 +185,7 @@
   transform: scale(0.94);
 }
 
-/* ── Rate-window rows (`MenuCardMetricRow`) ── */
+/* ── Rate-window rows: title, thick bar, then percent left and reset right ── */
 .menu-surface--tray .menu-metric {
   gap: var(--mac-metric-inner);
 }
@@ -148,7 +199,15 @@
 }
 
 .menu-surface--tray .menu-metric__head {
+  flex-wrap: nowrap;
   column-gap: 8px;
+}
+
+.menu-surface--tray .menu-metric__head .menu-metric__reset {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  text-align: right;
 }
 
 .menu-surface--tray .menu-metric__reset,
@@ -158,6 +217,16 @@
 .menu-surface--tray .menu-metric__pct {
   font: var(--mac-text-footnote);
   color: var(--mac-text-2);
+}
+
+.menu-surface--tray .menu-metric__percent {
+  font: var(--mac-text-footnote);
+  color: var(--mac-text);
+}
+
+/* The pace line hugs the percent line above it. */
+.menu-surface--tray .menu-metric__meta {
+  margin-top: -3px;
 }
 
 .menu-surface--tray .menu-metric__pct {
@@ -266,12 +335,75 @@
   background: var(--provider-accent);
 }
 
-/* ── Inline usage dashboard (`InlineUsageDashboardContent`) ── */
+/* ── Cost section: a titled toggle, a two-line summary, then the dashboard ── */
 .menu-surface--tray .card-dash {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mac-metric-inner);
+  min-width: 0;
+}
+
+.menu-surface--tray .card-dash__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mac-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-surface--tray .card-dash__toggle:focus-visible {
+  outline: 2px solid var(--mac-selection-bg);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.menu-surface--tray .card-dash__title {
+  font: var(--mac-text-body-medium);
+}
+
+.menu-surface--tray .card-dash__chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--mac-text-2);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 120ms ease-out;
+}
+
+.menu-surface--tray .card-dash__toggle[aria-expanded="true"] .card-dash__chevron {
+  transform: rotate(90deg);
+}
+
+.menu-surface--tray .card-dash__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu-surface--tray .card-dash__summary-line {
+  font: var(--mac-text-footnote);
+  color: var(--mac-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-surface--tray .card-dash__body {
   display: flex;
   flex-direction: column;
   gap: var(--mac-dash-gap);
   min-width: 0;
+}
+
+.menu-surface--tray .card-dash__body[hidden] {
+  display: none;
 }
 
 .menu-surface--tray .card-dash__kpis {
@@ -589,16 +721,16 @@
   white-space: nowrap;
 }
 
-/* ── Provider switcher (spec 3.1): radius 6, accent selection, instant hover ── */
+/* ── Provider switcher: icon over label, accent pill when selected, quota underline ── */
 .menu-surface--tray .provider-grid__item {
   position: relative;
   min-height: 30px;
-  border-radius: 6px;
+  border-radius: 8px;
   transition: none;
 }
 
 .menu-surface--tray .provider-grid__item:hover {
-  background: rgba(0, 0, 0, 0.095);
+  background: rgba(40, 40, 110, 0.1);
 }
 
 .menu-surface--tray .provider-grid__item--active {
@@ -644,12 +776,119 @@
   border-radius: 1px;
 }
 
+/* Labelled tabs: one row (All narrower, the rest equal) or wrapped rows. */
+.menu-surface--tray .provider-grid--tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 4px 6px 8px;
+  margin: 0;
+}
+
+.menu-surface--tray .provider-grid--tabs[data-tab-layout="wrap"] {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.menu-surface--tray .provider-grid--tabs .provider-grid__item {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  min-height: 36px;
+  justify-content: center;
+  gap: 2px;
+  padding: 5px 1px 8px;
+}
+
+/* The All tab is wider and lets its label spill past the box, so the longest
+   localized short label (full-width "すべて") is never clipped. */
+.menu-surface--tray .provider-grid--tabs[data-tab-layout="row"] .provider-grid__item:first-child {
+  flex: 0 0 38px;
+}
+
+.menu-surface--tray .provider-grid--tabs[data-tab-layout="row"] .provider-grid__item:first-child .provider-grid__label {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* With few providers the tabs keep a natural width instead of stretching. */
+.menu-surface--tray .provider-grid--tabs[data-tab-layout="row"] .provider-grid__item:not(:first-child) {
+  max-width: 64px;
+}
+
+.menu-surface--tray .provider-grid--tabs[data-tab-layout="wrap"] .provider-grid__item {
+  flex: 0 0 calc((100% - 10px) / 6);
+}
+
+.menu-surface--tray .provider-grid--tabs .provider-grid__label {
+  display: block;
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 13px;
+  color: var(--mac-text);
+}
+
+.menu-surface--tray .provider-grid--tabs .provider-grid__item--active .provider-grid__label {
+  color: var(--mac-selection-text);
+}
+
+.menu-surface--tray .provider-grid--tabs .provider-icon {
+  width: 14px !important;
+  height: 14px !important;
+  opacity: 0.8;
+}
+
+.menu-surface--tray .provider-grid--tabs .provider-grid__icon-overview {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  opacity: 0.8;
+}
+
+.menu-surface--tray .provider-grid--tabs .provider-grid__icon-overview svg {
+  width: 100%;
+  height: 100%;
+}
+
+.menu-surface--tray .provider-grid--tabs .provider-grid__weekly-track {
+  left: 6px;
+  right: 6px;
+  bottom: 3px;
+  width: auto;
+  height: 3px;
+  margin: 0;
+  border-radius: 2px;
+  background: rgba(70, 70, 130, 0.26);
+}
+
+.menu-surface--tray .provider-grid--tabs .provider-grid__weekly-track::after {
+  border-radius: 2px;
+}
+
+/* ── Menu rows: text-only, no shortcut hints ── */
+.menu-surface--tray .menu-surface__footer-shortcut {
+  display: none;
+}
+
+.menu-surface--tray .menu-surface__footer-sep,
+.menu-surface--tray .provider-grid__divider,
+.menu-surface--tray .menu-stack__sep {
+  height: 1px;
+  margin: 6px 16px;
+  background: var(--mac-separator);
+}
+
+.menu-surface--tray .provider-grid__divider {
+  margin-top: 0;
+}
+
 /* ── Overview spend summary (spec 3.2) ── */
 .menu-surface--tray .overview-spend {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 20px;
+  padding: 10px 16px;
   min-width: 0;
 }
 

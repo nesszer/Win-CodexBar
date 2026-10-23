@@ -43,22 +43,10 @@ const ROW_ICONS: Record<MenuRowId, ReactNode> = {
   ),
   statusPage: lineIcon(<path key="ecg" d="M1.5 8.5H4L5.5 4.5L8 12L10 6.5L11.2 8.5H14.5" />),
   refresh: null,
-  settings: lineIcon(
-    <path
-      key="gear"
-      d="M6.9 1.8H9.1L9.5 3.5L10.9 4.3L12.6 3.8L13.7 5.7L12.5 7V9L13.7 10.3L12.6 12.2L10.9 11.7L9.5 12.5L9.1 14.2H6.9L6.5 12.5L5.1 11.7L3.4 12.2L2.3 10.3L3.5 9V7L2.3 5.7L3.4 3.8L5.1 4.3L6.5 3.5Z"
-    />,
-    <circle key="hub" cx="8" cy="8" r="2" />,
-  ),
-  about: lineIcon(
-    <circle key="ring" cx="8" cy="8" r="6.5" />,
-    <path key="stem" d="M8 7.3V11.5" />,
-    <circle key="dot" cx="8" cy="5" r="0.4" fill="currentColor" />,
-  ),
-  quit: lineIcon(
-    <rect key="frame" x="1.5" y="3" width="13" height="10" rx="2" />,
-    <path key="cross" d="M6 6L10 10M10 6L6 10" />,
-  ),
+  // Settings, About and Quit are text-only rows, as in the macOS menu.
+  settings: null,
+  about: null,
+  quit: null,
 };
 
 interface MenuSurfaceProps {
