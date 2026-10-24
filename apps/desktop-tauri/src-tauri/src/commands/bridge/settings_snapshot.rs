@@ -162,6 +162,7 @@ pub struct SettingsSnapshot {
     float_bar_dark_text: bool,
     float_bar_show_reset_inline: bool,
     float_bar_show_cost: bool,
+    float_bar_show_weekly: bool,
     promote_tray_icon: bool,
     claude_daily_routines_usage_visible: bool,
     claude_allow_reading_claude_code_credentials: bool,
@@ -352,6 +353,7 @@ impl From<Settings> for SettingsSnapshot {
             float_bar_dark_text: settings.float_bar_dark_text,
             float_bar_show_reset_inline: settings.float_bar_show_reset_inline,
             float_bar_show_cost: settings.float_bar_show_cost,
+            float_bar_show_weekly: settings.float_bar_show_weekly,
             promote_tray_icon: settings.promote_tray_icon,
             claude_daily_routines_usage_visible: settings.claude_daily_routines_usage_visible,
             claude_allow_reading_claude_code_credentials: settings

@@ -353,6 +353,7 @@ export interface SettingsSnapshot {
   floatBarShowResetInline: boolean;
   /** When true, scan and render local cost summaries. */
   floatBarShowCost: boolean;
+  floatBarShowWeekly: boolean;
   /** Promote the tray icon out of the Windows hidden-icons overflow (Win11 only). */
   promoteTrayIcon?: boolean;
   /** When true, show Claude Daily Routines quota row (default true). */
@@ -511,6 +512,7 @@ export interface SettingsUpdate {
   floatBarDarkText?: boolean;
   floatBarShowResetInline?: boolean;
   floatBarShowCost?: boolean;
+  floatBarShowWeekly?: boolean;
   promoteTrayIcon?: boolean;
   claudeDailyRoutinesUsageVisible?: boolean;
   alibabaTokenPlanRegion?: string;
