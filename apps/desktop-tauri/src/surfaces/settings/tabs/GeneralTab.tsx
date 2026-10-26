@@ -139,6 +139,9 @@ function isNotificationSoundTheme(v: string): v is NotificationSoundTheme {
   return v === "windows" || v === "codexBar";
 }
 
+/** Lead-time choices for pace warnings, in hours; 0 (any time) is listed first. */
+const PACE_WARNING_LEAD_HOURS = [6, 12, 24, 48] as const;
+
 export default function GeneralTab({
   mode = "general",
   settings,
@@ -542,6 +545,25 @@ function NotificationsPane({
             ariaLabel={t("PredictivePaceWarnings")}
             disabled={saving || alertsMuted}
             onChange={(v) => set({ predictivePaceWarningEnabled: v })}
+          />
+        </Field>
+        <Field
+          label={t("PredictivePaceWarningLeadLabel")}
+          description={t("PredictivePaceWarningLeadHelper")}
+        >
+          <Select
+            variant="menu"
+            value={String(settings.predictivePaceWarningLeadHours ?? 0)}
+            disabled={saving || alertsMuted || !settings.predictivePaceWarningEnabled}
+            ariaLabel={t("PredictivePaceWarningLeadLabel")}
+            options={[
+              { value: "0", label: t("PredictivePaceWarningLeadAny") },
+              ...PACE_WARNING_LEAD_HOURS.map((hours) => ({
+                value: String(hours),
+                label: t("PredictivePaceWarningLeadHours").replace("{}", String(hours)),
+              })),
+            ]}
+            onChange={(value) => set({ predictivePaceWarningLeadHours: Number(value) })}
           />
         </Field>
         {/* Independent of the master alerts switch, like the Mac: a reset is

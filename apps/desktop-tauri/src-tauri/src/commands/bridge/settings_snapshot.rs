@@ -78,6 +78,7 @@ pub struct SettingsSnapshot {
     provider_quota_warnings:
         std::collections::HashMap<String, codexbar::settings::ProviderQuotaWarnings>,
     predictive_pace_warning_enabled: bool,
+    predictive_pace_warning_lead_hours: u16,
     limit_reset_notifications_enabled: bool,
     credential_expiry_notifications_enabled: bool,
     session_quota_notifications_enabled: bool,
@@ -269,6 +270,7 @@ impl From<Settings> for SettingsSnapshot {
             critical_usage_threshold: settings.critical_usage_threshold,
             provider_quota_warnings,
             predictive_pace_warning_enabled: settings.predictive_pace_warning_enabled,
+            predictive_pace_warning_lead_hours: settings.predictive_pace_warning_lead_hours,
             limit_reset_notifications_enabled: settings.limit_reset_notifications_enabled,
             credential_expiry_notifications_enabled: settings
                 .credential_expiry_notifications_enabled,

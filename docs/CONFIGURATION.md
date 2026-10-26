@@ -169,6 +169,7 @@ Costs are list-price estimates, not billing receipts.
 | Session quota | `session_quota_notifications_enabled` | on |
 | Credential expiry | `credential_expiry_notifications_enabled` | off |
 | Predictive pace | `predictive_pace_warning_enabled` | off |
+| Warn when the run-out is within | `predictive_pace_warning_lead_hours` (0 = any time, up to 168) | 0 |
 | Warning at % used | `high_usage_threshold` | 70 |
 | Critical at % used | `critical_usage_threshold` | 90 |
 | Sound | `sound_enabled` | on |
@@ -346,7 +347,7 @@ These keys are exported (`ALLOWED_PREFERENCES` in `rust/src/settings/preferences
 | Group | Keys |
 | --- | --- |
 | Refresh | `refresh_interval_secs`, `adaptive_refresh`, `refresh_all_providers_on_menu_open`, `status_checks_enabled`, `low_power_mode_preference` |
-| Notifications | `show_notifications`, `session_quota_notifications_enabled`, `sound_enabled`, `high_usage_threshold`, `critical_usage_threshold`, `predictive_pace_warning_enabled` |
+| Notifications | `show_notifications`, `session_quota_notifications_enabled`, `sound_enabled`, `high_usage_threshold`, `critical_usage_threshold`, `predictive_pace_warning_enabled`, `predictive_pace_warning_lead_hours` |
 | Display | `show_pace`, `show_as_used`, `reset_time_relative`, `show_reset_when_exhausted`, `hide_personal_info`, `menu_bar_shows_highest_usage`, `menu_bar_shows_percent`, `menu_bar_icon_style`, `merged_overview_selected_providers`, `merged_overview_all_accounts`, `quota_warning_markers_visible`, `workday_tick_style`, `tray_icon_mode`, `switcher_shows_icons`, `providers_sorted_alphabetically`, `overview_layout`, `menu_bar_display_mode` |
 | Providers | `provider_order`, `enabled_providers`, `provider_metrics`, `provider_quota_warnings` |
 | Look | `theme`, `ui_language`, `ui_language_follows_system`, `window_scale_percent`, `tray_scale_percent` |

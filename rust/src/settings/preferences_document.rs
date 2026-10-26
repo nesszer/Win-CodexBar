@@ -84,6 +84,10 @@ const ALLOWED_PREFERENCES: &[(&str, Validator)] = &[
     ("high_usage_threshold", percent),
     ("critical_usage_threshold", percent),
     ("predictive_pace_warning_enabled", typed::<bool>),
+    (
+        "predictive_pace_warning_lead_hours",
+        predictive_pace_warning_lead_hours,
+    ),
     ("limit_reset_notifications_enabled", typed::<bool>),
     ("show_pace", typed::<bool>),
     ("show_as_used", typed::<bool>),
@@ -221,6 +225,12 @@ fn uint_in<const MIN: u64, const MAX: u64>(value: &Value) -> bool {
 
 /// `0` is manual refresh; otherwise the interval must be at least a minute
 /// (the shortest option offered in Settings) and at most a day.
+fn predictive_pace_warning_lead_hours(value: &Value) -> bool {
+    value
+        .as_u64()
+        .is_some_and(|hours| hours <= u64::from(super::MAX_PREDICTIVE_PACE_WARNING_LEAD_HOURS))
+}
+
 fn refresh_interval_secs(value: &Value) -> bool {
     value
         .as_u64()

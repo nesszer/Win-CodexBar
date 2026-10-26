@@ -135,6 +135,7 @@ export function baseSettings(overrides: Partial<SettingsSnapshot> = {}): Setting
     criticalUsageThreshold: 90,
     providerQuotaWarnings: {},
     predictivePaceWarningEnabled: false,
+    predictivePaceWarningLeadHours: 0,
     limitResetNotificationsEnabled: false,
     credentialExpiryNotificationsEnabled: false,
     sessionQuotaNotificationsEnabled: true,

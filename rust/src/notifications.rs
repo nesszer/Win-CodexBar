@@ -215,6 +215,36 @@ impl NotificationManager {
         rate_window: &RateWindow,
         pace: &UsagePace,
     ) -> bool {
+        self.record_predictive_observation_within(
+            enabled,
+            provider,
+            identity,
+            window,
+            rate_window,
+            pace,
+            None,
+        )
+    }
+
+    /// Like [`Self::record_predictive_observation`], but with `lead_seconds`
+    /// the warning waits until the estimated run-out is that close. An
+    /// observation further out is not a warning and does not arm the
+    /// once-per-cycle dedupe, so the warning still fires later in the same
+    /// cycle once the run-out comes within the lead.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors record_predictive_observation plus the lead"
+    )]
+    pub fn record_predictive_observation_within(
+        &mut self,
+        enabled: bool,
+        provider: ProviderId,
+        identity: &str,
+        window: PredictiveWarningWindow,
+        rate_window: &RateWindow,
+        pace: &UsagePace,
+        lead_seconds: Option<f64>,
+    ) -> bool {
         if !enabled {
             self.predictive_warning_keys
                 .retain(|key| key.provider != provider);
@@ -251,10 +281,10 @@ impl NotificationManager {
         if pace.will_last_to_reset {
             return false;
         }
-        if !pace
-            .eta_seconds
-            .is_some_and(|eta| eta.is_finite() && eta > 0.0)
-        {
+        let Some(eta) = pace.eta_seconds.filter(|eta| eta.is_finite() && *eta > 0.0) else {
+            return false;
+        };
+        if lead_seconds.is_some_and(|lead| eta > lead) {
             return false;
         }
 
@@ -278,13 +308,14 @@ impl NotificationManager {
         pace: &UsagePace,
         settings: &Settings,
     ) {
-        if !self.record_predictive_observation(
+        if !self.record_predictive_observation_within(
             settings.show_notifications && settings.predictive_pace_warning_enabled,
             provider,
             identity,
             window,
             rate_window,
             pace,
+            settings.predictive_pace_warning_lead_seconds(),
         ) {
             return;
         }

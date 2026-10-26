@@ -37,6 +37,7 @@ fn test_settings_default() {
     assert_eq!(settings.critical_usage_threshold, 90.0);
     assert!(!settings.show_reset_when_exhausted);
     assert!(!settings.predictive_pace_warning_enabled);
+    assert_eq!(settings.predictive_pace_warning_lead_hours, 0);
     assert!(!settings.credential_expiry_notifications_enabled);
     assert!(settings.session_quota_notifications_enabled);
     assert!(settings.adaptive_refresh);
@@ -111,6 +112,32 @@ fn overview_layout_defaults_to_detailed_and_round_trips() {
         serde_json::from_str(r#"{ "enabled_providers": [], "overview_layout": "unsupported" }"#)
             .expect("unknown overview layout is accepted and normalized");
     assert_eq!(unknown.overview_layout, "detailed");
+}
+
+#[test]
+fn predictive_pace_warning_lead_hours_round_trips_and_is_capped_at_a_week() {
+    let defaulted = defaulted();
+    assert_eq!(defaulted.predictive_pace_warning_lead_hours, 0);
+    assert!(defaulted.predictive_pace_warning_lead_seconds().is_none());
+
+    let within_a_day = Settings {
+        predictive_pace_warning_lead_hours: 24,
+        ..Settings::default()
+    };
+    let (json, loaded) = round_trip(&within_a_day);
+    assert!(json.contains(r#""predictive_pace_warning_lead_hours":24"#));
+    assert_eq!(loaded.predictive_pace_warning_lead_hours, 24);
+    assert_eq!(
+        loaded.predictive_pace_warning_lead_seconds(),
+        Some(86_400.0)
+    );
+
+    let too_long = Settings {
+        predictive_pace_warning_lead_hours: 500,
+        ..Settings::default()
+    };
+    let (_, loaded) = round_trip(&too_long);
+    assert_eq!(loaded.predictive_pace_warning_lead_hours, 168);
 }
 
 #[test]

@@ -237,6 +237,8 @@ export interface SettingsSnapshot {
   /** Per-provider quota warnings keyed by CLI name; Global providers are absent. */
   providerQuotaWarnings?: Record<string, ProviderQuotaWarnings>;
   predictivePaceWarningEnabled: boolean;
+  /** Hours before the estimated run-out a pace warning may show; 0 = any time. */
+  predictivePaceWarningLeadHours: number;
   /** Absent on older shells; the UI treats that as off. */
   limitResetNotificationsEnabled?: boolean;
   credentialExpiryNotificationsEnabled: boolean;
@@ -422,6 +424,7 @@ export interface SettingsUpdate {
   /** Replaces each listed provider's whole value; `{}` resets it to Global. */
   providerQuotaWarnings?: Record<string, ProviderQuotaWarnings>;
   predictivePaceWarningEnabled?: boolean;
+  predictivePaceWarningLeadHours?: number;
   limitResetNotificationsEnabled?: boolean;
   credentialExpiryNotificationsEnabled?: boolean;
   sessionQuotaNotificationsEnabled?: boolean;

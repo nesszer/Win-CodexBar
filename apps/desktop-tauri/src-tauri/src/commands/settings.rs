@@ -28,6 +28,7 @@ pub struct SettingsUpdate {
     pub provider_quota_warnings:
         Option<std::collections::HashMap<String, codexbar::settings::ProviderQuotaWarnings>>,
     pub predictive_pace_warning_enabled: Option<bool>,
+    pub predictive_pace_warning_lead_hours: Option<u16>,
     pub limit_reset_notifications_enabled: Option<bool>,
     pub credential_expiry_notifications_enabled: Option<bool>,
     pub session_quota_notifications_enabled: Option<bool>,
@@ -480,6 +481,10 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.predictive_pace_warning_enabled {
             settings.predictive_pace_warning_enabled = v;
+        }
+        if let Some(v) = self.predictive_pace_warning_lead_hours {
+            settings.predictive_pace_warning_lead_hours =
+                codexbar::settings::clamp_predictive_pace_warning_lead_hours(v);
         }
         if let Some(v) = self.limit_reset_notifications_enabled {
             settings.limit_reset_notifications_enabled = v;

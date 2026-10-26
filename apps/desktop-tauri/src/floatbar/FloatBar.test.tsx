@@ -153,6 +153,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     highUsageThreshold: 70,
     criticalUsageThreshold: 90,
     predictivePaceWarningEnabled: false,
+    predictivePaceWarningLeadHours: 0,
     credentialExpiryNotificationsEnabled: false,
     trayIconMode: "single",
     switcherShowsIcons: true,

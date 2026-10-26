@@ -263,6 +263,11 @@ pub struct Settings {
     #[serde(default)]
     pub predictive_pace_warning_enabled: bool,
 
+    /// Only warn once the estimated run-out is this many hours away or less.
+    /// `0` warns as soon as the pace predicts running out before the reset.
+    #[serde(default)]
+    pub predictive_pace_warning_lead_hours: u16,
+
     /// Announce when a session or weekly limit resets (opt-in).
     #[serde(default)]
     pub limit_reset_notifications_enabled: bool,
@@ -602,6 +607,13 @@ pub const TRAY_SCALE_PERCENT_MIN: u16 = 100;
 /// Largest Panel scale; `apps/desktop-tauri/src/lib/trayScale.ts` mirrors it.
 pub const TRAY_SCALE_PERCENT_MAX: u16 = 200;
 
+/// Longest lead a pace warning can wait for: a full weekly window.
+pub const MAX_PREDICTIVE_PACE_WARNING_LEAD_HOURS: u16 = 168;
+
+pub fn clamp_predictive_pace_warning_lead_hours(value: u16) -> u16 {
+    value.min(MAX_PREDICTIVE_PACE_WARNING_LEAD_HOURS)
+}
+
 pub fn clamp_tray_scale_percent(value: u16) -> u16 {
     value.clamp(TRAY_SCALE_PERCENT_MIN, TRAY_SCALE_PERCENT_MAX)
 }
@@ -809,6 +821,7 @@ impl Default for Settings {
             reset_time_relative: true, // Show relative times by default
             show_reset_when_exhausted: false,
             predictive_pace_warning_enabled: false,
+            predictive_pace_warning_lead_hours: 0,
             limit_reset_notifications_enabled: false,
             credential_expiry_notifications_enabled: false,
             session_quota_notifications_enabled: true,
@@ -893,6 +906,15 @@ pub fn normalize_overview_layout(value: &str) -> String {
 
 impl Settings {
     /// Check if a provider is enabled
+    /// How close the estimated run-out must be before a pace warning shows,
+    /// in seconds; `None` warns as soon as the pace predicts running out.
+    pub fn predictive_pace_warning_lead_seconds(&self) -> Option<f64> {
+        match self.predictive_pace_warning_lead_hours {
+            0 => None,
+            hours => Some(f64::from(hours) * 3600.0),
+        }
+    }
+
     pub fn is_provider_enabled(&self, id: ProviderId) -> bool {
         self.enabled_providers.contains(id.cli_name())
     }
