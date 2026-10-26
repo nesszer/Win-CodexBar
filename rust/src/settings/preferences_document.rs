@@ -123,6 +123,11 @@ const ALLOWED_PREFERENCES: &[(&str, Validator)] = &[
         "tray_scale_percent",
         uint_in::<{ super::TRAY_SCALE_PERCENT_MIN as u64 }, { super::TRAY_SCALE_PERCENT_MAX as u64 }>,
     ),
+    ("tray_panel_style", |v| one_of(v, &["classic", "modern"])),
+    (
+        "tray_panel_width",
+        uint_in::<{ super::TRAY_PANEL_WIDTH_MIN as u64 }, { super::TRAY_PANEL_WIDTH_MAX as u64 }>,
+    ),
     ("float_bar_opacity", uint_in::<30, 100>),
     ("float_bar_scale", uint_in::<75, 200>),
     ("float_bar_orientation", |v| {

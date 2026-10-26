@@ -79,6 +79,9 @@ export type UpdateChannel = "stable" | "beta";
 
 export type ThemePreference = "auto" | "light" | "dark";
 
+/** Tray panel look: `modern` or the earlier `classic` layout. */
+export type TrayPanelStyle = "classic" | "modern";
+
 export type MenuBarDisplayMode = "minimal" | "compact" | "detailed";
 export type OverviewLayout = "detailed" | "compact";
 
@@ -309,6 +312,10 @@ export interface SettingsSnapshot {
   windowScalePercent: number;
   /** 100..=200 — clamped server-side. */
   trayScalePercent: number;
+  /** `modern` (labelled tabs, thick bars, collapsible Cost) or `classic`. */
+  trayPanelStyle: TrayPanelStyle;
+  /** 280..=560 logical px at 100 % Panel scale — clamped server-side. */
+  trayPanelWidth: number;
   /** Keep the tray panel above other windows after it loses focus. */
   trayPanelAlwaysOnTop: boolean;
   powertoysStatusPipeEnabled: boolean;
@@ -474,6 +481,8 @@ export interface SettingsUpdate {
   theme?: ThemePreference;
   windowScalePercent?: number;
   trayScalePercent?: number;
+  trayPanelStyle?: TrayPanelStyle;
+  trayPanelWidth?: number;
   trayPanelAlwaysOnTop?: boolean;
   powertoysStatusPipeEnabled?: boolean;
   shareUsageWithCli?: boolean;

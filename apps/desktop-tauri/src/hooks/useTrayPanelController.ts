@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { BootstrapState } from "../types/bridge";
+import type { BootstrapState, TrayPanelStyle } from "../types/bridge";
 import {
   beginFlyoutGesture,
   dismissTrayPanel,
@@ -26,7 +26,7 @@ import { useTrayPanelLayout } from "./useTrayPanelLayout";
 import type { MenuFooterRow } from "../components/MenuSurface";
 import { accountMenuAction } from "../lib/accountMenuRow";
 import { orderProviderSnapshots } from "../lib/providerOrder";
-import { clampTrayScalePercent } from "../lib/trayScale";
+import { clampTrayPanelWidth, clampTrayScalePercent } from "../lib/trayScale";
 import { selectOverviewProviders } from "../lib/overviewProviders";
 import { serviceStatusLine } from "../lib/serviceStatus";
 import {
@@ -48,7 +48,15 @@ interface ProviderLinks {
  * handlers. JSX stays in `TrayPanel`.
  */
 export function useTrayPanelController(state: BootstrapState) {
-  const { settings } = useSettings(state.settings);
+  const { settings, update } = useSettings(state.settings);
+  // Dragging a panel edge previews a width before it is saved; the saved width
+  // takes over again as soon as settings change.
+  const savedWidth = clampTrayPanelWidth(settings.trayPanelWidth);
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  useEffect(() => {
+    setDragWidth(null);
+  }, [savedWidth]);
+  const panelWidth = dragWidth ?? savedWidth;
   const {
     providers,
     isRefreshing,
@@ -67,6 +75,7 @@ export function useTrayPanelController(state: BootstrapState) {
   const surfaceTarget = useSurfaceTarget("trayPanel");
 
   const trayScale = clampTrayScalePercent(settings.trayScalePercent) / 100;
+  const panelStyle: TrayPanelStyle = settings.trayPanelStyle === "classic" ? "classic" : "modern";
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
   useEffect(() => {
@@ -265,9 +274,11 @@ export function useTrayPanelController(state: BootstrapState) {
       { id: "settings", label: t("MenuSettings"), shortcut: "Ctrl+,", onClick: openSettings },
       {
         id: "about",
-        label: appVersion
-          ? t("MenuAboutVersion").replace("{}", appVersion)
-          : t("MenuAbout"),
+        // The classic menu names the version; the modern one is text-only.
+        label:
+          panelStyle === "classic" && appVersion
+            ? t("MenuAboutVersion").replace("{}", appVersion)
+            : t("MenuAbout"),
         onClick: openAbout,
       },
       { id: "quit", label: t("MenuQuit"), shortcut: "Ctrl+Q", onClick: quitApp },
@@ -313,6 +324,7 @@ export function useTrayPanelController(state: BootstrapState) {
     detailMode: selectedProviderId !== null,
     layoutKey,
     zoom: trayScale,
+    baseWidth: panelWidth,
   });
 
   // Keyboard shortcuts
@@ -375,11 +387,25 @@ export function useTrayPanelController(state: BootstrapState) {
     void endFlyoutGesture().catch(() => {});
   }, []);
 
+  const handleResize = useCallback((width: number) => setDragWidth(width), []);
+  const handleResizeEnd = useCallback(
+    (width: number) => {
+      void endFlyoutGesture().catch(() => {});
+      void update({ trayPanelWidth: width }).catch(() => {});
+    },
+    [update],
+  );
+
   const revealClassName = `tray-panel-reveal${layoutReady ? " tray-panel-reveal--ready" : ""}`;
 
   return {
     t,
     settings,
+    panelStyle,
+    panelWidth,
+    handleResizeStart: handleGestureStart,
+    handleResize,
+    handleResizeEnd,
     isRefreshing,
     refreshingProviderIds,
     refresh,

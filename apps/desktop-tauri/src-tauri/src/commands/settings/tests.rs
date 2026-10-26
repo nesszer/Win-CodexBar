@@ -618,6 +618,29 @@ fn apply_display_settings_clamps_tray_scale_percent() {
 }
 
 #[test]
+fn apply_display_settings_sets_tray_panel_look() {
+    let mut settings = Settings::default();
+
+    SettingsUpdate {
+        tray_panel_style: Some("classic".to_string()),
+        tray_panel_width: Some(420),
+        ..Default::default()
+    }
+    .apply_display_settings(&mut settings);
+    assert_eq!(settings.tray_panel_style, "classic");
+    assert_eq!(settings.tray_panel_width, 420);
+
+    SettingsUpdate {
+        tray_panel_style: Some("neon".to_string()),
+        tray_panel_width: Some(2000),
+        ..Default::default()
+    }
+    .apply_display_settings(&mut settings);
+    assert_eq!(settings.tray_panel_style, "modern");
+    assert_eq!(settings.tray_panel_width, 560);
+}
+
+#[test]
 fn apply_display_settings_updates_tray_panel_always_on_top() {
     let mut settings = Settings::default();
     assert!(!settings.tray_panel_always_on_top);

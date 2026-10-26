@@ -29,6 +29,31 @@ body:has(.tray-panel-reveal),
   margin-top: auto;
 }
 
+/* Drag strips on both vertical edges of the panel (PanelResizeHandle). */
+.panel-resize-handle {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  width: 6px;
+  cursor: ew-resize;
+  touch-action: none;
+  background: transparent;
+  transition: background 120ms ease-out;
+}
+.panel-resize-handle--left {
+  left: 0;
+}
+.panel-resize-handle--right {
+  right: 0;
+}
+.panel-resize-handle:hover,
+.panel-resize-handle:focus-visible,
+.panel-resize-handle--active {
+  background: rgba(47, 107, 242, 0.32);
+  outline: none;
+}
+
 /* spin animation for refresh */
 @keyframes spin {
   to { transform: rotate(360deg); }

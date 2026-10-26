@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { ProviderUsageSnapshot } from "../types/bridge";
+import type { ProviderUsageSnapshot, TrayPanelStyle } from "../types/bridge";
 import { ProviderIcon } from "./providers/ProviderIcon";
 import { getProviderIcon } from "./providers/providerIcons";
 import { useLocale } from "../hooks/useLocale";
 import { prioritizeProviders, switcherWeeklyPercent } from "./providerGridUtils";
+
+const TAB_ROW_MAX = 8;
+const TAB_WRAP_MAX = 18;
 
 export default function ProviderGrid({
   providers,
   selectedProviderId,
   showAsUsed,
   showProviderIcons = true,
+  variant = "modern",
   expanded,
   onExpandedChange,
   onSelect,
@@ -21,6 +25,8 @@ export default function ProviderGrid({
   selectedProviderId: string | null;
   showAsUsed: boolean;
   showProviderIcons?: boolean;
+  /** Settings > Menu > Panel look; labelled tabs belong to the modern look. */
+  variant?: TrayPanelStyle;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   onSelect: (providerId: string | null) => void;
@@ -85,13 +91,20 @@ export default function ProviderGrid({
       : shouldCollapse
         ? " provider-grid--compact"
         : "";
+  // Labelled tabs while they fit: one row up to TAB_ROW_MAX items, wrapped
+  // rows up to TAB_WRAP_MAX; beyond that the dense icon grid takes over.
+  const tabLayout =
+    variant === "classic"
+      ? null
+      : totalItems <= TAB_ROW_MAX ? "row" : totalItems <= TAB_WRAP_MAX ? "wrap" : null;
   const labelFor = (name: string) =>
     densityClass.includes("compact") ? compactGridLabel(name) : name;
 
   return (
     <div
       ref={gridRef}
-      className={`provider-grid${densityClass}${showProviderIcons ? "" : " provider-grid--no-icons"}`}
+      className={`provider-grid${densityClass}${tabLayout ? " provider-grid--tabs" : ""}${showProviderIcons ? "" : " provider-grid--no-icons"}`}
+      data-tab-layout={tabLayout ?? undefined}
       data-provider-count={totalItems}
       data-expanded={isExpanded ? "true" : "false"}
       data-show-icons={showProviderIcons ? "true" : "false"}
@@ -102,7 +115,20 @@ export default function ProviderGrid({
         onClick={() => onSelect(null)}
         aria-label={t("PanelAllProviders")}
       >
-        {showProviderIcons && <span className="provider-grid__icon-overview">⊞</span>}
+        {showProviderIcons && (
+          <span className="provider-grid__icon-overview" aria-hidden={variant === "modern"}>
+            {variant === "modern" ? (
+              <svg viewBox="0 0 16 16" fill="currentColor">
+                <rect x="2" y="2" width="5" height="5" rx="1.2" />
+                <rect x="9" y="2" width="5" height="5" rx="1.2" />
+                <rect x="2" y="9" width="5" height="5" rx="1.2" />
+                <rect x="9" y="9" width="5" height="5" rx="1.2" />
+              </svg>
+            ) : (
+              "⊞"
+            )}
+          </span>
+        )}
         <span className="provider-grid__label">{t("PanelAllProvidersShort")}</span>
       </button>
       {visibleProviders.map((p) => (

@@ -4,6 +4,7 @@ import { loadStyles, loadStylesheet, ruleBlock } from "../test/styles";
 // jsdom never applies CSS, so these pin the card anatomy rules (spec 3.1-3.8, 5)
 // in the stylesheet text.
 const tray = loadStylesheet("surfaces/tray-card.css");
+const modern = loadStylesheet("surfaces/tray-card-modern.css");
 const settings = loadStylesheet("surfaces/settings/settings-layout.css");
 const base = loadStyles();
 const main = loadStylesheet("main.tsx");
@@ -167,5 +168,97 @@ describe("Settings usage details", () => {
     expect(ruleBlock(settings, ".provider-usage-details__budget-value")).toContain(
       "border-radius: 4px",
     );
+  });
+});
+
+const MODERN = ".menu-surface--tray.menu-surface--modern";
+
+describe("modern tray stylesheet", () => {
+  it("loads before the classic tray stylesheet in both entry points", () => {
+    for (const entry of ["main.tsx", "proof/main.tsx"]) {
+      const imports = [...loadStylesheet(entry).matchAll(/^import "(.+\.css)";$/gm)].map(
+        (match) => match[1].replace(/^\.\.?\//, ""),
+      );
+      expect(imports.indexOf("surfaces/tray-card-modern.css"), entry).toBeGreaterThan(-1);
+      expect(imports.indexOf("surfaces/tray-card-modern.css"), entry).toBe(
+        imports.indexOf("surfaces/tray-card.css") - 1,
+      );
+    }
+  });
+
+  it("scopes every rule to the modern look so the classic one is untouched", () => {
+    const withoutComments = modern.replace(/\/\*[\s\S]*?\*\//g, "");
+    const selectors = [...withoutComments.matchAll(/(^|})\s*([^{}@]+)\{/g)].map((m) => m[2].trim());
+    expect(selectors.length).toBeGreaterThan(20);
+    for (const group of selectors) {
+      for (const selector of group.split(",")) {
+        expect(selector.trim(), group).toMatch(/^\.menu-surface--tray\.menu-surface--modern\b/);
+      }
+    }
+  });
+
+  it("sets the surface on a tinted fill with no frame and the larger type scale", () => {
+    const surface = ruleBlock(modern, MODERN);
+    expect(surface).toContain("background: var(--mac-panel-fill)");
+    expect(surface).toContain("border: 0");
+    expect(surface).toContain("--mac-pad-x: 16px");
+    expect(surface).toContain("--mac-text-body-medium: 600 14px/18px");
+  });
+
+  it("restyles the switcher: rounder pill and a tinted hover", () => {
+    const item = ruleBlock(modern, `${MODERN} .provider-grid__item`);
+    expect(item).toContain("border-radius: 8px");
+    expect(item).toContain("transition: none");
+    expect(ruleBlock(modern, `${MODERN} .provider-grid__item:hover`)).toContain(
+      "rgba(40, 40, 110, 0.1)",
+    );
+  });
+
+  it("draws labelled tabs with a 3px quota underline", () => {
+    const tab = ruleBlock(modern, `${MODERN} .provider-grid--tabs .provider-grid__item`);
+    expect(tab).toContain("flex: 1 1 0");
+    expect(tab).toContain("width: auto");
+    expect(ruleBlock(modern, `${MODERN} .provider-grid--tabs .provider-grid__label`)).toContain(
+      "display: block",
+    );
+    const track = ruleBlock(modern, `${MODERN} .provider-grid--tabs .provider-grid__weekly-track`);
+    expect(track).toContain("height: 3px");
+    expect(track).toContain("width: auto");
+  });
+
+  it("gives the All tab room for a localized label and lets it spill instead of clipping", () => {
+    const first = `${MODERN} .provider-grid--tabs[data-tab-layout="row"] .provider-grid__item:first-child`;
+    expect(ruleBlock(modern, first)).toContain("flex: 0 0 38px");
+    expect(ruleBlock(modern, `${first} .provider-grid__label`)).toContain("overflow: visible");
+  });
+
+  it("puts the percent left and the reset right on the line under the bar", () => {
+    expect(ruleBlock(modern, `${MODERN} .menu-metric__head`)).toContain("flex-wrap: nowrap");
+    expect(ruleBlock(modern, `${MODERN} .menu-metric__head .menu-metric__reset`)).toContain(
+      "margin-left: auto",
+    );
+  });
+
+  it("styles the Cost section as a toggle row with a rotating chevron", () => {
+    expect(ruleBlock(modern, `${MODERN} .card-dash__toggle`)).toContain(
+      "justify-content: space-between",
+    );
+    expect(
+      ruleBlock(
+        modern,
+        `${MODERN} .card-dash__toggle[aria-expanded="true"] .card-dash__chevron`,
+      ),
+    ).toContain("rotate(90deg)");
+    expect(ruleBlock(modern, `${MODERN} .card-dash__body[hidden]`)).toContain("display: none");
+  });
+
+  it("hides the shortcut hints in the text-only menu", () => {
+    expect(ruleBlock(modern, `${MODERN} .menu-surface__footer-shortcut`)).toContain(
+      "display: none",
+    );
+  });
+
+  it("keeps the Overview spend summary padded to the 16px card edge", () => {
+    expect(ruleBlock(modern, `${MODERN} .overview-spend`)).toContain("padding: 10px 16px");
   });
 });

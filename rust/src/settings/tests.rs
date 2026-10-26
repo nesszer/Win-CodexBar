@@ -437,6 +437,33 @@ fn raw_settings_clamps_tray_scale_on_load() {
 }
 
 #[test]
+fn tray_panel_look_defaults_to_modern_at_310_px() {
+    let settings = Settings::default();
+    assert_eq!(settings.tray_panel_style, "modern");
+    assert_eq!(settings.tray_panel_width, 310);
+}
+
+#[test]
+fn raw_settings_normalizes_tray_panel_look_on_load() {
+    let json = r#"{
+            "enabled_providers": ["claude", "codex"],
+            "refresh_interval_secs": 300,
+            "tray_panel_style": " Classic ",
+            "tray_panel_width": 900
+        }"#;
+    let loaded: Settings = serde_json::from_str(json).expect("parse settings");
+    assert_eq!(loaded.tray_panel_style, "classic");
+    assert_eq!(loaded.tray_panel_width, 560);
+
+    let unknown: Settings = serde_json::from_str(
+        r#"{"enabled_providers": [], "tray_panel_style": "glass", "tray_panel_width": 10}"#,
+    )
+    .expect("parse settings");
+    assert_eq!(unknown.tray_panel_style, "modern");
+    assert_eq!(unknown.tray_panel_width, 280);
+}
+
+#[test]
 fn float_bar_orientation_normalization_rejects_unknown_values() {
     assert_eq!(normalize_float_bar_orientation("horizontal"), "horizontal");
     assert_eq!(normalize_float_bar_orientation("vertical"), "vertical");

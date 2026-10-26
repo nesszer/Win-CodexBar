@@ -325,6 +325,10 @@ pub(super) struct RawSettings {
     window_scale_percent: u16,
     #[serde(default = "default_tray_scale_percent")]
     tray_scale_percent: u16,
+    #[serde(default = "default_tray_panel_style")]
+    tray_panel_style: String,
+    #[serde(default = "default_tray_panel_width")]
+    tray_panel_width: u16,
     #[serde(default)]
     tray_panel_always_on_top: bool,
     #[serde(default)]
@@ -492,6 +496,8 @@ impl Default for RawSettings {
             theme: s.theme,
             window_scale_percent: s.window_scale_percent,
             tray_scale_percent: s.tray_scale_percent,
+            tray_panel_style: s.tray_panel_style,
+            tray_panel_width: s.tray_panel_width,
             tray_panel_always_on_top: s.tray_panel_always_on_top,
             powertoys_status_pipe_enabled: s.powertoys_status_pipe_enabled,
             share_usage_with_cli: s.share_usage_with_cli,
@@ -854,6 +860,8 @@ impl From<RawSettings> for Settings {
             theme: raw.theme,
             window_scale_percent: clamp_window_scale_percent(raw.window_scale_percent),
             tray_scale_percent: clamp_tray_scale_percent(raw.tray_scale_percent),
+            tray_panel_style: normalize_tray_panel_style(&raw.tray_panel_style),
+            tray_panel_width: clamp_tray_panel_width(raw.tray_panel_width),
             tray_panel_always_on_top: raw.tray_panel_always_on_top,
             powertoys_status_pipe_enabled: raw.powertoys_status_pipe_enabled,
             share_usage_with_cli: raw.share_usage_with_cli,

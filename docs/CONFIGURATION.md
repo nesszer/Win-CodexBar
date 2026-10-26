@@ -218,6 +218,8 @@ These controls set the tray panel and the float bar.
 | Keep the tray panel on top | `tray_panel_always_on_top` | off |
 | Show reset time when exhausted | `show_reset_when_exhausted` | off |
 | Panel scale | `tray_scale_percent` (100 to 200, step 5) | 100 |
+| Panel look | `tray_panel_style` (`modern` or `classic`) | `modern` |
+| Panel width | `tray_panel_width` (280 to 560 logical px at 100 % scale; drag a panel edge to change it, double-click the edge to reset) | 310 |
 | Overview layout | `overview_layout` (`detailed`, `compact`) | `detailed` |
 | Show all token accounts | `show_all_token_accounts_in_menu` | off |
 | Stay awake | `stay_awake_enabled` | off |
@@ -349,7 +351,7 @@ These keys are exported (`ALLOWED_PREFERENCES` in `rust/src/settings/preferences
 | Notifications | `show_notifications`, `session_quota_notifications_enabled`, `sound_enabled`, `high_usage_threshold`, `critical_usage_threshold`, `predictive_pace_warning_enabled` |
 | Display | `show_pace`, `show_as_used`, `reset_time_relative`, `show_reset_when_exhausted`, `hide_personal_info`, `menu_bar_shows_highest_usage`, `menu_bar_shows_percent`, `menu_bar_icon_style`, `merged_overview_selected_providers`, `merged_overview_all_accounts`, `quota_warning_markers_visible`, `workday_tick_style`, `tray_icon_mode`, `switcher_shows_icons`, `providers_sorted_alphabetically`, `overview_layout`, `menu_bar_display_mode` |
 | Providers | `provider_order`, `enabled_providers`, `provider_metrics`, `provider_quota_warnings` |
-| Look | `theme`, `ui_language`, `ui_language_follows_system`, `window_scale_percent`, `tray_scale_percent` |
+| Look | `theme`, `ui_language`, `ui_language_follows_system`, `window_scale_percent`, `tray_scale_percent`, `tray_panel_style`, `tray_panel_width` |
 | Float bar | `float_bar_opacity`, `float_bar_scale`, `float_bar_orientation`, `float_bar_style`, `float_bar_dark_text`, `float_bar_show_reset_inline`, `float_bar_show_cost` |
 | Cost | `cost_reporting_period`, `cost_usage_enabled`, `spend_dashboard_period`, `spend_dashboard_hidden_source_ids`, `preferred_currency_code` |
 | Shortcuts | `switcher_shortcuts` |

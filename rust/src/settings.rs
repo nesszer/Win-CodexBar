@@ -411,6 +411,16 @@ pub struct Settings {
     #[serde(default = "default_tray_scale_percent")]
     pub tray_scale_percent: u16,
 
+    /// Tray flyout look: `modern` (labelled tabs, thick quota bars, collapsible
+    /// Cost) or `classic` (the compact icon switcher and the inline dashboard).
+    #[serde(default = "default_tray_panel_style")]
+    pub tray_panel_style: String,
+
+    /// Tray flyout width in logical px at 100 % Panel scale, in the inclusive
+    /// range 280..=560. Dragging a flyout edge changes it.
+    #[serde(default = "default_tray_panel_width")]
+    pub tray_panel_width: u16,
+
     /// Keep the tray flyout above other windows after it loses focus.
     /// Disabled by default so the flyout retains normal z-order behavior.
     #[serde(default)]
@@ -604,6 +614,33 @@ pub const TRAY_SCALE_PERCENT_MAX: u16 = 200;
 
 pub fn clamp_tray_scale_percent(value: u16) -> u16 {
     value.clamp(TRAY_SCALE_PERCENT_MIN, TRAY_SCALE_PERCENT_MAX)
+}
+
+fn default_tray_panel_style() -> String {
+    "modern".to_string()
+}
+
+pub fn normalize_tray_panel_style(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "classic" => "classic".to_string(),
+        "modern" => "modern".to_string(),
+        _ => default_tray_panel_style(),
+    }
+}
+
+/// Default flyout width; `apps/desktop-tauri/src/lib/trayScale.ts` mirrors it.
+pub const TRAY_PANEL_WIDTH_DEFAULT: u16 = 310;
+/// Narrowest flyout width; `apps/desktop-tauri/src/lib/trayScale.ts` mirrors it.
+pub const TRAY_PANEL_WIDTH_MIN: u16 = 280;
+/// Widest flyout width; `apps/desktop-tauri/src/lib/trayScale.ts` mirrors it.
+pub const TRAY_PANEL_WIDTH_MAX: u16 = 560;
+
+fn default_tray_panel_width() -> u16 {
+    TRAY_PANEL_WIDTH_DEFAULT
+}
+
+pub fn clamp_tray_panel_width(value: u16) -> u16 {
+    value.clamp(TRAY_PANEL_WIDTH_MIN, TRAY_PANEL_WIDTH_MAX)
 }
 
 fn default_float_bar_opacity() -> u8 {
@@ -842,6 +879,8 @@ impl Default for Settings {
             theme: ThemePreference::default(), // Auto (follows prefers-color-scheme)
             window_scale_percent: default_window_scale_percent(),
             tray_scale_percent: default_tray_scale_percent(),
+            tray_panel_style: default_tray_panel_style(),
+            tray_panel_width: default_tray_panel_width(),
             tray_panel_always_on_top: false,
             powertoys_status_pipe_enabled: false,
             share_usage_with_cli: false,

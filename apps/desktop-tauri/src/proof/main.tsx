@@ -5,6 +5,7 @@ import { parseProofParams } from "./params";
 import "../styles.css";
 import "../surfaces/settings/settings-layout.css";
 import "../surfaces/menu-surface-layout.css";
+import "../surfaces/tray-card-modern.css";
 import "../surfaces/tray-card.css";
 
 installProofMocks(parseProofParams(window.location.search));

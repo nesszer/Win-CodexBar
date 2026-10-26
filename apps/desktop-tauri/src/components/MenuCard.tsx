@@ -1,8 +1,9 @@
-import { type CSSProperties, useEffect, useState } from "react";
+import { Fragment, type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import type {
   CostSummaryDisplayStyle,
   ProviderChartData,
   ProviderUsageSnapshot,
+  TrayPanelStyle,
   UsageSpendSummary,
   WorkdayTickStyle,
 } from "../types/bridge";
@@ -59,6 +60,8 @@ export interface MenuCardDisplayOptions {
    * they are not read for such a row.
    */
   accountScoped?: boolean;
+  /** Settings > Menu > Panel look; defaults to modern. */
+  panelStyle?: TrayPanelStyle;
 }
 
 interface MenuCardProps {
@@ -146,10 +149,9 @@ function cardMetrics(
 }
 
 /**
- * Provider card, following upstream `UsageMenuCardView` (0.70.0), top to bottom:
- * header, divider, rate-window rows, key-value sections, the inline usage
- * dashboard, the local Conversations list (upstream's Cost submenu list),
- * then the extra usage block. Account switching, pace budgets,
+ * Provider card, top to bottom: header, divider, rate-window rows, key-value
+ * sections, the extra usage block, the collapsible Cost dashboard and the local
+ * Conversations list, each section set off by a hairline. Account switching, pace budgets,
  * forecasts, burndown and pricing details live in Settings > Providers.
  */
 export default function MenuCard({
@@ -174,6 +176,7 @@ export default function MenuCard({
     costTrackingEnabled = true,
     costReportingPeriod,
     accountScoped = false,
+    panelStyle = "modern",
   } = display;
   const { t, language } = useLocale();
   const provider = projectClaudeSections(reportedProvider.providerId, reportedProvider);
@@ -294,7 +297,112 @@ export default function MenuCard({
     quotaWarningMarkersVisible,
     weeklyProgressWorkDays,
     workdayTickStyle,
+    panelStyle,
   };
+
+  // Card sections in screen order. Modern sets every neighbouring pair off with a
+  // hairline and puts the extra usage block before Cost; classic keeps the extra
+  // usage block last, set off by a single hairline.
+  const modern = panelStyle !== "classic";
+  const sections: { key: string; node: ReactNode }[] = [];
+  if (presence.hasMetrics || presence.planDateNote) {
+    sections.push({
+      key: "metrics",
+      node: (
+        <>
+          {presence.hasMetrics && (
+            <section className="menu-card__metrics">
+              {metrics.map((metric) => (
+                <CardMetricRow
+                  key={metric.id}
+                  title={metric.label}
+                  snap={metric.snap}
+                  lane={metric.lane}
+                  providerId={provider.providerId}
+                  display={metricDisplay}
+                  resetFormatMode={metric.resetFormatMode}
+                />
+              ))}
+            </section>
+          )}
+          {presence.planDateNote && <p className="card-notes">{presence.planDateNote}</p>}
+        </>
+      ),
+    });
+  }
+  if (showDetailSections) {
+    sections.push({
+      key: "details",
+      node: (
+        <DetailSections
+          details={provider.displayDetails ?? []}
+          inventory={provider.inventory ?? []}
+          hiddenUsageItemIds={provider.hiddenUsageItemIds}
+          resetTimeRelative={resetTimeRelative}
+        />
+      ),
+    });
+  }
+  if (presence.wayfinderUsage) {
+    sections.push({ key: "wayfinder", node: <WayfinderBlock usage={presence.wayfinderUsage} /> });
+  }
+  if (presence.openAiThroughput) {
+    sections.push({
+      key: "openai-throughput",
+      node: (
+        <OpenAILiveSpendChart
+          key={provider.providerId}
+          providerId={provider.providerId}
+          throughput={presence.openAiThroughput}
+          usage={provider.openAiApiUsage}
+          t={t}
+        />
+      ),
+    });
+  }
+  if (showCost && provider.cost) {
+    sections.push({
+      key: "extra-usage",
+      node: (
+        <ExtraUsageBlock
+          providerId={provider.providerId}
+          cost={provider.cost}
+          style={costSummaryDisplayStyle}
+          resetTimeRelative={resetTimeRelative}
+        />
+      ),
+    });
+  }
+  if (dashboard) {
+    sections.push({
+      key: "dashboard",
+      node: (
+        <InlineDashboard
+          model={dashboard}
+          onToggle={() => requestAnimationFrame(() => onLayoutChange?.())}
+          collapsible={modern}
+        />
+      ),
+    });
+  }
+  if (presence.conversations) {
+    sections.push({
+      key: "conversations",
+      node: (
+        <CardConversations
+          model={presence.conversations}
+          onToggle={() => requestAnimationFrame(() => onLayoutChange?.())}
+        />
+      ),
+    });
+  }
+
+  const ordered = modern
+    ? sections
+    : [
+        ...sections.filter((section) => section.key !== "extra-usage"),
+        ...sections.filter((section) => section.key === "extra-usage"),
+      ];
 
   const cardClassName = [
     "menu-card",
@@ -325,65 +433,17 @@ export default function MenuCard({
 
       {presence.hasDetails && (
         <div className="menu-card__content">
-          {presence.hasMetrics && (
-            <section className="menu-card__metrics">
-              {metrics.map((metric) => (
-                <CardMetricRow
-                  key={metric.id}
-                  title={metric.label}
-                  snap={metric.snap}
-                  lane={metric.lane}
-                  providerId={provider.providerId}
-                  display={metricDisplay}
-                  resetFormatMode={metric.resetFormatMode}
-                />
-              ))}
-            </section>
-          )}
-          {presence.planDateNote && <p className="card-notes">{presence.planDateNote}</p>}
-          {showDetailSections && (
-            <DetailSections
-              details={provider.displayDetails ?? []}
-              inventory={provider.inventory ?? []}
-              hiddenUsageItemIds={provider.hiddenUsageItemIds}
-              resetTimeRelative={resetTimeRelative}
-            />
-          )}
-          {presence.wayfinderUsage && <WayfinderBlock usage={presence.wayfinderUsage} />}
-          {presence.openAiThroughput && (
-            <OpenAILiveSpendChart
-              key={provider.providerId}
-              providerId={provider.providerId}
-              throughput={presence.openAiThroughput}
-              usage={provider.openAiApiUsage}
-              t={t}
-            />
-          )}
-          {dashboard && <InlineDashboard model={dashboard} />}
-          {presence.conversations && (
-            <CardConversations
-              model={presence.conversations}
-              onToggle={() => requestAnimationFrame(() => onLayoutChange?.())}
-            />
-          )}
-          {showCost && provider.cost && (
-            <>
-              {(presence.hasMetrics ||
-                presence.planDateNote ||
-                showDetailSections ||
-                presence.openAiThroughput ||
-                dashboard ||
-                presence.conversations) && (
+          {ordered.map((section, index) => (
+            <Fragment key={section.key}>
+              {(modern
+                ? index > 0
+                : section.key === "extra-usage" &&
+                  ordered.slice(0, index).some((earlier) => earlier.key !== "wayfinder")) && (
                 <div className="menu-card__separator" />
               )}
-              <ExtraUsageBlock
-                providerId={provider.providerId}
-                cost={provider.cost}
-                style={costSummaryDisplayStyle}
-                resetTimeRelative={resetTimeRelative}
-              />
-            </>
-          )}
+              {section.node}
+            </Fragment>
+          ))}
         </div>
       )}
     </article>

@@ -11,8 +11,8 @@ import {
   recordAutoFitCommit,
   type TrayAutoFitState,
 } from "../lib/traySizing";
+import { TRAY_PANEL_WIDTH_DEFAULT } from "../lib/trayScale";
 
-const TRAY_BASE_WIDTH = 310;
 const TRAY_MAX_MEASURE_HEIGHT = 920;
 const TRAY_OVERVIEW_MIN_HEIGHT = 200;
 const TRAY_DETAIL_MIN_HEIGHT = 420;
@@ -25,6 +25,8 @@ export interface TrayPanelLayoutOptions {
   detailMode: boolean;
   layoutKey: string;
   zoom?: number;
+  /** Panel width in px at 100 % scale (Settings, or a drag in progress). */
+  baseWidth?: number;
 }
 
 export interface TrayPanelLayout {
@@ -38,6 +40,7 @@ export function useTrayPanelLayout({
   detailMode,
   layoutKey,
   zoom = 1,
+  baseWidth = TRAY_PANEL_WIDTH_DEFAULT,
 }: TrayPanelLayoutOptions): TrayPanelLayout {
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutRevision, setLayoutRevision] = useState(0);
@@ -115,7 +118,7 @@ export function useTrayPanelLayout({
       : denseOverview
         ? TRAY_DENSE_OVERVIEW_HEIGHT
         : TRAY_OVERVIEW_MIN_HEIGHT;
-    const width = Math.round(TRAY_BASE_WIDTH * zoom);
+    const width = Math.round(baseWidth * zoom);
 
     const resize = async () => {
       const run = ++resizeRunRef.current;
@@ -297,7 +300,7 @@ export function useTrayPanelLayout({
       window.clearTimeout(timer);
       resizeRunRef.current += 1;
     };
-  }, [canMeasure, denseOverview, detailMode, layoutRevision, applySize, zoom]);
+  }, [canMeasure, denseOverview, detailMode, layoutRevision, applySize, zoom, baseWidth]);
 
   return { layoutReady, requestLayout };
 }

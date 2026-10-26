@@ -55,10 +55,10 @@ describe("MenuSummary", () => {
   });
 });
 
-function renderFooter(groups: MenuFooterRow[][]) {
+function renderFooter(groups: MenuFooterRow[][], variant?: "classic" | "modern") {
   return render(
     <LocaleProvider>
-      <MenuSurface footerGroups={groups}>
+      <MenuSurface footerGroups={groups} variant={variant}>
         <div>cards</div>
       </MenuSurface>
     </LocaleProvider>,
@@ -116,7 +116,7 @@ describe("MenuSurface footer", () => {
     ]);
   });
 
-  it("draws an SVG icon on every row except Refresh, which gets the taller row", async () => {
+  it("draws an SVG icon on the provider action rows only, and Refresh gets the taller row", async () => {
     const noop = vi.fn();
     renderFooter([
       [
@@ -132,13 +132,44 @@ describe("MenuSurface footer", () => {
 
     const nav = await screen.findByRole("navigation", { name: "PanelMenu" });
     const rows = within(nav).getAllByRole("button");
-    expect(rows.map((row) => row.querySelectorAll("svg").length)).toEqual([1, 1, 1, 0, 1, 1, 1]);
+    expect(rows.map((row) => row.querySelectorAll("svg").length)).toEqual([1, 1, 1, 0, 0, 0, 0]);
     expect(
       rows.map((row) => row.classList.contains("menu-surface__footer-row--refresh")),
     ).toEqual([false, false, false, true, false, false, false]);
     expect(
       Array.from(nav.querySelectorAll(".menu-surface__footer-shortcut")).map((s) => s.textContent),
     ).toEqual(["Ctrl+R", "Ctrl+,", "Ctrl+Q"]);
+  });
+
+  it("classic puts an icon on every row but Refresh and tags the surface", async () => {
+    const noop = vi.fn();
+    const { container } = renderFooter(
+      [
+        [
+          { id: "dashboard", label: "Usage Dashboard", onClick: noop },
+          { id: "refresh", label: "Refresh", shortcut: "Ctrl+R", onClick: noop },
+          { id: "settings", label: "Settings...", shortcut: "Ctrl+,", onClick: noop },
+          { id: "about", label: "About CodexBar", onClick: noop },
+          { id: "quit", label: "Quit", shortcut: "Ctrl+Q", onClick: noop },
+        ],
+      ],
+      "classic",
+    );
+
+    const nav = await screen.findByRole("navigation", { name: "PanelMenu" });
+    expect(
+      within(nav)
+        .getAllByRole("button")
+        .map((row) => row.querySelectorAll("svg").length),
+    ).toEqual([1, 0, 1, 1, 1]);
+    expect(container.querySelector(".menu-surface--tray")).toHaveClass("menu-surface--classic");
+    expect(container.querySelector(".menu-surface--modern")).toBeNull();
+  });
+
+  it("tags the surface modern by default", async () => {
+    const { container } = renderFooter([[{ id: "quit", label: "Quit", onClick: vi.fn() }]]);
+    await screen.findByRole("navigation", { name: "PanelMenu" });
+    expect(container.querySelector(".menu-surface--tray")).toHaveClass("menu-surface--modern");
   });
 
   it("skips empty groups, so no separator is drawn for them", async () => {
