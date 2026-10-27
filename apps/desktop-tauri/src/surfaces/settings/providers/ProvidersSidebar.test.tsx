@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { loadStyles, ruleBlock } from "../../../test/styles";
+import { loadStyles, loadStylesheet, ruleBlock } from "../../../test/styles";
 import { ProvidersSidebar, type ProviderSidebarRow } from "./ProvidersSidebar";
 
 vi.mock("../../../hooks/useLocale", () => ({
@@ -101,6 +101,16 @@ describe("ProvidersSidebar", () => {
     ]) {
       expect(light).toContain(decl);
     }
+  });
+
+  it("draws the sidebar glyphs white on dark and dark on light", () => {
+    const css = loadStylesheet("surfaces/settings/settings-layout.css");
+    expect(ruleBlock(css, ".providers-sidebar__row .provider-icon")).toContain(
+      "filter: brightness(0) invert(1);",
+    );
+    const light = ruleBlock(css, '[data-theme="light"] .providers-sidebar__row .provider-icon');
+    expect(light).toContain("filter: brightness(0);");
+    expect(light).not.toContain("invert");
   });
 
   it("says when no provider matches", () => {

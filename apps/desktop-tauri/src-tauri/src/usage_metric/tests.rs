@@ -477,6 +477,7 @@ fn mistral_monthly_plan_never_selects_a_spend_window() {
         daily: Vec::new(),
         always_visible: false,
         folded_into_primary: false,
+        pay_as_you_go: false,
         title_key: None,
     });
     let settings = metric_settings(ProviderId::Mistral, MetricPreference::MonthlyPlan);

@@ -140,6 +140,7 @@ async fn budget_meter_and_prepaid_balance_stay_separate() {
     assert_eq!(cost.period, "This month");
     assert_eq!(cost.resets_at, primary.resets_at);
     assert_eq!(cost.balance, Some(18.5));
+    assert!(cost.pay_as_you_go, "upstream payAsYouGoSpend card style");
 
     assert_eq!(sections(&result), vec!["Spend", "Billing"]);
     assert_eq!(

@@ -561,6 +561,12 @@ pub struct CostSnapshot {
     /// second bar. Presentation only; not serialized.
     #[serde(skip)]
     pub folded_into_primary: bool,
+
+    /// Provider-owned presentation hint (upstream `.payAsYouGoSpend`): the
+    /// card shows the period spend and the prepaid balance as plain lines,
+    /// with no bar even when a limit is set. Presentation only; not serialized.
+    #[serde(skip)]
+    pub pay_as_you_go: bool,
 }
 
 impl CostSnapshot {
@@ -583,7 +589,14 @@ impl CostSnapshot {
             provenance: None,
             card_title_key: None,
             folded_into_primary: false,
+            pay_as_you_go: false,
         }
+    }
+
+    /// Builder pattern: present this cost as pay-as-you-go spend plus balance.
+    pub fn pay_as_you_go(mut self) -> Self {
+        self.pay_as_you_go = true;
+        self
     }
 
     /// Builder pattern: the provider's own title for the card's cost block.

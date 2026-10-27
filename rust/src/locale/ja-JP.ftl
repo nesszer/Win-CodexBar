@@ -760,6 +760,7 @@ DetailPaceRunsOutIn = 残り
 DetailPaceWillLastToReset = リセットまで持ちます
 DetailCostTitle = コスト
 ApiSpendTitle = API 費用
+PayAsYouGoTitle = 従量課金制
 DetailCostUsed = 使用済み
 DetailCostLimit = 上限
 DetailCostRemaining = 残り

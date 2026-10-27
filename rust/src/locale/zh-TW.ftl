@@ -760,6 +760,7 @@ DetailPaceRunsOutIn = 預計耗盡時間
 DetailPaceWillLastToReset = 足以支撐到重置
 DetailCostTitle = 費用
 ApiSpendTitle = API 花費
+PayAsYouGoTitle = 依用量計費
 DetailCostUsed = 已用
 DetailCostLimit = 限額
 DetailCostRemaining = 剩餘

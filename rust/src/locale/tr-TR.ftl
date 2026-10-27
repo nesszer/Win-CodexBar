@@ -796,6 +796,7 @@ DetailPaceRunsOutIn = Tükenmesine kalan
 DetailPaceWillLastToReset = Sıfırlamaya kadar yeter
 DetailCostTitle = Maliyet
 ApiSpendTitle = API harcaması
+PayAsYouGoTitle = Kullandıkça öde faturalandırması
 DetailCostUsed = Kullanılan
 DetailCostLimit = Sınır
 DetailCostRemaining = Kalan

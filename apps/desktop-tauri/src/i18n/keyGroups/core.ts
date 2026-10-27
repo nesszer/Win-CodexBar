@@ -977,6 +977,7 @@ export const CORE_LOCALE_KEYS = [
   "DetailPaceWillLastToReset",
   "DetailCostTitle",
   "ApiSpendTitle",
+  "PayAsYouGoTitle",
   "DetailCostUsed",
   "DetailCostLimit",
   "DetailCostRemaining",

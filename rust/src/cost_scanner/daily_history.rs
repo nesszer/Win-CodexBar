@@ -208,6 +208,7 @@ pub fn get_daily_token_history(provider: &str, days: u32) -> (Vec<(String, u64)>
     let today = cost_bucket_zone().date(Utc::now());
     let mut daily_tokens = day_slots(today, days, 0u64);
     let mut covered_days: HashSet<String> = HashSet::new();
+    let mut opencodego_unknown = false;
 
     match provider {
         "codex" => {
@@ -249,12 +250,24 @@ pub fn get_daily_token_history(provider: &str, days: u32) -> (Vec<(String, u64)>
                 covered_days.extend(daily_tokens.keys().cloned());
             }
         }
+        "opencodego" => match opencodego_local::daily_token_series(Utc::now(), days) {
+            Some(series) => {
+                for (day_key, tokens) in series {
+                    if let Some(slot) = daily_tokens.get_mut(&day_key) {
+                        *slot = tokens;
+                    }
+                }
+            }
+            None => opencodego_unknown = true,
+        },
         _ => {}
     }
 
     let result = sorted_days(daily_tokens);
 
-    let incomplete = if matches!(provider, "claude" | "pi") {
+    let incomplete = if opencodego_unknown {
+        true
+    } else if matches!(provider, "claude" | "pi") {
         // A complete filesystem scan covers the requested window even when
         // the roots contain no sessions; failed scans leave coverage empty.
         covered_days.is_empty()

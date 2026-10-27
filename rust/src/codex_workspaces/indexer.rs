@@ -618,7 +618,11 @@ fn index_one_file(path: &Path, range: &CostUsageDayRange) -> Option<ParsedFile> 
         model_tokens.insert(model, 0);
     }
 
-    let (started_at, latest_activity) = file_activity_bounds(path, &day_models);
+    let token_times = [
+        parsed.first_token_timestamp.as_deref(),
+        parsed.last_token_timestamp.as_deref(),
+    ];
+    let (started_at, latest_activity) = file_activity_bounds(path, &day_models, token_times);
 
     Some(ParsedFile {
         session_id,
@@ -811,10 +815,24 @@ fn normalize_path(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Token-event timestamps give the real activity window. Without them the
+/// window falls back to the usage day keys, with the end capped at the file's
+/// mtime so a day key never reports activity later than the file was written.
 fn file_activity_bounds(
     path: &Path,
     day_models: &HashMap<String, HashMap<String, (u64, u64, u64)>>,
+    token_times: [Option<&str>; 2],
 ) -> (Option<DateTime<Utc>>, Option<DateTime<Utc>>) {
+    let stamps: Vec<DateTime<Utc>> = token_times
+        .into_iter()
+        .flatten()
+        .filter_map(|s| DateTime::parse_from_rfc3339(s.trim()).ok())
+        .map(|d| d.with_timezone(&Utc))
+        .collect();
+    if let (Some(first), Some(last)) = (stamps.iter().min(), stamps.iter().max()) {
+        return (Some(*first), Some(*last));
+    }
+
     let mut earliest: Option<NaiveDate> = None;
     let mut latest: Option<NaiveDate> = None;
     for day in day_models.keys() {
@@ -829,13 +847,17 @@ fn file_activity_bounds(
     let mut end = latest
         .and_then(|d| d.and_hms_opt(23, 59, 59))
         .map(|n| Utc.from_utc_datetime(&n));
-    if end.is_none()
-        && let Ok(meta) = fs::metadata(path)
+    if let Ok(meta) = fs::metadata(path)
         && let Ok(modified) = meta.modified()
     {
-        end = Some(DateTime::<Utc>::from(modified));
+        let modified = DateTime::<Utc>::from(modified);
+        end = Some(end.map_or(modified, |e| e.min(modified)));
     }
-    (started.or(end), end)
+    let started = match (started, end) {
+        (Some(s), Some(e)) => Some(s.min(e)),
+        (s, e) => s.or(e),
+    };
+    (started, end)
 }
 
 fn meta_day_out_of_range(path: &Path, range: &CostUsageDayRange) -> bool {

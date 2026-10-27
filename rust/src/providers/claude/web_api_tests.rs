@@ -56,13 +56,27 @@ fn null_five_hour_session_is_informational_placeholder() {
 #[test]
 fn labels_max_5x_and_20x_plans() {
     assert_eq!(
-        crate::providers::claude::claude_plan_label("default_claude_max_5x"),
-        "Claude Max 5x"
+        crate::providers::claude::claude_plan_label("default_claude_max_5x").as_deref(),
+        Some("Claude Max 5x")
     );
     assert_eq!(
-        crate::providers::claude::claude_plan_label("v2_default_claude_max_20x"),
-        "Claude Max 20x"
+        crate::providers::claude::claude_plan_label("v2_default_claude_max_20x").as_deref(),
+        Some("Claude Max 20x")
     );
+}
+
+#[test]
+fn tier_ids_map_to_branded_plans_and_never_leak_raw() {
+    let label = |tier| crate::providers::claude::claude_plan_label(tier);
+    assert_eq!(label("default_claude_pro").as_deref(), Some("Claude Pro"));
+    assert_eq!(label("pro").as_deref(), Some("Claude Pro"));
+    assert_eq!(label("max").as_deref(), Some("Claude Max"));
+    assert_eq!(label("default_claude_max").as_deref(), Some("Claude Max"));
+    assert_eq!(label("team").as_deref(), Some("Claude Team"));
+    assert_eq!(label("enterprise").as_deref(), Some("Claude Enterprise"));
+    assert_eq!(label("free").as_deref(), Some("Claude Free"));
+    assert_eq!(label("default_claude_ai"), None);
+    assert_eq!(label(""), None);
 }
 
 #[test]

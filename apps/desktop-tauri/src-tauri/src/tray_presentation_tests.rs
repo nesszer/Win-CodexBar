@@ -50,6 +50,7 @@ pub(crate) fn fake_snapshot_with(
             daily: Vec::new(),
             always_visible: false,
             folded_into_primary: false,
+            pay_as_you_go: false,
             title_key: None,
         }),
         pace_authoritative: true,

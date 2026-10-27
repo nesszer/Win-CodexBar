@@ -1260,6 +1260,7 @@ locale_keys! {
     DetailPaceWillLastToReset,
     DetailCostTitle,
     ApiSpendTitle,
+    PayAsYouGoTitle,
     DetailCostUsed,
     DetailCostLimit,
     DetailCostRemaining,

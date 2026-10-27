@@ -7,6 +7,7 @@ const STRINGS: Partial<Record<LocaleKey, string>> = {
   ExtraUsage: "Extra usage",
   QuotaUsageTitle: "Quota usage",
   ApiSpendTitle: "API spend",
+  PayAsYouGoTitle: "Pay-as-you-go",
   DetailCostBalance: "Balance",
   DetailCostResets: "Resets",
   UsedPercent: '{:.0}% used',
@@ -130,6 +131,31 @@ describe("cardCostSection", () => {
   it("drops the balance line in the compact summary style", () => {
     const section = cardCostSection(cost({ used: 1, limit: 4, balance: 8 }), "compact", t);
     expect(section?.balanceLine).toBeNull();
+  });
+
+  it("shows pay-as-you-go spend and balance without a bar in every style", () => {
+    const payg = cost({
+      used: 6,
+      limit: 100,
+      period: "This month",
+      formattedUsed: "$6.00",
+      formattedLimit: "$100.00",
+      balance: 18.5,
+      payAsYouGo: true,
+    });
+    for (const style of ["compact", "detailed", "hidden"] as const) {
+      expect(cardCostSection(payg, style, t)).toEqual({
+        title: "Pay-as-you-go",
+        spendLine: "This month: $6.00",
+        percentUsed: null,
+        percentLine: null,
+        balanceLine: "Balance: $18.50",
+        inline: false,
+      });
+    }
+    expect(
+      cardCostSection(cost({ used: 2, payAsYouGo: true }), "compact", t)?.balanceLine,
+    ).toBeNull();
   });
 
   it("titles a Quota currency as Quota usage with whole numbers", () => {

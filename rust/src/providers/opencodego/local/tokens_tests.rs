@@ -130,6 +130,62 @@ fn daily_entries_carry_message_token_counts_per_day_and_model() {
 }
 
 #[test]
+fn daily_token_totals_sum_models_per_day_with_the_window_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("opencode.db");
+    let conn = open_db(&db, false);
+    let day1 = iso_ms("2026-03-06T11:00:00.000Z");
+    let day2 = iso_ms("2026-03-07T11:00:00.000Z");
+    insert_message(&conn, "m1", day1, Some(1.0), Some("kimi-k2"), Some(FULL));
+    insert_message(&conn, "m2", day1, Some(1.0), Some("glm-5"), Some(NO_TOTAL));
+    insert_message(&conn, "m3", day2, Some(1.0), Some("glm-5"), Some(NO_TOTAL));
+    drop(conn);
+
+    let rows = read_rows(&db).unwrap();
+    let daily = daily_token_totals(&daily_model_costs(&rows, now(), 30)).expect("known");
+    let day = |date: &str| daily.iter().find(|(d, _)| d == date).map(|(_, t)| *t);
+    // input + output + cache read + cache write: FULL = 1570, NO_TOTAL = 19.
+    assert_eq!(day(&day_key_local(day1).unwrap()), Some(1570 + 19));
+    assert_eq!(day(&day_key_local(day2).unwrap()), Some(19));
+}
+
+#[test]
+fn daily_token_totals_are_unknown_when_a_row_lacks_tokens() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("opencode.db");
+    let conn = open_db(&db, false);
+    let created = iso_ms("2026-03-06T11:00:00.000Z");
+    insert_message(&conn, "m1", created, Some(1.0), Some("kimi-k2"), Some(FULL));
+    insert_message(&conn, "m2", created, Some(1.0), Some("kimi-k2"), None);
+    drop(conn);
+
+    let rows = read_rows(&db).unwrap();
+    assert_eq!(
+        daily_token_totals(&daily_model_costs(&rows, now(), 30)),
+        None
+    );
+}
+
+#[test]
+fn row_scan_keeps_an_unreadable_database_apart_from_no_install() {
+    let dir = tempfile::tempdir().unwrap();
+    let auth = dir.path().join("auth.json");
+    let db = dir.path().join("opencode.db");
+    let candidates = || vec![(auth.clone(), db.clone())];
+
+    assert!(matches!(
+        scan_rows_from(candidates(), &ScanCache::new()),
+        Ok(None)
+    ));
+
+    std::fs::write(&db, b"not a sqlite database").unwrap();
+    assert!(matches!(
+        scan_rows_from(candidates(), &ScanCache::new()),
+        Err(())
+    ));
+}
+
+#[test]
 fn step_finish_tokens_replace_the_parent_message_tokens() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");

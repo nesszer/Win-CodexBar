@@ -796,6 +796,7 @@ DetailPaceRunsOutIn = заканчивается в
 DetailPaceWillLastToReset = Продлится сброс
 DetailCostTitle = Стоимость
 ApiSpendTitle = Расходы на API
+PayAsYouGoTitle = Оплата по факту использования
 DetailCostUsed = Б/у
 DetailCostLimit = Лимит
 DetailCostRemaining = Осталось

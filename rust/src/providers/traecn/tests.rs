@@ -110,9 +110,12 @@ fn metadata_and_source_contract_match_upstream_descriptor() {
         provider.manual_empty_cookie_policy(),
         ManualEmptyCookiePolicy::FailClosedWeb
     ));
-    // Manual cookies and browser import use the API origin; only automatic
-    // browser sessions read the parent `trae.cn` domain (#4732).
+    // Manual cookies stay on the API origin. Automatic sessions and Settings
+    // browser import both read the parent `trae.cn` domain (#4732) and keep
+    // only the cookies a browser sends to the API origin.
     assert_eq!(ProviderId::TraeCn.cookie_domain(), Some("api.trae.cn"));
+    assert_eq!(provider.cookie_request_scope(), Some(COOKIE_SCOPE));
+    assert_eq!(COOKIE_SCOPE.scan_domain, PARENT_DOMAIN);
     assert_eq!(
         ProviderId::from_cli_name("traecn"),
         Some(ProviderId::TraeCn)

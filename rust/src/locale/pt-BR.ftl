@@ -762,6 +762,7 @@ DetailPaceRunsOutIn = Esgota-se em
 DetailPaceWillLastToReset = Durará até a renovação
 DetailCostTitle = Custo
 ApiSpendTitle = Gastos com API
+PayAsYouGoTitle = Faturamento conforme o uso
 DetailCostUsed = Usado
 DetailCostLimit = Limite
 DetailCostRemaining = Restante

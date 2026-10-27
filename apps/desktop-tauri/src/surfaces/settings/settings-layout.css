@@ -840,6 +840,18 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+[data-theme="light"] .settings-sidebar__pane:hover,
+[data-theme="light"] .providers-sidebar__row:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .settings-sidebar__pane--active,
+[data-theme="light"] .settings-sidebar__pane--active:hover,
+[data-theme="light"] .providers-sidebar__row--selected,
+[data-theme="light"] .providers-sidebar__row--selected:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
 .settings-sidebar__label,
 .providers-sidebar__name {
   flex: 1;
@@ -911,6 +923,11 @@
   border-radius: 0;
   filter: brightness(0) invert(1);
   opacity: 0.85;
+}
+
+/* macOS template glyphs follow the label color, so they turn dark in light mode. */
+[data-theme="light"] .providers-sidebar__row .provider-icon {
+  filter: brightness(0);
 }
 
 .providers-sidebar__row--disabled {

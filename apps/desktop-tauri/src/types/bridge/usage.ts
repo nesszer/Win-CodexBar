@@ -68,6 +68,8 @@ export interface CostSnapshotBridge {
   alwaysVisible?: boolean;
   /** The primary meter already shows this cap, so the cost block omits its bar. */
   foldedIntoPrimary?: boolean;
+  /** Pay-as-you-go card (upstream `.payAsYouGoSpend`): period spend and balance lines, no bar. */
+  payAsYouGo?: boolean;
   /** Provider-owned cost-block title (upstream `ProviderCostMenuCardStyle`); absent keeps the shared title. */
   titleKey?: LocaleKey;
 }

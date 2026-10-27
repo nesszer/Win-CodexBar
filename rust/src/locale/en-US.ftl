@@ -796,6 +796,7 @@ DetailPaceRunsOutIn = Runs out in
 DetailPaceWillLastToReset = Will last to reset
 DetailCostTitle = Cost
 ApiSpendTitle = API spend
+PayAsYouGoTitle = Pay-as-you-go
 DetailCostUsed = Used
 DetailCostLimit = Limit
 DetailCostRemaining = Remaining

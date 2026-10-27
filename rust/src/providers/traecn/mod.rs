@@ -39,8 +39,9 @@ const BASE_URL: &str = "https://api.trae.cn";
 const BASE_URL_ENV: &str = "TRAE_CN_BASE_URL";
 /// Automatic browser sessions. Trae keeps its login cookies on the parent
 /// `trae.cn` domain (upstream #4732), so the browser is read for `trae.cn`
-/// and only the cookies a browser sends to the API origin are kept. Pasted
-/// and imported cookies stay on `api.trae.cn` (`ProviderId::cookie_domain`).
+/// and only the cookies a browser sends to the API origin are kept. Settings
+/// "Import from browser" uses the same scope, and pasted or imported cookies
+/// are sent only to `api.trae.cn` (`ProviderId::cookie_domain`).
 const COOKIE_SCOPE: CookieRequestScope = CookieRequestScope {
     scan_domain: "trae.cn",
     host: "api.trae.cn",
@@ -398,6 +399,10 @@ impl Provider for TraeCnProvider {
     /// to the next browser.
     fn owns_browser_cookie_resolution(&self) -> bool {
         true
+    }
+
+    fn cookie_request_scope(&self) -> Option<CookieRequestScope> {
+        Some(COOKIE_SCOPE)
     }
 
     fn error_state_kind(&self, error: &ProviderError) -> ProviderStateKind {

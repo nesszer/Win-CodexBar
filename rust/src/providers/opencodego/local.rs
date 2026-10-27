@@ -603,6 +603,37 @@ pub fn daily_cost_series(now: DateTime<Utc>, history_days: u32) -> Vec<(String, 
     by_day.into_iter().collect()
 }
 
+/// Per-day token totals for the shared Tokens chart, with the same rule as
+/// the window total (input + output + cache read/write). `None` when any row
+/// lacked exact input/output counts, because a partial day sum would be
+/// reported as exact.
+pub fn daily_token_totals(buckets: &[DailyModelCost]) -> Option<Vec<(String, u64)>> {
+    let mut by_day: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for b in buckets {
+        if b.tokens.unknown_token_rows() > 0 {
+            return None;
+        }
+        let total = b
+            .tokens
+            .to_model_token_counts()?
+            .total_for_provider("opencodego");
+        let slot = by_day.entry(b.day_key.clone()).or_insert(0);
+        *slot = slot.saturating_add(total);
+    }
+    Some(by_day.into_iter().collect())
+}
+
+/// [`daily_token_totals`] over the first available local OpenCode install.
+/// An install that isn't detected is a known empty series; an unreadable
+/// database is unknown (`None`).
+pub fn daily_token_series(now: DateTime<Utc>, history_days: u32) -> Option<Vec<(String, u64)>> {
+    match scan_available_rows() {
+        Ok(Some(rows)) => daily_token_totals(&daily_model_costs(&rows, now, history_days)),
+        Ok(None) => Some(Vec::new()),
+        Err(()) => None,
+    }
+}
+
 /// Provider-local cost summary for the chart's local-usage panel. `None` when no
 /// local OpenCode install is detected.
 pub fn model_cost_summary_scan(now: DateTime<Utc>, days: u32) -> Option<ModelCostSummary> {
@@ -614,17 +645,32 @@ pub fn model_cost_summary_scan(now: DateTime<Utc>, days: u32) -> Option<ModelCos
 /// `None` when no install is reachable (auth+db both absent) rather than
 /// propagating `NotInstalled`, since the cost surfaces treat "no data" as empty.
 fn read_available_rows() -> Option<Arc<Vec<UsageRow>>> {
-    for (auth, db) in candidate_paths() {
+    scan_available_rows().ok().flatten()
+}
+
+/// [`read_available_rows`] that keeps a failed read apart from an absent
+/// install: `Err(())` when a database exists but every read of it failed and
+/// no other candidate yielded rows.
+fn scan_available_rows() -> Result<Option<Arc<Vec<UsageRow>>>, ()> {
+    scan_rows_from(candidate_paths(), ScanCache::shared())
+}
+
+fn scan_rows_from(
+    candidates: Vec<(PathBuf, PathBuf)>,
+    cache: &ScanCache,
+) -> Result<Option<Arc<Vec<UsageRow>>>, ()> {
+    let mut read_failed = false;
+    for (auth, db) in candidates {
         if !db.exists() {
             continue;
         }
-        match ScanCache::shared().read(&db, || read_rows(&db)) {
-            Ok(rows) if !rows.is_empty() || has_auth_key(&auth) => return Some(rows),
+        match cache.read(&db, || read_rows(&db)) {
+            Ok(rows) if !rows.is_empty() || has_auth_key(&auth) => return Ok(Some(rows)),
             Ok(_) => continue,
-            Err(_) => continue,
+            Err(_) => read_failed = true,
         }
     }
-    None
+    if read_failed { Err(()) } else { Ok(None) }
 }
 
 /// ISO week start (Monday 00:00 UTC), matching upstream calendar settings.

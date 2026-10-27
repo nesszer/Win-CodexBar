@@ -813,6 +813,7 @@ DetailPaceRunsOutIn = 소진까지
 DetailPaceWillLastToReset = 초기화까지 유지 예상
 DetailCostTitle = 비용
 ApiSpendTitle = API 비용
+PayAsYouGoTitle = 종량제 청구
 DetailCostUsed = 사용량
 DetailCostLimit = 한도
 DetailCostRemaining = 남음
