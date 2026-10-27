@@ -272,6 +272,21 @@ impl NotificationManager {
                 && existing.window == key.window
                 && existing.reset.belongs_to_same_cycle(&key.reset)
         });
+
+        let valid_eta = pace.eta_seconds.filter(|eta| eta.is_finite() && *eta > 0.0);
+
+        // Still heading for a run-out, but further out than the lead: not a
+        // warning yet. Return before the key is touched, so a warning already
+        // sent this cycle stays armed and a pace that drifts out of the lead
+        // and back in does not toast twice. Recovery (`will_last_to_reset`)
+        // and a new cycle still clear it below.
+        if !pace.will_last_to_reset
+            && let (Some(lead), Some(eta)) = (lead_seconds, valid_eta)
+            && eta > lead
+        {
+            return false;
+        }
+
         self.predictive_warning_keys.retain(|existing| {
             existing.provider != key.provider
                 || existing.identity != key.identity
@@ -281,10 +296,7 @@ impl NotificationManager {
         if pace.will_last_to_reset {
             return false;
         }
-        let Some(eta) = pace.eta_seconds.filter(|eta| eta.is_finite() && *eta > 0.0) else {
-            return false;
-        };
-        if lead_seconds.is_some_and(|lead| eta > lead) {
+        if valid_eta.is_none() {
             return false;
         }
 

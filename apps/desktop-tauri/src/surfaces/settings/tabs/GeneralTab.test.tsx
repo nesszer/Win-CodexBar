@@ -245,6 +245,21 @@ describe("GeneralTab language picker", () => {
     expect(set).toHaveBeenCalledWith({ predictivePaceWarningLeadHours: 24 });
   });
 
+  it("shows a saved lead time that is not a preset", () => {
+    render(
+      <GeneralTab
+        mode="notifications"
+        settings={{ ...settings, predictivePaceWarningEnabled: true, predictivePaceWarningLeadHours: 168 }}
+        set={vi.fn()}
+        saving={false}
+      />,
+    );
+
+    const select = screen.getByRole("combobox", { name: "PredictivePaceWarningLeadLabel" }) as HTMLSelectElement;
+    expect(select).toHaveValue("168");
+    expect(Array.from(select.options, (option) => option.value)).toEqual(["0", "6", "12", "24", "48", "168"]);
+  });
+
   it("disables the pace warning lead time while pace warnings are off", () => {
     render(<GeneralTab mode="notifications" settings={settings} set={vi.fn()} saving={false} />);
 

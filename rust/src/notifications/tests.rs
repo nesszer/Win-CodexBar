@@ -183,6 +183,39 @@ fn predictive_warning_waits_until_the_run_out_is_within_the_lead() {
 }
 
 #[test]
+fn predictive_warning_drifting_out_of_the_lead_and_back_does_not_toast_twice() {
+    let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+    let window = window(now, Duration::days(6), 10080);
+    let lead = Some(24.0 * 3600.0);
+    let near = pace(false, Some(20.0 * 3600.0));
+    let far = pace(false, Some(30.0 * 3600.0));
+    let recovered = pace(true, None);
+    let mut manager = NotificationManager::new();
+
+    let observe = |manager: &mut NotificationManager, pace: &UsagePace| {
+        manager.record_predictive_observation_within(
+            true,
+            ProviderId::Claude,
+            "oauth:person@example.com",
+            PredictiveWarningWindow::Weekly,
+            &window,
+            pace,
+            lead,
+        )
+    };
+
+    // In lead: warn once. Out of lead: no warning, and the sent one stays
+    // armed. Back in lead: same cycle, so no second toast.
+    assert!(observe(&mut manager, &near));
+    assert!(!observe(&mut manager, &far));
+    assert!(!observe(&mut manager, &near));
+
+    // Recovery clears it, so a later risk warns again.
+    assert!(!observe(&mut manager, &recovered));
+    assert!(observe(&mut manager, &near));
+}
+
+#[test]
 fn predictive_warning_without_a_lead_fires_however_far_out() {
     let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
     let window = window(now, Duration::days(6), 10080);
