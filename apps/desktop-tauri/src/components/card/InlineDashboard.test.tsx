@@ -4,13 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../../hooks/useLocale", () => ({
   useLocale: () => ({
     t: (key: string) =>
-      ({ PanelRecentWindows: "Recent windows", PanelThirtyDayCostHistogram: "Daily cost" })[key] ??
+      ({
+        CostTitle: "Cost",
+        PanelRecentWindows: "Recent windows",
+        PanelThirtyDayCostHistogram: "Daily cost",
+      })[key] ??
       key,
     language: "english",
   }),
 }));
 
-import InlineDashboard, { barHeight, barOpacity } from "./InlineDashboard";
+import InlineDashboard, { barHeight, barOpacity, summaryKpis } from "./InlineDashboard";
 import type { InlineDashboardModel } from "../../lib/inlineDashboard";
 
 const model: InlineDashboardModel = {
@@ -57,9 +61,69 @@ describe("bar geometry", () => {
   });
 });
 
+function renderExpanded(dashboard: InlineDashboardModel = model) {
+  const view = render(<InlineDashboard model={dashboard} />);
+  fireEvent.click(screen.getByRole("button", { name: /Cost/ }));
+  return view;
+}
+
+describe("summaryKpis", () => {
+  const kpi = (title: string) => ({ title, value: "1", emphasis: false });
+  const titles = (list: ReturnType<typeof summaryKpis>) => list.map((entry) => entry.title);
+
+  it("takes today and the second KPI in the four-KPI layouts", () => {
+    expect(titles(summaryKpis([kpi("Today"), kpi("30d cost"), kpi("Latest"), kpi("30d tokens")]))).toEqual([
+      "Today",
+      "30d cost",
+    ]);
+  });
+
+  it("takes the History KPI, not the quota window, in the six-KPI layout", () => {
+    const six = [
+      kpi("Today"),
+      kpi("Current window"),
+      kpi("Latest"),
+      kpi("Window tokens"),
+      kpi("30d cost"),
+      kpi("30d tokens"),
+    ];
+    expect(titles(summaryKpis(six))).toEqual(["Today", "30d cost"]);
+  });
+
+  it("copes with a single KPI", () => {
+    expect(titles(summaryKpis([kpi("Today")]))).toEqual(["Today"]);
+  });
+});
+
 describe("InlineDashboard", () => {
-  it("renders the KPIs, the chart, the recent windows and the detail lines", () => {
+  it("starts collapsed with the Cost title and a two-line summary", () => {
     const { container } = render(<InlineDashboard model={model} />);
+    const toggle = screen.getByRole("button", { name: /Cost/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      Array.from(container.querySelectorAll(".card-dash__summary-line"), (n) => n.textContent),
+    ).toEqual(["Today: $0.80", "30d cost: $25.42"]);
+    expect(container.querySelector(".card-dash__kpis")).toBeNull();
+    expect(container.querySelector(".card-dash__chart")).toBeNull();
+  });
+
+  it("opens the full dashboard on toggle, drops the summary, and closes again", () => {
+    const onToggle = vi.fn();
+    const { container } = render(<InlineDashboard model={model} onToggle={onToggle} />);
+    const toggle = screen.getByRole("button", { name: /Cost/ });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(container.querySelector(".card-dash__summary")).toBeNull();
+    expect(container.querySelector(".card-dash__kpis")).not.toBeNull();
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector(".card-dash__kpis")).toBeNull();
+    expect(container.querySelector(".card-dash__summary")).not.toBeNull();
+  });
+
+  it("renders the KPIs, the chart, the recent windows and the detail lines", () => {
+    const { container } = renderExpanded();
     expect(screen.getByText("Today")).toHaveClass("card-dash__kpi-title");
     expect(screen.getByText("$0.80")).toHaveClass("card-dash__kpi-value--emphasis");
     expect(screen.getByText("$25.42")).not.toHaveClass("card-dash__kpi-value--emphasis");
@@ -72,7 +136,7 @@ describe("InlineDashboard", () => {
   });
 
   it("swaps the scale label for the hovered day", () => {
-    const { container } = render(<InlineDashboard model={model} />);
+    const { container } = renderExpanded();
     const scale = container.querySelector(".card-dash__scale")!;
     expect(scale).toHaveTextContent("$8");
     const bars = container.querySelectorAll(".card-dash__bar");
@@ -84,9 +148,12 @@ describe("InlineDashboard", () => {
   });
 
   it("omits the chart and windows when there are none", () => {
-    const { container } = render(
-      <InlineDashboard model={{ ...model, points: [], windows: [], detailLines: [] }} />,
-    );
+    const { container } = renderExpanded({
+      ...model,
+      points: [],
+      windows: [],
+      detailLines: [],
+    });
     expect(container.querySelector(".card-dash__chart")).toBeNull();
     expect(container.querySelector(".card-dash__windows")).toBeNull();
     expect(container.querySelector(".card-dash__details")).toBeNull();

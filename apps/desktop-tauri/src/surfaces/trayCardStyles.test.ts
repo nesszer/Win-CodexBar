@@ -80,6 +80,65 @@ describe("tray card stylesheet", () => {
     expect(bar).toContain("var(--mac-chart-bar-r)");
   });
 
+  it("draws labelled provider tabs with a 3px quota underline", () => {
+    const tabs = ruleBlock(tray, ".menu-surface--tray .provider-grid--tabs .provider-grid__item");
+    expect(tabs).toContain("flex: 1 1 0");
+    expect(tabs).toContain("width: auto");
+    expect(
+      ruleBlock(tray, ".menu-surface--tray .provider-grid--tabs .provider-grid__label"),
+    ).toContain("display: block");
+    const track = ruleBlock(
+      tray,
+      ".menu-surface--tray .provider-grid--tabs .provider-grid__weekly-track",
+    );
+    expect(track).toContain("height: 3px");
+    expect(track).toContain("width: auto");
+  });
+
+  it("gives the All tab room for a localized label and lets it spill instead of clipping", () => {
+    const first = ".menu-surface--tray .provider-grid--tabs[data-tab-layout=\"row\"] .provider-grid__item:first-child";
+    expect(ruleBlock(tray, first)).toContain("flex: 0 0 38px");
+    expect(ruleBlock(tray, `${first} .provider-grid__label`)).toContain("overflow: visible");
+  });
+
+  it("sets the tray panel on a tinted surface with no frame", () => {
+    const surface = ruleBlock(tray, ".menu-surface--tray");
+    expect(surface).toContain("background: var(--mac-panel-fill)");
+    expect(surface).toContain("border: 0");
+    expect(surface).toContain("--mac-pad-x: 16px");
+    expect(surface).toContain("--mac-text-body-medium: 600 14px/18px");
+  });
+
+  it("puts the percent left and the reset right on the line under the bar", () => {
+    expect(ruleBlock(tray, ".menu-surface--tray .menu-metric__head")).toContain(
+      "flex-wrap: nowrap",
+    );
+    expect(
+      ruleBlock(tray, ".menu-surface--tray .menu-metric__head .menu-metric__reset"),
+    ).toContain("margin-left: auto");
+  });
+
+  it("styles the Cost section as a toggle row with a rotating chevron", () => {
+    expect(ruleBlock(tray, ".menu-surface--tray .card-dash__toggle")).toContain(
+      "justify-content: space-between",
+    );
+    expect(
+      ruleBlock(
+        tray,
+        '.menu-surface--tray .card-dash__toggle[aria-expanded="true"] .card-dash__chevron',
+      ),
+    ).toContain("rotate(90deg)");
+    expect(ruleBlock(tray, ".menu-surface--tray .card-dash__body[hidden]")).toContain(
+      "display: none",
+    );
+  });
+
+  it("hides the shortcut hints in the text-only menu", () => {
+    expect(ruleBlock(tray, ".menu-surface--tray .menu-surface__footer-shortcut")).toContain(
+      "display: none",
+    );
+  });
+
   it("never animates progress widths", () => {
     expect(tray).not.toMatch(/transition:[^;]*width/);
     expect(ruleBlock(tray, ".menu-surface--tray .card-extra__fill")).toContain(
@@ -87,12 +146,12 @@ describe("tray card stylesheet", () => {
     );
   });
 
-  it("restyles the switcher: accent selection, instant black .095 hover, 2px quota line", () => {
+  it("restyles the switcher: accent pill, instant tinted hover, 2px quota line", () => {
     const item = ruleBlock(tray, ".menu-surface--tray .provider-grid__item");
-    expect(item).toContain("border-radius: 6px");
+    expect(item).toContain("border-radius: 8px");
     expect(item).toContain("transition: none");
     expect(ruleBlock(tray, ".menu-surface--tray .provider-grid__item:hover")).toContain(
-      "rgba(0, 0, 0, 0.095)",
+      "rgba(40, 40, 110, 0.1)",
     );
     const active = ruleBlock(tray, ".menu-surface--tray .provider-grid__item--active");
     expect(active).toContain("background: var(--mac-selection-bg)");
@@ -103,7 +162,7 @@ describe("tray card stylesheet", () => {
   });
 
   it("restyles the Overview spend summary as headline, 17px total and captions", () => {
-    expect(ruleBlock(tray, ".menu-surface--tray .overview-spend")).toContain("padding: 10px 20px");
+    expect(ruleBlock(tray, ".menu-surface--tray .overview-spend")).toContain("padding: 10px 16px");
     const total = ruleBlock(tray, ".menu-surface--tray .overview-spend__total");
     expect(total).toContain("font-size: 17px");
     expect(total).toContain("font-weight: 700");

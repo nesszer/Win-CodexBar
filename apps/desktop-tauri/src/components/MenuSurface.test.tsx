@@ -116,7 +116,7 @@ describe("MenuSurface footer", () => {
     ]);
   });
 
-  it("draws an SVG icon on every row except Refresh, which gets the taller row", async () => {
+  it("draws an SVG icon on the provider action rows only, and Refresh gets the taller row", async () => {
     const noop = vi.fn();
     renderFooter([
       [
@@ -132,7 +132,7 @@ describe("MenuSurface footer", () => {
 
     const nav = await screen.findByRole("navigation", { name: "PanelMenu" });
     const rows = within(nav).getAllByRole("button");
-    expect(rows.map((row) => row.querySelectorAll("svg").length)).toEqual([1, 1, 1, 0, 1, 1, 1]);
+    expect(rows.map((row) => row.querySelectorAll("svg").length)).toEqual([1, 1, 1, 0, 0, 0, 0]);
     expect(
       rows.map((row) => row.classList.contains("menu-surface__footer-row--refresh")),
     ).toEqual([false, false, false, true, false, false, false]);

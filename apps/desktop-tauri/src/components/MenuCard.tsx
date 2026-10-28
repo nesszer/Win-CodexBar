@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from "react";
+import { Fragment, type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import type {
   CostSummaryDisplayStyle,
   ProviderChartData,
@@ -146,10 +146,9 @@ function cardMetrics(
 }
 
 /**
- * Provider card, following upstream `UsageMenuCardView` (0.70.0), top to bottom:
- * header, divider, rate-window rows, key-value sections, the inline usage
- * dashboard, the local Conversations list (upstream's Cost submenu list),
- * then the extra usage block. Account switching, pace budgets,
+ * Provider card, top to bottom: header, divider, rate-window rows, key-value
+ * sections, the extra usage block, the collapsible Cost dashboard and the local
+ * Conversations list, each section set off by a hairline. Account switching, pace budgets,
  * forecasts, burndown and pricing details live in Settings > Providers.
  */
 export default function MenuCard({
@@ -296,6 +295,99 @@ export default function MenuCard({
     workdayTickStyle,
   };
 
+  // Card sections in screen order; a hairline separates neighbouring sections.
+  const sections: { key: string; node: ReactNode }[] = [];
+  if (presence.hasMetrics || presence.planDateNote) {
+    sections.push({
+      key: "metrics",
+      node: (
+        <>
+          {presence.hasMetrics && (
+            <section className="menu-card__metrics">
+              {metrics.map((metric) => (
+                <CardMetricRow
+                  key={metric.id}
+                  title={metric.label}
+                  snap={metric.snap}
+                  lane={metric.lane}
+                  providerId={provider.providerId}
+                  display={metricDisplay}
+                  resetFormatMode={metric.resetFormatMode}
+                />
+              ))}
+            </section>
+          )}
+          {presence.planDateNote && <p className="card-notes">{presence.planDateNote}</p>}
+        </>
+      ),
+    });
+  }
+  if (showDetailSections) {
+    sections.push({
+      key: "details",
+      node: (
+        <DetailSections
+          details={provider.displayDetails ?? []}
+          inventory={provider.inventory ?? []}
+          hiddenUsageItemIds={provider.hiddenUsageItemIds}
+          resetTimeRelative={resetTimeRelative}
+        />
+      ),
+    });
+  }
+  if (presence.wayfinderUsage) {
+    sections.push({ key: "wayfinder", node: <WayfinderBlock usage={presence.wayfinderUsage} /> });
+  }
+  if (presence.openAiThroughput) {
+    sections.push({
+      key: "openai-throughput",
+      node: (
+        <OpenAILiveSpendChart
+          key={provider.providerId}
+          providerId={provider.providerId}
+          throughput={presence.openAiThroughput}
+          usage={provider.openAiApiUsage}
+          t={t}
+        />
+      ),
+    });
+  }
+  if (showCost && provider.cost) {
+    sections.push({
+      key: "extra-usage",
+      node: (
+        <ExtraUsageBlock
+          providerId={provider.providerId}
+          cost={provider.cost}
+          style={costSummaryDisplayStyle}
+          resetTimeRelative={resetTimeRelative}
+        />
+      ),
+    });
+  }
+  if (dashboard) {
+    sections.push({
+      key: "dashboard",
+      node: (
+        <InlineDashboard
+          model={dashboard}
+          onToggle={() => requestAnimationFrame(() => onLayoutChange?.())}
+        />
+      ),
+    });
+  }
+  if (presence.conversations) {
+    sections.push({
+      key: "conversations",
+      node: (
+        <CardConversations
+          model={presence.conversations}
+          onToggle={() => requestAnimationFrame(() => onLayoutChange?.())}
+        />
+      ),
+    });
+  }
+
   const cardClassName = [
     "menu-card",
     provider.error ? "menu-card--error" : null,
@@ -325,65 +417,12 @@ export default function MenuCard({
 
       {presence.hasDetails && (
         <div className="menu-card__content">
-          {presence.hasMetrics && (
-            <section className="menu-card__metrics">
-              {metrics.map((metric) => (
-                <CardMetricRow
-                  key={metric.id}
-                  title={metric.label}
-                  snap={metric.snap}
-                  lane={metric.lane}
-                  providerId={provider.providerId}
-                  display={metricDisplay}
-                  resetFormatMode={metric.resetFormatMode}
-                />
-              ))}
-            </section>
-          )}
-          {presence.planDateNote && <p className="card-notes">{presence.planDateNote}</p>}
-          {showDetailSections && (
-            <DetailSections
-              details={provider.displayDetails ?? []}
-              inventory={provider.inventory ?? []}
-              hiddenUsageItemIds={provider.hiddenUsageItemIds}
-              resetTimeRelative={resetTimeRelative}
-            />
-          )}
-          {presence.wayfinderUsage && <WayfinderBlock usage={presence.wayfinderUsage} />}
-          {presence.openAiThroughput && (
-            <OpenAILiveSpendChart
-              key={provider.providerId}
-              providerId={provider.providerId}
-              throughput={presence.openAiThroughput}
-              usage={provider.openAiApiUsage}
-              t={t}
-            />
-          )}
-          {dashboard && <InlineDashboard model={dashboard} />}
-          {presence.conversations && (
-            <CardConversations
-              model={presence.conversations}
-              onToggle={() => requestAnimationFrame(() => onLayoutChange?.())}
-            />
-          )}
-          {showCost && provider.cost && (
-            <>
-              {(presence.hasMetrics ||
-                presence.planDateNote ||
-                showDetailSections ||
-                presence.openAiThroughput ||
-                dashboard ||
-                presence.conversations) && (
-                <div className="menu-card__separator" />
-              )}
-              <ExtraUsageBlock
-                providerId={provider.providerId}
-                cost={provider.cost}
-                style={costSummaryDisplayStyle}
-                resetTimeRelative={resetTimeRelative}
-              />
-            </>
-          )}
+          {sections.map((section, index) => (
+            <Fragment key={section.key}>
+              {index > 0 && <div className="menu-card__separator" />}
+              {section.node}
+            </Fragment>
+          ))}
         </div>
       )}
     </article>
