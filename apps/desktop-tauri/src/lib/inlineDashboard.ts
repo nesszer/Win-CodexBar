@@ -24,6 +24,7 @@ export interface DashboardKpi {
 export interface DashboardPoint {
   date: string;
   value: number | null;
+  hasUnpricedUsage: boolean;
   title: string;
 }
 
@@ -180,13 +181,16 @@ function chartPoints(input: InlineDashboardInput): DashboardPoint[] {
   const tokensByDate = new Map(input.tokensHistory.map((point) => [point.date, point.tokens]));
   return input.costHistory.slice(-CHART_DAYS).map((point) => {
     const tokens = tokensByDate.get(point.date);
+    const hasUnpricedUsage = point.value == null && tokens != null && tokens > 0;
+    const cost = hasUnpricedUsage ? input.t("UsageSpendUnpriced")
+      : point.value == null ? "—" : formatCostAmount(point.value, "USD");
     const title =
       point.value == null && tokens == null
         ? point.date
-        : `${point.date}: ${point.value == null ? "—" : formatCostAmount(point.value, "USD")} · ${
+        : `${point.date}: ${cost} · ${
             tokens == null ? "—" : `${compactCount(tokens)} ${input.t("UsageSpendTokens")}`
           }`;
-    return { date: point.date, value: point.value, title };
+    return { date: point.date, value: point.value, hasUnpricedUsage, title };
   });
 }
 
