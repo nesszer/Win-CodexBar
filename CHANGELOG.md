@@ -9,6 +9,7 @@
 
 ## [Windows] Unreleased
 
+- Tray panel: a new look. The panel sits on a soft tinted surface with larger type. Provider tabs show an icon and a name over a quota underline, wrap to extra rows when many providers are on, and keep the dense icon grid beyond 18. Each quota row is a title, a thicker bar, then the percent used on the left and the reset on the right. Sections are set off by hairlines, and the daily-cost dashboard becomes a collapsible **Cost** section that opens from a two-line summary. The menu is text-only: shortcut hints and the Settings, About and Quit icons are gone, and About no longer carries the version.
 - Settings, light theme: usage bar tracks are a light grey instead of solid black, and the pace pills, the expected-pace marker and the cost and credits chart colors use their light values instead of the dark ones.
 - abliteration.ai: the total credits row is labeled "Total credits", so Settings > Visible usage items no longer lists "Credits" twice.
 - Codex: the Free plan's 30-day window gets pace, like a weekly window: the pace marker, "lasts until reset" and the daily target. A Plus account's monthly lane also shows pace now. Pace comes only from the window length Codex reports, never from the calendar month. (upstream #4766, #1043)

@@ -15,6 +15,21 @@
       ]
     },
     {
+      "name": "tray-claude-cost-section",
+      "query": "window=main&fixture=default",
+      "size": [310, 1032],
+      "steps": [
+        { "click": { "selector": ".provider-grid__item", "label": "Claude" } },
+        { "expectText": ["Session (5h)", "Weekly", "Cost", "Today: $2.37", "30d cost: $71.10"] },
+        { "expectNoText": ["Latest tokens", "Top model: claude-sonnet-4"] },
+        { "screenshot": "tray-claude-cost-collapsed", "clip": "panel" },
+        { "click": { "selector": ".card-dash__toggle", "label": "Cost" } },
+        { "expectText": ["Latest tokens", "30d tokens", "Top model: claude-sonnet-4"] },
+        { "expectNoText": "Today: $2.37" },
+        { "screenshot": "tray-claude-cost-expanded", "clip": "panel" }
+      ]
+    },
+    {
       "name": "tray-claude-plan-renews",
       "query": "window=main&fixture=default",
       "size": [310, 1032],
@@ -102,6 +117,7 @@
       "size": [310, 1032],
       "steps": [
         { "click": { "selector": ".provider-grid__item", "label": "Claude" } },
+        { "click": { "selector": ".card-dash__toggle", "label": "Cost" } },
         { "expectText": ["Est. aktuelles Zeitfenster, Tokens insgesamt (geschaetzt)", "Latest tokens"] },
         { "expectNoOverflow": ".card-dash__kpi-title" },
         { "screenshot": "tray-kpi-long-titles", "clip": "panel" }
