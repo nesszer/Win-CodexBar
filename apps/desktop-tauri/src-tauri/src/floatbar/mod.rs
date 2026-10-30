@@ -122,6 +122,7 @@ pub struct SettingsPatch {
     pub dark_text: Option<bool>,
     pub show_reset_inline: Option<bool>,
     pub show_cost: Option<bool>,
+    pub show_weekly: Option<bool>,
 }
 
 impl SettingsPatch {
@@ -136,6 +137,7 @@ impl SettingsPatch {
             && self.dark_text.is_none()
             && self.show_reset_inline.is_none()
             && self.show_cost.is_none()
+            && self.show_weekly.is_none()
     }
 
     /// Apply this patch to a mutable `Settings`. Values are clamped and
@@ -170,6 +172,9 @@ impl SettingsPatch {
         }
         if let Some(v) = self.show_cost {
             settings.float_bar_show_cost = v;
+        }
+        if let Some(v) = self.show_weekly {
+            settings.float_bar_show_weekly = v;
         }
     }
 }
@@ -224,6 +229,7 @@ mod tests {
             style: Some("taskbar".into()),
             dark_text: Some(true),
             show_reset_inline: Some(true),
+            show_weekly: Some(true),
             ..SettingsPatch::default()
         };
         patch.apply(&mut s);
@@ -233,6 +239,7 @@ mod tests {
         assert_eq!(s.float_bar_style, "taskbar");
         assert!(s.float_bar_dark_text);
         assert!(s.float_bar_show_reset_inline);
+        assert!(s.float_bar_show_weekly);
         // Orientation untouched by the patch.
         assert_eq!(s.float_bar_orientation, "horizontal");
     }

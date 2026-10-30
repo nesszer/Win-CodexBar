@@ -42,12 +42,16 @@ import type {
   SettingsSnapshot,
 } from "../types/bridge";
 
+const SESSION = 5 * 60;
+const WEEK = 7 * 24 * 60;
+
 type RateWindowOptions = {
   exhausted?: boolean;
   informational?: boolean;
   resetsAt?: string | null;
   resetDescription?: string | null;
   descriptionIsDetail?: boolean;
+  windowMinutes?: number | null;
 };
 
 function rateWindow(
@@ -57,7 +61,7 @@ function rateWindow(
   return {
     usedPercent: used,
     remainingPercent: 100 - used,
-    windowMinutes: null,
+    windowMinutes: opts.windowMinutes ?? null,
     resetsAt: opts.resetsAt ?? null,
     resetDescription: opts.resetDescription ?? null,
     isExhausted: opts.exhausted ?? false,
@@ -80,12 +84,14 @@ function snapshot(
     resetDescription?: string | null;
     descriptionIsDetail?: boolean;
     informational?: boolean;
+    windowMinutes?: number | null;
     secondary?: {
       used: number;
       exhausted?: boolean;
       informational?: boolean;
       resetsAt?: string | null;
       resetDescription?: string | null;
+      windowMinutes?: number | null;
     };
     selected?: {
       used: number;
@@ -205,6 +211,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     floatBarDarkText: false,
     floatBarShowResetInline: false,
     floatBarShowCost: false,
+    floatBarShowWeekly: false,
     claudeDailyRoutinesUsageVisible: true,
     claudeAllowReadingClaudeCodeCredentials: false,
     alibabaTokenPlanRegion: "cn",
@@ -682,6 +689,109 @@ describe("FloatBar", () => {
       expect(pct?.getAttribute("aria-label")).toBe("Session expired");
       expect(pct?.querySelector<HTMLElement>("span[aria-hidden]")?.textContent).toBe("0%");
     });
+  });
+
+  it("shows the session window and the weekly window beside it when enabled", async () => {
+    const sessionReset = new Date(Date.now() + 4 * 60 * 60_000 + 42 * 60_000).toISOString();
+    const weeklyReset = new Date(Date.now() + 5 * 24 * 60 * 60_000 + 18 * 60 * 60_000).toISOString();
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("codex", "Codex", 16, {
+        resetsAt: sessionReset,
+        windowMinutes: SESSION,
+        secondary: { used: 36, resetsAt: weeklyReset, windowMinutes: WEEK },
+        selected: { used: 36, resetsAt: weeklyReset },
+      }),
+    ]);
+    const overrides = { floatBarShowWeekly: true, floatBarShowResetInline: true };
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings(overrides));
+
+    const { container } = renderFloatBar(bootstrap(overrides));
+
+    await waitFor(() => {
+      const percents = Array.from(container.querySelectorAll(".floatbar__pct")).map(
+        (el) => el.textContent,
+      );
+      expect(percents).toEqual(["16%", "36%"]);
+    });
+    const resets = Array.from(container.querySelectorAll(".floatbar__reset-time")).map(
+      (el) => el.textContent,
+    );
+    expect(resets[0]).toMatch(/^4h 4[12]m$/);
+    expect(resets[1]).toMatch(/^5d 1[78]h$/);
+    expect(container.querySelectorAll(".floatbar__divider")).toHaveLength(1);
+    const title = container.querySelector(".floatbar__pill")?.getAttribute("title") ?? "";
+    expect(title).toContain("Codex: 16% used");
+    expect(title).toContain("Codex: 36% used");
+  });
+
+  it("takes the worse tone of the session and weekly windows", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("codex", "Codex", 10, {
+        windowMinutes: SESSION,
+        secondary: { used: 95, windowMinutes: WEEK },
+      }),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ floatBarShowWeekly: true }));
+
+    const { container } = renderFloatBar(bootstrap({ floatBarShowWeekly: true }));
+
+    await waitFor(() => {
+      expect(container.querySelector(".floatbar__pill--crit")).not.toBeNull();
+    });
+  });
+
+  it("keeps the single metric when the secondary lane is not a 7-day window", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("codex", "Codex", 10, {
+        windowMinutes: SESSION,
+        secondary: { used: 60, windowMinutes: 30 * 24 * 60 },
+        selected: { used: 10 },
+      }),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ floatBarShowWeekly: true }));
+
+    const { container } = renderFloatBar(bootstrap({ floatBarShowWeekly: true }));
+
+    await waitFor(() => {
+      const percents = Array.from(container.querySelectorAll(".floatbar__pct")).map(
+        (el) => el.textContent,
+      );
+      expect(percents).toEqual(["10%"]);
+    });
+    expect(container.querySelector(".floatbar__divider")).toBeNull();
+  });
+
+  it("keeps the single metric when the primary lane is not a 5-hour window", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("codex", "Codex", 10, {
+        windowMinutes: 24 * 60,
+        secondary: { used: 60, windowMinutes: WEEK },
+        selected: { used: 60 },
+      }),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ floatBarShowWeekly: true }));
+
+    const { container } = renderFloatBar(bootstrap({ floatBarShowWeekly: true }));
+
+    await waitFor(() => {
+      const percents = Array.from(container.querySelectorAll(".floatbar__pct")).map(
+        (el) => el.textContent,
+      );
+      expect(percents).toEqual(["60%"]);
+    });
+    expect(container.querySelector(".floatbar__divider")).toBeNull();
+  });
+
+  it("falls back to the single metric when the weekly window is missing", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([snapshot("claude", "Claude", 20)]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ floatBarShowWeekly: true }));
+
+    const { container } = renderFloatBar(bootstrap({ floatBarShowWeekly: true }));
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".floatbar__pct")).toHaveLength(1);
+    });
+    expect(container.querySelector(".floatbar__divider")).toBeNull();
   });
 
   it("applies warning tone when remaining drops below the high threshold", async () => {

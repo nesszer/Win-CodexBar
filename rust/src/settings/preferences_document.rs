@@ -136,6 +136,7 @@ const ALLOWED_PREFERENCES: &[(&str, Validator)] = &[
     ("float_bar_dark_text", typed::<bool>),
     ("float_bar_show_reset_inline", typed::<bool>),
     ("float_bar_show_cost", typed::<bool>),
+    ("float_bar_show_weekly", typed::<bool>),
     ("cost_reporting_period", cost_reporting_period),
     ("cost_usage_enabled", typed::<bool>),
     ("spend_dashboard_period", cost_reporting_period),

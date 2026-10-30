@@ -216,6 +216,18 @@ body.floatbar-window #root {
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
+.floatbar__segment {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--floatbar-scale, 1));
+}
+.floatbar__divider {
+  align-self: stretch;
+  width: 1px;
+  margin: calc(1px * var(--floatbar-scale, 1)) 0;
+  background: currentColor;
+  opacity: 0.35;
+}
 .floatbar--vertical .floatbar__text {
   flex-direction: column;
   align-items: center;
