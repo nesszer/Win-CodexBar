@@ -41,6 +41,15 @@ fn codex_source_row_plan(
     let recoverable_cache = cache
         .codex_source_rows
         .get(&path.to_string_lossy().to_string())
+        // Source rows are filtered to the reporting partition. Comparing a
+        // different window mistakes newly included history for lost pricing
+        // evidence and turns otherwise known models into unattributed usage.
+        // A changed partition must establish its evidence from the source;
+        // durable Priority trace evidence is applied separately below.
+        .filter(|_| {
+            cache.scan_since_key.as_deref() == Some(scan_range.scan_since_key.as_str())
+                && cache.scan_until_key.as_deref() == Some(scan_range.scan_until_key.as_str())
+        })
         .filter(|cached| !cached.rows.is_empty() && row_cache_matches(path, &metadata, cached))
         .cloned();
     Some(CodexSourceRowPlan {
