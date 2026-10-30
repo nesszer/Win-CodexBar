@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+const tauriMocks = vi.hoisted(() => ({ resetFlyoutPosition: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../../../lib/tauri", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/tauri")>()),
+  resetFlyoutPosition: tauriMocks.resetFlyoutPosition,
+}));
 vi.mock("../../../hooks/useLocale", () => ({
   useLocale: () => ({ t: (key: string) => key, language: "english" }),
 }));
@@ -16,6 +21,7 @@ const baseSettings = {
   enabledProviders: ["codex", "claude"],
   trayIconMode: "single",
   trayPanelAlwaysOnTop: false,
+  trayPanelMovable: false,
   overviewLayout: "detailed",
   showAsUsed: false,
   showAllTokenAccountsInMenu: false,
@@ -148,8 +154,16 @@ describe("MenuTab Windows section", () => {
     const { set } = renderTab();
     fireEvent.click(screen.getByRole("checkbox", { name: "TrayPanelAlwaysOnTopLabel" }));
     expect(set).toHaveBeenCalledWith({ trayPanelAlwaysOnTop: true });
+    fireEvent.click(screen.getByRole("checkbox", { name: "TrayPanelMovableLabel" }));
+    expect(set).toHaveBeenCalledWith({ trayPanelMovable: true });
     fireEvent.click(screen.getByRole("checkbox", { name: "ShowResetWhenExhausted" }));
     expect(set).toHaveBeenCalledWith({ showResetWhenExhausted: true });
+  });
+
+  it("puts the panel back next to the tray from a keyboard-reachable button", () => {
+    renderTab({ trayPanelMovable: true });
+    fireEvent.click(screen.getByRole("button", { name: "TrayPanelResetPositionButton" }));
+    expect(tauriMocks.resetFlyoutPosition).toHaveBeenCalledTimes(1);
   });
 
   it("shows the saved Panel scale and saves the new one when the slider is released", async () => {

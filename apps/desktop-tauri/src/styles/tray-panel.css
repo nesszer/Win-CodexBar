@@ -29,6 +29,34 @@ body:has(.tray-panel-reveal),
   margin-top: auto;
 }
 
+/* Movable panel: a strip along the top drags the window. The grab bar shows
+   where to grab; the panel's first row moves down so it isn't under it. */
+.tray-move-handle {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 12px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+}
+.tray-move-handle__grip {
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.18);
+  transition: background 120ms ease-out;
+}
+.tray-move-handle:hover .tray-move-handle__grip {
+  background: rgba(0, 0, 0, 0.38);
+}
+.tray-panel-reveal--movable .menu-surface--tray {
+  padding-top: 12px;
+}
+
 /* spin animation for refresh */
 @keyframes spin {
   to { transform: rotate(360deg); }
