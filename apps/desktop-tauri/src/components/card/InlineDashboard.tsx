@@ -54,12 +54,15 @@ function UsageBars({
           <span
             key={`${point.date}-${index}`}
             className={`card-dash__bar${hovered === index ? " card-dash__bar--selected" : ""}`}
-            data-empty={point.value == null ? "true" : undefined}
+            data-empty={point.value == null && !point.hasUnpricedUsage ? "true" : undefined}
+            data-unpriced={point.hasUnpricedUsage ? "true" : undefined}
             title={point.title}
             onMouseEnter={() => setHovered(index)}
             style={{
-              height: `${barHeight(point.value, maxValue)}px`,
-              opacity: barOpacity(point.value, maxValue),
+              height: `${point.hasUnpricedUsage ? 3 : barHeight(point.value, maxValue)}px`,
+              opacity: point.hasUnpricedUsage ? 0.55 : barOpacity(point.value, maxValue),
+              outline: point.hasUnpricedUsage ? "1px dashed currentColor" : undefined,
+              background: point.hasUnpricedUsage ? "transparent" : undefined,
             }}
           />
         ))}

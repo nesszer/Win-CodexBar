@@ -184,10 +184,15 @@ export default function MenuCard({
     setChartData(null);
   }, [provider.providerId, provider.accountEmail]);
 
-  // Re-read the local-usage chart when the local calendar day changes (seen on
-  // the next render, e.g. a provider update), so "Today" does not freeze at the
-  // first mount without a full transcript walk on every refresh.
+  // Re-read the local-usage chart after a provider publishes changed usage and
+  // when a render crosses the local calendar day, so Today keeps advancing.
+  // `updatedAt` changes on every refresh, and each read can walk the local
+  // transcripts, so key on the usage values instead.
   const localDay = new Date().toLocaleDateString("sv");
+  const usageRevision = [provider.primary, provider.secondary, provider.tertiary]
+    .map((window) => window?.usedPercent ?? "")
+    .concat(provider.cost?.used ?? "")
+    .join("|");
   useEffect(() => {
     if (!providerSupportsChartData(provider.providerId) || accountScoped) return;
     let cancelled = false;
@@ -207,7 +212,7 @@ export default function MenuCard({
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
     // "Track costs" flips local estimates on or off; the backend answers for the new value.
-  }, [provider.providerId, provider.accountEmail, localDay, costTrackingEnabled, accountScoped, onLayoutChange]);
+  }, [provider.providerId, provider.accountEmail, usageRevision, localDay, costTrackingEnabled, accountScoped, onLayoutChange]);
 
   // The Conversations list reads the same backend-cached summary as Usage & Spend,
   // which masks titles itself; a summary fetched under the other Hide Personal
