@@ -263,7 +263,9 @@ fn quota_boundaries(
         if next < earliest - duration || next > latest + duration {
             continue;
         }
-        dates.push(next - duration);
+        // A future reset is a forecast, not evidence that its inferred start
+        // was a real reset. In an idle window the forecast may move on every
+        // refresh; projecting each one backwards creates minute-long rows.
         if next <= now {
             dates.push(next);
         }
@@ -271,9 +273,7 @@ fn quota_boundaries(
     dates.sort();
     dates = unique_dates(dates);
     dates.retain(|date| *date >= earliest && *date <= latest);
-    dates.retain(|date| {
-        date.signed_duration_since(current_end).num_seconds().abs() >= RESET_TOLERANCE_SECONDS
-    });
+    dates.retain(|date| (*date - current_end).abs() > Duration::seconds(RESET_TOLERANCE_SECONDS));
     dates.push(current_end);
     dates.sort();
 
@@ -284,7 +284,9 @@ fn quota_boundaries(
         if let Some(mut cursor) = filled.last().copied() {
             loop {
                 let next = cursor + duration;
-                if next >= date || next <= cursor {
+                // Insert only a missing whole window. Splitting an observed
+                // gap slightly longer than a week would invent a short tail.
+                if next + duration > date || next <= cursor {
                     break;
                 }
                 filled.push(next);
@@ -309,13 +311,16 @@ fn unique_dates(mut dates: Vec<DateTime<Utc>>) -> Vec<DateTime<Utc>> {
     let tolerance = Duration::seconds(RESET_TOLERANCE_SECONDS);
     let mut unique: Vec<DateTime<Utc>> = Vec::with_capacity(dates.len());
     for date in dates {
-        if unique
-            .last()
-            .is_some_and(|last| (date - *last).abs() < tolerance)
+        if let Some(last) = unique.last_mut()
+            && (date - *last).abs() <= tolerance
         {
-            continue;
+            // Keep the latest member of a consecutive jitter chain. Comparing
+            // against the first retained value split one-minute updates into
+            // a new boundary every two minutes.
+            *last = date;
+        } else {
+            unique.push(date);
         }
-        unique.push(date);
     }
     unique
 }
@@ -326,7 +331,7 @@ fn boundary_is_confirmed(
     now: DateTime<Utc>,
 ) -> bool {
     observed_next_resets.iter().any(|reset| {
-        *reset <= now && (*reset - instant).abs() < Duration::seconds(RESET_TOLERANCE_SECONDS)
+        *reset <= now && (*reset - instant).abs() <= Duration::seconds(RESET_TOLERANCE_SECONDS)
     })
 }
 

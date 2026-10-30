@@ -188,3 +188,105 @@ fn missing_live_reset_returns_no_windows() {
         .is_empty()
     );
 }
+
+#[test]
+fn moving_future_reset_forecasts_do_not_create_two_minute_history_windows() {
+    let reset_at = utc("2026-10-29T17:20:00Z");
+    let now = utc("2026-10-23T06:00:00Z");
+    let mut cache = cache_with_source_rows(vec![row(
+        utc("2026-10-21T12:00:00Z"),
+        100,
+        25,
+        Some("gpt-5.5"),
+    )]);
+    cache.scan_since_key = Some("2026-09-23".to_string());
+    cache.scan_until_key = Some("2026-10-23".to_string());
+    let observations = [reset_at - Duration::minutes(2), reset_at];
+
+    let windows = codex_quota_windows_from_cache(
+        &cache,
+        Some(&weekly_window(reset_at)),
+        &observations,
+        now,
+        4,
+    );
+    assert_eq!(windows.len(), 4);
+    for window in &windows {
+        assert_eq!(window.end - window.start, Duration::days(7), "{window:?}");
+    }
+    assert_eq!(windows[1].total_tokens, Some(125));
+}
+
+#[test]
+fn sparse_future_forecasts_do_not_invent_historical_resets() {
+    let end = utc("2026-10-29T17:20:00Z");
+    let boundaries = quota_boundaries(
+        &[end - Duration::days(2), end - Duration::days(1), end],
+        end,
+        Duration::days(7),
+        4,
+        utc("2026-10-23T06:00:00Z"),
+    );
+    assert!(
+        boundaries
+            .windows(2)
+            .all(|pair| pair[1] - pair[0] == Duration::days(7))
+    );
+}
+
+#[test]
+fn expired_forecast_jitter_stays_one_boundary_after_rollover() {
+    let reset = utc("2026-10-29T17:21:00Z");
+    let observations: Vec<_> = (0..=12)
+        .map(|minute| reset - Duration::minutes(minute))
+        .collect();
+    let boundaries = quota_boundaries(
+        &observations,
+        reset + Duration::days(7),
+        Duration::days(7),
+        4,
+        reset + Duration::days(1),
+    );
+    assert!(
+        boundaries
+            .windows(2)
+            .all(|pair| pair[1] - pair[0] == Duration::days(7))
+    );
+}
+
+#[test]
+fn keeps_irregular_past_reset_without_inventing_a_short_tail() {
+    let end = utc("2026-10-29T17:21:00Z");
+    let past = utc("2026-10-14T03:35:09Z");
+    let boundaries = quota_boundaries(
+        &[past, end - Duration::days(2), end],
+        end,
+        Duration::days(7),
+        4,
+        utc("2026-10-23T06:00:00Z"),
+    );
+    assert!(boundaries.contains(&past));
+    let current_start = boundaries
+        .iter()
+        .position(|date| *date == end - Duration::days(7))
+        .unwrap();
+    assert_eq!(boundaries[current_start - 1], past);
+}
+
+#[test]
+fn fills_multiple_missing_weeks_between_past_observations() {
+    let end = utc("2026-10-29T17:21:00Z");
+    let boundaries = quota_boundaries(
+        &[end - Duration::days(28)],
+        end,
+        Duration::days(7),
+        4,
+        utc("2026-10-23T06:00:00Z"),
+    );
+    assert_eq!(boundaries.len(), 5);
+    assert!(
+        boundaries
+            .windows(2)
+            .all(|pair| pair[1] - pair[0] == Duration::days(7))
+    );
+}
