@@ -6,7 +6,7 @@ This page shows how to build and test Win-CodexBar on Windows. The desktop app i
 
 - Rust stable with the `x86_64-pc-windows-msvc` target. CI pins the version in `scripts/circleci-pinned-rust.txt` (1.98.0).
 - Visual Studio Build Tools with the **Desktop development with C++** workload.
-- Node.js. CI uses Node 24.18.0, so use the same version locally.
+- Node.js. CI uses Node 24.22.1, so use the same version locally.
 - pnpm, at the exact version in the `packageManager` field of `apps/desktop-tauri/package.json` (`pnpm@11.25.0`). Corepack can activate it. Don't use npm or yarn.
 
 Install the tools yourself with rustup, winget or corepack, or with a tool manager such as mise. The repo has no setup script that installs them.

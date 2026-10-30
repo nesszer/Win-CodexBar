@@ -478,7 +478,7 @@ if ($packageJson.packageManager -notmatch '^pnpm@\d+\.\d+\.\d+$') {
 Require-PrerequisiteCommand 'git' 'Git.Git' 'git' | Out-Null
 $requiredNodeMajor = 24
 $nodePackageId = 'OpenJS.NodeJS.LTS'
-$nodeFallbackVersion = 'v24.18.0'
+$nodeFallbackVersion = 'v24.22.1'
 $nodeInfo = Get-NodeInfoFallback
 if (-not $nodeInfo -or $nodeInfo.Major -ne $requiredNodeMajor) {
     if ($AssertOnly) {

@@ -134,7 +134,7 @@ These need the user's confirmation, because they are hard to undo or affect shar
 ## Runtime and tooling
 
 - **pnpm** only. The exact version is pinned only by `packageManager` in `apps/desktop-tauri/package.json`, and the lockfile reflects it. Don't add npm or yarn lockfiles.
-- **Node:** CircleCI pins Node 24.18.0. There is no `.nvmrc`. Use 24.18.0 locally to match CI.
+- **Node:** CircleCI pins Node 24.22.1. There is no `.nvmrc`. Use 24.22.1 locally to match CI.
 - **Rust:** edition 2024, stable, target `x86_64-pc-windows-msvc`. CI pins the version in `scripts/circleci-pinned-rust.txt`. There is no committed `rust-toolchain.toml`, `rustfmt.toml` or `clippy.toml`; use the defaults plus the CI flags (`clippy -- -D warnings`).
 - Test tray, DPAPI and browser-cookie behavior on a native Windows host. WSL and Linux can't exercise those paths.
 
