@@ -247,6 +247,7 @@ The float bar section is on this pane too. Every control except the first is dis
 | `float_bar_scale` | 75 to 200 | 100 |
 | `float_bar_show_cost` | on, off | off |
 | `float_bar_show_reset_inline` | on, off | off |
+| `float_bar_show_weekly` (Show Session and Weekly) | on, off | off |
 | `float_bar_dark_text` (Invert Colors) | on, off | off |
 | `float_bar_click_through` | on, off | off |
 
@@ -353,7 +354,7 @@ These keys are exported (`ALLOWED_PREFERENCES` in `rust/src/settings/preferences
 | Display | `show_pace`, `show_as_used`, `reset_time_relative`, `show_reset_when_exhausted`, `hide_personal_info`, `menu_bar_shows_highest_usage`, `menu_bar_shows_percent`, `menu_bar_icon_style`, `merged_overview_selected_providers`, `merged_overview_all_accounts`, `quota_warning_markers_visible`, `workday_tick_style`, `tray_icon_mode`, `switcher_shows_icons`, `providers_sorted_alphabetically`, `overview_layout`, `menu_bar_display_mode` |
 | Providers | `provider_order`, `enabled_providers`, `provider_metrics`, `provider_quota_warnings` |
 | Look | `theme`, `ui_language`, `ui_language_follows_system`, `window_scale_percent`, `tray_scale_percent` |
-| Float bar | `float_bar_opacity`, `float_bar_scale`, `float_bar_orientation`, `float_bar_style`, `float_bar_dark_text`, `float_bar_show_reset_inline`, `float_bar_show_cost` |
+| Float bar | `float_bar_opacity`, `float_bar_scale`, `float_bar_orientation`, `float_bar_style`, `float_bar_dark_text`, `float_bar_show_reset_inline`, `float_bar_show_cost`, `float_bar_show_weekly` |
 | Cost | `cost_reporting_period`, `cost_usage_enabled`, `spend_dashboard_period`, `spend_dashboard_hidden_source_ids`, `preferred_currency_code` |
 | Shortcuts | `switcher_shortcuts` |
 
