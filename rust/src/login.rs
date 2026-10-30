@@ -290,8 +290,7 @@ where
         self.auth_link = Some(m.as_str().to_string());
         (self.on_link)(m.as_str());
         (self.on_phase)(LoginPhase::WaitingBrowser);
-        // Best-effort browser open; the link stays on screen for manual use.
-        let _opened_browser = open::that(m.as_str());
+        open_auth_link(m.as_str());
     }
 
     fn into_result(self, outcome: LoginOutcome) -> LoginResult {
@@ -301,6 +300,19 @@ where
             auth_link: self.auth_link,
         }
     }
+}
+
+/// Best-effort browser open; the link stays on screen for manual use.
+/// Detached because `open::that` waits for `cmd /c start`, and a stalled URL
+/// handler would then block the read loop and with it cancel and timeout.
+/// Tests drive a fake CLI that prints a sign-in link, so they never open it.
+fn open_auth_link(url: &str) {
+    #[cfg(not(test))]
+    {
+        let _opened_browser = open::that_detached(url);
+    }
+    #[cfg(test)]
+    let _ = url;
 }
 
 fn read_login_stream<R, F>(
