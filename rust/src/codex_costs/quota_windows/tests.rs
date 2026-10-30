@@ -56,6 +56,8 @@ fn cache_with_source_rows(rows: Vec<CodexSourceUsageRow>) -> CostUsageCache {
             mtime_unix_ms: 1,
             prefix_hash: 1,
             rows,
+            scan_since_key: None,
+            scan_until_key: None,
         },
     );
     cache
@@ -101,6 +103,8 @@ fn deduplicates_source_rows_by_file_identity() {
         mtime_unix_ms: 1,
         prefix_hash: 1,
         rows: vec![row(timestamp, 7, 3, Some("gpt-5.5"))],
+        scan_since_key: None,
+        scan_until_key: None,
     };
     let mut cache = cache_with_source_rows(Vec::new());
     cache.codex_source_rows = HashMap::from([

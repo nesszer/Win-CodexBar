@@ -756,6 +756,8 @@ fn budget_pruning_rebuilds_priority_days_from_retained_files() {
                 mtime_unix_ms: 0,
                 prefix_hash: 0,
                 rows: vec![standard_row(day, input, turn)],
+                scan_since_key: None,
+                scan_until_key: None,
             },
         );
         cursor.request_sources.insert(
