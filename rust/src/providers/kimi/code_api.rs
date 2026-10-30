@@ -13,7 +13,7 @@ use super::{
     ProviderError, RateWindow, UsageSnapshot, ascii_header_value, cleaned_env, cleaned_owned,
     gift_display_details, kimi_window_minutes,
 };
-use super::{ratio_pool, web};
+use super::{monthly_breakdown, ratio_pool, web};
 use crate::core::ProviderFetchResult;
 use crate::providers::json;
 
@@ -82,9 +82,14 @@ pub(crate) async fn fetch_via_code_api(
     })?;
     let plan_name = json.plan_name();
     let has_plan_name = plan_name.is_some();
+    let code_api_shares = json
+        .usages
+        .as_ref()
+        .and_then(super::KimiCodeUsagePools::monthly_shares);
     let mut snapshot = snapshot_from_code_api_response(json)?;
     snapshot.login_method = Some(plan_name.unwrap_or_else(|| login_method.to_string()));
-    let mut details = Vec::new();
+    let mut gifts = Vec::new();
+    let mut web_shares = None;
 
     // Upstream #2622: enrich Code API + CLI usage with the monthly membership
     // pool from a signed-in Kimi Desktop (or browser/manual) session. A
@@ -95,7 +100,12 @@ pub(crate) async fn fetch_via_code_api(
         {
             Ok(subscription) => {
                 if let Some(subscription) = subscription {
-                    details = gift_display_details(&subscription, snapshot.updated_at);
+                    gifts = gift_display_details(&subscription, snapshot.updated_at);
+                    // The Code share must come from the source that supplied
+                    // `Total usage`: web only fills a missing Code API pool.
+                    if code_api_shares.is_none() {
+                        web_shares = monthly_breakdown::subscription_monthly_shares(&subscription);
+                    }
                     snapshot = super::apply_subscription_windows(snapshot, &subscription);
                 }
                 if !has_plan_name
@@ -114,6 +124,8 @@ pub(crate) async fn fetch_via_code_api(
         }
     }
 
+    let mut details = monthly_breakdown::monthly_breakdown_details(code_api_shares.or(web_shares));
+    details.extend(gifts);
     Ok(ProviderFetchResult::new(snapshot, "api").with_display_details(details))
 }
 

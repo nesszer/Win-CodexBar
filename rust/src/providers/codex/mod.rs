@@ -32,6 +32,15 @@ pub(crate) const LIMIT_RESET_POLICY: crate::core::ProviderLimitResetPolicy =
         missing_identity: crate::core::MissingIdentityRule::Skip,
     };
 
+/// Upstream `CodexProviderDescriptor.pace` (#4766): a window reported with a
+/// fixed 30-day length (`limit_window_seconds: 2592000`, seen on the Free
+/// plan) gets reset-window pace. The reported length is kept; calendar-month
+/// inference would change the pace.
+pub(crate) const PACE_CAPABILITY: crate::core::ProviderPaceCapability =
+    crate::core::ProviderPaceCapability::reset_window(crate::core::PaceWindowRule::WindowDuration(
+        crate::core::MONTHLY_WINDOW_SENTINEL_MINUTES,
+    ));
+
 /// Codex provider for fetching AI usage limits
 pub struct CodexProvider {
     api: CodexApi,

@@ -280,6 +280,17 @@ impl Settings {
             .local_session_cost_ledger_enabled = value;
     }
 
+    /// Codex "OpenCode local history" option (upstream #4786).
+    pub fn opencode_local_history_enabled(&self, id: ProviderId) -> bool {
+        self.provider_configs
+            .get(&id)
+            .is_some_and(|c| c.opencode_local_history_enabled)
+    }
+
+    pub fn set_opencode_local_history_enabled(&mut self, id: ProviderId, value: bool) {
+        self.provider_config_mut(id).opencode_local_history_enabled = value;
+    }
+
     /// Codex OpenAI web battery saver option (persisted only).
     pub fn openai_web_battery_saver_enabled(&self, id: ProviderId) -> bool {
         self.provider_configs

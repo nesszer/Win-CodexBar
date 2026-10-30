@@ -113,7 +113,7 @@ fn cached_scan_tracks_live_wal_commits() {
 fn unreadable_database_reports_the_sqlite_error_prefix() {
     let db = temp_db_path("garbage");
     std::fs::write(&db, b"not a sqlite database, just synthetic bytes").unwrap();
-    let err = read_rows(&db).unwrap_err();
+    let err = read_rows(&db, RowSource::OpenCodeGo).unwrap_err();
     // Best-effort teardown; the temp file may already be gone.
     let _removed = std::fs::remove_file(&db);
     assert!(
@@ -413,7 +413,7 @@ fn daily_entries_group_cost_by_model_within_a_day() {
             ),
         ],
     );
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, now, 30);
 
     // Day key is local-calendar; assert on tz-independent model aggregation.
@@ -474,7 +474,7 @@ fn v2_session_messages_add_new_turns_without_double_counting_migrated_ones() {
     drop(conn);
 
     let now = a14_now_afternoon();
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     assert_eq!(rows.len(), 2, "{rows:?}");
     let v2_new = rows
         .iter()
@@ -541,7 +541,7 @@ fn v2_session_messages_join_step_finish_parts_path_without_double_counting() {
     );
     drop(conn);
 
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     assert_eq!(rows.len(), 3, "{rows:?}");
 
     let now = a14_now_afternoon();
@@ -607,7 +607,8 @@ fn malformed_v2_session_messages_are_ignored_without_failing_the_read() {
     );
     drop(conn);
 
-    let rows = read_rows(&db).expect("malformed v2 rows must not fail the whole read");
+    let rows = read_rows(&db, RowSource::OpenCodeGo)
+        .expect("malformed v2 rows must not fail the whole read");
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].model, "good-model");
     assert!((rows[0].cost - 4.0).abs() < 1e-6);
@@ -643,7 +644,7 @@ fn v2_only_database_without_message_table_reads_requests() {
     let snap = fetch_from_paths(&auth, &db, now).expect("v2-only history must read");
     assert!((snap.rolling_usage_percent - 25.0).abs() < 0.05, "{snap:?}");
 
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
     let buckets = daily_model_costs(&rows, now, 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
@@ -693,7 +694,7 @@ fn legacy_copies_count_once_and_new_v2_turns_are_added() {
         );
         drop(conn);
 
-        let rows = read_rows(&db).unwrap();
+        let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
         let buckets = daily_model_costs(&rows, v2_history_now(), 30);
         let mut by_day: std::collections::BTreeMap<String, (f64, u32)> =
             std::collections::BTreeMap::new();
@@ -780,7 +781,7 @@ fn invalid_legacy_copies_do_not_hide_valid_v2_requests() {
         drop(conn);
 
         let now = a14_now();
-        let rows = read_rows(&db).unwrap();
+        let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
         assert_eq!(rows.len(), 2, "has_legacy={has_legacy}: {rows:?}");
         let buckets = daily_model_costs(&rows, now, 30);
         assert_eq!(buckets.len(), 2, "has_legacy={has_legacy}: {buckets:?}");
@@ -816,7 +817,7 @@ fn legacy_copy_with_unusable_timestamp_does_not_hide_valid_v2_request() {
     );
     drop(conn);
 
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].model, "fixture-model");
     assert!((rows[0].cost - 3.0).abs() < 1e-6);
@@ -866,7 +867,7 @@ fn idle_v2_wal_history_reads_without_changing_the_database_or_creating_sidecars(
         );
         let contents = std::fs::read(&db).unwrap();
 
-        let rows = read_rows(&db).expect("read idle v2 WAL history");
+        let rows = read_rows(&db, RowSource::OpenCodeGo).expect("read idle v2 WAL history");
         assert_eq!(rows.len(), 1, "has_legacy={has_legacy}: {rows:?}");
         assert!((rows[0].cost - 3.0).abs() < 1e-6);
 
@@ -899,7 +900,7 @@ fn v2_compaction_requests_count_with_their_cost_and_tokens() {
     );
     drop(conn);
 
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].model, "fixture-model");
     assert!((rows[0].cost - 2.0).abs() < 1e-6);
@@ -921,7 +922,7 @@ fn step_finish_parts_inherit_their_model_from_the_parent_message() {
     insert_step_finish(&conn, "p1", "m1", created, 3.0, None);
     drop(conn);
 
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now(), 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
     assert_eq!(buckets[0].model, "grok-code-fast-1");
@@ -933,7 +934,7 @@ fn messages_without_a_model_fall_back_to_the_unknown_bucket() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
     write_message_db(&db, &[(iso_ms("2026-03-06T11:00:00.000Z"), 4.0, None)]);
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now(), 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
     assert_eq!(buckets[0].model, UNKNOWN_MODEL_NAME);
@@ -948,7 +949,7 @@ fn whitespace_only_model_ids_fall_back_to_the_unknown_bucket() {
         &db,
         &[(iso_ms("2026-03-06T11:00:00.000Z"), 5.0, Some("   "))],
     );
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now(), 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
     assert_eq!(buckets[0].model, UNKNOWN_MODEL_NAME);
@@ -974,7 +975,7 @@ fn model_ids_with_incidental_whitespace_merge_with_the_trimmed_bucket() {
             ),
         ],
     );
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now_afternoon(), 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
     assert_eq!(buckets[0].model, "claude-sonnet-4-5");
@@ -994,7 +995,7 @@ fn multiple_days_bucket_separately_and_sort_deterministically() {
             (iso_ms("2026-03-07T11:00:00.000Z"), 3.0, Some("a")),
         ],
     );
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now_afternoon(), 30);
     assert!(
         buckets
@@ -1024,7 +1025,7 @@ fn zero_cost_rows_are_kept_and_aggregated() {
             (iso_ms("2026-03-06T12:00:00.000Z"), 4.0, Some("a")),
         ],
     );
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now_afternoon(), 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
     assert!((buckets[0].cost - 4.0).abs() < 1e-6);
@@ -1065,7 +1066,7 @@ fn malformed_rows_are_dropped() {
     .unwrap();
     drop(conn);
 
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     assert_eq!(rows.len(), 1, "only the valid assistant+cost row survives");
     assert_eq!(rows[0].model, "good");
 }
@@ -1080,7 +1081,7 @@ fn rows_outside_history_window_are_dropped() {
         &db,
         &[(far_past, 1.0, Some("old")), (recent, 2.0, Some("new"))],
     );
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now(), 1);
     let models: Vec<&str> = buckets.iter().map(|b| b.model.as_str()).collect();
     assert!(
@@ -1095,7 +1096,7 @@ fn day_boundary_keys_by_local_calendar_day() {
     let db = dir.path().join("opencode.db");
     let just_after_utc_midnight = iso_ms("2026-03-06T00:30:00.000Z");
     write_message_db(&db, &[(just_after_utc_midnight, 1.5, Some("edge"))]);
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now_afternoon(), 30);
     assert_eq!(buckets.len(), 1, "{buckets:?}");
     assert!(
@@ -1117,7 +1118,7 @@ fn model_cost_summary_aggregates_total_and_by_model() {
             (iso_ms("2026-03-06T13:00:00.000Z"), 2.0, None),
         ],
     );
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let summary = model_cost_summary_from_rows(&rows, a14_now_afternoon(), 30);
     assert!((summary.total_cost_usd - 6.0).abs() < 1e-6, "{summary:?}");
     assert_eq!(summary.request_count, 3);
@@ -1138,7 +1139,7 @@ fn daily_series_sums_models_per_day_via_pure_aggregation() {
             (iso_ms("2026-03-06T12:00:00.000Z"), 2.0, Some("b")),
         ],
     );
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let buckets = daily_model_costs(&rows, a14_now_afternoon(), 30);
     let mut by_day: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
     for b in &buckets {
@@ -1154,7 +1155,7 @@ fn daily_aggregation_is_independent_of_zen_wait() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("opencode.db");
     write_message_db(&db, &[(iso_ms("2026-03-06T11:00:00.000Z"), 2.0, Some("a"))]);
-    let rows = read_rows(&db).unwrap();
+    let rows = read_rows(&db, RowSource::OpenCodeGo).unwrap();
     let now = a14_now();
     let b1 = daily_model_costs(&rows, now, 30);
     let b2 = daily_model_costs(&rows, now, 30);

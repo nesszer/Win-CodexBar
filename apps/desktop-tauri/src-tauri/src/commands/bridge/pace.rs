@@ -544,7 +544,7 @@ mod tests {
         let usage =
             UsageSnapshot::new(RateWindow::new(10.0)).with_secondary(monthly(50.0, Some(43_200)));
 
-        let snap = snapshot_at(ProviderId::Codex, usage);
+        let snap = snapshot_at(ProviderId::Gemini, usage);
 
         let pace = lane_pace(snap.secondary.as_ref().expect("weekly lane"));
         assert!((pace.expected_used_percent - 160.0 / 3.0).abs() < 1e-9);

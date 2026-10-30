@@ -185,6 +185,7 @@ const PROVIDER_LABEL_KEYS: Record<string, LocaleKey> = {
   scope: "ProviderLabelScope",
   "subscription credits available": "ProviderLabelSubscriptionCreditsAvailable",
   "total credits available": "ProviderLabelTotalCreditsAvailable",
+  "total credits": "ProviderLabelTotalCredits",
   "used this cycle": "ProviderLabelUsedThisCycle",
   "bank cap": "ProviderLabelBankCap",
   "next refill": "ProviderLabelNextRefill",

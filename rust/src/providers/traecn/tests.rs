@@ -7,6 +7,8 @@ use crate::browser::detection::BrowserType;
 use crate::browser::session_scan::test_support::FakeCookieStore;
 use mockito::{Matcher, Mock, Server, ServerGuard};
 
+/// Where Trae keeps automatic browser sessions (upstream #4732).
+const PARENT_DOMAIN: &str = "trae.cn";
 const COOKIE: &str = "trae_session=synthetic-1";
 const OTHER_COOKIE: &str = "trae_session=synthetic-2";
 const TOKEN: &str = "synthetic-token";
@@ -91,7 +93,8 @@ fn metadata_and_source_contract_match_upstream_descriptor() {
     assert_eq!(provider.id(), ProviderId::TraeCn);
     let metadata = provider.metadata();
     assert_eq!(metadata.display_name, "Trae CN");
-    assert_eq!(metadata.session_label, "Credits");
+    assert_eq!(metadata.session_label, "Usage");
+    assert_ne!(metadata.session_label, CREDITS_SECTION);
     assert_eq!(metadata.weekly_label, "Window");
     assert_eq!(
         metadata.dashboard_url,
@@ -108,7 +111,12 @@ fn metadata_and_source_contract_match_upstream_descriptor() {
         provider.manual_empty_cookie_policy(),
         ManualEmptyCookiePolicy::FailClosedWeb
     ));
+    // Manual cookies stay on the API origin. Automatic sessions and Settings
+    // browser import both read the parent `trae.cn` domain (#4732) and keep
+    // only the cookies a browser sends to the API origin.
     assert_eq!(ProviderId::TraeCn.cookie_domain(), Some("api.trae.cn"));
+    assert_eq!(provider.cookie_request_scope(), Some(COOKIE_SCOPE));
+    assert_eq!(COOKIE_SCOPE.scan_domain, PARENT_DOMAIN);
     assert_eq!(
         ProviderId::from_cli_name("traecn"),
         Some(ProviderId::TraeCn)
@@ -327,15 +335,15 @@ async fn a_rejected_profile_advances_to_the_next_browser_session() {
     )
     .await;
     let store = FakeCookieStore::default()
-        .cookies(
+        .host_cookies(
             BrowserType::Chrome,
-            COOKIE_DOMAIN,
-            &[("trae_session", "synthetic-1")],
+            PARENT_DOMAIN,
+            &[(".trae.cn", "trae_session", "synthetic-1")],
         )
-        .cookies(
+        .host_cookies(
             BrowserType::Edge,
-            COOKIE_DOMAIN,
-            &[("trae_session", "synthetic-2")],
+            PARENT_DOMAIN,
+            &[(".trae.cn", "trae_session", "synthetic-2")],
         );
     let result = fetch(&server, &FetchContext::default(), &store)
         .await
@@ -350,15 +358,15 @@ async fn all_rejected_browser_sessions_report_an_expired_session() {
     let _first = exchange(&mut server, COOKIE, (401, "{}"), (200, ENTITLEMENTS)).await;
     let _second = exchange(&mut server, OTHER_COOKIE, (403, "{}"), (200, ENTITLEMENTS)).await;
     let store = FakeCookieStore::default()
-        .cookies(
+        .host_cookies(
             BrowserType::Chrome,
-            COOKIE_DOMAIN,
-            &[("trae_session", "synthetic-1")],
+            PARENT_DOMAIN,
+            &[(".trae.cn", "trae_session", "synthetic-1")],
         )
-        .cookies(
+        .host_cookies(
             BrowserType::Edge,
-            COOKIE_DOMAIN,
-            &[("trae_session", "synthetic-2")],
+            PARENT_DOMAIN,
+            &[(".trae.cn", "trae_session", "synthetic-2")],
         );
     let provider = TraeCnProvider::with_base_url(&server.url());
     let error = provider
@@ -386,15 +394,15 @@ async fn transient_failures_keep_the_session_and_stop_the_walk() {
             .await;
         // A second browser would only be tried after a rejected session.
         let store = FakeCookieStore::default()
-            .cookies(
+            .host_cookies(
                 BrowserType::Chrome,
-                COOKIE_DOMAIN,
-                &[("trae_session", "synthetic-1")],
+                PARENT_DOMAIN,
+                &[(".trae.cn", "trae_session", "synthetic-1")],
             )
-            .cookies(
+            .host_cookies(
                 BrowserType::Edge,
-                COOKIE_DOMAIN,
-                &[("trae_session", "synthetic-2")],
+                PARENT_DOMAIN,
+                &[(".trae.cn", "trae_session", "synthetic-2")],
             );
         let result = TraeCnProvider::with_base_url(&server.url())
             .fetch_web(&FetchContext::default(), &store)
@@ -434,10 +442,10 @@ async fn other_http_failures_name_the_status_without_echoing_the_body() {
 async fn pasted_header_is_the_only_session_and_is_normalized() {
     let mut server = Server::new_async().await;
     let mocks = exchange(&mut server, COOKIE, (200, TOKEN_BODY), (200, ENTITLEMENTS)).await;
-    let store = FakeCookieStore::default().cookies(
+    let store = FakeCookieStore::default().host_cookies(
         BrowserType::Chrome,
-        COOKIE_DOMAIN,
-        &[("trae_session", "synthetic-2")],
+        PARENT_DOMAIN,
+        &[(".trae.cn", "trae_session", "synthetic-2")],
     );
     let result = fetch(&server, &manual(&format!("Cookie: {COOKIE}")), &store)
         .await
@@ -467,10 +475,10 @@ async fn no_browser_session_asks_the_user_to_sign_in() {
 #[tokio::test]
 async fn an_empty_manual_source_never_falls_back_to_a_browser() {
     let server = Server::new_async().await;
-    let store = FakeCookieStore::default().cookies(
+    let store = FakeCookieStore::default().host_cookies(
         BrowserType::Chrome,
-        COOKIE_DOMAIN,
-        &[("trae_session", "synthetic-1")],
+        PARENT_DOMAIN,
+        &[(".trae.cn", "trae_session", "synthetic-1")],
     );
     let ctx = FetchContext {
         source_mode: SourceMode::Auto,
@@ -483,6 +491,65 @@ async fn an_empty_manual_source_never_falls_back_to_a_browser() {
         Err(ProviderError::BrowserSignInRequired { .. })
     ));
     assert!(store.reads().is_empty());
+}
+
+#[tokio::test]
+async fn automatic_scan_reads_the_parent_domain_and_keeps_only_api_bound_cookies() {
+    let mut server = Server::new_async().await;
+    let mocks = exchange(&mut server, COOKIE, (200, TOKEN_BODY), (200, ENTITLEMENTS)).await;
+    // Only the `.trae.cn` cookie is sent to api.trae.cn. The host-only parent
+    // cookie and the sibling www host are not, so Chrome yields no session.
+    let store = FakeCookieStore::default()
+        .host_cookies(
+            BrowserType::Chrome,
+            PARENT_DOMAIN,
+            &[
+                ("trae.cn", "parent_host_only", "1"),
+                ("www.trae.cn", "www_only", "2"),
+            ],
+        )
+        .host_cookies(
+            BrowserType::Edge,
+            PARENT_DOMAIN,
+            &[
+                (".trae.cn", "trae_session", "synthetic-1"),
+                ("www.trae.cn", "www_only", "3"),
+            ],
+        );
+    let result = fetch(&server, &FetchContext::default(), &store)
+        .await
+        .unwrap();
+    for mock in mocks {
+        mock.assert_async().await;
+    }
+    assert_eq!(result.usage.primary.used_percent, 20.0);
+    assert_eq!(
+        store.reads(),
+        vec![
+            (BrowserType::Chrome, PARENT_DOMAIN.to_string()),
+            (BrowserType::Edge, PARENT_DOMAIN.to_string()),
+        ]
+    );
+    // Requests and manual cookies stay on the API origin.
+    assert_eq!(Some(COOKIE_SCOPE.host), ProviderId::TraeCn.cookie_domain());
+}
+
+#[tokio::test]
+async fn parent_host_only_cookie_is_not_sent_to_the_api_origin() {
+    let server = Server::new_async().await;
+    let store = FakeCookieStore::default().host_cookies(
+        BrowserType::Chrome,
+        PARENT_DOMAIN,
+        &[("trae.cn", "trae_session", "synthetic-1")],
+    );
+    // No request may leave: a sent cookie would reach the mock server, which
+    // has no route and answers with a non-sign-in error.
+    let result = fetch(&server, &FetchContext::default(), &store).await;
+    assert!(matches!(
+        result,
+        Err(ProviderError::BrowserSignInRequired { .. })
+    ));
+    assert_eq!(store.reads().len(), 1);
 }
 
 #[test]

@@ -46,7 +46,7 @@ const EXPECTED_SUPPORT_ROWS: &[&str] = &[
     "Mistral|Session tokens|Store multiple Mistral Cookie headers.|Cookie: ...|cookie|true|None",
     "Manus|Session tokens|Store multiple Manus session_id values.|session_id value or Cookie: ...|cookie|true|Some(\"session_id\")",
     "MiMo|Session tokens|Store multiple Xiaomi MiMo Cookie headers.|Cookie: api-platform_serviceToken=...; userId=...|cookie|true|None",
-    "CommandCode|Session tokens|Store multiple Command Code Cookie headers or Better Auth values.|Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value|cookie|true|Some(\"__Secure-commandcode_prod_.session_token\")",
+    "CommandCode|Session tokens|Store multiple Command Code subscription sessions.|Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value|cookie|true|Some(\"__Secure-commandcode_prod_.session_token\")",
     "Qoder|Session tokens|Store multiple Qoder Cookie headers.|Cookie: ...|cookie|true|None",
     "CodeBuddy|Session tokens|Store CodeBuddy CN Cookie headers (from plans-usage DevTools cURL).|Cookie: session=...; ... (or paste full Cookie header)|cookie|true|None",
     "Sakana|Session tokens|Store multiple Sakana Console Cookie headers.|Cookie: ...|cookie|true|None",

@@ -48,6 +48,11 @@ pub struct CostScanOptions {
     /// pi/OMP-compatible agent session mirrors from Codex/Claude cost history.
     /// Defaults to true (include mirrors) for backward compatibility.
     pub include_pi_sessions: bool,
+    /// Add this device's OpenAI-backed OpenCode history to the ambient Codex
+    /// summary (upstream #4786). Off by default so Usage & Spend, the CLI and
+    /// the dashboard never include it; only the opted-in Codex history view
+    /// sets it.
+    pub include_opencode_history: bool,
     /// Maximum bytes newly read from one Codex rollout during a refresh.
     pub codex_max_session_file_bytes: i64,
     /// Maximum Codex JSONL bytes newly read across one refresh.
@@ -63,6 +68,7 @@ impl Default for CostScanOptions {
         Self {
             refresh_min_interval_secs: DEFAULT_COST_SCAN_REFRESH_MIN_INTERVAL_SECS,
             include_pi_sessions: true,
+            include_opencode_history: false,
             codex_max_session_file_bytes: DEFAULT_CODEX_MAX_SESSION_FILE_BYTES,
             codex_max_scan_bytes_per_refresh: DEFAULT_CODEX_MAX_SCAN_BYTES_PER_REFRESH,
             codex_candidate_limit: DEFAULT_CODEX_CANDIDATE_LIMIT,

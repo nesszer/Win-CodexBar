@@ -951,6 +951,97 @@ fn kimi_selected_account_forces_web_and_keeps_saved_region() {
 }
 
 #[test]
+fn command_code_selected_session_routes_auto_to_web_ahead_of_the_key() {
+    let ctx = fetch_ctx(
+        ProviderId::CommandCode,
+        CtxInput {
+            cookie_source: Some("manual"),
+            usage_source: Some("auto"),
+            manual_cookie: Some("__Secure-commandcode_prod_.session_token=stored"),
+            api_key: Some("fixture-key"),
+            accounts: &[("Personal", "personal-session"), ("Work", "work-session")],
+            active: Some(1),
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Web);
+    assert_eq!(
+        ctx.manual_cookie_header.as_deref(),
+        Some("__Secure-commandcode_prod_.session_token=work-session")
+    );
+    assert!(!ctx.manual_cookie_missing);
+}
+
+#[test]
+fn command_code_api_source_keeps_saved_sessions_passive() {
+    let ctx = fetch_ctx(
+        ProviderId::CommandCode,
+        CtxInput {
+            cookie_source: Some("manual"),
+            usage_source: Some("oauth"),
+            api_key: Some("fixture-key"),
+            accounts: &[("Personal", "personal-session")],
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::OAuth);
+    assert_eq!(ctx.api_key.as_deref(), Some("fixture-key"));
+}
+
+#[test]
+fn command_code_saved_sessions_need_the_manual_cookie_source() {
+    for cookie_source in ["auto", "off"] {
+        let ctx = fetch_ctx(
+            ProviderId::CommandCode,
+            CtxInput {
+                cookie_source: Some(cookie_source),
+                usage_source: Some("auto"),
+                api_key: Some("fixture-key"),
+                accounts: &[("Personal", "personal-session")],
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(ctx.source_mode, SourceMode::Auto, "{cookie_source}");
+        assert!(ctx.manual_cookie_header.is_none(), "{cookie_source}");
+        assert_eq!(ctx.api_key.as_deref(), Some("fixture-key"));
+    }
+}
+
+#[test]
+fn command_code_saved_session_stays_passive_for_web_under_auto_cookies() {
+    let build = |cookie_source| {
+        fetch_ctx(
+            ProviderId::CommandCode,
+            CtxInput {
+                cookie_source: Some(cookie_source),
+                usage_source: Some("web"),
+                manual_cookie: Some("__Secure-commandcode_prod_.session_token=stored"),
+                accounts: &[("Work", "work-session")],
+                active: Some(0),
+                ..Default::default()
+            },
+        )
+    };
+
+    let auto = build("auto");
+    assert_eq!(auto.source_mode, SourceMode::Web);
+    assert_eq!(
+        auto.manual_cookie_header.as_deref(),
+        Some("__Secure-commandcode_prod_.session_token=stored")
+    );
+
+    let manual = build("manual");
+    assert_eq!(manual.source_mode, SourceMode::Web);
+    assert_eq!(
+        manual.manual_cookie_header.as_deref(),
+        Some("__Secure-commandcode_prod_.session_token=work-session")
+    );
+}
+
+#[test]
 fn doubao_selected_account_forces_ark_api_and_ignores_saved_source() {
     let ctx = fetch_ctx(
         ProviderId::Doubao,

@@ -661,6 +661,11 @@ pub struct ProviderConfig {
     /// persisted only, no Windows consumer yet).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub local_session_cost_ledger_enabled: bool,
+    /// Codex-only: add this device's OpenAI-backed OpenCode history to the
+    /// ambient Codex cost history (upstream #4786). Off by default; never part
+    /// of Usage & Spend.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub opencode_local_history_enabled: bool,
     /// Codex-only: OpenAI web battery saver, shown while web extras is on
     /// (Mac Options parity; persisted only, no Windows consumer yet).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

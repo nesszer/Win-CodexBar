@@ -2,7 +2,7 @@ use super::*;
 use crate::codex_workspaces::types::SourceStatus;
 use crate::cost_reporting_period::cost_bucket_zone;
 use rusqlite::Connection;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use tempfile::TempDir;
 
@@ -282,6 +282,52 @@ fn session_tool_activity_reads_only_that_sessions_rollouts_in_the_window() {
         !tmp.path().join("side.sqlite").exists(),
         "tool activity never writes the sidecar"
     );
+}
+
+#[test]
+fn session_activity_uses_token_event_times() {
+    let tmp = TempDir::new().unwrap();
+    let sessions = tmp.path().join("sessions");
+    write_session(
+        &sessions,
+        "2026-03-04",
+        "sess-times.jsonl",
+        &tmp.path().to_string_lossy(),
+        "gpt-5",
+        10,
+        5,
+    );
+    let path = sessions.join("2026/03/04/sess-times.jsonl");
+    let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+    writeln!(
+        file,
+        r#"{{"timestamp":"2026-03-04T10:00:03.000Z","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}}}}}}}"#
+    )
+    .unwrap();
+    drop(file);
+    let range = CostUsageDayRange::new(
+        NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2026, 3, 10).unwrap(),
+    );
+    let parsed = index_one_file(&path, &range).expect("parsed");
+    let first = Utc.with_ymd_and_hms(2026, 3, 4, 10, 0, 2).unwrap();
+    let last = Utc.with_ymd_and_hms(2026, 3, 4, 10, 0, 3).unwrap();
+    assert_eq!(parsed.started_at, Some(first));
+    assert_eq!(parsed.latest_activity, Some(last));
+}
+
+#[test]
+fn day_key_activity_never_ends_after_the_file_was_written() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("rollout.jsonl");
+    File::create(&path).unwrap();
+    let modified = DateTime::<Utc>::from(fs::metadata(&path).unwrap().modified().unwrap());
+    let today = modified.date_naive().format("%Y-%m-%d").to_string();
+    let day_models = HashMap::from([(today, HashMap::new())]);
+
+    let (started, latest) = file_activity_bounds(&path, &day_models, [None, None]);
+    assert_eq!(latest, Some(modified));
+    assert!(started.unwrap() <= modified);
 }
 
 #[test]

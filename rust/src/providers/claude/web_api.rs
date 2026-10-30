@@ -436,8 +436,12 @@ impl ClaudeWebApiFetcher {
             if let Some(email) = &acc.email_address {
                 snapshot = snapshot.with_email(email.clone());
             }
-            if let Some(tier) = &acc.rate_limit_tier {
-                snapshot = snapshot.with_login_method(super::claude_plan_label(tier));
+            if let Some(label) = acc
+                .rate_limit_tier
+                .as_deref()
+                .and_then(super::claude_plan_label)
+            {
+                snapshot = snapshot.with_login_method(label);
             }
         }
 

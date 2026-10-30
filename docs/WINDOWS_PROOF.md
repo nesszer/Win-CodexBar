@@ -188,6 +188,8 @@ Use CUA in every proof for what CDP can't see:
 - real-pixel screenshots through `get_window_state` with `--screenshot-out-file`;
 - native facts, such as a dark DWM frame under theme `auto`, the float bar being topmost and layered, and the window frame.
 
+Every native window stays DWM dark under every theme preference, including `light`, because each one is pinned Dark to prevent the theme flip. Only the page's `data-theme` turns light. So a light Settings run that reports `dwm_dark: true` is expected. It is a bug only if dark native chrome shows up in the screenshot.
+
 CDP screenshots are not proof.
 
 ## What to check after an install
@@ -337,6 +339,7 @@ exception, or an unhandled backend command.
 | `expectSelector` | an element exists |
 | `expectNoOverflow` | a selector's matches fit their boxes horizontally, so no text is clipped (wrapped text passes, `nowrap` + ellipsis fails) |
 | `expectTheme` | `<html data-theme>` |
+| `expectStyle` | `{ selector, property, value }`: the first match's computed style, polled |
 | `click` | `{ selector, label, near? }`: a real mouse click on the element whose aria-label or text equals `label`; `near` picks the match closest to that text |
 | `expectCall` | `{ cmd, args? }`: the frontend invoked that backend command (args are a subset match) |
 | `screenshot` | saves `<name>.png`; `"clip": "panel"` crops a tray panel to the height it committed for its window |

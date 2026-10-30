@@ -832,6 +832,24 @@ fn cli_lane_pace_scores_copilot_against_the_february_cycle() {
 }
 
 #[test]
+fn cli_lane_pace_scores_a_reported_codex_30_day_window_without_calendar_inference() {
+    use chrono::TimeZone;
+    // A March reset makes accidental February calendar-month inference
+    // observable: 20 of 30 days left is a third expected, 20 of 28 would not be.
+    let reset = Utc.with_ymd_and_hms(2026, 3, 1, 16, 8, 45).unwrap();
+    let now = reset - chrono::Duration::days(20);
+    let window = RateWindow::with_details(11.0, Some(43_200), Some(reset), None);
+
+    let pace = render::lane_pace_at(ProviderId::Codex, &window, now, None, || {
+        panic!("a reported 30-day Codex window must use the reset-window rule")
+    })
+    .expect("codex reset-window pace");
+    assert!((pace.expected_used_percent - 100.0 / 3.0).abs() < 1e-9);
+    assert!((pace.delta_percent - (11.0 - 100.0 / 3.0)).abs() < 1e-9);
+    assert!(pace.will_last_to_reset);
+}
+
+#[test]
 fn cli_lane_pace_keeps_reset_window_pace_for_a_resolved_31_day_cycle() {
     use chrono::TimeZone;
     // StepFun already expands the 30-day sentinel to the real cycle: 31

@@ -52,7 +52,9 @@ pub(crate) use cost_cli_extension::{
 pub use cost_pricing::*;
 pub use curl_capture::*;
 pub use display_detail::*;
-pub use fetch_context_builder::{build_fetch_context, provider_cookie_domain};
+pub use fetch_context_builder::{
+    build_fetch_context, provider_cookie_domain, token_account_session_is_passive,
+};
 pub use hook_transition::*;
 pub use hooks::*;
 

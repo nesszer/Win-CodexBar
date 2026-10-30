@@ -8,10 +8,11 @@
 use crate::commands::bridge::RateWindowSnapshot;
 use crate::state::AppState;
 use chrono::{DateTime, Utc};
-use codexbar::core::OpenAIDashboardCacheStore;
+use codexbar::core::{CostScanOptions, OpenAIDashboardCacheStore};
 use codexbar::cost_reporting_period::{CostReportingPeriod, CostTimeZone};
 use codexbar::cost_scanner::{
-    CostScanner, CostSummary, TodayUsage, get_daily_cost_history, get_daily_token_history,
+    CostScanner, CostSummary, TodayUsage, add_opencode_history_to_codex_daily,
+    get_daily_cost_history, get_daily_token_history,
 };
 use codexbar::locale::{self, LocaleKey};
 use codexbar::providers::muse::local_usage as muse_local_usage;
@@ -308,7 +309,13 @@ fn build_provider_chart_data_with_cancel(
                     )
                 }
             } else {
-                let raw_cost = get_daily_cost_history(&provider_id, 30);
+                let mut raw_cost = get_daily_cost_history(&provider_id, 30);
+                let (mut raw_tokens, mut tokens_incomplete) =
+                    get_daily_token_history(&provider_id, 30);
+                if provider_id == "codex" && codex_opencode_history_enabled() {
+                    tokens_incomplete |=
+                        add_opencode_history_to_codex_daily(&mut raw_cost, &mut raw_tokens);
+                }
                 let cost_history: Vec<DailyCostPoint> = raw_cost
                     .into_iter()
                     .map(|(date, value)| DailyCostPoint {
@@ -318,7 +325,6 @@ fn build_provider_chart_data_with_cancel(
                     })
                     .collect();
 
-                let (raw_tokens, tokens_incomplete) = get_daily_token_history(&provider_id, 30);
                 let tokens_history: Vec<DailyTokenPoint> = raw_tokens
                     .into_iter()
                     .map(|(date, tokens)| DailyTokenPoint { date, tokens })
@@ -459,7 +465,7 @@ fn local_usage_summary_from_cost_summary(
         reporting_period: period.raw(),
         latest_tokens: today.and_then(|t| non_zero_u64(t.tokens)),
         top_model: top_model(provider_id, summary),
-        estimate_note: localized_estimate_note(provider_id, locale::current_language()),
+        estimate_note: estimate_note_for(provider_id, summary, locale::current_language()),
         token_cost_updated_at_ms: current_unix_ms(),
         // The note sits under the selected-period totals, so count that window.
         incomplete_request_count: period_summary
@@ -551,7 +557,7 @@ fn load_local_usage_summary_with_unknown_models(
             reporting_period: period.raw(),
             latest_tokens: non_zero_u64(latest_tokens),
             top_model: top_model(provider_id, &thirty_day),
-            estimate_note: localized_estimate_note(provider_id, lang),
+            estimate_note: estimate_note_for(provider_id, &thirty_day, lang),
             token_cost_updated_at_ms: current_unix_ms(),
             incomplete_request_count: period_summary
                 .as_ref()
@@ -609,6 +615,27 @@ fn localized_estimate_note(provider_id: &str, lang: codexbar::settings::Language
     }
 }
 
+/// Recorded OpenCode spend is not a list-price estimate, so a summary that
+/// includes it says so (upstream #4786 "Recorded spend").
+fn estimate_note_for(
+    provider_id: &str,
+    summary: &CostSummary,
+    lang: codexbar::settings::Language,
+) -> String {
+    if summary.recorded_cost_rows > 0 {
+        locale::get_text(lang, LocaleKey::PanelEstimatedFromLocalLogsRecordedSpend)
+    } else {
+        localized_estimate_note(provider_id, lang)
+    }
+}
+
+/// Codex "OpenCode local history" (upstream #4786). Only this history view
+/// opts in; Usage & Spend keeps the default native-only scan.
+fn codex_opencode_history_enabled() -> bool {
+    codexbar::settings::Settings::load()
+        .opencode_local_history_enabled(codexbar::core::ProviderId::Codex)
+}
+
 fn scan_local_cost(
     provider_id: &str,
     period: CostReportingPeriod,
@@ -616,7 +643,13 @@ fn scan_local_cost(
 ) -> Option<CostSummary> {
     let scanner = CostScanner::for_period(period);
     match provider_id {
-        "codex" => Some(scanner.scan_codex_with_cancel(cancel)),
+        "codex" => {
+            let options = CostScanOptions {
+                include_opencode_history: codex_opencode_history_enabled(),
+                ..CostScanOptions::default()
+            };
+            Some(scanner.with_options(options).scan_codex_with_cancel(cancel))
+        }
         "claude" => Some(scanner.scan_claude_with_cancel(cancel)),
         "pi" => Some(scanner.scan_pi_with_cancel(cancel)),
         "opencodego" => Some(scanner.scan_opencodego_with_cancel(cancel)),

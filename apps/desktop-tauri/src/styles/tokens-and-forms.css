@@ -278,6 +278,22 @@
   --provider-icon-ring: rgba(0, 0, 0, 0.08);
   --provider-icon-bg: rgba(0, 0, 0, 0.04);
 
+  --usage-bar-track: rgba(0, 0, 0, 0.1);
+
+  --pace-slow-bg: rgba(0, 122, 255, 0.12);
+  /* #007aff is under 4.5:1 on the #f5f5f7 Settings background. */
+  --pace-slow-fg: #0062cc;
+  --pace-steady-bg: rgba(21, 128, 61, 0.12);
+  --pace-steady-fg: #15803d;
+  --pace-racing-bg: rgba(180, 83, 9, 0.14);
+  --pace-racing-fg: #b45309;
+  --pace-burning-bg: rgba(185, 28, 28, 0.12);
+  --pace-burning-fg: #b91c1c;
+
+  --pace-track-expected-fg: rgba(0, 122, 255, 0.45);
+  --chart-cost-fg: #007aff;
+  --chart-credits-fg: var(--chart-credits);
+
   --chart-tooltip-bg: rgba(255, 255, 255, 0.96);
   --chart-tooltip-border: rgba(0, 0, 0, 0.12);
   --chart-tooltip-text: #1d1d1f;

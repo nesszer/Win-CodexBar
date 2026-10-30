@@ -45,6 +45,8 @@ import type {
   SessionFocusResult,
   TrayVisibilityStatusDto,
   UsageSpendSummary,
+  CodexSessionDetailCheckpoint,
+  CodexSessionDetails,
   CodexSessionToolActivity,
   CodexAccount,
   CodexAccountUsageSnapshot,
@@ -366,6 +368,23 @@ export function getCodexSessionToolActivity(
   return invoke<CodexSessionToolActivity>("get_codex_session_tool_activity", {
     sessionId,
     historyDays: historyDays ?? null,
+  });
+}
+
+/**
+ * Request-level usage of one Codex conversation, read on demand. Rejects with a
+ * `CodexSessionDetailError` code; `sourceChanged` means the logs moved past
+ * the summary in `checkpoint`.
+ */
+export function getCodexSessionDetails(
+  sessionId: string,
+  checkpoint: CodexSessionDetailCheckpoint,
+  historyDays?: number,
+): Promise<CodexSessionDetails> {
+  return invoke<CodexSessionDetails>("get_codex_session_details", {
+    sessionId,
+    historyDays: historyDays ?? null,
+    checkpoint,
   });
 }
 

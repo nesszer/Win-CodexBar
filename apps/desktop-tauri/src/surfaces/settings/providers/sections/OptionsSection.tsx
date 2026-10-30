@@ -22,6 +22,7 @@ export type OptionSettings = Pick<
   | "codexHistoricalTracking"
   | "codexExternalOauthSourcesAllowed"
   | "codexLocalSessionCostLedgerEnabled"
+  | "codexOpencodeLocalHistoryEnabled"
   | "codexOpenaiWebBatterySaverEnabled"
   | "claudeAvoidKeychainPrompts"
   | "claudeAllowReadingClaudeCodeCredentials"
@@ -77,6 +78,13 @@ function codexRows(settings: OptionSettings): OptionRow[] {
       checked: settings.codexLocalSessionCostLedgerEnabled ?? false,
       patch: (on) => ({ codexLocalSessionCostLedgerEnabled: on }),
       inert: true,
+    },
+    {
+      key: "opencode-history",
+      label: "ProviderCodexOpenCodeLocalHistory",
+      help: "ProviderCodexOpenCodeLocalHistoryHelp",
+      checked: settings.codexOpencodeLocalHistoryEnabled ?? false,
+      patch: (on) => ({ codexOpencodeLocalHistoryEnabled: on }),
     },
     {
       key: "history",

@@ -781,6 +781,37 @@ fn f5_normalize_array_monthly_routes_to_tertiary_not_secondary() {
 }
 
 #[test]
+fn free_plan_fixed_30_day_window_stays_primary_and_gets_reset_window_pace() {
+    // Upstream #4766: a Free plan response reports one fixed 30-day window.
+    let reset = utc("2026-03-01T16:08:45Z");
+    let body = json!({
+        "plan_type": "free",
+        "rate_limit": {
+            "primary_window": {
+                "used_percent": 11,
+                "reset_at": reset.timestamp(),
+                "limit_window_seconds": 2_592_000
+            },
+            "secondary_window": null
+        }
+    });
+    let (usage, _) = CodexApi::new()
+        .build_result_from_json_for_test(&body)
+        .expect("free plan usage");
+    assert_eq!(usage.primary.window_minutes, Some(43_200));
+    assert!(usage.secondary.is_none());
+
+    let now = reset - chrono::Duration::days(20);
+    let codex = crate::core::ProviderId::Codex.pace_capability();
+    assert!(codex.supports_reset_window_pace(&usage.primary, now));
+    let pace = codex
+        .reset_window_pace(&usage.primary, now, None)
+        .expect("free plan pace");
+    assert_eq!(pace.expected_used_percent.round(), 33.0);
+    assert_eq!(pace.delta_percent.round(), -22.0);
+}
+
+#[test]
 fn f5_normalize_array_empty_returns_placeholder_primary() {
     let (primary, secondary, tertiary, code_review) = normalize_array_windows(vec![]);
     assert!(primary.is_informational);

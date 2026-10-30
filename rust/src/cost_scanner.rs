@@ -58,9 +58,9 @@ use claude_scan::{
 };
 use claude_usage::ClaudeUsageDedupKey;
 pub use daily_history::{
-    ClaudeDailyAndHourlyCosts, DailyCostAndIncomplete, get_claude_daily_and_hourly_cost_history,
-    get_daily_cost_and_incomplete_history, get_daily_cost_history, get_daily_token_history,
-    has_cost_usage_sources,
+    ClaudeDailyAndHourlyCosts, DailyCostAndIncomplete, add_opencode_history_to_codex_daily,
+    get_claude_daily_and_hourly_cost_history, get_daily_cost_and_incomplete_history,
+    get_daily_cost_history, get_daily_token_history, has_cost_usage_sources,
 };
 use daily_history::{add_claude_record_to_daily_tokens, day_slots, sorted_days};
 pub use hourly::HourlyCostPoint;
@@ -154,13 +154,17 @@ pub struct CostSummary {
     /// Incomplete Claude request counts per model.
     pub incomplete_by_model: HashMap<String, u32>,
     /// Recorded rows whose input/output token counts were missing, malformed or
-    /// unusable (OpenCode Go local history). Any non-zero value makes the window's
+    /// unusable (OpenCode local history). Any non-zero value makes the window's
     /// token fields unknown rather than zero, because a sum that skipped such a row
     /// is not exact. Costs are unaffected. Zero for every other provider.
     pub unknown_token_rows: u32,
     /// Unknown-token row counts per model, keyed like `by_model`. Zero for every
     /// other provider.
     pub unknown_token_rows_by_model: HashMap<String, u32>,
+    /// Rows whose cost the source recorded instead of CodexBar estimating it
+    /// from list prices (opt-in OpenCode history in the Codex view, upstream
+    /// #4786). Zero everywhere else.
+    pub recorded_cost_rows: u32,
     /// Period start date
     pub period_start: Option<NaiveDate>,
     /// Period end date

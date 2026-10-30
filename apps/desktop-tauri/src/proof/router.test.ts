@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   BootstrapState,
+  CodexSessionDetails,
   CodexSessionToolActivity,
   CurrentSurfaceState,
   LocaleStrings,
@@ -64,6 +65,20 @@ describe("proof router", () => {
       sessionId: "missing",
     }) as CodexSessionToolActivity;
     expect(unknown.operations).toEqual([]);
+  });
+
+  it("serves a session's request details and rejects with the shell's error codes", () => {
+    const router = routerFor("codex-session-inspector", "settings");
+    const details = router.handle("get_codex_session_details", {
+      sessionId: "019f0000-0000-7000-8000-00000000b001",
+    }) as CodexSessionDetails;
+    expect(details.turns.map((turn) => turn.turnId)).toEqual(["turn-one", "turn-two", null]);
+    expect(details.turns.reduce((total, turn) => total + turn.requestCount, 0)).toBe(details.requestCount);
+
+    expect(() =>
+      router.handle("get_codex_session_details", { sessionId: "019f0000-0000-7000-8000-00000000b002" }),
+    ).toThrow("limitExceeded");
+    expect(() => router.handle("get_codex_session_details", { sessionId: "missing" })).toThrow("unavailable");
   });
 
   it("keeps each provider's identity on its own snapshot", () => {

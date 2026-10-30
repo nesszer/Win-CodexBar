@@ -34,6 +34,7 @@ import {
 } from "../../../lib/costPeriod";
 import type { TabProps } from "../settingsTabs";
 import ProjectConversations from "./ProjectConversations";
+import SessionInspector from "./SessionInspector";
 import { UsageSpendProviderGroups } from "./UsageSpendProviderGroups";
 import { UsageSpendTrendPanel } from "./UsageSpendTrendPanel";
 import { TokenActivityGrid } from "./TokenActivityGrid";
@@ -428,7 +429,7 @@ function DashboardBody({
           (contract.conversations.length === 0 ? (
             <p className="settings-section__caption">{t("UsageSpendNoSessions")}</p>
           ) : (
-            <ProjectConversations
+            <SessionInspector
               conversations={contract.conversations}
               historyDays={contract.historyDays}
               t={t}

@@ -200,7 +200,9 @@ pub trait Provider: Send + Sync {
     /// forwards a stored or token-account cookie header when the cookie source
     /// is not `off`; `off` sets [`FetchContext::manual_cookie_missing`]. The
     /// shell never reads a browser for this provider, which does that only on
-    /// its own cookie lane.
+    /// its own cookie lane. A selected token account counts only under the
+    /// `manual` cookie source, where Auto becomes Web with that session and
+    /// the API source leaves it passive.
     fn owns_credential_lane_routing(&self) -> bool {
         false
     }

@@ -4,6 +4,7 @@
 
 import { contrastRatio, mixWithWhite } from "../../lib/color";
 import abacus from "./icons/ProviderIcon-abacus.svg?raw";
+import abliteration from "./icons/ProviderIcon-abliteration.svg?raw";
 import aerostack from "./icons/ProviderIcon-aerostack.svg?raw";
 import alibaba from "./icons/ProviderIcon-alibaba.svg?raw";
 import amp from "./icons/ProviderIcon-amp.svg?raw";
@@ -11,6 +12,7 @@ import antigravity from "./icons/ProviderIcon-antigravity.svg?raw";
 import atlascloud from "./icons/ProviderIcon-atlascloud.svg?raw";
 import augment from "./icons/ProviderIcon-augment.svg?raw";
 import bedrock from "./icons/ProviderIcon-bedrock.svg?raw";
+import chatbox from "./icons/ProviderIcon-chatbox.svg?raw";
 import claude from "./icons/ProviderIcon-claude.svg?raw";
 import claudeplatform from "./icons/ProviderIcon-claudeplatform.svg?raw";
 import traecn from "./icons/ProviderIcon-traecn.svg?raw";
@@ -123,6 +125,7 @@ export interface ProviderIcon {
 
 const RAW: Record<string, string> = {
   abacus: tint(abacus),
+  abliteration: tint(abliteration),
   aerostack: tint(aerostack),
   alibaba: tint(alibaba),
   amp: tint(amp),
@@ -133,6 +136,7 @@ const RAW: Record<string, string> = {
   claude: tint(claude),
   claudeplatform: tint(claudeplatform),
   traecn: tint(traecn),
+  chatbox: tint(chatbox),
   codebuff: tint(codebuff),
   coderabbit: tint(coderabbit),
   codex: tint(codex),
@@ -232,6 +236,8 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   claude:      { id: "claude",      brandColor: "#cc7c5e", fallbackLetter: "◈", svgPath: RAW.claude },
   claudeplatform: { id: "claudeplatform", brandColor: "#cc7c5e", fallbackLetter: "◈", svgPath: RAW.claudeplatform },
   traecn:       { id: "traecn",       brandColor: "#4D7CFE", fallbackLetter: "T", svgPath: RAW.traecn },
+  chatbox:     { id: "chatbox",     brandColor: "#228BE6", fallbackLetter: "C", svgPath: RAW.chatbox },
+  abliteration: { id: "abliteration", brandColor: "#1B1B1B", fallbackLetter: "A", svgPath: RAW.abliteration },
   pi:          { id: "pi",          brandColor: "#4d9abf", fallbackLetter: "P" },
   codebuff:    { id: "codebuff",    brandColor: "#00ff95", fallbackLetter: "B", svgPath: RAW.codebuff },
   coderabbit:  { id: "coderabbit",  brandColor: "#ff5c35", fallbackLetter: "C", svgPath: RAW.coderabbit },
@@ -416,6 +422,10 @@ const ALIASES: Record<string, string> = {
   "groq-cloud": "groq",
   "llm proxy": "llmproxy",
   "llm-proxy": "llmproxy",
+  "chatbox ai": "chatbox",
+  "chatbox-ai": "chatbox",
+  "abliteration.ai": "abliteration",
+  "abliteration ai": "abliteration",
   "chutes ai": "chutes",
   "chutes-ai": "chutes",
   "lite llm": "litellm",
@@ -439,11 +449,12 @@ function normalize(id: string): string {
 
 /**
  * Providers whose card bars use the label color instead of the brand color,
- * as Mac `progressColorStyle: .label` (only ElevenLabs, whose brand color is
- * near-white). The fallback is the light card's `--mac-text`.
+ * as Mac `progressColorStyle: .label` (ElevenLabs and abliteration.ai, whose
+ * brand colors are near-black). `--text-primary` is themed on every surface
+ * (Settings and the menu); `--mac-text` exists only inside the menu popover.
  */
-const LABEL_COLORED_BARS = new Set(["elevenlabs"]);
-const LABEL_BAR_COLOR = "var(--mac-text, rgba(0, 0, 0, 0.85))";
+const LABEL_COLORED_BARS = new Set(["elevenlabs", "abliteration"]);
+const LABEL_BAR_COLOR = "var(--text-primary, rgba(0, 0, 0, 0.85))";
 
 /**
  * The card's `--provider-accent`: the user's override when set, otherwise the

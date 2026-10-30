@@ -215,6 +215,36 @@ impl NotificationManager {
         rate_window: &RateWindow,
         pace: &UsagePace,
     ) -> bool {
+        self.record_predictive_observation_within(
+            enabled,
+            provider,
+            identity,
+            window,
+            rate_window,
+            pace,
+            None,
+        )
+    }
+
+    /// Like [`Self::record_predictive_observation`], but with `lead_seconds`
+    /// the warning waits until the estimated run-out is that close. An
+    /// observation further out is not a warning and does not arm the
+    /// once-per-cycle dedupe, so the warning still fires later in the same
+    /// cycle once the run-out comes within the lead.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors record_predictive_observation plus the lead"
+    )]
+    pub fn record_predictive_observation_within(
+        &mut self,
+        enabled: bool,
+        provider: ProviderId,
+        identity: &str,
+        window: PredictiveWarningWindow,
+        rate_window: &RateWindow,
+        pace: &UsagePace,
+        lead_seconds: Option<f64>,
+    ) -> bool {
         if !enabled {
             self.predictive_warning_keys
                 .retain(|key| key.provider != provider);
@@ -242,6 +272,21 @@ impl NotificationManager {
                 && existing.window == key.window
                 && existing.reset.belongs_to_same_cycle(&key.reset)
         });
+
+        let valid_eta = pace.eta_seconds.filter(|eta| eta.is_finite() && *eta > 0.0);
+
+        // Still heading for a run-out, but further out than the lead: not a
+        // warning yet. Return before the key is touched, so a warning already
+        // sent this cycle stays armed and a pace that drifts out of the lead
+        // and back in does not toast twice. Recovery (`will_last_to_reset`)
+        // and a new cycle still clear it below.
+        if !pace.will_last_to_reset
+            && let (Some(lead), Some(eta)) = (lead_seconds, valid_eta)
+            && eta > lead
+        {
+            return false;
+        }
+
         self.predictive_warning_keys.retain(|existing| {
             existing.provider != key.provider
                 || existing.identity != key.identity
@@ -251,10 +296,7 @@ impl NotificationManager {
         if pace.will_last_to_reset {
             return false;
         }
-        if !pace
-            .eta_seconds
-            .is_some_and(|eta| eta.is_finite() && eta > 0.0)
-        {
+        if valid_eta.is_none() {
             return false;
         }
 
@@ -278,13 +320,14 @@ impl NotificationManager {
         pace: &UsagePace,
         settings: &Settings,
     ) {
-        if !self.record_predictive_observation(
+        if !self.record_predictive_observation_within(
             settings.show_notifications && settings.predictive_pace_warning_enabled,
             provider,
             identity,
             window,
             rate_window,
             pace,
+            settings.predictive_pace_warning_lead_seconds(),
         ) {
             return;
         }

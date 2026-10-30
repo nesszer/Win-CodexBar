@@ -28,6 +28,49 @@ pub(super) fn selected_account_api_key(ctx: &FetchContext) -> Option<String> {
     normalized_api_key(ctx.api_key.as_deref())
 }
 
+/// Source label of a quota read made with the OpenCode CLI login.
+pub(super) const CLI_SOURCE_LABEL: &str = "cli";
+
+/// A selected account, manual cookie or workspace override names a specific
+/// account, so the device-wide CLI login must not stand in for it.
+pub(super) fn is_explicitly_scoped(ctx: &FetchContext) -> bool {
+    ctx.token_account_isolated
+        || ctx.auto_prefer_web
+        || ctx
+            .manual_cookie_header
+            .as_deref()
+            .is_some_and(|header| !header.trim().is_empty())
+        || ctx
+            .workspace_id
+            .as_deref()
+            .is_some_and(|id| !id.trim().is_empty())
+}
+
+/// The credential for the usage API and its source label (upstream
+/// `usageCredential`, #4771): a configured API key, else the active OpenCode
+/// CLI login unless Web mode or an explicit scope rules it out. A rejected
+/// configured key never falls through to the CLI login.
+pub(super) fn usage_credential(
+    ctx: &FetchContext,
+    load_cli_credential: impl FnOnce() -> Result<Option<String>, ProviderError>,
+) -> Result<Option<(String, &'static str)>, ProviderError> {
+    usage_credential_with(resolve_api_key(ctx), ctx, load_cli_credential)
+}
+
+fn usage_credential_with(
+    api_key: Option<String>,
+    ctx: &FetchContext,
+    load_cli_credential: impl FnOnce() -> Result<Option<String>, ProviderError>,
+) -> Result<Option<(String, &'static str)>, ProviderError> {
+    if let Some(api_key) = api_key {
+        return Ok(Some((api_key, "api")));
+    }
+    if ctx.source_mode == crate::core::SourceMode::Web || is_explicitly_scoped(ctx) {
+        return Ok(None);
+    }
+    Ok(load_cli_credential()?.map(|token| (token, CLI_SOURCE_LABEL)))
+}
+
 pub(super) async fn fetch(
     client: &Client,
     ctx: &FetchContext,
@@ -48,21 +91,29 @@ pub(super) async fn fetch(
         return Err(ProviderError::AuthRequired);
     }
     if !status.is_success() {
-        let message = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|value| {
-                ["message", "error", "detail"]
-                    .into_iter()
-                    .find_map(|key| value.get(key).and_then(serde_json::Value::as_str))
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| format!("HTTP {status}"));
-        return Err(ProviderError::Other(format!(
-            "OpenCode Go API error: {message}"
-        )));
+        return Err(api_error(status, &body));
     }
     let usage = parse_usage_text(&body, Utc::now())?;
     Ok(ProviderFetchResult::new(usage, source_label))
+}
+
+/// Build the error for a non-success usage response. The server-controlled
+/// message is redacted before it can reach logs or the UI; a non-JSON body is
+/// never echoed.
+fn api_error(status: reqwest::StatusCode, body: &str) -> ProviderError {
+    let message = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            ["message", "error", "detail"]
+                .into_iter()
+                .find_map(|key| value.get(key).and_then(serde_json::Value::as_str))
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| format!("HTTP {status}"));
+    ProviderError::Other(format!(
+        "OpenCode Go API error: {}",
+        crate::logging::safe_error_message(&message)
+    ))
 }
 
 fn parse_usage_text(text: &str, now: DateTime<Utc>) -> Result<UsageSnapshot, ProviderError> {
@@ -131,6 +182,85 @@ fn api_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cli_login() -> Result<Option<String>, ProviderError> {
+        Ok(Some("cli-token".to_string()))
+    }
+
+    #[test]
+    fn configured_key_wins_over_the_cli_login() {
+        let ctx = FetchContext::default();
+        let credential = usage_credential_with(Some("configured".into()), &ctx, || {
+            panic!("a configured key must not read the CLI login")
+        })
+        .unwrap();
+        assert_eq!(credential, Some(("configured".to_string(), "api")));
+    }
+
+    #[test]
+    fn unscoped_auto_and_api_modes_use_the_cli_login() {
+        for source_mode in [
+            crate::core::SourceMode::Auto,
+            crate::core::SourceMode::OAuth,
+        ] {
+            let ctx = FetchContext {
+                source_mode,
+                ..FetchContext::default()
+            };
+            assert_eq!(
+                usage_credential_with(None, &ctx, cli_login).unwrap(),
+                Some(("cli-token".to_string(), CLI_SOURCE_LABEL))
+            );
+        }
+    }
+
+    #[test]
+    fn web_mode_and_explicit_scopes_never_borrow_the_cli_login() {
+        let contexts = [
+            FetchContext {
+                source_mode: crate::core::SourceMode::Web,
+                ..FetchContext::default()
+            },
+            FetchContext {
+                token_account_isolated: true,
+                ..FetchContext::default()
+            },
+            FetchContext {
+                auto_prefer_web: true,
+                ..FetchContext::default()
+            },
+            FetchContext {
+                manual_cookie_header: Some("auth=manual".into()),
+                ..FetchContext::default()
+            },
+            FetchContext {
+                workspace_id: Some("wrk_override".into()),
+                ..FetchContext::default()
+            },
+        ];
+        for ctx in contexts {
+            let credential = usage_credential_with(None, &ctx, || {
+                panic!("a scoped or Web fetch must not read the CLI login")
+            })
+            .unwrap();
+            assert_eq!(credential, None);
+        }
+        let blank = FetchContext {
+            manual_cookie_header: Some("  ".into()),
+            workspace_id: Some(" ".into()),
+            ..FetchContext::default()
+        };
+        assert!(!is_explicitly_scoped(&blank));
+    }
+
+    #[test]
+    fn unreadable_cli_login_is_reported_to_the_caller() {
+        let ctx = FetchContext::default();
+        assert!(matches!(
+            usage_credential_with(None, &ctx, || Err(ProviderError::AuthRequired)),
+            Err(ProviderError::AuthRequired)
+        ));
+    }
 
     #[test]
     fn selected_account_key_does_not_consult_global_environment() {
@@ -227,5 +357,46 @@ mod tests {
             snapshot.primary.used_percent
         );
         assert!((snapshot.secondary.as_ref().unwrap().used_percent - 100.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn api_error_redacts_secrets_echoed_in_the_response_body() {
+        let status = reqwest::StatusCode::BAD_REQUEST;
+        for (body, secret) in [
+            (
+                r#"{"message":"Authorization: Bearer live-bearer-9f3a rejected"}"#,
+                "live-bearer-9f3a",
+            ),
+            (
+                r#"{"error":"invalid key sk-live-apikey-4417xyz"}"#,
+                "sk-live-apikey-4417xyz",
+            ),
+            (
+                r#"{"detail":"cookie: session=cookie-secret-7d21; other=x"}"#,
+                "cookie-secret-7d21",
+            ),
+            (
+                r#"{"message":"access_token=oauth-token-b802 expired"}"#,
+                "oauth-token-b802",
+            ),
+        ] {
+            let text = api_error(status, body).to_string();
+            assert!(!text.contains(secret), "{text}");
+            assert!(text.contains("[REDACTED]"), "{text}");
+            assert!(text.starts_with("OpenCode Go API error:"), "{text}");
+        }
+    }
+
+    #[test]
+    fn api_error_keeps_plain_server_messages_and_never_echoes_raw_bodies() {
+        let status = reqwest::StatusCode::TOO_MANY_REQUESTS;
+        assert_eq!(
+            api_error(status, r#"{"message":"rate limit reached"}"#).to_string(),
+            "OpenCode Go API error: rate limit reached"
+        );
+        assert_eq!(
+            api_error(reqwest::StatusCode::BAD_GATEWAY, "Bearer raw-body-secret").to_string(),
+            "OpenCode Go API error: HTTP 502 Bad Gateway"
+        );
     }
 }

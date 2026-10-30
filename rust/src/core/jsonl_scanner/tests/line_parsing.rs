@@ -211,6 +211,54 @@ fn codex_append_timestamp_state_is_output_equivalent_and_boundary_only() {
 }
 
 #[test]
+fn codex_bounded_parse_stops_one_record_past_the_cap() {
+    let mut file = tempfile::NamedTempFile::new().expect("temp file");
+    for second in 1..=5 {
+        let input = second * 10;
+        writeln!(
+            file,
+            r#"{{"timestamp":"2026-05-31T10:00:0{second}.000Z","type":"event_msg","payload":{{"type":"token_count","info":{{"model":"gpt-5.5","total_token_usage":{{"input_tokens":{input},"cached_input_tokens":0,"output_tokens":1}}}}}}}}"#
+        )
+        .unwrap();
+    }
+    let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
+    let range = CostUsageDayRange::new(day, day);
+    let standard = || CodexParseMode::Standard {
+        start_offset: 0,
+        initial_model: None,
+        initial_totals: None,
+        previous_token_timestamp: None,
+        token_timestamps_monotonic: None,
+    };
+
+    let capped = JsonlScanner::parse_codex_bounded(
+        file.path(),
+        &range,
+        standard(),
+        None,
+        None,
+        None,
+        Some(2),
+    )
+    .expect("capped parse");
+    assert_eq!(capped.records.len(), 3);
+    assert!(!capped.is_complete);
+
+    let fits = JsonlScanner::parse_codex_bounded(
+        file.path(),
+        &range,
+        standard(),
+        None,
+        None,
+        None,
+        Some(5),
+    )
+    .expect("parse within cap");
+    assert_eq!(fits.records.len(), 5);
+    assert!(fits.is_complete);
+}
+
+#[test]
 fn codex_parse_publishes_only_the_committed_prefix_before_an_incomplete_tail() {
     let mut file = tempfile::NamedTempFile::new().expect("temp file");
     let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();

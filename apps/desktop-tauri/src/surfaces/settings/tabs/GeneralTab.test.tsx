@@ -65,6 +65,7 @@ const settings: SettingsSnapshot = {
   highUsageThreshold: 70,
   criticalUsageThreshold: 90,
   predictivePaceWarningEnabled: false,
+  predictivePaceWarningLeadHours: 0,
   credentialExpiryNotificationsEnabled: false,
   trayIconMode: "single",
   switcherShowsIcons: true,
@@ -223,6 +224,46 @@ describe("GeneralTab language picker", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "PredictivePaceWarnings" }));
 
     expect(set).toHaveBeenCalledWith({ predictivePaceWarningEnabled: true });
+  });
+
+  it("saves the pace warning lead time and offers Any time first", () => {
+    const set = vi.fn();
+    render(
+      <GeneralTab
+        mode="notifications"
+        settings={{ ...settings, predictivePaceWarningEnabled: true }}
+        set={set}
+        saving={false}
+      />,
+    );
+
+    const select = screen.getByRole("combobox", { name: "PredictivePaceWarningLeadLabel" }) as HTMLSelectElement;
+    expect(Array.from(select.options, (option) => option.value)).toEqual(["0", "6", "12", "24", "48"]);
+    expect(select.options[0].textContent).toBe("PredictivePaceWarningLeadAny");
+    fireEvent.change(select, { target: { value: "24" } });
+
+    expect(set).toHaveBeenCalledWith({ predictivePaceWarningLeadHours: 24 });
+  });
+
+  it("shows a saved lead time that is not a preset", () => {
+    render(
+      <GeneralTab
+        mode="notifications"
+        settings={{ ...settings, predictivePaceWarningEnabled: true, predictivePaceWarningLeadHours: 168 }}
+        set={vi.fn()}
+        saving={false}
+      />,
+    );
+
+    const select = screen.getByRole("combobox", { name: "PredictivePaceWarningLeadLabel" }) as HTMLSelectElement;
+    expect(select).toHaveValue("168");
+    expect(Array.from(select.options, (option) => option.value)).toEqual(["0", "6", "12", "24", "48", "168"]);
+  });
+
+  it("disables the pace warning lead time while pace warnings are off", () => {
+    render(<GeneralTab mode="notifications" settings={settings} set={vi.fn()} saving={false} />);
+
+    expect(screen.getByRole("combobox", { name: "PredictivePaceWarningLeadLabel" })).toBeDisabled();
   });
 
   it("updates the credential expiry alert preference", () => {
@@ -660,6 +701,7 @@ describe("GeneralTab notifications pane", () => {
       "SessionQuotaNotifications",
       "ShowNotifications",
       "PredictivePaceWarnings",
+      "PredictivePaceWarningLeadLabel",
       "LimitResetNotifications",
     ]);
   });
@@ -740,6 +782,7 @@ describe("GeneralTab notifications pane", () => {
           ...settings,
           showNotifications: false,
           predictivePaceWarningEnabled: true,
+          predictivePaceWarningLeadHours: 0,
           credentialExpiryNotificationsEnabled: true,
         }}
         set={vi.fn()}

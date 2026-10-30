@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -32,6 +33,7 @@ const USAGE_ARGS: [&str; 6] = [
 const REPORT_MAX_OUTPUT_BYTES: usize = 1_048_576;
 const WORKDIR_CREATE_ATTEMPTS: usize = 8;
 const OAUTH_CREDENTIALS_ENV: &str = "ANTIGRAVITY_OAUTH_CREDENTIALS_JSON";
+const DISABLE_AUTO_UPDATE_ENV: &str = "AGY_CLI_DISABLE_AUTO_UPDATE";
 
 #[derive(Debug)]
 struct PrivateWorkdir {
@@ -178,12 +180,24 @@ async fn fetch_print_usage_with_version_timeout(
     ))
 }
 
+/// Environment overrides shared by every CodexBar-owned `agy` child: version
+/// checks, print usage and the managed session. Passive probes must not start
+/// agy's background auto-updater, even when the inherited environment sets it
+/// to `false`. agy ignores `1`, so the lowercase `true` is required.
+pub(super) fn child_environment() -> Vec<(OsString, OsString)> {
+    vec![(
+        OsString::from(DISABLE_AUTO_UPDATE_ENV),
+        OsString::from("true"),
+    )]
+}
+
 fn prepare_command(binary: &Path, args: &[&str], working_dir: &Path) -> AsyncCommand {
     let mut command = AsyncCommand::new(binary);
     command
         .args(args)
         .current_dir(working_dir)
         .env_remove(OAUTH_CREDENTIALS_ENV)
+        .envs(child_environment())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         // Captured only to classify a failed run; never logged or displayed.
@@ -718,5 +732,49 @@ mod tests {
                 Some("90s")
             ]
         );
+    }
+
+    #[test]
+    fn every_cli_child_carries_the_auto_update_override() {
+        let workdir = PrivateWorkdir::create().expect("private working directory");
+        for args in [&VERSION_ARGS[..], &USAGE_ARGS[..]] {
+            let command = prepare_command(Path::new("agy"), args, workdir.path());
+            assert!(command.as_std().get_envs().any(|(key, value)| {
+                key == std::ffi::OsStr::new(DISABLE_AUTO_UPDATE_ENV)
+                    && value == Some(std::ffi::OsStr::new("true"))
+            }));
+        }
+    }
+
+    /// The fixture records `<first arg>:<AGY_CLI_DISABLE_AUTO_UPDATE>` for each
+    /// call, so the test sees the environment the real child process received.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn version_and_print_children_see_auto_update_disabled() {
+        let dir = tempfile::tempdir().expect("fixture directory");
+        std::fs::write(
+            dir.path().join("agy.cmd"),
+            "@echo off\r\n(echo %~1:%AGY_CLI_DISABLE_AUTO_UPDATE%)>> \"%~dp0guards.txt\"\r\nif \"%~1\"==\"--version\" echo 1.2.2\r\nexit /b 0\r\n",
+        )
+        .expect("agy fixture");
+        let binary = dir.path().join("agy.cmd");
+
+        let version = agy_version(&binary, FIXTURE_VERSION_TIMEOUT)
+            .await
+            .expect("version fixture runs");
+        assert_eq!(version, "1.2.2");
+        // The print fixture exits 0 with no report; only its environment matters.
+        run_cli_command(
+            &binary,
+            &USAGE_ARGS,
+            FIXTURE_VERSION_TIMEOUT,
+            REPORT_TOO_LARGE,
+        )
+        .await
+        .ok();
+
+        let guards =
+            std::fs::read_to_string(dir.path().join("guards.txt")).expect("guard log written");
+        assert_eq!(guards, "--version:true\r\n-p:true\r\n");
     }
 }

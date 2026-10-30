@@ -237,6 +237,8 @@ export interface SettingsSnapshot {
   /** Per-provider quota warnings keyed by CLI name; Global providers are absent. */
   providerQuotaWarnings?: Record<string, ProviderQuotaWarnings>;
   predictivePaceWarningEnabled: boolean;
+  /** Hours before the estimated run-out a pace warning may show; 0 = any time. */
+  predictivePaceWarningLeadHours: number;
   /** Absent on older shells; the UI treats that as off. */
   limitResetNotificationsEnabled?: boolean;
   credentialExpiryNotificationsEnabled: boolean;
@@ -329,6 +331,8 @@ export interface SettingsSnapshot {
   codexHistoricalTracking?: boolean;
   codexExternalOauthSourcesAllowed?: boolean;
   codexLocalSessionCostLedgerEnabled?: boolean;
+  /** Add this PC's OpenAI-backed OpenCode history to Codex cost history (off by default). */
+  codexOpencodeLocalHistoryEnabled?: boolean;
   codexOpenaiWebBatterySaverEnabled?: boolean;
   /** OpenAI API Live Usage (on by default); absent on older shells. */
   openAiLiveUsageEnabled?: boolean;
@@ -422,6 +426,7 @@ export interface SettingsUpdate {
   /** Replaces each listed provider's whole value; `{}` resets it to Global. */
   providerQuotaWarnings?: Record<string, ProviderQuotaWarnings>;
   predictivePaceWarningEnabled?: boolean;
+  predictivePaceWarningLeadHours?: number;
   limitResetNotificationsEnabled?: boolean;
   credentialExpiryNotificationsEnabled?: boolean;
   sessionQuotaNotificationsEnabled?: boolean;
@@ -488,6 +493,7 @@ export interface SettingsUpdate {
   codexHistoricalTracking?: boolean;
   codexExternalOauthSourcesAllowed?: boolean;
   codexLocalSessionCostLedgerEnabled?: boolean;
+  codexOpencodeLocalHistoryEnabled?: boolean;
   codexOpenaiWebBatterySaverEnabled?: boolean;
   /** Fetch the last hour of OpenAI API Tokens/min on each refresh. */
   openAiLiveUsageEnabled?: boolean;
@@ -818,6 +824,51 @@ export interface CodexSessionToolActivity {
   isPartial: boolean;
   /** Names and previews were removed for Hide personal information. */
   redacted: boolean;
+}
+
+/** The session summary the request-level read must reproduce. */
+export interface CodexSessionDetailCheckpoint {
+  totals: CodexWorkspacesUsageTotals;
+  costEstimate: CodexWorkspacesCostEstimate;
+}
+
+/** Stable rejection codes of get_codex_session_details. */
+export type CodexSessionDetailError = "unavailable" | "sourceChanged" | "limitExceeded";
+
+/** One recorded model request. Input includes cached input; output includes reasoning. */
+export interface CodexSessionRequest {
+  id: string;
+  modelName: string;
+  timestamp: string | null;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number | null;
+  totalTokens: number;
+  /** `null` when the request could not be priced. */
+  costUsd: number | null;
+}
+
+/** Requests grouped by turn; `turnId: null` is usage no turn owns, always last. */
+export interface CodexSessionTurn {
+  turnId: string | null;
+  firstActivity: string | null;
+  lastActivity: string | null;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number | null;
+  totalTokens: number;
+  requestCount: number;
+  costUsd: number | null;
+  requests: CodexSessionRequest[];
+}
+
+/** Request-level usage of one conversation (get_codex_session_details). */
+export interface CodexSessionDetails {
+  sessionId: string;
+  requestCount: number;
+  turns: CodexSessionTurn[];
 }
 
 export interface CodexWorkspacesProjectUsage {

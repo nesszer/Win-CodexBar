@@ -308,6 +308,7 @@ fn main() {
             commands::get_spend_contract,
             commands::get_codex_workspaces_snapshot,
             commands::get_codex_session_tool_activity,
+            commands::get_codex_session_details,
             commands::reorder_providers,
             commands::reorder_visible_providers,
             commands::restore_default_provider_order,

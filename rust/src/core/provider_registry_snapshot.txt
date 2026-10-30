@@ -448,5 +448,13 @@ Soniox cli=soniox display="Soniox" cookie=None color=#253772 deprecated=false bl
   sources=[Auto, OAuth] oauth=false web=false cli=false
 TraeCn cli=traecn display="Trae CN" cookie=Some("api.trae.cn") color=#4D7CFE deprecated=false blocking=None
   map=["trae-cn", "traecn"]
-  metadata=ProviderMetadata { id: TraeCn, display_name: "Trae CN", session_label: "Credits", weekly_label: "Window", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://www.trae.cn/dashboard#usage"), status_page_url: None, tertiary_label_key: None }
+  metadata=ProviderMetadata { id: TraeCn, display_name: "Trae CN", session_label: "Usage", weekly_label: "Window", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://www.trae.cn/dashboard#usage"), status_page_url: None, tertiary_label_key: None }
   sources=[Auto, Web] oauth=false web=true cli=false
+Chatbox cli=chatbox display="Chatbox AI" cookie=None color=#228BE6 deprecated=false blocking=None
+  map=["chatbox"]
+  metadata=ProviderMetadata { id: Chatbox, display_name: "Chatbox AI", session_label: "Plan", weekly_label: "Top-up credits", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://chatboxai.app"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false
+Abliteration cli=abliteration display="abliteration.ai" cookie=None color=#1B1B1B deprecated=false blocking=None
+  map=["abliteration"]
+  metadata=ProviderMetadata { id: Abliteration, display_name: "abliteration.ai", session_label: "Credits", weekly_label: "Usage", supports_opus: false, supports_credits: false, default_enabled: false, is_primary: false, dashboard_url: Some("https://abliteration.ai"), status_page_url: None, tertiary_label_key: None }
+  sources=[Auto, OAuth] oauth=false web=false cli=false

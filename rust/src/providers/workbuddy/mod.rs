@@ -324,8 +324,11 @@ async fn summary(
     Ok(None)
 }
 
-/// Upstream `nextReset`: the earliest future cycle end across the paid and
-/// free listings. A failed listing never discards the balance.
+/// Upstream `nextReset` (#4767): the earliest future cycle end in the paid
+/// listing, else in the free listing. The paid subscription cycle is what
+/// refills the allowance, so a free grant that expires sooner must not shorten
+/// it; the free listing is only queried when the paid one has no future end.
+/// A failed listing never discards the balance.
 async fn next_reset(
     site: &Site<'_>,
     cookie: &str,
@@ -337,7 +340,6 @@ async fn next_reset(
         (PAID_PATH, &PAID_PACKAGE_CODES),
         (FREE_PATH, &FREE_PACKAGE_CODES),
     ];
-    let mut earliest: Option<DateTime<Utc>> = None;
     for (path, codes) in listings {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let Some(timeout) = listing_timeout(site.timeout, remaining) else {
@@ -353,7 +355,7 @@ async fn next_reset(
         match site.post(cookie, agent, path, &body, timeout).await {
             Ok(page) => {
                 if let Some(end) = model::earliest_reset(&page, now) {
-                    earliest = Some(earliest.map_or(end, |current| current.min(end)));
+                    return Some(end);
                 }
             }
             Err(_) => {
@@ -361,7 +363,7 @@ async fn next_reset(
             }
         }
     }
-    earliest
+    None
 }
 
 enum Failure {

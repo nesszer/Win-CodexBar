@@ -8,8 +8,10 @@
 use super::{
     CostCliExtension, Provider, ProviderId, ProviderLimitResetPolicy, ProviderPaceCapability,
 };
+use crate::providers::AbliterationProvider;
 use crate::providers::AerostackProvider;
 use crate::providers::AtlasCloudProvider;
+use crate::providers::ChatboxProvider;
 use crate::providers::ClaudePlatformProvider;
 use crate::providers::ClawRouterProvider;
 use crate::providers::CosmicProvider;
@@ -168,6 +170,8 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::Soniox => Box::new(SonioxProvider::new()),
         ProviderId::ClaudePlatform => Box::new(ClaudePlatformProvider::new()),
         ProviderId::TraeCn => Box::new(TraeCnProvider::new()),
+        ProviderId::Chatbox => Box::new(ChatboxProvider::new()),
+        ProviderId::Abliteration => Box::new(AbliterationProvider::new()),
     }
 }
 
@@ -195,8 +199,8 @@ pub fn pace_capability(id: ProviderId) -> ProviderPaceCapability {
         ProviderId::OpenCodeGo => p::opencodego::PACE_CAPABILITY,
         ProviderId::Claude => p::claude::PACE_CAPABILITY,
         ProviderId::Kiro => p::kiro::PACE_CAPABILITY,
-        ProviderId::Codex
-        | ProviderId::Pi
+        ProviderId::Codex => p::codex::PACE_CAPABILITY,
+        ProviderId::Pi
         | ProviderId::Gemini
         | ProviderId::Antigravity
         | ProviderId::AtlasCloud
@@ -290,7 +294,9 @@ pub fn pace_capability(id: ProviderId) -> ProviderPaceCapability {
         | ProviderId::Munito
         | ProviderId::Soniox
         | ProviderId::ClaudePlatform
-        | ProviderId::TraeCn => ProviderPaceCapability::UNSUPPORTED,
+        | ProviderId::TraeCn
+        | ProviderId::Chatbox
+        | ProviderId::Abliteration => ProviderPaceCapability::UNSUPPORTED,
     }
 }
 
@@ -413,7 +419,9 @@ pub fn limit_reset_policy(id: ProviderId) -> ProviderLimitResetPolicy {
         | ProviderId::Munito
         | ProviderId::Soniox
         | ProviderId::ClaudePlatform
-        | ProviderId::TraeCn => ProviderLimitResetPolicy::DEFAULT,
+        | ProviderId::TraeCn
+        | ProviderId::Chatbox
+        | ProviderId::Abliteration => ProviderLimitResetPolicy::DEFAULT,
     }
 }
 
@@ -536,7 +544,9 @@ pub(crate) fn cost_cli_extension_for(id: ProviderId) -> Option<&'static dyn Cost
         | ProviderId::Munito
         | ProviderId::Soniox
         | ProviderId::ClaudePlatform
-        | ProviderId::TraeCn => None,
+        | ProviderId::TraeCn
+        | ProviderId::Chatbox
+        | ProviderId::Abliteration => None,
     }
 }
 

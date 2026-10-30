@@ -139,6 +139,17 @@ function isNotificationSoundTheme(v: string): v is NotificationSoundTheme {
   return v === "windows" || v === "codexBar";
 }
 
+/** Lead-time choices for pace warnings, in hours; 0 (any time) is listed first. */
+const PACE_WARNING_LEAD_HOURS = [0, 6, 12, 24, 48];
+
+/** The presets plus the saved value when it is not one (e.g. 168 from imported
+ *  preferences), kept in order so the select shows what is saved. */
+function paceWarningLeadOptions(current: number): number[] {
+  const options = [...PACE_WARNING_LEAD_HOURS];
+  if (!options.includes(current)) options.push(current);
+  return options.sort((a, b) => a - b);
+}
+
 export default function GeneralTab({
   mode = "general",
   settings,
@@ -542,6 +553,27 @@ function NotificationsPane({
             ariaLabel={t("PredictivePaceWarnings")}
             disabled={saving || alertsMuted}
             onChange={(v) => set({ predictivePaceWarningEnabled: v })}
+          />
+        </Field>
+        <Field
+          label={t("PredictivePaceWarningLeadLabel")}
+          description={t("PredictivePaceWarningLeadHelper")}
+        >
+          <Select
+            variant="menu"
+            value={String(settings.predictivePaceWarningLeadHours ?? 0)}
+            disabled={saving || alertsMuted || !settings.predictivePaceWarningEnabled}
+            ariaLabel={t("PredictivePaceWarningLeadLabel")}
+            options={paceWarningLeadOptions(settings.predictivePaceWarningLeadHours ?? 0).map(
+              (hours) => ({
+                value: String(hours),
+                label:
+                  hours === 0
+                    ? t("PredictivePaceWarningLeadAny")
+                    : t("PredictivePaceWarningLeadHours").replace("{}", String(hours)),
+              }),
+            )}
+            onChange={(value) => set({ predictivePaceWarningLeadHours: Number(value) })}
           />
         </Field>
         {/* Independent of the master alerts switch, like the Mac: a reset is

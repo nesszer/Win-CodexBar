@@ -689,8 +689,8 @@ async fn requests_post_json_with_the_website_session_and_no_bearer() {
 }
 
 #[tokio::test]
-async fn the_earliest_listing_reset_wins_across_paid_and_free() {
-    let (base_url, _) = serve(|seen| match seen.path.as_str() {
+async fn a_future_paid_reset_is_used_without_querying_free_grants() {
+    let (base_url, log) = serve(|seen| match seen.path.as_str() {
         PAID_FIXTURE_PATH => (200, PAID_PACKAGES.to_owned()),
         path => default_route(path),
     });
@@ -700,6 +700,52 @@ async fn the_earliest_listing_reset_wins_across_paid_and_free() {
         .expect("fetch");
     // 2026-10-20 23:59:59 +08:00, plus one second.
     assert_eq!(result.usage.primary.resets_at, at(1_792_512_000));
+    assert_eq!(paths(&log), vec![SUMMARY_FIXTURE_PATH, PAID_FIXTURE_PATH]);
+}
+
+/// Upstream #4767 `the paid cycle outranks an earlier free grant`.
+#[tokio::test]
+async fn the_paid_cycle_outranks_an_earlier_free_grant() {
+    const PAID: &str = r#"{"code":0,"msg":"OK","data":{"Accounts":[
+      {"CapacityUnit":"credits","CycleEndTime":"2026-11-24 12:44:13"}
+    ]}}"#;
+    // The trial grant closes with the calendar month and the reward grants end piecewise.
+    const FREE: &str = r#"{"code":0,"msg":"OK","data":{"Accounts":[
+      {"CapacityUnit":"credits","CycleEndTime":"2026-10-31 23:59:59"},
+      {"CapacityUnit":"credits","CycleEndTime":"2026-11-11 23:09:21"}
+    ]}}"#;
+    let (base_url, _) = serve(|seen| match seen.path.as_str() {
+        PAID_FIXTURE_PATH => (200, PAID.to_owned()),
+        FREE_FIXTURE_PATH => (200, FREE.to_owned()),
+        path => default_route(path),
+    });
+    let result = provider(&base_url, chrome_154, no_browser_sessions)
+        .fetch_usage(&manual(FIXTURE_COOKIE))
+        .await
+        .expect("fetch");
+    // 2026-11-24 12:44:13 +08:00, plus one second.
+    assert_eq!(result.usage.primary.resets_at, at(1_795_495_454));
+}
+
+/// Upstream #4767 `an exhausted paid cycle falls back to the free grants`.
+#[tokio::test]
+async fn an_exhausted_paid_cycle_falls_back_to_the_free_grants() {
+    const PAID: &str = r#"{"code":0,"msg":"OK","data":{"Accounts":[
+      {"CapacityUnit":"credits","CycleEndTime":"2026-09-30 23:59:59"}
+    ]}}"#;
+    let (base_url, log) = serve(|seen| match seen.path.as_str() {
+        PAID_FIXTURE_PATH => (200, PAID.to_owned()),
+        path => default_route(path),
+    });
+    let result = provider(&base_url, chrome_154, no_browser_sessions)
+        .fetch_usage(&manual(FIXTURE_COOKIE))
+        .await
+        .expect("fetch");
+    assert_eq!(result.usage.primary.resets_at, at(OCTOBER_RESET));
+    assert_eq!(
+        paths(&log),
+        vec![SUMMARY_FIXTURE_PATH, PAID_FIXTURE_PATH, FREE_FIXTURE_PATH]
+    );
 }
 
 #[tokio::test]

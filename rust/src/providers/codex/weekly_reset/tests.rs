@@ -6,6 +6,15 @@ mod missing_inventory;
 mod plan_change;
 
 #[test]
+fn test_state_path_stays_out_of_the_real_data_dir() {
+    let path = state_path().expect("test state path");
+    assert!(path.starts_with(std::env::temp_dir()));
+    if let Some(real) = dirs::data_local_dir() {
+        assert!(!path.starts_with(real.join("CodexBar")));
+    }
+}
+
+#[test]
 fn reset_diagnostic_codes_are_fixed_and_redacted() {
     let codes = [
         ResetDiagnosticReason::CandidateCreated.code(),

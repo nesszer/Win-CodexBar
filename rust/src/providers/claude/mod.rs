@@ -218,22 +218,45 @@ fn is_subscription_login_method(login_method: Option<&str>) -> bool {
         .is_some_and(|(_, counts_as_subscription)| *counts_as_subscription)
 }
 
-fn claude_plan_label(tier: &str) -> String {
-    let normalized = tier.to_lowercase();
-    if normalized.contains("claude_max_5x") || normalized.contains("claude_max_5") {
-        "Claude Max 5x".to_string()
-    } else if normalized.contains("claude_max_20x") || normalized.contains("claude_max_20") {
-        "Claude Max 20x".to_string()
-    } else {
-        match normalized.as_str() {
-            "free" => "Claude Free".to_string(),
-            "pro" | "claude_pro" => "Claude Pro".to_string(),
-            "max" => "Claude Max".to_string(),
-            "team" => "Claude Team".to_string(),
-            "enterprise" => "Claude Enterprise".to_string(),
-            _ => format!("Claude ({})", tier),
-        }
+/// Branded plan label for a rate-limit tier or saved plan id, following
+/// upstream `ClaudePlan.fromRateLimitTier` (substring match, Max multiplier
+/// from the word after `max`). `None` for tiers that name no plan, such as
+/// `default_claude_ai`, so raw tier ids never reach the UI.
+fn claude_plan_label(tier: &str) -> Option<String> {
+    let normalized = tier.trim().to_lowercase();
+    if normalized == "free" {
+        return Some("Claude Free".to_string());
     }
+    let plan = if normalized.contains("max") {
+        "Claude Max"
+    } else if normalized.contains("pro") {
+        "Claude Pro"
+    } else if normalized.contains("team") {
+        "Claude Team"
+    } else if normalized.contains("enterprise") {
+        "Claude Enterprise"
+    } else {
+        return None;
+    };
+    if plan != "Claude Max" {
+        return Some(plan.to_string());
+    }
+    let words: Vec<&str> = normalized
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect();
+    let multiplier = words
+        .iter()
+        .position(|word| *word == "max")
+        .and_then(|index| words.get(index + 1))
+        .filter(|word| {
+            word.strip_suffix('x')
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        });
+    Some(match multiplier {
+        Some(multiplier) => format!("{plan} {multiplier}"),
+        None => plan.to_string(),
+    })
 }
 
 fn unix_now_secs() -> u64 {

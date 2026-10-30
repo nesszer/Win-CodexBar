@@ -70,6 +70,7 @@ Some providers refill on a billing date instead of on a fixed session or week. T
 | Copilot | any window with a reset date | when the window has no length |
 | Cursor | any window with a length | no |
 | Kimi | exactly 10080 minutes | no |
+| Codex | a window reported as exactly 43200 minutes (`limit_window_seconds: 2592000`, seen on Free plan responses) | no, the reported 30 days are kept |
 | Grok | a window labelled weekly whose reset falls inside it | no |
 | Z.ai | the 43200-minute MCP window | yes |
 | Amp | a window with a length whose reset text starts with "renews in " | no |
@@ -122,6 +123,24 @@ bundled-credit quota from the session token.
   again and refresh.
 - Manual mode needs a freshly pasted Cookie header from a signed-in
   `venice.ai` request; an old header fails with the expired-session message.
+
+### Command Code saved sessions
+
+Command Code keeps several labeled subscription sessions under **Session tokens**
+(upstream #4774). Paste a bare session token, a full Cookie header, or a cURL
+capture; a bare token gets the production session cookie name. A cURL capture
+must be a single line: the token command rejects multiline values with
+"Token must be a single line".
+
+- Saved sessions count only when the cookie source is **Manual**. In Auto the
+  selected session uses browser billing even when an API key is configured, and
+  a rejected session reports an error without trying a cached or browser
+  account.
+- The **API** usage source keeps saved sessions passive and uses the configured
+  key. Cookie source **Automatic** or **Off** also keeps them passive.
+- Unlike the Mac app, an empty Manual cookie source still falls back to browser
+  cookies, because Manual is the Windows default cookie source.
+
 ### Raycast credits
 
 Raycast reads the unofficial `frontend_api/current_user/ai_credits` route of
@@ -284,9 +303,19 @@ Plans & usage page (`https://www.workbuddy.cn/profile/plans-usage`) uses:
   major. Without a Chrome version no User-Agent is sent, which WorkBuddy
   usually rejects as an expired session, so cookies should come from Chrome.
 - The card shows the credits meter with "X / Y credits left", the plan name,
-  reserved (frozen) credits, and the cycle reset from the paid and free
-  package listings (cycle ends are China Standard Time; the listings share a
-  5-second budget and a failed listing only drops the reset).
+  reserved (frozen) credits, and the cycle reset (cycle ends are China
+  Standard Time; the listings share a 5-second budget and a failed listing
+  only drops the reset).
+- The reset follows the paid subscription cycle: the earliest future cycle
+  end in the paid package listing. The free listing is queried only when the
+  paid listing has no future end, so a trial grant that closes with the
+  calendar month cannot shorten a paid cycle. Reward and purchased credits
+  that end earlier are not reflected, so the balance can drop before the
+  reset.
+- The icon is a monochrome version of the mascot from WorkBuddy's
+  [official logo](https://assets.workbuddy.cn/web/workbuddy/a5b2fb510f0e7b156f19d072fae0cd12ae1f2f19/assets/logo.svg),
+  in the app and in the `codexbar serve` dashboard. The `#0DC8A6` accent is
+  unchanged.
 - HTTP 401 on every User-Agent moves on to the next browser session and is
   reported as an expired session at the end, unless Automatic could not read
   a browser (for example Chrome behind App-Bound Encryption): then that read
@@ -813,10 +842,12 @@ GET https://platform.claude.com/api/organizations/<uuid>/current_spend
 ### Trae CN
 
 Trae CN is disabled by default and shows the credit allowance of a Trae CN
-(trae.cn) account. Sign in to trae.cn in your browser, and CodexBar uses the
-`api.trae.cn` session cookies.
+(trae.cn) account. Sign in to trae.cn in your browser, and CodexBar uses that
+session.
 
-- **Automatic:** CodexBar tries each detected browser holding an api.trae.cn
+- **Automatic:** Trae keeps its session cookies on the parent `trae.cn` domain,
+  so CodexBar reads the `trae.cn` cookies and sends only the ones a browser
+  would send to `api.trae.cn`. It tries each detected browser holding such a
   session. If Trae rejects a session (401, 403 or a redirect), it moves to the
   next browser. No session means sign in to trae.cn.
 - **Manual:** Paste the Cookie header from an api.trae.cn request. Manual mode
@@ -835,6 +866,9 @@ POST https://api.trae.cn/trae/api/v2/pay/user_current_entitlement_list
   api.trae.cn as a `Cloud-IDE-JWT` authorization header.
 - The gauge is consumed over total credits. A zero allowance shows the details
   without a gauge. Used, Total and Remaining appear in the **Credits** section.
+- The gauge is labeled **Usage** and the Used / Total / Remaining block
+  **Credits**, so the two never share a name. The visibility IDs are
+  unchanged, so saved hidden choices keep working.
 - The plan name comes from the active plan entitlement and is shown as the
   login method. Pack expiry dates do not set a reset: the provider infers no
   renewal or reset date.
@@ -847,6 +881,85 @@ POST https://api.trae.cn/trae/api/v2/pay/user_current_entitlement_list
   loopback host (`127.0.0.1`, `localhost`, `[::1]`), with no credentials, query,
   or fragment. Any other value is ignored with a warning.
 
+### Chatbox AI
+
+Chatbox AI is disabled by default. In Settings → Providers → Chatbox AI, paste
+your Chatbox **license key** into the API key field, or set
+`CHATBOX_LICENSE_KEY`; the saved key wins. Signing in to the Chatbox app does
+not configure this provider, and CodexBar never reads the Chatbox desktop
+profile or activates a license. Keep the key private: it can authorize AI
+requests as well as quota reads. It is never written to logs or errors.
+
+The provider makes one read-only request per refresh and never makes a
+billable call:
+
+```text
+GET https://api.chatboxai.app/api/license/detail/realtime
+Authorization: <license key>
+Cache-Control: no-store
+```
+
+The key is sent as is, without a `Bearer` prefix, as Chatbox's public client
+does. A key longer than 4096 characters or with spaces or control characters is
+rejected before any request.
+
+- The **Remaining** section shows `remaining / total` counts: **Plan** (the
+  `plan` item of `unified_token_usage_details`), **Quota** (the combined
+  `unified_token_usage` / `unified_token_limit`, only when there is no plan
+  pool), **Credits** (`aggregated_reward_details`, or the unexpired non-plan
+  detail items), **Top-up credits** (`expansion_pack_*`) and **Image
+  Generation** (`image_*`). These are compute points and image counts, not
+  money. Empty pools are hidden; exhausted pools stay. If every allowance is
+  zero, the section shows `Quota 0 / 0`.
+- The **Plan** meter is the primary window, only for a positive plan whose
+  status is absent or `active` and that has not expired. Its reset is
+  `token_next_refresh_time` when that is in the future and before the plan
+  expiry. Other pools never inherit it. **Top-up credits** with a positive
+  limit is the secondary window, with no reset.
+- The license `name` is the plan label. `token_expire_time` (or `expires_at`)
+  is the subscription expiry.
+- 401 reports an invalid key and asks for a new one. 403 reports denied access,
+  429 rate limiting, and other statuses a failed request, each with its HTTP
+  status. A body that is not the expected JSON envelope, an `error` member,
+  negative, fractional or non-numeric counters, or a duplicate plan item fail
+  parsing. Response bodies are never echoed in errors.
+- For proof runs and fake servers, `CHATBOX_BASE_URL` replaces the API origin
+  (default `https://api.chatboxai.app`). It accepts `https://`, or `http://`
+  only for a loopback host (`127.0.0.1`, `localhost`, `[::1]`), with no
+  credentials, query, or fragment. Any other value is ignored with a warning.
+
+### abliteration.ai
+
+abliteration.ai is disabled by default. In Settings → Providers →
+abliteration.ai, enter your **API key**, or set `ABLITERATION_API_KEY`; the
+saved key wins. The key is stored with the other API keys and is never written
+to logs or errors.
+
+The provider makes one non-billable request per refresh. It never sends
+inference requests, imports browser cookies, or starts a login flow:
+
+```text
+GET https://api.abliteration.ai/v1/credits
+Authorization: Bearer <API key>
+```
+
+The response contract is `{"data":{"total_credits":50.0,"total_usage":0.010637}}`;
+both counters are USD.
+
+- The **Credits** meter is the primary window: used / total dollars (for
+  example `$0.01 / $50.00`), capped at 100% when overspent. It has no reset
+  date and no pace, because the counters are cumulative.
+- The **Credits** section shows **Balance** (total minus usage, floored at
+  zero), **Credits used** and **Total credits**. Overspent accounts keep the
+  reported spend. With zero total credits the dollar rows stay and the meter is
+  hidden, so no percentage is invented. The Mac plugin labels the total row
+  **Credits**; the Windows port says **Total credits** so it does not share a
+  name with the meter in Settings → Visible usage items.
+- Card bars use the label color, as on the Mac (`progressColorStyle: .label`).
+- Missing, negative, non-numeric or non-finite counters fail parsing. 401 and
+  403 ask you to check the API key in Settings, 429 reports rate limiting, and
+  any other status reports a failed request. Response bodies are never echoed
+  in errors.
 ### Aerostack
 
 Aerostack is disabled by default. In Settings → Providers → Aerostack, enter an
@@ -1128,6 +1241,15 @@ OpenCode reads usage from `opencode.ai` cookies. Which API it uses depends on th
 
 OpenCode Go's local SQLite reader reads only records attributed to `opencode-go`: legacy assistant messages and v2 `session_message` assistant and compaction requests. A v2 request is skipped only when a legacy copy with the same id has a usable timestamp and a non-negative finite cost, so migrated requests count once and an invalid legacy copy never hides a valid v2 request. V2-only databases (no `message` table, no `auth.json`) still read. OpenAI API-platform usage is a separate provider.
 
+OpenCode Go reads server quota with the active OpenCode CLI login when no API key is configured (upstream #4771), so a signed-in CLI no longer falls back to the local estimate.
+
+- Unscoped Auto keeps this order over local history: a configured API key, then a usable browser session, then the CLI login. A successful CLI read reports `local+cli`. Without local history, Auto tries the API key, then the browser session, then the CLI login, which reports `cli`. An estimate that already carries a browser account's Zen balance never borrows the CLI login.
+- API mode (the `oauth` source) uses the configured key, else the CLI login, without importing cookies. A rejected configured key never falls back to the CLI login.
+- Selected accounts, manual cookies, workspace overrides and Web mode never use the CLI login. Cookie source Off disables browser discovery, not the CLI login.
+- OpenCode v2 keeps the login in the `credential` table of `opencode.db`. An active `opencode-go` row wins over the general `opencode` row, which counts only as an unexpired OAuth login. Two active rows for the same integration are ambiguous and fail. Once the credential table exists, a stale legacy `auth.json` is ignored, including after logout. Older installs use the `opencode-go` entry of type `api` in `auth.json`.
+- Lookup uses the first OpenCode data directory that has `opencode.db` or `auth.json`: `%USERPROFILE%\.local\share\opencode`, then `%LOCALAPPDATA%\opencode`. An absolute `XDG_DATA_HOME` replaces them with `<XDG_DATA_HOME>\opencode`. `OPENCODE_DB` names the database file or gives an absolute path; `:memory:` disables the lookup.
+- The credential is read-only and reread on every refresh. Win-CodexBar never refreshes tokens; renew an expired OAuth login through OpenCode. Read or decode failures report invalid credentials without database contents or tokens. In Auto they keep the marked local estimate.
+
 For `codexbar cost --provider opencodego` (upstream #4629), token counts follow the same rule per row. A row with missing, malformed, negative or overflowing tokens is unknown, not zero, and any window or model containing one has no exact token total. A row that records a total but omits input or output keeps that exact total, while its input and output are unknown. The text report says `unknown` for the affected totals while still reporting cost. The JSON payload uses `null` for them and adds `unknownTokenRowCount` and `byModelTokens`. Per-model token counts sum only what rows recorded. The `spendContract` per-model rows still carry those usable partial counts; the desktop Usage & Spend view is unchanged.
 
 - Token counts come from `tokens` on assistant messages and step-finish parts. A step-finish part wins over its parent message.
@@ -1143,6 +1265,13 @@ Codex local cost prices **Priority (Fast)** turns at the Fast rate.
 - Models without a Fast rate stay Standard.
 - Older cost caches rebuild once. Codex cache schema v4 records each row's turn id.
 
+### Cursor app session
+
+Automatic mode first reads the signed-in Cursor app's `cursorAuth/accessToken` from `%APPDATA%\Cursor\User\globalStorage\state.vscdb` (read-only) and rebuilds the session cookie from it.
+
+- Cursor 3.27 and later may store that token as a `cursor-safe-storage:v1:` envelope. CodexBar decrypts it with the DPAPI-protected key in `%APPDATA%\Cursor\Local State` (AES-256-GCM, as Chromium does on Windows). A plain JWT never reads that key.
+- An unreadable, malformed or unknown-version envelope yields no app session, and Automatic mode falls through to browser cookies.
+
 ### Cursor unified personal spend
 
 Cursor accounts on a unified membership with a user-level limit (`membershipType` starts with `unified_` and `limitType` is `user`) read monthly additional spend from `GET /api/dashboard/v2/usage-status?scope=user`, using the same session cookie.
@@ -1152,6 +1281,14 @@ Cursor accounts on a unified membership with a user-level limit (`membershipType
 - A valid zero stays zero. Team budgets, legacy plans and the Grok Bot allowance keep their existing paths.
 
 ## API key notes
+
+### Kimi Total usage breakdown
+
+When Kimi reports the Kimi Code share of the monthly **Total usage** pool, the provider page adds a "Total usage" section with two rows: **Kimi Code** and **Other features** (the total minus the Code share, never below 0%). Both rows are details, not quota windows, because they draw on one limit.
+
+- The Code share always comes from the source that supplied Total usage: `limit_month_code` next to the Code API `limit_month_total`, or `kimiCodeUsedRatio` next to the web membership pool. A Code API Total usage never borrows the web Code share.
+- A missing, negative or malformed Code share leaves Total usage without a breakdown and keeps every quota window.
+- A share above 0% but below 1% shows as "<1% used", as upstream does, even when it would round to 1%.
 
 ### OpenRouter keys
 

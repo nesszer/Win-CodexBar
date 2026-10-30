@@ -503,7 +503,7 @@ mod tests {
         );
         let no_reset = RateWindow::with_details(10.0, None, None, None);
         assert!(!copilot.supports_reset_window_pace(&no_reset, now));
-        for provider in [ProviderId::Codex, ProviderId::Gemini] {
+        for provider in [ProviderId::Pi, ProviderId::Gemini] {
             assert!(
                 provider
                     .pace_capability()
@@ -680,6 +680,7 @@ mod tests {
                     && until <= i64::from(minutes) * 60
             }
             ProviderId::Kimi => window.window_minutes == Some(WEEKLY),
+            ProviderId::Codex => window.window_minutes == Some(MONTHLY),
             ProviderId::Zai => {
                 window.window_minutes == Some(MONTHLY)
                     && window.reset_description.as_deref() == Some("MCP")
@@ -739,6 +740,43 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn codex_paces_its_fixed_30_day_window_with_the_reported_duration() {
+        let codex = ProviderId::Codex.pace_capability();
+        let now = DateTime::<Utc>::from_timestamp(1_750_000_000, 0).unwrap();
+        let day = chrono::Duration::days(1);
+        let monthly = RateWindow::with_details(
+            50.0,
+            Some(MONTHLY_WINDOW_SENTINEL_MINUTES),
+            Some(now + day * 20),
+            None,
+        );
+        assert!(codex.supports_reset_window_pace(&monthly, now));
+        assert!(!codex.uses_inferred_monthly_duration(&monthly));
+        // The reported 43200 minutes is kept, not replaced by the calendar
+        // month ending at the reset.
+        assert_eq!(
+            codex
+                .resolved_reset_window_for_pace(&monthly)
+                .window_minutes,
+            Some(MONTHLY_WINDOW_SENTINEL_MINUTES)
+        );
+        // 20 of 30 days left: a third of the window is expected to be used.
+        let pace = codex
+            .reset_window_pace(&monthly, now, None)
+            .expect("codex 30-day pace");
+        assert!((pace.expected_used_percent - 100.0 / 3.0).abs() < 1e-9);
+
+        // Session and weekly lanes keep their own pace.
+        let session = RateWindow::with_details(50.0, Some(300), Some(now + day / 12), None);
+        let weekly = RateWindow::with_details(50.0, Some(10_080), Some(now + day * 4), None);
+        assert!(!codex.supports_reset_window_pace(&session, now));
+        assert!(!codex.supports_reset_window_pace(&weekly, now));
+        // A calendar-month length other than the reported 30 days is not opted in.
+        let march = window(50.0, Some(44_640), at(2026, 3, 31, 0));
+        assert!(!codex.supports_reset_window_pace(&march, at(2026, 3, 15, 12)));
     }
 
     #[test]

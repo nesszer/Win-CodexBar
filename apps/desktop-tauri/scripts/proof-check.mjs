@@ -16,6 +16,8 @@
 //   expectText / expectNoText   page text includes / excludes each string
 //   expectSelector              a DOM selector matches
 //   expectTheme                 documentElement dataset.theme (waits for the value)
+//   expectStyle                 computed style of the first match: { selector,
+//                               property, value } (waits for the value)
 //   expectField                 a native <select> by label: value, options, enabled
 //   expectCall                  a backend command was invoked (optional args match)
 //   expectNoCall                a backend command was not invoked (waits 300 ms first)
@@ -388,6 +390,17 @@ async function runStep(page, step, ctx) {
     const theme = "document.documentElement.dataset.theme";
     if (!(await page.poll(`${theme} === ${js(step.expectTheme)}`))) {
       throw new Error(`theme is ${js(await page.eval(theme))}, expected ${js(step.expectTheme)}`);
+    }
+  } else if (step.expectStyle !== undefined) {
+    const { selector, property, value } = step.expectStyle;
+    const read = `(() => {
+      const el = document.querySelector(${js(selector)});
+      return el ? getComputedStyle(el).getPropertyValue(${js(property)}).trim() : null;
+    })()`;
+    if (!(await page.poll(`${read} === ${js(value)}`))) {
+      const actual = await page.eval(read);
+      if (actual === null) throw new Error(`selector not found: ${selector}`);
+      throw new Error(`${selector} ${property} is ${js(actual)}, expected ${js(value)}`);
     }
   } else if (step.click !== undefined) {
     // `near` picks, among same-label matches, the one whose closest ancestor

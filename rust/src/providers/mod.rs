@@ -8,6 +8,7 @@
 use futures::{Stream, StreamExt};
 
 pub mod abacus;
+pub mod abliteration;
 pub mod aerostack;
 pub mod aiand;
 pub mod aixy;
@@ -21,6 +22,7 @@ pub mod azureopenai;
 pub mod bedrock;
 pub mod bifrost;
 pub mod chart;
+pub mod chatbox;
 pub mod chutes;
 pub mod claude;
 pub mod claudeplatform;
@@ -130,6 +132,7 @@ pub mod zoommate;
 
 // Re-export provider implementations
 pub use abacus::AbacusProvider;
+pub use abliteration::AbliterationProvider;
 pub use aerostack::AerostackProvider;
 pub use aiand::AiAndProvider;
 pub use aixy::AixyProvider;
@@ -142,6 +145,7 @@ pub use augment::AugmentProvider;
 pub use azureopenai::AzureOpenAIProvider;
 pub use bedrock::BedrockProvider;
 pub use bifrost::BifrostProvider;
+pub use chatbox::ChatboxProvider;
 pub use chutes::ChutesProvider;
 pub use claude::ClaudeProvider;
 pub use claudeplatform::ClaudePlatformProvider;

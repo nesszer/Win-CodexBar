@@ -169,7 +169,7 @@ impl TokenAccountSupport {
             )),
             ProviderId::CommandCode => Some(
                 Self::cookie(
-                    "Store multiple Command Code Cookie headers or Better Auth values.",
+                    "Store multiple Command Code subscription sessions.",
                     "Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value",
                 )
                 .with_cookie_name("__Secure-commandcode_prod_.session_token"),
@@ -388,7 +388,9 @@ impl TokenAccountSupport {
             | ProviderId::Munito
             | ProviderId::Soniox
             | ProviderId::ClaudePlatform
-            | ProviderId::TraeCn => None,
+            | ProviderId::TraeCn
+            | ProviderId::Chatbox
+            | ProviderId::Abliteration => None,
         }
     }
 

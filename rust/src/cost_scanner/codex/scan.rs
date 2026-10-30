@@ -5,7 +5,9 @@ use crate::core::{
     CodexSourceRowCache, CodexSourceUsageRow, read_source_rows, recover_rows, row_cache,
     row_cache_matches, row_cache_needs_recovery,
 };
-use chrono::Local;
+use crate::cost_reporting_period::cost_bucket_zone;
+use crate::providers::opencodego::local::codex_history;
+use chrono::{Local, NaiveDate};
 
 /// A complete, non-forked file whose source rows may be (re)priced this pass.
 struct CodexSourceRowPlan {
@@ -213,8 +215,9 @@ pub(super) fn scan_codex_detailed_with_cache(
     ) {
         let mut summary = paused_codex_summary(&cache, start_date, today, &range);
         append_pi_compatible_costs(scanner, &mut summary, cancel);
+        let opencode_complete = append_opencode_history(scanner, &mut summary, start_date, today);
         summary.history_coverage_established =
-            summary.history_coverage_established && !is_cancelled(cancel);
+            summary.history_coverage_established && !is_cancelled(cancel) && opencode_complete;
         summary.known_zero = summary.history_coverage_established && summary.sessions_count == 0;
         return (summary, stats, cache);
     }
@@ -251,8 +254,9 @@ pub(super) fn scan_codex_detailed_with_cache(
         // Pi-compatible sessions are outside the Codex JSONL cache.
         // Skip when tests inject sessions roots — avoid scanning the real home tree.
         append_pi_compatible_costs(scanner, &mut summary, cancel);
+        let opencode_complete = append_opencode_history(scanner, &mut summary, start_date, today);
         summary.history_coverage_established =
-            cached_history_coverage_established && !is_cancelled(cancel);
+            cached_history_coverage_established && !is_cancelled(cancel) && opencode_complete;
         // Upstream 0.50.1 #2932: debounce cache hit with coverage
         // established but zero sessions in-range is a known-zero.
         summary.known_zero = summary.history_coverage_established && summary.sessions_count == 0;
@@ -569,14 +573,16 @@ pub(super) fn scan_codex_detailed_with_cache(
     // Skip when tests inject sessions roots — avoid scanning the real home tree.
     // A16 --provider-native-only: skip pi/OMP mirrors when disabled.
     append_pi_compatible_costs(scanner, &mut summary, cancel);
+    let opencode_complete = append_opencode_history(scanner, &mut summary, start_date, today);
 
     // v0.56.1 #3279: only publish authoritative coverage after all
     // cancellable scan work, including Pi/OMP, has completed. Persistence
     // pruning may retain `previous_report`, but that must not make a
     // completed in-memory scan stale or make a cancelled partial scan look
     // complete.
-    summary.history_coverage_established =
-        !is_cancelled(cancel) && (!cache.codex_scan_incomplete || published_current_window);
+    summary.history_coverage_established = !is_cancelled(cancel)
+        && opencode_complete
+        && (!cache.codex_scan_incomplete || published_current_window);
     // Upstream 0.50.1 #2932: a completed scan with zero results is a
     // *known* zero. An incomplete scan may publish only a non-empty validated
     // current window; it must not infer zero from historical metadata alone.
@@ -585,6 +591,24 @@ pub(super) fn scan_codex_detailed_with_cache(
         && (!cache.codex_scan_incomplete || published_current_window);
 
     (summary, stats, cache)
+}
+
+/// Opt-in OpenCode history (upstream #4786). It belongs only to the ambient
+/// ledger: injected sessions roots and an explicit `CODEX_HOME` stay excluded.
+/// Returns false when the OpenCode database could not be read.
+fn append_opencode_history(
+    scanner: &CostScanner,
+    summary: &mut CostSummary,
+    start: NaiveDate,
+    end: NaiveDate,
+) -> bool {
+    if !scanner.options.include_opencode_history
+        || scanner.sessions_dirs_override.is_some()
+        || !codex_history::codex_home_is_ambient(std::env::var("CODEX_HOME").ok().as_deref())
+    {
+        return true;
+    }
+    codex_history::append_to_codex_summary(summary, cost_bucket_zone(), start, end)
 }
 
 fn append_pi_compatible_costs(

@@ -5,6 +5,7 @@ const tauriMocks = vi.hoisted(() => ({
   getUsageSpendSummary: vi.fn(),
   writeUsageSpendExport: vi.fn(),
   getCodexSessionToolActivity: vi.fn(),
+  getCodexSessionDetails: vi.fn(),
 }));
 
 vi.mock("../../../lib/tauri", () => tauriMocks);
@@ -320,6 +321,7 @@ describe("UsageSpendTab", () => {
   });
 
   it("reads a conversation's tool activity over the contract's history window", async () => {
+    tauriMocks.getCodexSessionDetails.mockResolvedValue({ sessionId: "s-1", requestCount: 0, turns: [] });
     tauriMocks.getCodexSessionToolActivity.mockResolvedValue({
       sessionId: "s-1",
       operations: [],
@@ -337,6 +339,7 @@ describe("UsageSpendTab", () => {
     fireEvent.click(screen.getByRole("tab", { name: "UsageSpendViewSessions" }));
 
     expect(tauriMocks.getCodexSessionToolActivity).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: /Restart the daemon/ }));
     fireEvent.click(await screen.findByRole("button", { name: "UsageSpendToolsTitle" }));
     await waitFor(() => expect(tauriMocks.getCodexSessionToolActivity).toHaveBeenCalledWith("s-1", 30));
     expect(await screen.findByText("UsageSpendToolsEmpty")).toBeInTheDocument();

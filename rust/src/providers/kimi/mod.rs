@@ -19,6 +19,8 @@
 //!   (Electron) Chromium cookie store, still used for International.
 //! - [`ratio_pool`]: zero-ratio placeholder reconciliation against matching
 //!   legacy counters (upstream 0.63.0).
+//! - [`monthly_breakdown`]: Kimi Code / other-features split of the
+//!   monthly `Total usage` pool (upstream #4759).
 //! - [`auto`]: Auto-mode order after the Code API key (CLI credential, then
 //!   web auth) and which failure is reported when neither works.
 
@@ -30,6 +32,7 @@ pub mod desktop_token;
 mod local_storage;
 #[cfg(test)]
 mod monthly_blocking_tests;
+mod monthly_breakdown;
 mod ratio_pool;
 mod region;
 mod web;
@@ -87,6 +90,10 @@ struct KimiCodeUsagePools {
     weekly: Option<KimiRatioPool>,
     #[serde(default, rename = "limit_month_total")]
     monthly: Option<KimiRatioPool>,
+    /// Kimi Code share of the monthly pool (upstream #4759). Kept as raw JSON
+    /// so a malformed share never rejects the quota windows.
+    #[serde(default, rename = "limit_month_code")]
+    monthly_code: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,11 +107,13 @@ struct KimiRatioPool {
 impl KimiRatioPool {
     /// Explicit zero is a known quota value; missing or malformed ratios stay
     /// unknown rather than being rendered as 0% used.
+    fn valid_ratio(&self) -> Option<f64> {
+        json::lenient_f64(self.used_ratio.as_ref())
+            .filter(|ratio| ratio.is_finite() && *ratio >= 0.0)
+    }
+
     fn rate_window(&self, window_minutes: u32) -> Option<RateWindow> {
-        let ratio = json::lenient_f64(self.used_ratio.as_ref())?;
-        if !ratio.is_finite() || ratio < 0.0 {
-            return None;
-        }
+        let ratio = self.valid_ratio()?;
         Some(RateWindow::with_details(
             ratio.min(1.0) * 100.0,
             Some(window_minutes),
@@ -204,6 +213,9 @@ struct KimiCreditBalance {
     /// to the generic "Bonus credits" label instead of dropping the gift.
     #[serde(default)]
     display_name: Option<serde_json::Value>,
+    /// Kimi Code share of the subscription pool (upstream #4759).
+    #[serde(default)]
+    kimi_code_used_ratio: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -477,13 +489,7 @@ fn apply_subscription_windows(
         .extra_rate_windows
         .iter()
         .any(|extra| extra.id == MONTHLY_WINDOW_ID);
-    if !has_monthly_pool
-        && let Some(balance) = subscription.subscription_balance.as_ref()
-        && matches!(balance.feature.as_deref(), None | Some("FEATURE_OMNI"))
-        && matches!(balance.balance_type.as_deref(), None | Some("SUBSCRIPTION"))
-        && let Some(ratio) =
-            json::lenient_f64(balance.amount_used_ratio.as_ref()).filter(|value| value.is_finite())
-    {
+    if !has_monthly_pool && let Some((balance, ratio)) = subscription_pool(subscription) {
         // Verified monthly sentinel (#2431 / #2566).
         usage = usage.with_extra_rate_window(
             MONTHLY_WINDOW_ID,
@@ -517,6 +523,21 @@ fn apply_subscription_windows(
     }
 
     usage
+}
+
+/// The omni subscription pool that backs `Total usage`, with its used ratio.
+fn subscription_pool(
+    subscription: &KimiSubscriptionStatsResponse,
+) -> Option<(&KimiCreditBalance, f64)> {
+    let balance = subscription.subscription_balance.as_ref()?;
+    if !matches!(balance.feature.as_deref(), None | Some("FEATURE_OMNI"))
+        || !matches!(balance.balance_type.as_deref(), None | Some("SUBSCRIPTION"))
+    {
+        return None;
+    }
+    let ratio =
+        json::lenient_f64(balance.amount_used_ratio.as_ref()).filter(|value| value.is_finite())?;
+    Some((balance, ratio))
 }
 
 /// Upstream `isEquivalentToWeeklyWindow` (#2741): suppress the Code 7-day row

@@ -427,6 +427,29 @@ impl JsonlScanner {
         scan_target_size: Option<i64>,
         max_bytes_to_read: Option<i64>,
     ) -> std::io::Result<CodexParseResult> {
+        Self::parse_codex_bounded(
+            file_path,
+            range,
+            mode,
+            cancel,
+            scan_target_size,
+            max_bytes_to_read,
+            None,
+        )
+    }
+
+    /// [`Self::parse_codex`] that also stops, incomplete, as soon as more than
+    /// `max_records` records are held, so a caller that refuses oversized
+    /// results never buffers the whole file first.
+    pub(crate) fn parse_codex_bounded(
+        file_path: &Path,
+        range: &CostUsageDayRange,
+        mode: CodexParseMode,
+        cancel: Option<&AtomicBool>,
+        scan_target_size: Option<i64>,
+        max_bytes_to_read: Option<i64>,
+        max_records: Option<usize>,
+    ) -> std::io::Result<CodexParseResult> {
         let file = File::open(file_path)?;
         // Session JSONL files are bounded by the cache budget; sizes fit i64.
         #[allow(
@@ -526,6 +549,10 @@ impl JsonlScanner {
             }
             parser.process_line_with_source_offset(line, range, parsed_bytes);
             committed_bytes = parsed_bytes;
+            if max_records.is_some_and(|limit| parser.records.len() > limit) {
+                budget_exhausted = true;
+                break;
+            }
         }
 
         let effective_target_size = if incomplete_tail && !cancelled && !budget_exhausted {

@@ -1,8 +1,9 @@
 use super::{
     ClaudeCodeCredentialsConsent, ConfigCommand, ConfigFileError, ConfigOutputArgs,
-    ConfigSetSourceResult, ConsentAction, apply_consent_action, config_source_selection,
-    consent_text, provider_statuses, read_json_config, sanitize_settings_for_dump,
-    source_mode_name,
+    ConfigSetSourceResult, ConsentAction, CredentialField, apply_consent_action, apply_set_cookie,
+    clean_cookie_header, clear_stored_credentials, config_cookie_provider, config_source_selection,
+    consent_text, credential_fields, load_credential_store, provider_statuses, read_json_config,
+    sanitize_settings_for_dump, source_mode_name,
 };
 use crate::cli::{Cli, Commands};
 use crate::core::{ProviderId, SourceMode};
@@ -788,4 +789,219 @@ mod copilot_login_output {
                 .is_empty()
         );
     }
+}
+
+#[test]
+fn set_cookie_and_clear_credential_parse_upstream_flags() {
+    let ConfigCommand::SetCookie {
+        target,
+        cookie,
+        stdin,
+        no_enable,
+        output,
+    } = parse_config(&[
+        "set-cookie",
+        "--provider",
+        "cursor",
+        "--cookie",
+        "a=b",
+        "--no-enable",
+        "--json",
+    ])
+    .unwrap()
+    else {
+        panic!("expected set-cookie");
+    };
+    assert_eq!(target.name(), "cursor");
+    assert_eq!(cookie.as_deref(), Some("a=b"));
+    assert!(!stdin);
+    assert!(no_enable);
+    assert!(output.is_json());
+
+    let ConfigCommand::ClearCredential {
+        target,
+        api_key,
+        cookie,
+        ..
+    } = parse_config(&["clear-credential", "-p", "openrouter", "--api-key"]).unwrap()
+    else {
+        panic!("expected clear-credential");
+    };
+    assert_eq!(target.name(), "openrouter");
+    assert!(api_key);
+    assert!(!cookie);
+}
+
+#[test]
+fn set_cookie_rejects_providers_without_a_cookie_lane() {
+    assert_eq!(
+        config_cookie_provider("cursor").unwrap(),
+        ProviderId::Cursor
+    );
+    let error = config_cookie_provider("openrouter")
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "openrouter does not support config cookies.");
+    assert!(config_cookie_provider("not-a-provider").is_err());
+}
+
+#[test]
+fn set_cookie_trims_and_rejects_empty_or_multiline_headers() {
+    assert_eq!(
+        clean_cookie_header(Some("  session=abc; other=1 \n")).unwrap(),
+        "session=abc; other=1"
+    );
+    assert!(clean_cookie_header(None).is_err());
+    assert!(clean_cookie_header(Some("   ")).is_err());
+    let error = clean_cookie_header(Some("a=1\nb=2"))
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "Cookie header must be a single line.");
+    let error = clean_cookie_header(Some("a=1\rb=2"))
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "Cookie header must be a single line.");
+}
+
+#[test]
+fn credential_store_load_stops_on_an_unreadable_file_without_quoting_it() {
+    let dir = tempfile::tempdir().expect("create temporary directory");
+    let path = dir.path().join("manual_cookies.json");
+
+    let missing: ManualCookies =
+        load_credential_store(Some(path.clone()), "manual_cookies.json").unwrap();
+    assert!(missing.cookies.is_empty());
+
+    std::fs::write(&path, r#"{"cookies":{"cursor":"session=secret-value"}}"#).unwrap();
+    let error = load_credential_store::<ManualCookies>(Some(path.clone()), "manual_cookies.json")
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        error,
+        "manual_cookies.json could not be parsed; nothing was changed."
+    );
+    assert!(!error.contains("secret-value"));
+
+    crate::secure_file::write_string(
+        &path,
+        r#"{"cookies":{"cursor":{"cookie_header":"a=1","saved_at":"2026-01-01 00:00"}}}"#,
+    )
+    .unwrap();
+    let loaded: ManualCookies = load_credential_store(Some(path), "manual_cookies.json").unwrap();
+    assert_eq!(loaded.get("cursor"), Some("a=1"));
+}
+
+#[test]
+fn set_cookie_selects_manual_and_enables_unless_told_not_to() {
+    let mut settings = Settings::default();
+    settings.set_cookie_source(ProviderId::Cursor, "auto");
+    settings.disable_provider(ProviderId::Cursor);
+    let mut cookies = ManualCookies::default();
+    apply_set_cookie(
+        &mut settings,
+        &mut cookies,
+        ProviderId::Cursor,
+        "session=abc",
+        false,
+    );
+    assert_eq!(cookies.get("cursor"), Some("session=abc"));
+    assert_eq!(settings.cookie_source(ProviderId::Cursor), "manual");
+    assert!(!settings.is_provider_enabled(ProviderId::Cursor));
+
+    apply_set_cookie(
+        &mut settings,
+        &mut cookies,
+        ProviderId::Cursor,
+        "session=new",
+        true,
+    );
+    assert_eq!(cookies.get("cursor"), Some("session=new"));
+    assert!(settings.is_provider_enabled(ProviderId::Cursor));
+}
+
+#[test]
+fn clear_credential_defaults_to_both_fields_and_flags_narrow_it() {
+    assert_eq!(
+        credential_fields(false, false),
+        vec![CredentialField::ApiKey, CredentialField::CookieHeader]
+    );
+    assert_eq!(
+        credential_fields(true, false),
+        vec![CredentialField::ApiKey]
+    );
+    assert_eq!(
+        credential_fields(false, true),
+        vec![CredentialField::CookieHeader]
+    );
+    assert_eq!(
+        credential_fields(true, true),
+        vec![CredentialField::ApiKey, CredentialField::CookieHeader]
+    );
+}
+
+#[test]
+fn clear_credential_removes_only_stored_requested_fields_for_that_provider() {
+    let mut keys = crate::settings::ApiKeys::default();
+    keys.set("cursor", "key-cursor", None);
+    keys.set("openrouter", "key-openrouter", None);
+    let mut cookies = ManualCookies::default();
+    cookies.set("cursor", "session=cursor");
+    cookies.set("codex", "session=codex");
+
+    let cleared = clear_stored_credentials(
+        &mut keys,
+        &mut cookies,
+        ProviderId::Cursor,
+        &[CredentialField::CookieHeader],
+    );
+    assert_eq!(cleared, vec![CredentialField::CookieHeader]);
+    assert_eq!(cookies.get("cursor"), None);
+    assert_eq!(keys.get("cursor"), Some("key-cursor"));
+    assert_eq!(cookies.get("codex"), Some("session=codex"));
+
+    let cleared = clear_stored_credentials(
+        &mut keys,
+        &mut cookies,
+        ProviderId::Cursor,
+        &CredentialField::ALL,
+    );
+    assert_eq!(cleared, vec![CredentialField::ApiKey]);
+    assert_eq!(keys.get("cursor"), None);
+    assert_eq!(keys.get("openrouter"), Some("key-openrouter"));
+
+    let cleared = clear_stored_credentials(
+        &mut keys,
+        &mut cookies,
+        ProviderId::Cursor,
+        &CredentialField::ALL,
+    );
+    assert!(cleared.is_empty());
+}
+
+#[test]
+fn credential_results_serialize_with_upstream_field_names_and_no_secrets() {
+    let value = serde_json::to_value(super::ConfigClearCredentialResult {
+        provider: "cursor".into(),
+        cleared: vec![CredentialField::ApiKey, CredentialField::CookieHeader],
+        config_path: Some("C:/cfg/settings.json".into()),
+    })
+    .unwrap();
+    assert_eq!(
+        value,
+        json!({
+            "provider": "cursor",
+            "cleared": ["apiKey", "cookieHeader"],
+            "configPath": "C:/cfg/settings.json"
+        })
+    );
+    let value = serde_json::to_value(super::ConfigSetCookieResult {
+        provider: "cursor".into(),
+        enabled: true,
+        config_path: None,
+    })
+    .unwrap();
+    assert_eq!(
+        value,
+        json!({"provider": "cursor", "enabled": true, "configPath": null})
+    );
 }

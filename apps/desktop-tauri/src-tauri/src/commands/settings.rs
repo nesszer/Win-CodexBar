@@ -28,6 +28,7 @@ pub struct SettingsUpdate {
     pub provider_quota_warnings:
         Option<std::collections::HashMap<String, codexbar::settings::ProviderQuotaWarnings>>,
     pub predictive_pace_warning_enabled: Option<bool>,
+    pub predictive_pace_warning_lead_hours: Option<u16>,
     pub limit_reset_notifications_enabled: Option<bool>,
     pub credential_expiry_notifications_enabled: Option<bool>,
     pub session_quota_notifications_enabled: Option<bool>,
@@ -94,6 +95,9 @@ pub struct SettingsUpdate {
     pub codex_historical_tracking: Option<bool>,
     pub codex_external_oauth_sources_allowed: Option<bool>,
     pub codex_local_session_cost_ledger_enabled: Option<bool>,
+    /// Codex: add this device's OpenAI-backed OpenCode history to Codex cost
+    /// history (upstream #4786).
+    pub codex_opencode_local_history_enabled: Option<bool>,
     pub codex_openai_web_battery_saver_enabled: Option<bool>,
     /// OpenAI API: fetch the last hour of Tokens/min on each refresh (upstream #4495).
     #[serde(rename = "openAiLiveUsageEnabled")]
@@ -158,6 +162,7 @@ impl SettingsUpdate {
             || self.low_power_mode_preference.is_some()
             || self.adaptive_refresh.is_some()
             || self.codex_custom_sessions_dirs.is_some()
+            || self.codex_opencode_local_history_enabled.is_some()
             || self.cost_reporting_period.is_some()
             || self.cost_usage_enabled.is_some()
             || self.high_usage_threshold.is_some()
@@ -481,6 +486,10 @@ impl SettingsUpdate {
         if let Some(v) = self.predictive_pace_warning_enabled {
             settings.predictive_pace_warning_enabled = v;
         }
+        if let Some(v) = self.predictive_pace_warning_lead_hours {
+            settings.predictive_pace_warning_lead_hours =
+                codexbar::settings::clamp_predictive_pace_warning_lead_hours(v);
+        }
         if let Some(v) = self.limit_reset_notifications_enabled {
             settings.limit_reset_notifications_enabled = v;
         }
@@ -592,6 +601,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.codex_local_session_cost_ledger_enabled {
             settings.set_local_session_cost_ledger_enabled(codexbar::core::ProviderId::Codex, v);
+        }
+        if let Some(v) = self.codex_opencode_local_history_enabled {
+            settings.set_opencode_local_history_enabled(codexbar::core::ProviderId::Codex, v);
         }
         if let Some(v) = self.codex_openai_web_battery_saver_enabled {
             settings.set_openai_web_battery_saver_enabled(codexbar::core::ProviderId::Codex, v);
@@ -798,6 +810,7 @@ pub async fn update_settings(
     let notify_float_bar = patch.notifies_float_bar();
     let refresh_provider_data = patch.refreshes_provider_data();
     let clear_local_usage_cache = patch.codex_custom_sessions_dirs.is_some()
+        || patch.codex_opencode_local_history_enabled.is_some()
         || patch.antigravity_additional_profile_homes.is_some()
         || patch.cost_reporting_period.is_some()
         || patch.cost_usage_enabled.is_some();

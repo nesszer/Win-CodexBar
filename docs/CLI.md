@@ -345,6 +345,8 @@ codexbar config enable -p cursor
 codexbar config disable cursor --json
 codexbar config set-source --provider codex --source cli
 printf '%s' $env:OPENROUTER_API_KEY | codexbar config set-api-key -p openrouter --stdin
+Get-Clipboard | codexbar config set-cookie -p cursor --stdin
+codexbar config clear-credential -p cursor --cookie --json
 codexbar config claude-code-credentials status --json
 codexbar config login --provider copilot
 codexbar config preferences export --file C:\temp\codexbar-preferences.json
@@ -362,18 +364,22 @@ codexbar config validate
 | `enable`, `disable` | Turns a provider on or off and saves the setting. |
 | `set-source` | Saves a provider's usage source (`--source auto\|web\|cli\|oauth`) without changing whether it is enabled. `auto` returns to the default. |
 | `set-api-key` | Stores a provider API key. `--stdin` reads it from stdin. `--no-enable` stores it without enabling the provider. |
+| `set-cookie` | Stores a manual cookie header (`--cookie <header>` or `--stdin`) and selects the Manual cookie source. `--no-enable` stores it without enabling the provider. Only providers with a cookie lane are accepted. The header is trimmed, must be one line, and is never printed. |
+| `clear-credential` | Removes the stored API key and manual cookie for a provider. `--api-key` or `--cookie` narrows it to one. Enablement, cookie and usage sources, and token accounts stay as they are, so Manual stays selected after a cookie is cleared. Nothing is written when nothing was stored. |
 | `login` | Signs in to GitHub Copilot with GitHub's device-code flow, or to Grok and Kiro through their own CLIs. Other providers are rejected. See [Sign in from the CLI](#sign-in-from-the-cli). |
 | `path` | Shows the configuration file paths. |
 | `preferences export`, `preferences import` | Exports or imports portable preferences. See [CONFIGURATION.md](./CONFIGURATION.md#portable-preferences). |
 | `claude-code-credentials` | `allow`, `deny` or `status`. |
 
-`enable`, `disable`, `set-source` and `set-api-key` take the provider as a positional name or with `-p`/`--provider`. `usage -p <id>` is a one-off choice and doesn't change the enabled list.
+`enable`, `disable`, `set-source`, `set-api-key`, `set-cookie` and `clear-credential` take the provider as a positional name or with `-p`/`--provider`. `usage -p <id>` is a one-off choice and doesn't change the enabled list.
 
-`config providers`, `enable`, `disable`, `set-source` and `claude-code-credentials` accept `--format text|json`, `--json` and `--pretty`. Their JSON matches upstream:
+`config providers`, `enable`, `disable`, `set-source`, `set-cookie`, `clear-credential` and `claude-code-credentials` accept `--format text|json`, `--json` and `--pretty`. Their JSON matches upstream:
 
 - `config providers` prints one `{provider, displayName, enabled, defaultEnabled}` object per provider. Retired providers (`kimik2`, `crossmodel`) are listed only while enabled, like in Settings. They still resolve by name, for example `--provider kimik2`.
 - `config enable` and `config disable` print `{provider, displayName, enabled, configPath}`.
 - `config set-source` prints `{provider, displayName, enabled, source, configPath}`.
+- `config set-cookie` prints `{provider, enabled, configPath}`.
+- `config clear-credential` prints `{provider, cleared, configPath}`, where `cleared` lists `apiKey` and/or `cookieHeader`.
 - `config claude-code-credentials allow|deny|status` prints `{allowed, configPath}`.
 
 `set-source` writes the same per-provider usage source as the Settings > Providers source picker. It checks the source against what that provider supports, so `codexbar config set-source codex --source web` fails with `Source web is not supported for codex. Supported sources: auto, cli, oauth.` Upstream also accepts `api`. This port has no separate API source; API-key providers use `oauth` for their token lane.

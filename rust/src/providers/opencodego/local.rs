@@ -21,6 +21,43 @@ const WEEKLY_LIMIT_USD: f64 = 30.0;
 const MONTHLY_LIMIT_USD: f64 = 60.0;
 const PROVIDER_ID: &str = "opencode-go";
 
+/// Which OpenCode provider's rows a scan selects. Each source keeps its own
+/// scan cache, so the two row sets never replace each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RowSource {
+    /// `opencode-go` usage for the OpenCode Go provider.
+    OpenCodeGo,
+    /// OpenAI-backed assistant turns for the opt-in Codex cost history (upstream #4786).
+    OpenAi,
+}
+
+impl RowSource {
+    fn provider_id(self) -> &'static str {
+        match self {
+            Self::OpenCodeGo => PROVIDER_ID,
+            Self::OpenAi => "openai",
+        }
+    }
+
+    /// v2 `session_message` types that carry a billed request. Upstream's
+    /// OpenAI importer counts assistant turns only; OpenCode Go also counts
+    /// compaction summaries, which carry the request cost.
+    fn v2_types(self) -> &'static str {
+        match self {
+            Self::OpenCodeGo => "'assistant', 'compaction'",
+            Self::OpenAi => "'assistant'",
+        }
+    }
+
+    /// Fill the `{provider}` and `{v2_types}` placeholders of the usage SQL.
+    /// Both values are fixed literals, never user input.
+    fn usage_sql(self, template: &str) -> String {
+        template
+            .replace("{provider}", self.provider_id())
+            .replace("{v2_types}", self.v2_types())
+    }
+}
+
 /// Legacy `message` rows. Every legacy arm yields `(createdMs, cost, requestCount, modelID, tokens,
 /// messageID)` so the v2 arm can anti-join against them by message id.
 const MESSAGE_USAGE_SQL: &str = r#"
@@ -34,7 +71,7 @@ SELECT
   id AS messageID
 FROM message
 WHERE json_valid(data)
-  AND json_extract(data, '$.providerID') = 'opencode-go'
+  AND json_extract(data, '$.providerID') = '{provider}'
   AND json_extract(data, '$.role') = 'assistant'
   AND json_type(data, '$.cost') IN ('integer', 'real')
 "#;
@@ -58,7 +95,7 @@ WITH provider_messages AS (
       THEN json_extract(data, '$.tokens') END AS tokens
   FROM message
   WHERE json_valid(data)
-    AND json_extract(data, '$.providerID') = 'opencode-go'
+    AND json_extract(data, '$.providerID') = '{provider}'
     AND json_extract(data, '$.role') = 'assistant'
 ), provider_parts AS NOT MATERIALIZED (
   SELECT
@@ -99,9 +136,9 @@ SELECT
     THEN json_extract(s.data, '$.tokens') END AS tokens,
   s.id AS messageID
 FROM session_message s
-WHERE s.type IN ('assistant', 'compaction')
+WHERE s.type IN ({v2_types})
   AND json_valid(s.data)
-  AND json_extract(s.data, '$.model.providerID') = 'opencode-go'
+  AND json_extract(s.data, '$.model.providerID') = '{provider}'
   AND json_type(s.data, '$.cost') IN ('integer', 'real')
   AND NOT EXISTS (
     SELECT 1 FROM legacy_usage m
@@ -217,7 +254,7 @@ fn fetch_from_paths_with_cache(
         });
     }
 
-    let rows = cache.read(db_path, || read_rows(db_path))?;
+    let rows = cache.read(db_path, || read_rows(db_path, RowSource::OpenCodeGo))?;
     if !has_auth && rows.is_empty() {
         return Err(not_detected());
     }
@@ -254,7 +291,7 @@ fn has_auth_key(path: &Path) -> bool {
         .is_some_and(|key| !key.trim().is_empty())
 }
 
-fn read_rows(db_path: &Path) -> Result<Vec<UsageRow>, ProviderError> {
+fn read_rows(db_path: &Path, source: RowSource) -> Result<Vec<UsageRow>, ProviderError> {
     let conn = open_readonly_connection(db_path)?;
     conn.busy_timeout(std::time::Duration::from_millis(250))
         .map_err(sqlite_err)?;
@@ -275,13 +312,13 @@ fn read_rows(db_path: &Path) -> Result<Vec<UsageRow>, ProviderError> {
     };
     // The legacy arm is a CTE shared by the v2 anti-join. NOT MATERIALIZED lets SQLite inline it
     // rather than keep a second copy of the legacy history.
-    let sql = if has_v2 {
+    let sql = source.usage_sql(&if has_v2 {
         format!(
             "WITH legacy_usage AS NOT MATERIALIZED ({legacy_sql})\nSELECT * FROM legacy_usage{SESSION_MESSAGE_USAGE_SQL}"
         )
     } else {
         legacy_sql.to_owned()
-    };
+    });
 
     let mut stmt = conn.prepare(&sql).map_err(sqlite_err)?;
     let rows = stmt
@@ -603,6 +640,37 @@ pub fn daily_cost_series(now: DateTime<Utc>, history_days: u32) -> Vec<(String, 
     by_day.into_iter().collect()
 }
 
+/// Per-day token totals for the shared Tokens chart, with the same rule as
+/// the window total (input + output + cache read/write). `None` when any row
+/// lacked exact input/output counts, because a partial day sum would be
+/// reported as exact.
+pub fn daily_token_totals(buckets: &[DailyModelCost]) -> Option<Vec<(String, u64)>> {
+    let mut by_day: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for b in buckets {
+        if b.tokens.unknown_token_rows() > 0 {
+            return None;
+        }
+        let total = b
+            .tokens
+            .to_model_token_counts()?
+            .total_for_provider("opencodego");
+        let slot = by_day.entry(b.day_key.clone()).or_insert(0);
+        *slot = slot.saturating_add(total);
+    }
+    Some(by_day.into_iter().collect())
+}
+
+/// [`daily_token_totals`] over the first available local OpenCode install.
+/// An install that isn't detected is a known empty series; an unreadable
+/// database is unknown (`None`).
+pub fn daily_token_series(now: DateTime<Utc>, history_days: u32) -> Option<Vec<(String, u64)>> {
+    match scan_available_rows() {
+        Ok(Some(rows)) => daily_token_totals(&daily_model_costs(&rows, now, history_days)),
+        Ok(None) => Some(Vec::new()),
+        Err(()) => None,
+    }
+}
+
 /// Provider-local cost summary for the chart's local-usage panel. `None` when no
 /// local OpenCode install is detected.
 pub fn model_cost_summary_scan(now: DateTime<Utc>, days: u32) -> Option<ModelCostSummary> {
@@ -614,17 +682,43 @@ pub fn model_cost_summary_scan(now: DateTime<Utc>, days: u32) -> Option<ModelCos
 /// `None` when no install is reachable (auth+db both absent) rather than
 /// propagating `NotInstalled`, since the cost surfaces treat "no data" as empty.
 fn read_available_rows() -> Option<Arc<Vec<UsageRow>>> {
-    for (auth, db) in candidate_paths() {
+    scan_available_rows().ok().flatten()
+}
+
+/// [`read_available_rows`] that keeps a failed read apart from an absent
+/// install: `Err(())` when a database exists but every read of it failed and
+/// no other candidate yielded rows.
+fn scan_available_rows() -> Result<Option<Arc<Vec<UsageRow>>>, ()> {
+    scan_rows_from(
+        candidate_paths(),
+        ScanCache::shared(),
+        RowSource::OpenCodeGo,
+    )
+}
+
+/// An OpenCode Go auth key marks an install as present even with no rows; the
+/// OpenAI source has no such marker, so an install without OpenAI rows is skipped.
+fn scan_rows_from(
+    candidates: Vec<(PathBuf, PathBuf)>,
+    cache: &ScanCache,
+    source: RowSource,
+) -> Result<Option<Arc<Vec<UsageRow>>>, ()> {
+    let mut read_failed = false;
+    for (auth, db) in candidates {
         if !db.exists() {
             continue;
         }
-        match ScanCache::shared().read(&db, || read_rows(&db)) {
-            Ok(rows) if !rows.is_empty() || has_auth_key(&auth) => return Some(rows),
+        match cache.read(&db, || read_rows(&db, source)) {
+            Ok(rows)
+                if !rows.is_empty() || (source == RowSource::OpenCodeGo && has_auth_key(&auth)) =>
+            {
+                return Ok(Some(rows));
+            }
             Ok(_) => continue,
-            Err(_) => continue,
+            Err(_) => read_failed = true,
         }
     }
-    None
+    if read_failed { Err(()) } else { Ok(None) }
 }
 
 /// ISO week start (Monday 00:00 UTC), matching upstream calendar settings.
@@ -709,8 +803,11 @@ fn anchored_month(year: i32, month: u32, anchor: &DateTime<Utc>) -> DateTime<Utc
     Utc.from_utc_datetime(&ndt)
 }
 
+pub(crate) mod codex_history;
 mod scan_cache;
 
+#[cfg(test)]
+mod codex_history_tests;
 #[cfg(test)]
 mod test_db;
 #[cfg(test)]

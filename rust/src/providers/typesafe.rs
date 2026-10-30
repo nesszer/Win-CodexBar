@@ -350,20 +350,14 @@ fn build_result(billing: Billing) -> ProviderFetchResult {
             .unwrap_or_else(|| "Billing cycle".into()),
     )
     .with_balance(billing.balance)
-    .always_visible();
+    .always_visible()
+    .pay_as_you_go();
     cost.updated_at = usage.updated_at;
-    let spent_title = billing
-        .cycle_label
-        .as_deref()
-        .map_or_else(|| "Spent".into(), |cycle| format!("Spent ({cycle})"));
+    // The pay-as-you-go card already shows the cycle spend, so there is no
+    // separate "Spent" detail row (upstream `replacedDetailRows`).
     let mut result = ProviderFetchResult::new(usage, "web")
         .with_non_authoritative_pace()
-        .with_cost(cost)
-        .with_display_detail(ProviderDisplayDetail::new(
-            "spent",
-            spent_title,
-            format!("${:.2}", billing.spent),
-        ));
+        .with_cost(cost);
     if let Some(plan) = billing.plan.as_deref() {
         let label = if plan == "free_plan" {
             "Free".into()
@@ -470,6 +464,24 @@ mod tests {
         assert_eq!(parsed.spent, 4.5);
         assert_eq!(parsed.balance, 10.0);
         assert_eq!(parsed.credits.len(), 1);
+    }
+
+    #[test]
+    fn billing_is_a_pay_as_you_go_card_with_spend_and_balance() {
+        let result = build_result(Billing {
+            spent: 4.5,
+            balance: 10.0,
+            cycle_label: Some("September".into()),
+            plan: Some("free_plan".into()),
+            credits: Vec::new(),
+        });
+        let cost = result.cost.as_ref().expect("cost");
+        assert!(cost.pay_as_you_go, "upstream payAsYouGoSpend card style");
+        assert_eq!(cost.used, 4.5);
+        assert_eq!(cost.period, "September");
+        assert_eq!(cost.balance, Some(10.0));
+        let ids: Vec<&str> = result.display_details().iter().map(|d| d.id()).collect();
+        assert_eq!(ids, vec!["plan"], "the card shows spend, so no Spent row");
     }
 
     #[test]

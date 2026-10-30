@@ -215,8 +215,18 @@ pub(super) fn save(scope: &str, state: &AccountState) {
     }
 }
 
+#[cfg(not(test))]
 fn state_path() -> Option<PathBuf> {
     dirs::data_local_dir().map(|root| root.join("CodexBar").join("codex-weekly-reset-v1.json"))
+}
+
+/// Tests that run a full Codex fetch reach `save`; keep them out of the user's
+/// real state file, in a directory no other test process can share.
+#[cfg(test)]
+fn state_path() -> Option<PathBuf> {
+    static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let dir = DIR.get_or_init(|| tempfile::tempdir().expect("weekly-reset test state dir"));
+    Some(dir.path().join("codex-weekly-reset-v1.json"))
 }
 
 pub(super) fn inventory(

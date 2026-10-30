@@ -432,7 +432,10 @@ fn snapshot_from_web_usage_response_with_plan(
 
     let mut details = Vec::new();
     if let Some(subscription) = subscription.as_ref() {
-        details = gift_display_details(subscription, usage.updated_at);
+        details = super::monthly_breakdown::monthly_breakdown_details(
+            super::monthly_breakdown::subscription_monthly_shares(subscription),
+        );
+        details.extend(gift_display_details(subscription, usage.updated_at));
         usage = apply_subscription_windows(usage, subscription);
     }
     if let Some(plan_name) = plan_name {
@@ -1092,5 +1095,49 @@ mod tests {
         assert_eq!(fetched.display_details.len(), 1);
         assert_eq!(fetched.display_details[0].title(), "Welcome Credit");
         assert_eq!(fetched.display_details[0].value(), "40% left");
+    }
+
+    #[test]
+    fn web_result_lists_the_total_usage_breakdown_before_gifts() {
+        // Upstream #4759: the membership pool's Code share splits Total usage.
+        let usage: KimiWebUsageResponse = serde_json::from_value(serde_json::json!({
+            "totalQuota": { "limit": "100", "used": "36" }
+        }))
+        .unwrap();
+        let subscription: KimiSubscriptionStatsResponse =
+            serde_json::from_value(serde_json::json!({
+                "subscriptionBalance": {
+                    "feature": "FEATURE_OMNI",
+                    "type": "SUBSCRIPTION",
+                    "amountUsedRatio": 0.36,
+                    "kimiCodeUsedRatio": 0.1,
+                    "expireTime": "2026-11-22T00:00:00Z"
+                },
+                "giftBalances": [{
+                    "feature": "FEATURE_OMNI",
+                    "type": "GIFT",
+                    "amountUsedRatio": 0.6,
+                    "expireTime": "2099-12-31T15:59:59Z",
+                    "displayName": "Welcome Credit"
+                }]
+            }))
+            .unwrap();
+
+        let fetched =
+            snapshot_from_web_usage_response_with_plan(usage, Some(subscription), None).unwrap();
+
+        let rows: Vec<(&str, &str)> = fetched
+            .display_details
+            .iter()
+            .map(|row| (row.title(), row.value()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Kimi Code", "10% used"),
+                ("Other features", "26% used"),
+                ("Welcome Credit", "40% left"),
+            ]
+        );
     }
 }

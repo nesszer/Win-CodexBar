@@ -40,6 +40,7 @@ export function makeSettings(overrides: Partial<SettingsSnapshot> = {}): Setting
     highUsageThreshold: 70,
     criticalUsageThreshold: 90,
     predictivePaceWarningEnabled: false,
+    predictivePaceWarningLeadHours: 0,
     credentialExpiryNotificationsEnabled: false,
     trayIconMode: "single",
     switcherShowsIcons: true,

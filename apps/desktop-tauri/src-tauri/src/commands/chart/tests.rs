@@ -1,6 +1,6 @@
 use super::{
     CostFetchFailure, ProviderLocalUsageSummary, cost_fetch_failure_allows_early_retry,
-    local_usage_summary_from_cost_summary, local_usage_summary_period_identity,
+    estimate_note_for, local_usage_summary_from_cost_summary, local_usage_summary_period_identity,
     localized_estimate_note, muse_local_usage_summary, token_cost_cache_is_fresh,
 };
 use crate::commands::is_provider_cache_fresh;
@@ -191,6 +191,23 @@ fn english_estimate_note_is_localized() {
     assert_eq!(
         localized_estimate_note("claude", Language::English),
         "Estimated from local Claude logs at API rates; token totals may differ from your bill"
+    );
+}
+
+#[test]
+fn recorded_opencode_spend_replaces_the_estimate_note() {
+    let native = CostSummary::default();
+    let recorded = CostSummary {
+        recorded_cost_rows: 2,
+        ..CostSummary::default()
+    };
+    assert_eq!(
+        estimate_note_for("codex", &native, Language::English),
+        "Estimated from local logs; may differ from your bill"
+    );
+    assert_eq!(
+        estimate_note_for("codex", &recorded, Language::English),
+        "Estimated from local logs, plus recorded OpenCode spend; may differ from your bill"
     );
 }
 

@@ -2,9 +2,10 @@
 //!
 //! Ported from upstream CodexBar (`Resources/Plugins/traecn.js`,
 //! `Providers/TraeCN/TraeCNProviderDescriptor.swift`, #4682). The signed-in
-//! `api.trae.cn` browser session exchanges its cookies for a token at
-//! `GetUserToken`, and that token reads the account's current entitlement
-//! list. The token lives only for one refresh and is sent only back to the
+//! browser session, which Trae keeps on the parent `trae.cn` domain (#4732),
+//! exchanges its cookies for a token at `GetUserToken`, and that token reads
+//! the account's current entitlement list. The token lives only for one
+//! refresh and is sent only back to the
 //! same API origin. Refresh makes no billable calls, and it infers no reset
 //! or renewal date from pack timestamps. Response bodies are never echoed in
 //! errors and cookies are never logged.
@@ -21,19 +22,30 @@ use reqwest::{
 };
 use serde_json::{Value, json};
 
+use crate::browser::cookies::CookieRequestScope;
 use crate::browser::session_scan::{BrowserCookieStore, SystemCookieStore};
 use crate::core::{
     FetchContext, ManualEmptyCookiePolicy, Provider, ProviderDisplayDetail, ProviderError,
     ProviderFetchResult, ProviderId, ProviderMetadata, ProviderStateKind, RateWindow, SourceMode,
     UsageSnapshot,
 };
-use crate::providers::{BoundedBodyError, format, read_bounded_response};
+use crate::providers::{
+    BoundedBodyError, browser_cookie_request_sessions_from, format, read_bounded_response,
+};
 
 const BASE_URL: &str = "https://api.trae.cn";
 /// Optional override for the API origin (proof runs and fake servers).
 /// Accepts `https://` or loopback `http://` only; anything else is ignored.
 const BASE_URL_ENV: &str = "TRAE_CN_BASE_URL";
-const COOKIE_DOMAIN: &str = "api.trae.cn";
+/// Automatic browser sessions. Trae keeps its login cookies on the parent
+/// `trae.cn` domain (upstream #4732), so the browser is read for `trae.cn`
+/// and only the cookies a browser sends to the API origin are kept. Settings
+/// "Import from browser" uses the same scope, and pasted or imported cookies
+/// are sent only to `api.trae.cn` (`ProviderId::cookie_domain`).
+const COOKIE_SCOPE: CookieRequestScope = CookieRequestScope {
+    scan_domain: "trae.cn",
+    host: "api.trae.cn",
+};
 const WEB_ORIGIN: &str = "https://www.trae.cn";
 const WEB_REFERER: &str = "https://www.trae.cn/";
 const SIGN_IN_URL: &str = "https://www.trae.cn/";
@@ -63,7 +75,9 @@ const NO_ALLOWANCE: &str = "No Trae CN credit allowance";
 static TRAE_CN_METADATA: ProviderMetadata = ProviderMetadata {
     id: ProviderId::TraeCn,
     display_name: "Trae CN",
-    session_label: "Credits",
+    // Distinct from the "Credits" detail section so the gauge and the
+    // breakdown get separate names in the usage-item pickers.
+    session_label: "Usage",
     weekly_label: "Window",
     supports_opus: false,
     supports_credits: false,
@@ -198,8 +212,9 @@ impl TraeCnProvider {
     }
 
     /// A pasted header is the only session tried. Otherwise each browser
-    /// holding a session for api.trae.cn is tried in browser order, moving on
-    /// only after Trae rejects a session (upstream `rejectCookie`).
+    /// holding a `trae.cn` session that the API origin receives is tried in
+    /// browser order, moving on only after Trae rejects a session (upstream
+    /// `rejectCookie`).
     async fn fetch_web<S: BrowserCookieStore>(
         &self,
         ctx: &FetchContext,
@@ -222,8 +237,7 @@ impl TraeCnProvider {
             return Err(missing_session());
         }
 
-        let mut sessions =
-            crate::providers::browser_cookie_sessions_from(store, ctx, &[COOKIE_DOMAIN]);
+        let mut sessions = browser_cookie_request_sessions_from(store, ctx, COOKIE_SCOPE);
         let mut rejected = false;
         for header in sessions.by_ref() {
             let Some(cookie) = crate::providers::normalize_cookie_header(&header) else {
@@ -387,6 +401,10 @@ impl Provider for TraeCnProvider {
     /// to the next browser.
     fn owns_browser_cookie_resolution(&self) -> bool {
         true
+    }
+
+    fn cookie_request_scope(&self) -> Option<CookieRequestScope> {
+        Some(COOKIE_SCOPE)
     }
 
     fn error_state_kind(&self, error: &ProviderError) -> ProviderStateKind {

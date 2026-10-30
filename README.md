@@ -153,6 +153,8 @@ For Claude, browser cookies (the `sessionKey`) are preferred, because they match
 | Soniox | Organization API key | Prepaid USD balance, this month's spend against the monthly budget, billing method |
 | Claude Platform | Browser cookies / manual Cookie header | Console API credit and purchased credit, other grants, month-to-date spend |
 | Trae CN | Browser cookies / manual Cookie header | Credit allowance used against total, remaining credits, plan name |
+| Chatbox AI | License key | Remaining plan, reward, top-up and image quotas, plan name, plan reset and expiry |
+| abliteration.ai | API Key | Prepaid USD credits: remaining balance, used against total |
 
 </details>
 

@@ -199,6 +199,14 @@ mod tests {
     }
 
     #[test]
+    fn workbuddy_serves_its_official_monochrome_mascot() {
+        let svg = std::str::from_utf8(icon_bytes("ProviderIcon-workbuddy").unwrap()).unwrap();
+        assert!(svg.contains("M18.777 1.647"));
+        assert!(svg.contains("fill=\"currentColor\""));
+        assert!(!svg.contains("<text"));
+    }
+
+    #[test]
     fn unknown_and_pathological_names_miss() {
         assert!(icon_bytes("ProviderIcon-nope").is_none());
         assert!(icon_bytes("../etc/passwd").is_none());

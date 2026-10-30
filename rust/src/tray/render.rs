@@ -376,7 +376,10 @@ fn render_percent_icon(
     estimated: bool,
 ) -> (Vec<u8>, u32, u32) {
     const SZ: u32 = TRAY_ICON_SIZE;
-    let mut img = new_icon_canvas(has_error);
+    // No filled canvas: the square left too little room, so three-character
+    // values ("42%") had to drop to scale 2 and were unreadable once Windows
+    // shrank the icon to 16 px. An outline keeps the contrast instead.
+    let mut img: RgbaImage = ImageBuffer::new(SZ, SZ);
 
     if percent.is_nan() {
         let (r, g, b) = UsageLevel::Unknown.color();
@@ -384,6 +387,7 @@ fn render_percent_icon(
         let start_x = (SZ.saturating_sub(3 * scale)) / 2;
         let start_y = (SZ.saturating_sub(5 * scale)) / 2;
         draw_glyph(&mut img, '-', start_x, start_y, scale, Rgba([r, g, b, 255]));
+        outline_glyphs(&mut img, has_error);
         return (img.into_raw(), SZ, SZ);
     }
 
@@ -401,14 +405,16 @@ fn render_percent_icon(
     };
     let glyph_width = 3u32;
     let glyph_gap = 1u32;
-    let scale = if text.len() >= 3 { 2u32 } else { 3u32 };
     // text is at most "~100" or "~NN%", so its length is ≤ 4 and fits u32.
     #[allow(
         clippy::cast_possible_truncation,
         reason = "text is at most \"~100\" or \"~NN%\", so len ≤ 4 and fits u32"
     )]
     let text_len = text.len() as u32;
-    let text_width = text_len * glyph_width * scale + (text_len - 1) * glyph_gap;
+    let width_at = |scale: u32| text_len * glyph_width * scale + (text_len - 1) * glyph_gap;
+    // Largest scale (up to 3) whose text plus a 1 px outline on each side fits.
+    let scale = if width_at(3) + 2 <= SZ { 3u32 } else { 2u32 };
+    let text_width = width_at(scale);
     let text_height = 5 * scale;
     let start_x = (SZ.saturating_sub(text_width)) / 2;
     let start_y = (SZ.saturating_sub(text_height)) / 2;
@@ -420,8 +426,40 @@ fn render_percent_icon(
         draw_glyph(&mut img, ch, x, start_y, scale, color);
         x += glyph_width * scale + glyph_gap;
     }
+    outline_glyphs(&mut img, has_error);
 
     (img.into_raw(), SZ, SZ)
+}
+
+/// Rings every drawn glyph pixel with a 1 px border in the canvas colour, so
+/// text on a transparent icon stays legible on light and dark taskbars.
+fn outline_glyphs(img: &mut RgbaImage, has_error: bool) {
+    let outline = Rgba([
+        ICON_BACKGROUND_RGB[0],
+        ICON_BACKGROUND_RGB[1],
+        ICON_BACKGROUND_RGB[2],
+        if has_error { 180 } else { 255 },
+    ]);
+    let glyphs = img.clone();
+    let is_glyph = |x: i64, y: i64| {
+        u32::try_from(x)
+            .ok()
+            .zip(u32::try_from(y).ok())
+            .filter(|&(x, y)| x < TRAY_ICON_SIZE && y < TRAY_ICON_SIZE)
+            .is_some_and(|(x, y)| glyphs.get_pixel(x, y)[3] != 0)
+    };
+    for y in 0..TRAY_ICON_SIZE {
+        for x in 0..TRAY_ICON_SIZE {
+            let (xi, yi) = (i64::from(x), i64::from(y));
+            if is_glyph(xi, yi) {
+                continue;
+            }
+            let touches_glyph = (-1..=1).any(|dy| (-1..=1).any(|dx| is_glyph(xi + dx, yi + dy)));
+            if touches_glyph {
+                img.put_pixel(x, y, outline);
+            }
+        }
+    }
 }
 
 fn draw_glyph(img: &mut RgbaImage, ch: char, x: u32, y: u32, scale: u32, color: Rgba<u8>) {
@@ -582,9 +620,47 @@ mod tests {
         assert_eq!(pixel_at(&estimated, 6, 15), glyph);
         assert_ne!(pixel_at(&estimated, 2, 15), glyph);
         assert_ne!(pixel_at(&estimated, 6, 13), glyph);
-        // The exact "42%" is narrower and leaves that column empty.
-        assert_ne!(pixel_at(&exact, 2, 13), glyph);
+        // The exact "42%" fits at scale 3 instead, starting at x=1, y=8.
+        assert_eq!(pixel_at(&exact, 1, 8), glyph);
         assert_ne!(estimated, exact);
+    }
+
+    /// Rows that hold at least one pixel of `color`.
+    fn rows_with(rgba: &[u8], color: [u8; 4]) -> Vec<u32> {
+        (0..TRAY_ICON_SIZE)
+            .filter(|&y| (0..TRAY_ICON_SIZE).any(|x| pixel_at(rgba, x, y) == color))
+            .collect()
+    }
+
+    #[test]
+    fn three_character_percent_text_draws_at_full_scale() {
+        for percent in [7.0, 42.0, 100.0] {
+            let (rgba, _, _) = render_percent_icon_rgba(percent, false);
+            let glyph = usage_color(percent, false, None, None).0;
+            // Five glyph rows at scale 3, centred: y = 8..23.
+            assert_eq!(
+                rows_with(&rgba, glyph),
+                (8..23).collect::<Vec<_>>(),
+                "{percent}"
+            );
+        }
+    }
+
+    #[test]
+    fn percent_icon_has_no_canvas_and_outlines_its_glyphs() {
+        let (rgba, _, _) = render_percent_icon_rgba(42.0, false);
+        let outline = [60, 60, 70, 255];
+        // Away from the text the icon is transparent, with no filled square.
+        for (x, y) in [(2, 2), (29, 2), (2, 29), (29, 29), (16, 3)] {
+            assert_eq!(pixel_at(&rgba, x, y)[3], 0, "({x}, {y})");
+        }
+        // The outline rings the text one row above and below it.
+        assert!(rows_with(&rgba, outline).contains(&7));
+        assert!(rows_with(&rgba, outline).contains(&23));
+        assert!(!rows_with(&rgba, outline).contains(&6));
+
+        let (error, _, _) = render_percent_icon_rgba(42.0, true);
+        assert!(rows_with(&error, [60, 60, 70, 180]).contains(&7));
     }
 
     #[test]

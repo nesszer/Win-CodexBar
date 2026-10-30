@@ -107,7 +107,7 @@ impl CodexWorkspacesIndex {
         self.history_days
     }
 
-    fn scope(&self) -> Result<CodexLocalDataScope, IndexError> {
+    pub(super) fn scope(&self) -> Result<CodexLocalDataScope, IndexError> {
         if let Some(home) = &self.codex_home_override {
             return Ok(CodexLocalDataScope::from_home(home.clone()));
         }
@@ -289,7 +289,7 @@ impl CodexWorkspacesIndex {
         Ok(snapshot)
     }
 
-    fn history_range(&self, today: NaiveDate) -> CostUsageDayRange {
+    pub(super) fn history_range(&self, today: NaiveDate) -> CostUsageDayRange {
         CostUsageDayRange::new(codex_period_start(today, self.history_days), today)
     }
 
@@ -338,7 +338,10 @@ impl CodexWorkspacesIndex {
 }
 
 /// Every rollout in the history window, from dated and flat folders alike.
-fn list_rollout_files(scope: &CodexLocalDataScope, range: &CostUsageDayRange) -> Vec<PathBuf> {
+pub(super) fn list_rollout_files(
+    scope: &CodexLocalDataScope,
+    range: &CostUsageDayRange,
+) -> Vec<PathBuf> {
     let mut files = list_session_files(&scope.sessions_root, range);
     files.extend(list_session_files(&scope.archived_sessions_root, range));
     // Codex archives a thread by moving its rollout into the flat
@@ -370,7 +373,7 @@ fn list_rollout_files(scope: &CodexLocalDataScope, range: &CostUsageDayRange) ->
 }
 
 /// `(session id, cwd)` from the rollout's first line, else the file name.
-fn rollout_session_id(path: &Path) -> Option<(String, Option<String>)> {
+pub(super) fn rollout_session_id(path: &Path) -> Option<(String, Option<String>)> {
     let first_line = CodexRolloutFirstLineParser::read_first_line(path)?;
     if let Some(meta) = CodexRolloutFirstLineParser::parse(&first_line) {
         return Some((meta.session_id, meta.cwd));
@@ -615,7 +618,11 @@ fn index_one_file(path: &Path, range: &CostUsageDayRange) -> Option<ParsedFile> 
         model_tokens.insert(model, 0);
     }
 
-    let (started_at, latest_activity) = file_activity_bounds(path, &day_models);
+    let token_times = [
+        parsed.first_token_timestamp.as_deref(),
+        parsed.last_token_timestamp.as_deref(),
+    ];
+    let (started_at, latest_activity) = file_activity_bounds(path, &day_models, token_times);
 
     Some(ParsedFile {
         session_id,
@@ -653,7 +660,13 @@ fn merge_daily(
 
 /// Prices at the usage day's rates, like the cost scanners, so usage from
 /// before a model's repricing keeps the rates it was billed at.
-fn codex_cost_on_day(day: &str, model: &str, input: u64, cached: u64, output: u64) -> Option<f64> {
+pub(super) fn codex_cost_on_day(
+    day: &str,
+    model: &str,
+    input: u64,
+    cached: u64,
+    output: u64,
+) -> Option<f64> {
     match CostUsageDayRange::parse_day_key(day) {
         Some(day) => CostUsagePricing::codex_cost_usd_at_date(model, input, cached, output, day),
         None => CostUsagePricing::codex_cost_usd(model, input, cached, output),
@@ -802,10 +815,24 @@ fn normalize_path(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Token-event timestamps give the real activity window. Without them the
+/// window falls back to the usage day keys, with the end capped at the file's
+/// mtime so a day key never reports activity later than the file was written.
 fn file_activity_bounds(
     path: &Path,
     day_models: &HashMap<String, HashMap<String, (u64, u64, u64)>>,
+    token_times: [Option<&str>; 2],
 ) -> (Option<DateTime<Utc>>, Option<DateTime<Utc>>) {
+    let stamps: Vec<DateTime<Utc>> = token_times
+        .into_iter()
+        .flatten()
+        .filter_map(|s| DateTime::parse_from_rfc3339(s.trim()).ok())
+        .map(|d| d.with_timezone(&Utc))
+        .collect();
+    if let (Some(first), Some(last)) = (stamps.iter().min(), stamps.iter().max()) {
+        return (Some(*first), Some(*last));
+    }
+
     let mut earliest: Option<NaiveDate> = None;
     let mut latest: Option<NaiveDate> = None;
     for day in day_models.keys() {
@@ -820,13 +847,17 @@ fn file_activity_bounds(
     let mut end = latest
         .and_then(|d| d.and_hms_opt(23, 59, 59))
         .map(|n| Utc.from_utc_datetime(&n));
-    if end.is_none()
-        && let Ok(meta) = fs::metadata(path)
+    if let Ok(meta) = fs::metadata(path)
         && let Ok(modified) = meta.modified()
     {
-        end = Some(DateTime::<Utc>::from(modified));
+        let modified = DateTime::<Utc>::from(modified);
+        end = Some(end.map_or(modified, |e| e.min(modified)));
     }
-    (started.or(end), end)
+    let started = match (started, end) {
+        (Some(s), Some(e)) => Some(s.min(e)),
+        (s, e) => s.or(e),
+    };
+    (started, end)
 }
 
 fn meta_day_out_of_range(path: &Path, range: &CostUsageDayRange) -> bool {

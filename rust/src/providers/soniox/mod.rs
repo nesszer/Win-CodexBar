@@ -396,7 +396,8 @@ fn build_result(billing: &Billing, monthly: &Monthly) -> ProviderFetchResult {
 
     let cost = CostSnapshot::new(used, "USD", COST_PERIOD)
         .with_limit(budget)
-        .with_resets_at(resets_at);
+        .with_resets_at(resets_at)
+        .pay_as_you_go();
     // Invoice accounts show spend only; a zero prepaid balance there would
     // read as exhausted credits. A negative prepaid balance is omitted too,
     // because CostSnapshot balances are non-negative and clamping it to zero

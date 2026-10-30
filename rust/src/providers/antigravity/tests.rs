@@ -364,6 +364,27 @@ fn missing_cli_error_explains_runtime_state() {
     assert!(error.contains("agy CLI was not found"));
 }
 
+#[cfg(windows)]
+#[test]
+fn managed_agy_session_disables_auto_update() {
+    let config = managed_agy_config(PathBuf::from("agy.exe"));
+    let overrides: Vec<_> = config
+        .env
+        .iter()
+        .filter(|(key, _)| key.eq_ignore_ascii_case("AGY_CLI_DISABLE_AUTO_UPDATE"))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    // Lowercase `true` only: agy ignores `1`. The helper pushes the value
+    // unconditionally, so it replaces any inherited value at spawn time.
+    assert_eq!(
+        overrides,
+        [(
+            OsString::from("AGY_CLI_DISABLE_AUTO_UPDATE"),
+            OsString::from("true")
+        )]
+    );
+}
+
 // ── Managed lifecycle policy (fake outcomes) ───────────────────────
 //
 // The process lifecycle itself is covered by `crate::managed_process`; these

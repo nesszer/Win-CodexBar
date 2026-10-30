@@ -6,6 +6,7 @@
 //! API or browser-session quota onto the local estimate (upstream #4445);
 //! Web is cookie scrape only; Cli is local-only.
 
+mod cli_credential;
 pub(crate) mod console;
 pub(crate) mod cost_cli;
 mod legacy;
@@ -31,6 +32,8 @@ use crate::core::{
 const BASE_URL: &str = "https://opencode.ai";
 /// Source label for quota values reconstructed from the device-local SQLite history.
 pub const LOCAL_ESTIMATE_SOURCE_LABEL: &str = "local estimate";
+/// Source label of server quota read with the OpenCode CLI login over local history.
+const LOCAL_CLI_SOURCE_LABEL: &str = "local+cli";
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 // Upstream 0.48.0 #2583 (F15) optional-Zen-balance bounds.
@@ -516,30 +519,57 @@ impl Provider for OpenCodeGoProvider {
                         tracing::debug!("OpenCode Go local failed in Auto; trying API/web: {e}");
                     }
                 }
-                if let Some(api_key) = usage_api::resolve_api_key(ctx) {
-                    match usage_api::fetch(&self.client, ctx, &api_key, "api").await {
+                let api_key = usage_api::resolve_api_key(ctx);
+                if let Some(api_key) = &api_key {
+                    match usage_api::fetch(&self.client, ctx, api_key, "api").await {
                         Ok(result) => return Ok(result),
                         Err(e) => {
-                            tracing::debug!("OpenCode Go API failed in Auto; trying web: {e}")
+                            tracing::debug!(
+                                "OpenCode Go API failed in Auto; trying web: {}",
+                                crate::logging::safe_error_message(&e)
+                            )
                         }
                     }
                 }
-                self.fetch_web(ctx).await
+                let web = self.fetch_web(ctx).await;
+                if web.is_ok() || api_key.is_some() {
+                    return web;
+                }
+                // Without a configured key, a usable browser session comes
+                // before the ambient CLI login (upstream #4771).
+                match usage_api::usage_credential(ctx, cli_credential::load_cli_credential) {
+                    Ok(Some((token, source))) if source == usage_api::CLI_SOURCE_LABEL => {
+                        usage_api::fetch(&self.client, ctx, &token, source).await
+                    }
+                    Ok(_) => web,
+                    Err(e) => {
+                        tracing::debug!(
+                            "OpenCode Go CLI login unavailable in Auto: {}",
+                            crate::logging::safe_error_message(&e)
+                        );
+                        web
+                    }
+                }
             }
             SourceMode::Web => self.fetch_web(ctx).await,
             SourceMode::Cli => self.fetch_local_with_balance(ctx, false).await,
             SourceMode::OAuth => {
-                let api_key = if ctx.token_account_isolated {
-                    usage_api::selected_account_api_key(ctx).ok_or(ProviderError::AuthRequired)?
+                let (api_key, source) = if ctx.token_account_isolated {
+                    (
+                        usage_api::selected_account_api_key(ctx)
+                            .ok_or(ProviderError::AuthRequired)?,
+                        "api",
+                    )
                 } else {
-                    usage_api::resolve_api_key(ctx).ok_or_else(|| {
-                        ProviderError::NotInstalled(
-                        "Missing OpenCode Go API key. Add one in Settings or set OPENCODE_API_KEY."
-                            .to_string(),
-                        )
-                    })?
+                    usage_api::usage_credential(ctx, cli_credential::load_cli_credential)?
+                        .ok_or_else(|| {
+                            ProviderError::NotInstalled(
+                                "Missing OpenCode Go API key. Add one in Settings, set OPENCODE_API_KEY, or sign in with the OpenCode CLI."
+                                    .to_string(),
+                            )
+                        })?
                 };
-                usage_api::fetch(&self.client, ctx, &api_key, "api").await
+                usage_api::fetch(&self.client, ctx, &api_key, source).await
             }
         }
     }
@@ -639,11 +669,46 @@ impl OpenCodeGoProvider {
         }
         if overlay_session {
             let cookie_header = session.resolve(session_overlay::discover_browser_session);
-            return Ok(
-                Self::overlay_local_with_session(ctx, local, cookie_header, transport).await,
-            );
+            let result =
+                Self::overlay_local_with_session(ctx, local, cookie_header, transport).await;
+            return Ok(self.overlay_local_with_cli_login(ctx, result).await);
         }
         Ok(Self::with_optional_session_balance(ctx, local, session, transport).await)
+    }
+
+    /// Last overlay for the local estimate (upstream #4771): a configured key
+    /// or usable browser session already had its turn, so only a plain
+    /// estimate without a browser account's Zen balance borrows the CLI
+    /// login. Any failure keeps the estimate.
+    async fn overlay_local_with_cli_login(
+        &self,
+        ctx: &FetchContext,
+        fallback: ProviderFetchResult,
+    ) -> ProviderFetchResult {
+        if fallback.source_label != LOCAL_ESTIMATE_SOURCE_LABEL || fallback.cost.is_some() {
+            return fallback;
+        }
+        let token = match usage_api::usage_credential(ctx, cli_credential::load_cli_credential) {
+            Ok(Some((token, source))) if source == usage_api::CLI_SOURCE_LABEL => token,
+            Ok(_) => return fallback,
+            Err(e) => {
+                tracing::debug!(
+                    "OpenCode Go CLI login unavailable; keeping estimate: {}",
+                    crate::logging::safe_error_message(&e)
+                );
+                return fallback;
+            }
+        };
+        match usage_api::fetch(&self.client, ctx, &token, LOCAL_CLI_SOURCE_LABEL).await {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::debug!(
+                    "OpenCode Go CLI quota unavailable; keeping estimate: {}",
+                    crate::logging::safe_error_message(&e)
+                );
+                fallback
+            }
+        }
     }
 
     async fn with_optional_session_balance(

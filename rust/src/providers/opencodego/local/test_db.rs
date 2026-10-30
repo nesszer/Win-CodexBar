@@ -24,8 +24,8 @@ pub(super) fn open_db(path: &Path, with_part_table: bool) -> Connection {
     conn
 }
 
-/// Insert one assistant message. `tokens` is spliced in as raw JSON so
-/// malformed shapes can be exercised.
+/// Insert one `opencode-go` assistant message. `tokens` is spliced in as raw
+/// JSON so malformed shapes can be exercised.
 pub(super) fn insert_message(
     conn: &Connection,
     id: &str,
@@ -34,11 +34,24 @@ pub(super) fn insert_message(
     model: Option<&str>,
     tokens: Option<&str>,
 ) {
+    insert_message_for(conn, id, created_ms, cost, model, "opencode-go", tokens);
+}
+
+/// [`insert_message`] attributed to `provider_id`.
+pub(super) fn insert_message_for(
+    conn: &Connection,
+    id: &str,
+    created_ms: i64,
+    cost: Option<f64>,
+    model: Option<&str>,
+    provider_id: &str,
+    tokens: Option<&str>,
+) {
     let cost_json = cost.map_or_else(String::new, |c| format!(r#","cost":{c}"#));
     let model_json = model.map_or_else(String::new, |m| format!(r#","modelID":"{m}""#));
     let tokens_json = tokens.map_or_else(String::new, |t| format!(r#","tokens":{t}"#));
     let data = format!(
-        r#"{{"providerID":"opencode-go","role":"assistant"{cost_json}{model_json}{tokens_json},"time":{{"created":{created_ms}}}}}"#
+        r#"{{"providerID":"{provider_id}","role":"assistant"{cost_json}{model_json}{tokens_json},"time":{{"created":{created_ms}}}}}"#
     );
     conn.execute(
         "INSERT INTO message (id, data, time_created) VALUES (?1, ?2, ?3)",

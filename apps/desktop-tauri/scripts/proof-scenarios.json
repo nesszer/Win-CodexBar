@@ -299,6 +299,22 @@
       ]
     },
     {
+      "name": "settings-codex-light-usage-bars",
+      "query": "window=settings&tab=providers:codex&theme=light",
+      "size": [880, 620],
+      "steps": [
+        { "expectTheme": "light" },
+        {
+          "expectStyle": {
+            "selector": ".menu-metric__progress-track",
+            "property": "fill",
+            "value": "rgba(0, 0, 0, 0.1)"
+          }
+        },
+        { "screenshot": "settings-codex-light-usage-bars" }
+      ]
+    },
+    {
       "name": "settings-codex-two-accounts",
       "query": "window=settings&tab=providers:codex&fixture=two-codex-accounts&theme=dark",
       "size": [880, 620],
@@ -590,6 +606,7 @@
       "steps": [
         { "click": { "selector": "[role=tab]", "label": "Sessions" } },
         { "expectText": "Fix the proof harness" },
+        { "click": { "selector": "[role=listitem] strong", "label": "Fix the proof harness" } },
         { "expectNoText": "Timing available" },
         { "click": { "selector": "button", "label": "Tool activity" } },
         {
@@ -618,6 +635,63 @@
         { "expectText": ["pnpm test --run", "cargo clippy --all-targets"] },
         { "expectNoText": ["docs/search", "git status --short"] },
         { "screenshot": "settings-usage-spend-tool-activity-slow" }
+      ]
+    },
+    {
+      "name": "settings-usage-spend-session-inspector",
+      "query": "window=settings&tab=usageSpend&fixture=codex-session-inspector&theme=dark",
+      "size": [880, 900],
+      "steps": [
+        { "click": { "selector": "[role=tab]", "label": "Sessions" } },
+        {
+          "expectOrder": {
+            "selector": "[role=listitem] strong",
+            "texts": ["Port the session inspector", "Review the parser fixture", "Index the archived rollouts"]
+          }
+        },
+        { "expectText": "Select a session" },
+        { "expectNoCall": { "cmd": "get_codex_session_details" } },
+        { "screenshot": "settings-usage-spend-session-inspector-list" },
+        { "type": { "selector": "input", "label": "Search sessions", "text": "parser" } },
+        { "expectOrder": { "selector": "[role=listitem] strong", "texts": ["Review the parser fixture"] } },
+        { "type": { "selector": "input", "label": "Search sessions", "text": "b002" } },
+        { "expectOrder": { "selector": "[role=listitem] strong", "texts": ["Index the archived rollouts"] } },
+        { "type": { "selector": "input", "label": "Search sessions", "text": "no such session" } },
+        { "expectText": "No matching sessions" },
+        { "type": { "selector": "input", "label": "Search sessions", "text": "0000" } },
+        { "click": { "selector": "button", "label": "Descending" } },
+        {
+          "expectOrder": {
+            "selector": "[role=listitem] strong",
+            "texts": ["Index the archived rollouts", "Review the parser fixture", "Port the session inspector"]
+          }
+        },
+        { "click": { "selector": "[role=listitem] strong", "label": "Port the session inspector" } },
+        {
+          "expectCall": {
+            "cmd": "get_codex_session_details",
+            "args": { "sessionId": "019f0000-0000-7000-8000-00000000b001", "historyDays": 30 }
+          }
+        },
+        {
+          "expectText": [
+            "Model requests",
+            "Cached input is included in input; reasoning is included in output.",
+            "Turn 1",
+            "Turn 2",
+            "Unattributed usage",
+            "$0.4213",
+            "$0.2213",
+            "Tool activity has no separate recorded token or monetary cost."
+          ]
+        },
+        { "screenshot": "settings-usage-spend-session-inspector-detail" },
+        { "click": { "selector": "[role=listitem] strong", "label": "Index the archived rollouts" } },
+        { "expectText": "Request details exceed the limit." },
+        { "expectNoText": "Turn 1" },
+        { "click": { "selector": "[role=listitem] strong", "label": "Review the parser fixture" } },
+        { "expectText": "Request details are unavailable. Refresh usage and try again." },
+        { "screenshot": "settings-usage-spend-session-inspector-unavailable" }
       ]
     },
     {

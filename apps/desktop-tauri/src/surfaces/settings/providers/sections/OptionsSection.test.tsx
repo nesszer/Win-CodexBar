@@ -25,6 +25,7 @@ function settings(extra: Partial<OptionSettings> = {}): OptionSettings {
     codexHistoricalTracking: false,
     codexExternalOauthSourcesAllowed: false,
     codexLocalSessionCostLedgerEnabled: false,
+    codexOpencodeLocalHistoryEnabled: false,
     codexOpenaiWebBatterySaverEnabled: false,
     claudeAvoidKeychainPrompts: false,
     claudeAllowReadingClaudeCodeCredentials: false,
@@ -84,6 +85,7 @@ describe("OptionsSection", () => {
     );
     expect(labels).toEqual([
       "ProviderCodexLocalCostEstimates",
+      "ProviderCodexOpenCodeLocalHistory",
       "ProviderCodexHistoricalTracking",
       "ProviderCodexOpenAiWebExtras",
       "ProviderCodexExternalOauth",
@@ -92,6 +94,8 @@ describe("OptionsSection", () => {
     expect(toggle("ProviderCodexOpenAiWebExtras")).toBeChecked();
     expect(screen.getByText(/ProviderCodexHistoryHelp ProviderOptionNotUsedOnWindows/)).toBeTruthy();
     expect(screen.queryByText(/ProviderCodexExternalOauthHelp ProviderOptionNotUsedOnWindows/)).toBeNull();
+    expect(toggle("ProviderCodexOpenCodeLocalHistory")).not.toBeChecked();
+    expect(screen.getByText("ProviderCodexOpenCodeLocalHistoryHelp")).toBeTruthy();
   });
 
   it("hides the battery saver while OpenAI web extras are off", () => {
@@ -124,6 +128,8 @@ describe("OptionsSection", () => {
     expect(onSettingsChange).toHaveBeenCalledWith({ codexExternalOauthSourcesAllowed: true });
     await act(async () => fireEvent.click(toggle("ProviderCodexOpenAiWebExtras")));
     expect(onSettingsChange).toHaveBeenLastCalledWith({ codexOpenaiWebExtras: false });
+    await act(async () => fireEvent.click(toggle("ProviderCodexOpenCodeLocalHistory")));
+    expect(onSettingsChange).toHaveBeenLastCalledWith({ codexOpencodeLocalHistoryEnabled: true });
   });
 
   it("lists the Claude options and locks Avoid keychain prompts under the Advanced switch", async () => {

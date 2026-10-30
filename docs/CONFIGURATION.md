@@ -160,6 +160,9 @@ When **Track costs** is off, the pane hides the period picker, the dashboard, Op
 
 Costs are list-price estimates, not billing receipts.
 
+**OpenCode local history.** **Settings > Providers > Codex > Options > OpenCode local history** (`opencode_local_history_enabled`, off by default) adds the OpenAI rows that OpenCode recorded on this PC to the Codex cost chart and the Codex cost summary. The app reads `opencode.db` from `%USERPROFILE%\.local\share\opencode` or `%LOCALAPPDATA%\opencode`, read-only, and keeps only messages whose provider is `openai`. A row's recorded cost is used as-is, including $0; rows without a recorded cost add tokens but no cost. When recorded OpenCode spend is present, the local usage note says so. The rows are left out while `CODEX_HOME` is set, so an alternate Codex home never picks them up. Usage & Spend never includes them.
+
+**Sessions view.** The Sessions view lists the Codex conversations of the selected period. Search matches the shown title or the session id; under Hide personal information titles are already replaced, so hidden titles can't be searched. Sort by recent activity, tokens or cost, in either direction; sessions with no known value sort last. Selecting a session reads its model requests from its own rollout files only, grouped by turn, with usage no turn owns listed last as "Unattributed usage". The read is bounded: it stops at 5,000 requests or 256 MiB of rollout data and then shows "Request details exceed the limit." It also checks the result against the session's summary; if the logs changed since the summary was built, the details are not shown and the pane asks you to refresh usage and try again. Tool activity has no cost and is shown separately.
 ### Notifications
 
 | Control | Key | Default |
@@ -168,6 +171,7 @@ Costs are list-price estimates, not billing receipts.
 | Session quota | `session_quota_notifications_enabled` | on |
 | Credential expiry | `credential_expiry_notifications_enabled` | off |
 | Predictive pace | `predictive_pace_warning_enabled` | off |
+| Warn when the run-out is within | `predictive_pace_warning_lead_hours` (0 = any time, up to 168) | 0 |
 | Warning at % used | `high_usage_threshold` | 70 |
 | Critical at % used | `critical_usage_threshold` | 90 |
 | Sound | `sound_enabled` | on |
@@ -345,7 +349,7 @@ These keys are exported (`ALLOWED_PREFERENCES` in `rust/src/settings/preferences
 | Group | Keys |
 | --- | --- |
 | Refresh | `refresh_interval_secs`, `adaptive_refresh`, `refresh_all_providers_on_menu_open`, `status_checks_enabled`, `low_power_mode_preference` |
-| Notifications | `show_notifications`, `session_quota_notifications_enabled`, `sound_enabled`, `high_usage_threshold`, `critical_usage_threshold`, `predictive_pace_warning_enabled` |
+| Notifications | `show_notifications`, `session_quota_notifications_enabled`, `sound_enabled`, `high_usage_threshold`, `critical_usage_threshold`, `predictive_pace_warning_enabled`, `predictive_pace_warning_lead_hours` |
 | Display | `show_pace`, `show_as_used`, `reset_time_relative`, `show_reset_when_exhausted`, `hide_personal_info`, `menu_bar_shows_highest_usage`, `menu_bar_shows_percent`, `menu_bar_icon_style`, `merged_overview_selected_providers`, `merged_overview_all_accounts`, `quota_warning_markers_visible`, `workday_tick_style`, `tray_icon_mode`, `switcher_shows_icons`, `providers_sorted_alphabetically`, `overview_layout`, `menu_bar_display_mode` |
 | Providers | `provider_order`, `enabled_providers`, `provider_metrics`, `provider_quota_warnings` |
 | Look | `theme`, `ui_language`, `ui_language_follows_system`, `window_scale_percent`, `tray_scale_percent` |
@@ -473,6 +477,8 @@ When `ANTIGRAVITY_CLI_PATH` is set, the app uses only that path.
 - If the variable is empty or doesn't point to a file, the app skips the CLI source and names the variable in the provider error. It doesn't search `PATH` or the install folders. This keeps a background refresh from starting another `agy` that might ask you to sign in.
 - A running desktop app still answers first, and offline conversation history still shows when it exists.
 - Unset the variable to go back to automatic discovery.
+
+Each `agy` process that Win-CodexBar starts (the version check, the usage report and the short-lived managed session) gets `AGY_CLI_DISABLE_AUTO_UPDATE=true`, even if your environment sets it to `false`. Passive refreshes then don't start agy's background updater. Your own `agy` sessions and agy's saved settings are not changed. agy ignores `1`, so the value must be lowercase `true`.
 
 Other providers keep their own override rules.
 

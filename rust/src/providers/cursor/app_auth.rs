@@ -7,8 +7,24 @@
 //! database is only ever opened read-only; an idle WAL database whose
 //! sidecars vanished is retried in SQLite immutable mode (never while a WAL
 //! exists — that would ignore live uncheckpointed Cursor state).
+//!
+//! Cursor 3.27 stores the token as a `cursor-safe-storage:v1:` envelope around
+//! Electron Safe Storage ciphertext (upstream #4790). On Windows that is
+//! Chromium OSCrypt: `v10`, a 12-byte nonce and AES-256-GCM data under the
+//! DPAPI-protected key in Cursor's `Local State`.
 
+use aes_gcm::{
+    Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
+};
+use base64::Engine;
 use rusqlite::OpenFlags;
+
+const SAFE_STORAGE_PREFIX: &str = "cursor-safe-storage:";
+const SAFE_STORAGE_V1: &str = "v1:";
+const OSCRYPT_PREFIX: &[u8] = b"v10";
+const GCM_NONCE_LEN: usize = 12;
+const GCM_TAG_LEN: usize = 16;
 
 /// Default `state.vscdb` location. Windows: `%APPDATA%\Cursor\…`; the
 /// upstream macOS/Linux layouts differ per OS.
@@ -22,8 +38,56 @@ pub fn app_auth_db_path() -> Option<std::path::PathBuf> {
     )
 }
 
-/// Read the stored `cursorAuth/accessToken` from Cursor's app database.
+/// Read the stored `cursorAuth/accessToken` from Cursor's app database,
+/// decrypting a Safe Storage envelope. An unreadable envelope yields no token,
+/// so Automatic mode falls through to browser cookies.
 pub fn load_app_auth_access_token() -> Option<String> {
+    let stored = load_stored_access_token()?;
+    resolve_stored_access_token(&stored, safe_storage_key)
+}
+
+/// Cursor's Local State AES key. Read only for an encrypted token, so a plain
+/// JWT never touches DPAPI.
+fn safe_storage_key() -> Option<Vec<u8>> {
+    let local_state = dirs::config_dir()?.join("Cursor").join("Local State");
+    crate::browser::cookies::CookieExtractor::get_chromium_encryption_key(&local_state)
+        .inspect_err(|err| tracing::debug!(error = %err, "Cursor Safe Storage key unavailable"))
+        .ok()
+}
+
+fn resolve_stored_access_token(
+    stored: &str,
+    key: impl FnOnce() -> Option<Vec<u8>>,
+) -> Option<String> {
+    let Some(envelope) = stored.trim_start().strip_prefix(SAFE_STORAGE_PREFIX) else {
+        return Some(stored.to_string());
+    };
+    let token = envelope
+        .strip_prefix(SAFE_STORAGE_V1)
+        .and_then(|payload| decrypt_safe_storage(payload, key));
+    if token.is_none() {
+        tracing::debug!("Cursor app token is encrypted but unreadable; using browser cookies");
+    }
+    token
+}
+
+fn decrypt_safe_storage(payload: &str, key: impl FnOnce() -> Option<Vec<u8>>) -> Option<String> {
+    let encrypted = base64::engine::general_purpose::STANDARD
+        .decode(payload.trim())
+        .ok()?;
+    let body = encrypted.strip_prefix(OSCRYPT_PREFIX)?;
+    if body.len() < GCM_NONCE_LEN + GCM_TAG_LEN {
+        return None;
+    }
+    let cipher = Aes256Gcm::new_from_slice(&key()?).ok()?;
+    let (nonce, ciphertext) = body.split_at(GCM_NONCE_LEN);
+    let plaintext = cipher.decrypt(Nonce::from_slice(nonce), ciphertext).ok()?;
+    let token = String::from_utf8(plaintext).ok()?;
+    let token = token.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
+fn load_stored_access_token() -> Option<String> {
     let db_path = app_auth_db_path()?;
     if !db_path.exists() {
         return None;
@@ -207,6 +271,66 @@ mod tests {
             decode_sqlite_string(rusqlite::types::ValueRef::Blob(&[0x00, 0xd8, 0x41, 0x00]))
                 .is_none()
         );
+    }
+
+    const FIXTURE_KEY: [u8; 32] = [7; 32];
+
+    fn envelope(token: &str, key: &[u8]) -> String {
+        let cipher = Aes256Gcm::new_from_slice(key).unwrap();
+        let nonce = [3u8; GCM_NONCE_LEN];
+        let mut blob = OSCRYPT_PREFIX.to_vec();
+        blob.extend_from_slice(&nonce);
+        blob.extend(
+            cipher
+                .encrypt(Nonce::from_slice(&nonce), token.as_bytes())
+                .unwrap(),
+        );
+        format!(
+            "cursor-safe-storage:v1:{}",
+            base64::engine::general_purpose::STANDARD.encode(blob)
+        )
+    }
+
+    #[test]
+    fn plain_token_is_returned_without_reading_the_key() {
+        let token = resolve_stored_access_token("header.payload.signature", || {
+            panic!("plain tokens must not read Safe Storage")
+        });
+        assert_eq!(token.as_deref(), Some("header.payload.signature"));
+    }
+
+    #[test]
+    fn safe_storage_envelope_decrypts_to_the_jwt() {
+        let stored = envelope("header.payload.signature", &FIXTURE_KEY);
+        let token = resolve_stored_access_token(&stored, || Some(FIXTURE_KEY.to_vec()));
+        assert_eq!(token.as_deref(), Some("header.payload.signature"));
+    }
+
+    #[test]
+    fn unreadable_envelopes_yield_no_token() {
+        let valid = envelope("header.payload.signature", &FIXTURE_KEY);
+        let wrong_key = || Some(vec![9u8; 32]);
+        assert!(resolve_stored_access_token(&valid, wrong_key).is_none());
+        assert!(resolve_stored_access_token(&valid, || None).is_none());
+
+        let truncated = format!(
+            "cursor-safe-storage:v1:{}",
+            base64::engine::general_purpose::STANDARD.encode(b"v10short")
+        );
+        let unknown_version = valid.replacen(":v1:", ":v2:", 1);
+        for stored in [
+            "cursor-safe-storage:v1:not base64!".to_string(),
+            truncated,
+            unknown_version,
+            "cursor-safe-storage:".to_string(),
+        ] {
+            assert!(
+                resolve_stored_access_token(&stored, || Some(FIXTURE_KEY.to_vec())).is_none(),
+                "{stored}"
+            );
+        }
+        // No token means no rebuilt app cookie; browser cookies take over.
+        assert!(app_session_cookie_header("").is_none());
     }
 
     #[test]

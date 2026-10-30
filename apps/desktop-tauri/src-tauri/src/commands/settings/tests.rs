@@ -102,6 +102,7 @@ fn codex_options_and_quota_warnings_round_trip_through_the_bridge() {
         "codexHistoricalTracking": true,
         "codexExternalOauthSourcesAllowed": true,
         "codexLocalSessionCostLedgerEnabled": true,
+        "codexOpencodeLocalHistoryEnabled": true,
         "codexOpenaiWebBatterySaverEnabled": true,
         "providerQuotaWarnings": {
             "codex": {
@@ -131,6 +132,7 @@ fn codex_options_and_quota_warnings_round_trip_through_the_bridge() {
     assert_eq!(snapshot["codexHistoricalTracking"], true);
     assert_eq!(snapshot["codexExternalOauthSourcesAllowed"], true);
     assert_eq!(snapshot["codexLocalSessionCostLedgerEnabled"], true);
+    assert_eq!(snapshot["codexOpencodeLocalHistoryEnabled"], true);
     assert_eq!(snapshot["codexOpenaiWebBatterySaverEnabled"], true);
     assert_eq!(
         snapshot["providerQuotaWarnings"],

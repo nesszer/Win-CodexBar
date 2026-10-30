@@ -78,7 +78,9 @@ export function cardCostSection(
   providerId?: string,
 ): CardCostSection | null {
   if (!cost) return null;
-  if (style === "hidden" && cost.alwaysVisible !== true) return null;
+  // Pay-as-you-go spend is the provider's own usage, not an optional summary.
+  const payAsYouGo = cost.payAsYouGo === true;
+  if (style === "hidden" && cost.alwaysVisible !== true && !payAsYouGo) return null;
 
   const isQuota = cost.currencyCode === "Quota";
   const isCredits = providerId !== undefined && CREDIT_COST_PROVIDERS.has(providerId);
@@ -93,6 +95,17 @@ export function cardCostSection(
   const limit = cost.limit ?? 0;
   // A provider-declared title (upstream `ProviderCostMenuCardStyle`) wins.
   const title = (fallback: LocaleKey) => t(cost.titleKey ?? fallback);
+
+  if (payAsYouGo) {
+    return {
+      title: title("PayAsYouGoTitle"),
+      spendLine: `${periodLabel(cost.period, t("CostPeriodThisMonth"), t)}: ${money(cost.used, cost.formattedUsed)}`,
+      percentUsed: null,
+      percentLine: null,
+      balanceLine: cost.balance != null ? balanceText(cost.balance) : null,
+      inline: false,
+    };
+  }
 
   if (limit > 0) {
     const percentUsed = clampPercent((cost.used / limit) * 100);

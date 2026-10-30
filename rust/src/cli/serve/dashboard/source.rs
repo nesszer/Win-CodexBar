@@ -19,6 +19,7 @@ use crate::cli::fetch_context::populate_api_region_from_settings;
 use crate::core::{
     CostScanOptions, FetchContext, ProviderFetchResult, ProviderId, TokenAccount,
     TokenAccountSupport, build_fetch_context, instantiate_provider,
+    token_account_session_is_passive,
 };
 use crate::cost_scanner::{self, CostScanner};
 use crate::settings::{ApiKeys, ManualCookies, Settings};
@@ -119,7 +120,7 @@ impl SnapshotProducer {
         for (index, provider_id) in provider_ids.iter().enumerate() {
             let provider_id = *provider_id;
             match account_plans.remove(&provider_id) {
-                Some(Ok(plan)) => {
+                Some(Ok(plan)) if !plan.passive => {
                     let handle = set.spawn(async move {
                         let (envelope, section) = fetch_account_plan(plan, deadline).await;
                         (index, envelope, Some(section))
@@ -127,18 +128,35 @@ impl SnapshotProducer {
                     account_tasks.insert(handle.id(), (index, provider_id));
                 }
                 planned => {
-                    if let Some(Err(error)) = planned {
-                        provider_accounts.insert(
-                            provider_id.cli_name().to_string(),
-                            ClaudeAccountsInput {
-                                accounts: Err(error),
-                                incomplete: false,
-                            },
-                        );
-                    }
+                    let settings_ctx = match planned {
+                        Some(Err(error)) => {
+                            provider_accounts.insert(
+                                provider_id.cli_name().to_string(),
+                                ClaudeAccountsInput {
+                                    accounts: Err(error),
+                                    incomplete: false,
+                                },
+                            );
+                            None
+                        }
+                        Some(Ok(mut plan)) => {
+                            provider_accounts.insert(
+                                provider_id.cli_name().to_string(),
+                                ClaudeAccountsInput {
+                                    accounts: Ok(passive_account_rows(&plan)),
+                                    incomplete: false,
+                                },
+                            );
+                            plan.provider_ctx.take()
+                        }
+                        None => None,
+                    };
                     let fetch_timeout = self.fetch_timeout;
-                    let mut ctx = FetchContext::default();
-                    populate_api_region_from_settings(provider_id, &settings, &mut ctx);
+                    let ctx = settings_ctx.unwrap_or_else(|| {
+                        let mut ctx = FetchContext::default();
+                        populate_api_region_from_settings(provider_id, &settings, &mut ctx);
+                        ctx
+                    });
                     set.spawn(async move {
                         (
                             index,
@@ -502,7 +520,17 @@ struct AccountPlan {
     rows: Vec<(TokenAccount, FetchContext)>,
     active_id: Option<uuid::Uuid>,
     minimum_delay: Option<Duration>,
+    /// The saved sessions are inactive for this route, so the rows are listed
+    /// as unavailable instead of fetched (see [`passive_account_rows`]).
+    passive: bool,
+    /// For a passive plan, the provider row's context built from settings with
+    /// no selected account, so configured API keys and the cookie source still
+    /// apply (an empty context would ignore them).
+    provider_ctx: Option<FetchContext>,
 }
+
+const PASSIVE_SESSION_ROW_ERROR: &str =
+    "Saved session is not used here; it needs the Manual cookie source and a non-API usage source.";
 
 /// Providers whose configured token accounts `--all-accounts` expands.
 /// Claude keeps its own section ([`collect_claude_accounts`]).
@@ -542,12 +570,18 @@ fn plan_token_accounts(
         if data.accounts.is_empty() {
             continue;
         }
+        let passive = token_account_session_is_passive(provider_id, settings);
         let rows = data
             .accounts
             .iter()
             .map(|account| {
-                let ctx =
-                    account_fetch_context(provider_id, settings, &cookies, &api_keys, account);
+                // Passive rows are never fetched, and building their context
+                // could read a browser, so they keep an empty context.
+                let ctx = if passive {
+                    FetchContext::default()
+                } else {
+                    account_fetch_context(provider_id, settings, &cookies, &api_keys, account)
+                };
                 (account.clone(), ctx)
             })
             .collect();
@@ -559,10 +593,30 @@ fn plan_token_accounts(
                 active_id: data.active_account().map(|active| active.id),
                 minimum_delay: TokenAccountSupport::for_provider(provider_id)
                     .and_then(|support| support.minimum_delay_between_account_refreshes),
+                passive,
+                provider_ctx: passive
+                    .then(|| build_fetch_context(provider_id, settings, &cookies, &api_keys, None)),
             }),
         );
     }
     plans
+}
+
+/// Rows for a passive plan: every account is listed as unavailable with no
+/// fetch, so no row reports the ambient credential under another account's name.
+/// The provider row itself takes the ordinary (non-account) fetch.
+fn passive_account_rows(plan: &AccountPlan) -> Vec<AccountFetchEnvelope> {
+    let results = plan
+        .rows
+        .iter()
+        .map(|_| Err(PASSIVE_SESSION_ROW_ERROR.to_string()))
+        .collect();
+    account_rows(
+        plan.rows.iter().map(|(account, _)| account),
+        plan.active_id,
+        results,
+    )
+    .1
 }
 
 /// The context the desktop refresh would use with `account` selected, marked
@@ -813,6 +867,61 @@ mod tests {
         assert_eq!(ctx.source_mode, crate::core::SourceMode::OAuth);
         assert_eq!(ctx.api_key.as_deref(), Some("grok-bearer-token"));
         assert!(ctx.token_account_isolated);
+    }
+
+    #[test]
+    fn only_manual_cookies_with_a_non_api_source_keep_command_code_sessions_active() {
+        let id = ProviderId::CommandCode;
+        let mut settings = Settings::default();
+        for (cookie_source, usage_source, passive) in [
+            ("manual", "auto", false),
+            ("manual", "web", false),
+            ("manual", "oauth", true),
+            ("auto", "auto", true),
+            ("auto", "web", true),
+            ("off", "auto", true),
+        ] {
+            settings.set_cookie_source(id, cookie_source);
+            settings.set_usage_source(id, usage_source);
+            assert_eq!(
+                token_account_session_is_passive(id, &settings),
+                passive,
+                "{cookie_source}/{usage_source}"
+            );
+        }
+        // Providers without an owned credential lane never go passive here.
+        assert!(!token_account_session_is_passive(
+            ProviderId::OpenRouter,
+            &settings
+        ));
+    }
+
+    #[test]
+    fn passive_account_rows_are_listed_unavailable_without_a_fetch() {
+        let work = TokenAccount::new("Work", "work-session");
+        let plan = AccountPlan {
+            provider_id: ProviderId::CommandCode,
+            rows: vec![
+                (
+                    TokenAccount::new("Personal", "personal-session"),
+                    FetchContext::default(),
+                ),
+                (work.clone(), FetchContext::default()),
+            ],
+            active_id: Some(work.id),
+            minimum_delay: None,
+            passive: true,
+            provider_ctx: None,
+        };
+
+        let rows = passive_account_rows(&plan);
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].label, "Personal");
+        assert!(!rows[0].active);
+        assert_eq!(rows[1].label, "Work");
+        assert!(rows[1].active);
+        assert!(rows.iter().all(|row| row.fetch.is_err()));
     }
 
     fn ok_result(label: &str) -> Result<ProviderFetchResult, String> {

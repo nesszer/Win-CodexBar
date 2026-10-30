@@ -1,5 +1,6 @@
 import type {
   AppInfoBridge,
+  CodexSessionDetails,
   CodexSessionToolActivity,
   CostCoverageCounts,
   CurrencyRatesSnapshot,
@@ -220,6 +221,18 @@ export function codexSessionToolActivity(
     redacted: true,
     operations: activity.operations.map((operation) => ({ ...operation, name: operation.kind, preview: null })),
   };
+}
+
+/**
+ * Mirrors `get_codex_session_details`: the fixture's details, or a rejection
+ * with the stable error code the shell returns.
+ */
+export function codexSessionDetails(scenario: ProofScenario, sessionId: string): CodexSessionDetails {
+  const error = scenario.codexSessionDetailErrors?.[sessionId];
+  if (error !== undefined) throw error;
+  const details = scenario.codexSessionDetails?.find((candidate) => candidate.sessionId === sessionId);
+  if (!details) throw "unavailable";
+  return details;
 }
 
 /**

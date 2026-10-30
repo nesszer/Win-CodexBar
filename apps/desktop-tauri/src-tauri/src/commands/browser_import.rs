@@ -47,6 +47,40 @@ fn importable_cookie_stores(
     stores
 }
 
+/// Where a Settings import reads a provider's browser cookies. A provider
+/// with a request scope is read on its scan domain (which may be a parent
+/// of the API host) and filtered to the cookies sent to the API host.
+struct ImportTarget {
+    /// The API host, named in user-facing messages.
+    host: &'static str,
+    scan_domain: &'static str,
+    scope: Option<codexbar::browser::cookies::CookieRequestScope>,
+}
+
+impl ImportTarget {
+    fn resolve(pid: codexbar::core::ProviderId, settings: &Settings) -> Option<Self> {
+        if let Some(scope) = codexbar::core::instantiate_provider(pid).cookie_request_scope() {
+            return Some(Self {
+                host: scope.host,
+                scan_domain: scope.scan_domain,
+                scope: Some(scope),
+            });
+        }
+        let host = codexbar::core::provider_cookie_domain(pid, settings)?;
+        Some(Self {
+            host,
+            scan_domain: host,
+            scope: None,
+        })
+    }
+
+    fn retain(&self, cookies: &mut Vec<codexbar::browser::cookies::Cookie>) {
+        if let Some(scope) = self.scope {
+            scope.retain(cookies);
+        }
+    }
+}
+
 /// Import cookies for `provider_id` from the named browser and persist them as
 /// a manual-cookie override, replacing any existing entry for that provider.
 ///
@@ -64,18 +98,9 @@ pub fn import_browser_cookies(
     // Resolve the provider to get its cookie domain.
     let pid = parse_provider_arg(&provider_id)?;
 
-    let settings = Settings::load();
-    let request_scope = codexbar::core::instantiate_provider(pid).cookie_request_scope();
-    let domain = if let Some(scope) = request_scope {
-        scope.host
-    } else if pid == codexbar::core::ProviderId::MiniMax {
-        codexbar::providers::MiniMaxProvider::cookie_domain_for_region(Some(
-            settings.api_region(pid),
-        ))
-    } else {
-        pid.cookie_domain()
-            .ok_or_else(|| format!("Provider '{provider_id}' does not use cookie authentication"))?
-    };
+    let target = ImportTarget::resolve(pid, &Settings::load())
+        .ok_or_else(|| format!("Provider '{provider_id}' does not use cookie authentication"))?;
+    let domain = target.host;
 
     // Find the requested browser.
     let browser = importable_cookie_stores(Some(pid))
@@ -84,14 +109,9 @@ pub fn import_browser_cookies(
         .ok_or_else(|| format!("Browser '{browser_type}' not found or not installed"))?;
 
     // Extract the cookie header.
-    let mut cookies = CookieExtractor::extract_for_domain(
-        &browser,
-        request_scope.map_or(domain, |scope| scope.scan_domain),
-    )
-    .map_err(|e| e.user_message_for_browser(browser.browser_type))?;
-    if let Some(scope) = request_scope {
-        scope.retain(&mut cookies);
-    }
+    let mut cookies = CookieExtractor::extract_for_domain(&browser, target.scan_domain)
+        .map_err(|e| e.user_message_for_browser(browser.browser_type))?;
+    target.retain(&mut cookies);
 
     if cookies.is_empty() {
         return Err(format!(
@@ -109,4 +129,64 @@ pub fn import_browser_cookies(
     manual.save().map_err(|e| e.to_string())?;
 
     Ok(get_manual_cookies())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codexbar::browser::cookies::Cookie;
+    use codexbar::core::ProviderId;
+
+    fn cookie(name: &str, domain: &str) -> Cookie {
+        Cookie {
+            name: name.into(),
+            value: "v".into(),
+            domain: domain.into(),
+            path: "/".into(),
+            expires: None,
+            is_secure: true,
+            is_http_only: true,
+        }
+    }
+
+    #[test]
+    fn trae_cn_import_reads_the_parent_domain_and_keeps_api_cookies() {
+        let target = ImportTarget::resolve(ProviderId::TraeCn, &Settings::default()).unwrap();
+        assert_eq!(target.host, "api.trae.cn");
+        assert_eq!(target.scan_domain, "trae.cn");
+
+        let mut cookies = vec![
+            cookie("session", ".trae.cn"),
+            cookie("api_only", "api.trae.cn"),
+            cookie("www_only", "www.trae.cn"),
+        ];
+        target.retain(&mut cookies);
+        let names: Vec<&str> = cookies.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["session", "api_only"]);
+    }
+
+    #[test]
+    fn unscoped_import_reads_and_keeps_the_provider_cookie_domain() {
+        let settings = Settings::default();
+        let pid = ProviderId::all()
+            .iter()
+            .copied()
+            .find(|pid| {
+                pid.cookie_domain().is_some()
+                    && codexbar::core::instantiate_provider(*pid)
+                        .cookie_request_scope()
+                        .is_none()
+            })
+            .expect("an unscoped cookie provider");
+        let target = ImportTarget::resolve(pid, &settings).unwrap();
+        assert_eq!(
+            Some(target.host),
+            codexbar::core::provider_cookie_domain(pid, &settings)
+        );
+        assert_eq!(target.scan_domain, target.host);
+
+        let mut cookies = vec![cookie("a", "unrelated.example")];
+        target.retain(&mut cookies);
+        assert_eq!(cookies.len(), 1, "no scope, no filtering");
+    }
 }
