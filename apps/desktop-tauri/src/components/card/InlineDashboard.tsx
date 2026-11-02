@@ -95,13 +95,23 @@ export function summaryKpis(kpis: DashboardKpi[]): DashboardKpi[] {
 export default function InlineDashboard({
   model,
   onToggle,
+  collapsible = true,
 }: {
   model: InlineDashboardModel;
   onToggle?: () => void;
+  /** The classic look shows the whole dashboard with no Cost toggle. */
+  collapsible?: boolean;
 }) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
   const bodyId = useId();
+  if (!collapsible) {
+    return (
+      <section className="card-dash">
+        <DashboardBody model={model} />
+      </section>
+    );
+  }
   return (
     <section className="card-dash">
       <button

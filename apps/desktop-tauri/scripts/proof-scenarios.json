@@ -30,6 +30,19 @@
       ]
     },
     {
+      "name": "tray-classic-look",
+      "query": "window=main&fixture=classic-look",
+      "size": [310, 1032],
+      "steps": [
+        { "expectText": ["Usage & Spend", "Refresh", "About CodexBar (v"] },
+        { "expectSelector": ".menu-surface--classic" },
+        { "screenshot": "tray-classic-default", "clip": "panel" },
+        { "click": { "selector": ".provider-grid__item", "label": "Claude" } },
+        { "expectText": ["Session (5h) 22% used", "Latest tokens", "Top model: claude-sonnet-4"] },
+        { "screenshot": "tray-classic-claude", "clip": "panel" }
+      ]
+    },
+    {
       "name": "tray-claude-plan-renews",
       "query": "window=main&fixture=default",
       "size": [310, 1032],

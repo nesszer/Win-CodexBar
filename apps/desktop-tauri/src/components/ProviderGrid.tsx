@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { ProviderUsageSnapshot } from "../types/bridge";
+import type { ProviderUsageSnapshot, TrayPanelStyle } from "../types/bridge";
 import { ProviderIcon } from "./providers/ProviderIcon";
 import { getProviderIcon } from "./providers/providerIcons";
 import { useLocale } from "../hooks/useLocale";
@@ -13,6 +13,7 @@ export default function ProviderGrid({
   selectedProviderId,
   showAsUsed,
   showProviderIcons = true,
+  variant = "modern",
   expanded,
   onExpandedChange,
   onSelect,
@@ -24,6 +25,8 @@ export default function ProviderGrid({
   selectedProviderId: string | null;
   showAsUsed: boolean;
   showProviderIcons?: boolean;
+  /** Settings > Menu > Panel look; labelled tabs belong to the modern look. */
+  variant?: TrayPanelStyle;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   onSelect: (providerId: string | null) => void;
@@ -91,7 +94,9 @@ export default function ProviderGrid({
   // Labelled tabs while they fit: one row up to TAB_ROW_MAX items, wrapped
   // rows up to TAB_WRAP_MAX; beyond that the dense icon grid takes over.
   const tabLayout =
-    totalItems <= TAB_ROW_MAX ? "row" : totalItems <= TAB_WRAP_MAX ? "wrap" : null;
+    variant === "classic"
+      ? null
+      : totalItems <= TAB_ROW_MAX ? "row" : totalItems <= TAB_WRAP_MAX ? "wrap" : null;
   const labelFor = (name: string) =>
     densityClass.includes("compact") ? compactGridLabel(name) : name;
 
@@ -111,13 +116,17 @@ export default function ProviderGrid({
         aria-label={t("PanelAllProviders")}
       >
         {showProviderIcons && (
-          <span className="provider-grid__icon-overview" aria-hidden>
-            <svg viewBox="0 0 16 16" fill="currentColor">
-              <rect x="2" y="2" width="5" height="5" rx="1.2" />
-              <rect x="9" y="2" width="5" height="5" rx="1.2" />
-              <rect x="2" y="9" width="5" height="5" rx="1.2" />
-              <rect x="9" y="9" width="5" height="5" rx="1.2" />
-            </svg>
+          <span className="provider-grid__icon-overview" aria-hidden={variant === "modern"}>
+            {variant === "modern" ? (
+              <svg viewBox="0 0 16 16" fill="currentColor">
+                <rect x="2" y="2" width="5" height="5" rx="1.2" />
+                <rect x="9" y="2" width="5" height="5" rx="1.2" />
+                <rect x="2" y="9" width="5" height="5" rx="1.2" />
+                <rect x="9" y="9" width="5" height="5" rx="1.2" />
+              </svg>
+            ) : (
+              "⊞"
+            )}
           </span>
         )}
         <span className="provider-grid__label">{t("PanelAllProvidersShort")}</span>

@@ -9,6 +9,7 @@
 
 ## [Windows] Unreleased
 
+- Tray panel: **Settings > Menu > Panel look** switches between Modern and Classic. Classic is the layout from before the redesign (icon-only provider switcher, percent after the title, the full cost dashboard, shortcut hints and icons on every menu row). Drag either vertical edge of the panel to change its width (280 to 560 px at 100 % Panel scale); the width is saved, arrow keys on the focused edge step it, and a double-click or Home restores 310 px. At a high Panel scale the panel never grows wider than the screen's work area.
 - Tray panel: a new look. The panel sits on a soft tinted surface with larger type. Provider tabs show an icon and a name over a quota underline, wrap to extra rows when many providers are on, and keep the dense icon grid beyond 18. Each quota row is a title, a thicker bar, then the percent used on the left and the reset on the right. Sections are set off by hairlines, and the daily-cost dashboard becomes a collapsible **Cost** section that opens from a two-line summary. The menu is text-only: shortcut hints and the Settings, About and Quit icons are gone, and About no longer carries the version.
 - Settings, light theme: usage bar tracks are a light grey instead of solid black, and the pace pills, the expected-pace marker and the cost and credits chart colors use their light values instead of the dark ones.
 - abliteration.ai: the total credits row is labeled "Total credits", so Settings > Visible usage items no longer lists "Credits" twice.

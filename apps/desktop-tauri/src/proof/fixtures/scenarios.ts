@@ -42,6 +42,7 @@ export const PROOF_SCENARIO_NAMES = [
   "cursor-weekly",
   "openai-live-spend",
   "claude-plan-hidden",
+  "classic-look",
   "codex-tool-activity",
   "usage-spend-unknown-tokens",
   "claude-swap-tcr",
@@ -697,6 +698,16 @@ function openAiLiveSpendScenario(now: Date): ProofScenario {
   };
 }
 
+/** Default data under Settings > Menu > Panel look "Classic". */
+function classicLookScenario(now: Date): ProofScenario {
+  const base = defaultScenario(now);
+  return {
+    ...base,
+    name: "classic-look",
+    settings: { ...base.settings, trayPanelStyle: "classic" },
+  };
+}
+
 /** Default data with the Claude "Plan renewal / expiry" usage item hidden (`section:subscription`). */
 function claudePlanHiddenScenario(now: Date): ProofScenario {
   const base = defaultScenario(now);
@@ -1332,6 +1343,7 @@ const BUILDERS: Record<ProofScenarioName, (now: Date) => ProofScenario> = {
   "cursor-weekly": cursorWeeklyScenario,
   "openai-live-spend": openAiLiveSpendScenario,
   "claude-plan-hidden": claudePlanHiddenScenario,
+  "classic-look": classicLookScenario,
   "codex-tool-activity": codexToolActivityScenario,
   "usage-spend-unknown-tokens": usageSpendUnknownTokensScenario,
   "claude-swap-tcr": claudeSwapTcrScenario,

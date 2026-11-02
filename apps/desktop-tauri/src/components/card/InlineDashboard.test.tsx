@@ -135,6 +135,15 @@ describe("InlineDashboard", () => {
     expect(screen.getByText("Top model: gpt-5")).toBeInTheDocument();
   });
 
+  it("shows the whole dashboard with no Cost toggle when it is not collapsible", () => {
+    const { container } = render(<InlineDashboard model={model} collapsible={false} />);
+    expect(screen.queryByRole("button", { name: /Cost/ })).toBeNull();
+    expect(container.querySelector(".card-dash__summary")).toBeNull();
+    expect(container.querySelector(".card-dash__body")).toBeNull();
+    expect(container.querySelector(".card-dash__kpis")).not.toBeNull();
+    expect(container.querySelectorAll(".card-dash__bar")).toHaveLength(3);
+  });
+
   it("swaps the scale label for the hovered day", () => {
     const { container } = renderExpanded();
     const scale = container.querySelector(".card-dash__scale")!;

@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useLocale } from "../hooks/useLocale";
+import type { TrayPanelStyle } from "../types/bridge";
 
 export type MenuRowId =
   | "switchAccount"
@@ -43,11 +44,30 @@ const ROW_ICONS: Record<MenuRowId, ReactNode> = {
   ),
   statusPage: lineIcon(<path key="ecg" d="M1.5 8.5H4L5.5 4.5L8 12L10 6.5L11.2 8.5H14.5" />),
   refresh: null,
-  // Settings, About and Quit are text-only rows, as in the macOS menu.
-  settings: null,
-  about: null,
-  quit: null,
+  settings: lineIcon(
+    <path
+      key="gear"
+      d="M6.9 1.8H9.1L9.5 3.5L10.9 4.3L12.6 3.8L13.7 5.7L12.5 7V9L13.7 10.3L12.6 12.2L10.9 11.7L9.5 12.5L9.1 14.2H6.9L6.5 12.5L5.1 11.7L3.4 12.2L2.3 10.3L3.5 9V7L2.3 5.7L3.4 3.8L5.1 4.3L6.5 3.5Z"
+    />,
+    <circle key="hub" cx="8" cy="8" r="2" />,
+  ),
+  about: lineIcon(
+    <circle key="ring" cx="8" cy="8" r="6.5" />,
+    <path key="stem" d="M8 7.3V11.5" />,
+    <circle key="dot" cx="8" cy="5" r="0.4" fill="currentColor" />,
+  ),
+  quit: lineIcon(
+    <rect key="frame" x="1.5" y="3" width="13" height="10" rx="2" />,
+    <path key="cross" d="M6 6L10 10M10 6L6 10" />,
+  ),
 };
+
+/** The modern look keeps icons on the provider action rows only. */
+const MODERN_ICON_ROWS: ReadonlySet<MenuRowId> = new Set([
+  "switchAccount",
+  "dashboard",
+  "statusPage",
+]);
 
 interface MenuSurfaceProps {
   summary?: ReactNode;
@@ -62,6 +82,8 @@ interface MenuSurfaceProps {
   /** Settings "Highlight menu cards on hover"; off keeps the Refresh row
    *  unhighlighted under the pointer while keyboard focus still shows. */
   hoverHighlight?: boolean;
+  /** Settings > Menu > Panel look. */
+  variant?: TrayPanelStyle;
   children: ReactNode;
 }
 
@@ -76,13 +98,14 @@ export default function MenuSurface({
   statusLine = null,
   style,
   hoverHighlight = true,
+  variant = "modern",
   children,
 }: MenuSurfaceProps) {
   const { t } = useLocale();
   const groups = footerGroups.filter((group) => group.length > 0);
   return (
     <div
-      className={`menu-surface menu-surface--tray${hoverHighlight ? "" : " menu-surface--hover-highlight-off"}`}
+      className={`menu-surface menu-surface--tray menu-surface--${variant}${hoverHighlight ? "" : " menu-surface--hover-highlight-off"}`}
       style={style}
     >
       {banner}
@@ -101,7 +124,8 @@ export default function MenuSurface({
               : []),
             <div key={`sep-${group[0].id}`} className="menu-surface__footer-sep" />,
             ...group.map((row) => {
-              const icon = ROW_ICONS[row.id];
+              const icon =
+                variant === "modern" && !MODERN_ICON_ROWS.has(row.id) ? null : ROW_ICONS[row.id];
               return (
                 <button
                   key={row.id}
