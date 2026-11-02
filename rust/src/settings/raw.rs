@@ -327,6 +327,10 @@ pub(super) struct RawSettings {
     window_scale_percent: u16,
     #[serde(default = "default_tray_scale_percent")]
     tray_scale_percent: u16,
+    #[serde(default = "default_tray_panel_style")]
+    tray_panel_style: String,
+    #[serde(default = "default_tray_panel_width")]
+    tray_panel_width: u16,
     #[serde(default)]
     tray_panel_always_on_top: bool,
     #[serde(default)]
@@ -356,6 +360,8 @@ pub(super) struct RawSettings {
     float_bar_show_reset_inline: bool,
     #[serde(default)]
     float_bar_show_cost: bool,
+    #[serde(default)]
+    float_bar_show_weekly: bool,
     #[serde(default = "default_true")]
     promote_tray_icon: bool,
     #[serde(default = "default_true")]
@@ -497,6 +503,8 @@ impl Default for RawSettings {
             theme: s.theme,
             window_scale_percent: s.window_scale_percent,
             tray_scale_percent: s.tray_scale_percent,
+            tray_panel_style: s.tray_panel_style,
+            tray_panel_width: s.tray_panel_width,
             tray_panel_always_on_top: s.tray_panel_always_on_top,
             tray_panel_movable: s.tray_panel_movable,
             powertoys_status_pipe_enabled: s.powertoys_status_pipe_enabled,
@@ -511,6 +519,7 @@ impl Default for RawSettings {
             float_bar_dark_text: s.float_bar_dark_text,
             float_bar_show_reset_inline: s.float_bar_show_reset_inline,
             float_bar_show_cost: s.float_bar_show_cost,
+            float_bar_show_weekly: s.float_bar_show_weekly,
             promote_tray_icon: s.promote_tray_icon,
             claude_daily_routines_usage_visible: s.claude_daily_routines_usage_visible,
             claude_allow_reading_claude_code_credentials: s
@@ -863,6 +872,8 @@ impl From<RawSettings> for Settings {
             theme: raw.theme,
             window_scale_percent: clamp_window_scale_percent(raw.window_scale_percent),
             tray_scale_percent: clamp_tray_scale_percent(raw.tray_scale_percent),
+            tray_panel_style: normalize_tray_panel_style(&raw.tray_panel_style),
+            tray_panel_width: clamp_tray_panel_width(raw.tray_panel_width),
             tray_panel_always_on_top: raw.tray_panel_always_on_top,
             tray_panel_movable: raw.tray_panel_movable,
             powertoys_status_pipe_enabled: raw.powertoys_status_pipe_enabled,
@@ -877,6 +888,7 @@ impl From<RawSettings> for Settings {
             float_bar_dark_text: raw.float_bar_dark_text,
             float_bar_show_reset_inline: raw.float_bar_show_reset_inline,
             float_bar_show_cost: raw.float_bar_show_cost,
+            float_bar_show_weekly: raw.float_bar_show_weekly,
             promote_tray_icon: raw.promote_tray_icon,
             claude_daily_routines_usage_visible: raw.claude_daily_routines_usage_visible,
             claude_allow_reading_claude_code_credentials: raw

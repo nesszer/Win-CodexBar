@@ -24,8 +24,8 @@ interface LanePolicy {
   pace: "byWindowLength" | "exactWindow" | "never";
 }
 
-const SESSION_MINUTES = 300;
-const WEEK_MINUTES = 7 * 24 * 60;
+export const SESSION_MINUTES = 300;
+export const WEEK_MINUTES = 7 * 24 * 60;
 
 const LANE_POLICY: Record<MetricLane, LanePolicy> = {
   primary: { thresholdWindow: "session", workdayTicks: false, pace: "byWindowLength" },

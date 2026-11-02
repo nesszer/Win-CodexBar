@@ -12,6 +12,7 @@ const settings = {
   floatBarOrientation: "horizontal",
   floatBarStyle: "floating",
   floatBarShowCost: false,
+  floatBarShowWeekly: false,
   claudeDailyRoutinesUsageVisible: true,
   claudeAllowReadingClaudeCodeCredentials: false,
   alibabaTokenPlanRegion: "cn",

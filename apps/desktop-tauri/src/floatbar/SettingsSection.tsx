@@ -106,6 +106,13 @@ export default function FloatBarSettingsSection({ settings, saving, set }: Setti
         />
         <SettingToggle
           ctl={ctl}
+          field="floatBarShowWeekly"
+          label={t("FloatBarShowWeekly")}
+          description={t("FloatBarShowWeeklyHelper")}
+          disabled={saving || !settings.floatBarEnabled}
+        />
+        <SettingToggle
+          ctl={ctl}
           field="floatBarDarkText"
           label={t("FloatBarInvertColors")}
           description={t("FloatBarInvertColorsHelper")}

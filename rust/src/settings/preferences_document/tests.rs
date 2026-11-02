@@ -76,6 +76,7 @@ fn customized_settings() -> Settings {
         float_bar_dark_text: true,
         float_bar_show_reset_inline: true,
         float_bar_show_cost: true,
+        float_bar_show_weekly: true,
         cost_reporting_period: CostReportingPeriod::MonthToDate,
         cost_usage_enabled: false,
         spend_dashboard_period: CostReportingPeriod::Rolling(90),

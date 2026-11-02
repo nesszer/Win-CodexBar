@@ -183,7 +183,23 @@ pub(crate) fn row_cache(
         mtime_unix_ms: source_mtime_unix_ms(metadata.modified().ok()),
         prefix_hash: source_prefix_hash(file_path, metadata.len())?,
         rows,
+        scan_since_key: None,
+        scan_until_key: None,
     })
+}
+
+impl CodexSourceRowCache {
+    pub(crate) fn record_scan_range(&mut self, range: &CostUsageDayRange) {
+        self.scan_since_key = Some(range.scan_since_key.clone());
+        self.scan_until_key = Some(range.scan_until_key.clone());
+    }
+
+    /// Whether these rows were read for exactly `range`. Entries without a
+    /// recorded range predate per-entry ranges and never match.
+    pub(crate) fn was_read_for(&self, range: &CostUsageDayRange) -> bool {
+        self.scan_since_key.as_deref() == Some(range.scan_since_key.as_str())
+            && self.scan_until_key.as_deref() == Some(range.scan_until_key.as_str())
+    }
 }
 
 /// Verify the retained source prefix before using cached request pricing.

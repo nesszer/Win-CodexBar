@@ -104,6 +104,8 @@ Assert-True $decision.Skip 'budget off wins over merge-queue push'
 
 Write-Host '==> Hosted Node provisioning guard'
 $prRunnerText = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'run-circleci-pr-check.ps1')
-Assert-True ($prRunnerText -match '\$installedNodeVersion\s*=\s*\$imageNodeVersion') 'Node status is initialized when the hosted image already has the required major'
+Assert-True ($prRunnerText -match '\$installedNodeVersion\s*=\s*\$imageNodeVersion') 'Node status is initialized when the hosted image already has the pinned version'
+Assert-True ($prRunnerText -match '\$imageNodeVersion -ne "v\$NodeVersion"') 'hosted image Node must match the exact pin, not only the major'
+Assert-True ($prRunnerText -notmatch 'activeNodeMajor') 'hosted Node check no longer accepts any patch of the major'
 
 Write-Host 'CircleCI focused tests passed.'

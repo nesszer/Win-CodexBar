@@ -81,6 +81,8 @@ pub struct SettingsUpdate {
     pub theme: Option<String>,
     pub window_scale_percent: Option<u16>,
     pub tray_scale_percent: Option<u16>,
+    pub tray_panel_style: Option<String>,
+    pub tray_panel_width: Option<u16>,
     pub tray_panel_always_on_top: Option<bool>,
     pub tray_panel_movable: Option<bool>,
     pub powertoys_status_pipe_enabled: Option<bool>,
@@ -122,6 +124,7 @@ pub struct SettingsUpdate {
     pub float_bar_dark_text: Option<bool>,
     pub float_bar_show_reset_inline: Option<bool>,
     pub float_bar_show_cost: Option<bool>,
+    pub float_bar_show_weekly: Option<bool>,
     pub promote_tray_icon: Option<bool>,
     pub claude_daily_routines_usage_visible: Option<bool>,
     pub alibaba_token_plan_region: Option<String>,
@@ -393,6 +396,12 @@ impl SettingsUpdate {
         if let Some(v) = self.tray_scale_percent {
             settings.tray_scale_percent = codexbar::settings::clamp_tray_scale_percent(v);
         }
+        if let Some(v) = self.tray_panel_style.as_deref() {
+            settings.tray_panel_style = codexbar::settings::normalize_tray_panel_style(v);
+        }
+        if let Some(v) = self.tray_panel_width {
+            settings.tray_panel_width = codexbar::settings::clamp_tray_panel_width(v);
+        }
         if let Some(v) = self.tray_panel_always_on_top {
             settings.tray_panel_always_on_top = v;
         }
@@ -654,6 +663,7 @@ impl SettingsUpdate {
             dark_text: self.float_bar_dark_text,
             show_reset_inline: self.float_bar_show_reset_inline,
             show_cost: self.float_bar_show_cost,
+            show_weekly: self.float_bar_show_weekly,
         }
     }
 

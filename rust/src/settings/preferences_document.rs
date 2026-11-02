@@ -127,6 +127,11 @@ const ALLOWED_PREFERENCES: &[(&str, Validator)] = &[
         "tray_scale_percent",
         uint_in::<{ super::TRAY_SCALE_PERCENT_MIN as u64 }, { super::TRAY_SCALE_PERCENT_MAX as u64 }>,
     ),
+    ("tray_panel_style", |v| one_of(v, &["classic", "modern"])),
+    (
+        "tray_panel_width",
+        uint_in::<{ super::TRAY_PANEL_WIDTH_MIN as u64 }, { super::TRAY_PANEL_WIDTH_MAX as u64 }>,
+    ),
     ("float_bar_opacity", uint_in::<30, 100>),
     ("float_bar_scale", uint_in::<75, 200>),
     ("float_bar_orientation", |v| {
@@ -136,6 +141,7 @@ const ALLOWED_PREFERENCES: &[(&str, Validator)] = &[
     ("float_bar_dark_text", typed::<bool>),
     ("float_bar_show_reset_inline", typed::<bool>),
     ("float_bar_show_cost", typed::<bool>),
+    ("float_bar_show_weekly", typed::<bool>),
     ("cost_reporting_period", cost_reporting_period),
     ("cost_usage_enabled", typed::<bool>),
     ("spend_dashboard_period", cost_reporting_period),

@@ -41,6 +41,14 @@ fn codex_source_row_plan(
     let recoverable_cache = cache
         .codex_source_rows
         .get(&path.to_string_lossy().to_string())
+        // Source rows are filtered to the reporting partition. Comparing a
+        // different window mistakes newly included history for lost pricing
+        // evidence and turns otherwise known models into unattributed usage.
+        // A changed partition must establish its evidence from the source;
+        // durable Priority trace evidence is applied separately below. The
+        // range is checked per entry: the cache-wide range keys describe the
+        // last completed scan, and a partial pass can replace entries first.
+        .filter(|cached| cached.was_read_for(scan_range))
         .filter(|cached| !cached.rows.is_empty() && row_cache_matches(path, &metadata, cached))
         .cloned();
     Some(CodexSourceRowPlan {
@@ -53,7 +61,12 @@ fn codex_source_row_plan(
 /// Apply a source-row plan: recover cached pricing when required, retain the
 /// resulting rows as evidence, and unprice the file's day map when recovery
 /// left appended rows unvalidated.
-fn apply_codex_source_row_plan(cache: &mut CostUsageCache, key: &str, plan: CodexSourceRowPlan) {
+fn apply_codex_source_row_plan(
+    cache: &mut CostUsageCache,
+    key: &str,
+    plan: CodexSourceRowPlan,
+    scan_range: &CostUsageDayRange,
+) {
     let CodexSourceRowPlan {
         metadata,
         source_rows,
@@ -68,9 +81,10 @@ fn apply_codex_source_row_plan(cache: &mut CostUsageCache, key: &str, plan: Code
     } else {
         source_rows
     };
-    let Some(source_cache) = row_cache(&key_path(key), &metadata, rows) else {
+    let Some(mut source_cache) = row_cache(&key_path(key), &metadata, rows) else {
         return;
     };
+    source_cache.record_scan_range(scan_range);
     if requires_recovery && let Some(usage) = cache.files.get_mut(key) {
         // Rebuild from recovered rows even when a new row is intentionally
         // unresolved. Leaving the normal parser's model-priced days in place
@@ -413,7 +427,7 @@ pub(super) fn scan_codex_detailed_with_cache(
             incomplete_processed.push(key);
             stats.files_deferred = stats.files_deferred.saturating_add(1);
         } else if let Some(plan) = codex_source_row_plan(&cache, &candidate.path, scan_range) {
-            apply_codex_source_row_plan(&mut cache, &key, plan);
+            apply_codex_source_row_plan(&mut cache, &key, plan, scan_range);
         }
     }
     unprocessed.extend(deferred_paths);

@@ -24,7 +24,12 @@ import { costPeriodShortLabel } from "../lib/costPeriod";
 import { describeProviderState } from "../lib/providerState";
 import { resetDescriptionFallback, windowDetailText } from "../lib/usageWindows";
 import { localizeProviderText } from "../lib/providerText";
-import { type MetricLane, quotaWarningWindowForLane } from "../lib/metricRowModel";
+import {
+  type MetricLane,
+  quotaWarningWindowForLane,
+  SESSION_MINUTES,
+  WEEK_MINUTES,
+} from "../lib/metricRowModel";
 import { type QuotaWarningSettings, resolveQuotaWarning } from "../lib/quotaWarnings";
 import type {
   BootstrapState,
@@ -213,12 +218,150 @@ function brandStyle(brand: string): CSSProperties {
   return { "--brand": brand, ...(onDark ? { "--brand-dark": onDark } : {}) } as CSSProperties;
 }
 
+type PillTone = "ok" | "warn" | "crit";
+
+const TONE_RANK: Record<PillTone, number> = { ok: 0, warn: 1, crit: 2 };
+
+/** One metric shown inside a pill, with the card lane it came from. */
+type PillMetric = { window: RateWindowSnapshot; lane: MetricLane | null };
+
+/**
+ * The metrics a pill shows. With "Show Session and Weekly" on, a real 5-hour
+ * primary lane and a real 7-day secondary lane, that is the session lane
+ * followed by the weekly lane. Neither slot is guaranteed to carry those
+ * windows (some providers put a daily, credit, monthly or account quota
+ * there), so any other shape keeps the single menu bar metric.
+ */
+function pillMetrics(provider: ProviderUsageSnapshot, showWeekly: boolean): PillMetric[] {
+  const { primary, secondary } = provider;
+  if (
+    showWeekly &&
+    !primary.isInformational &&
+    primary.windowMinutes === SESSION_MINUTES &&
+    secondary &&
+    !secondary.isInformational &&
+    secondary.windowMinutes === WEEK_MINUTES
+  ) {
+    return [
+      { window: primary, lane: "primary" },
+      { window: secondary, lane: "secondary" },
+    ];
+  }
+  return [{ window: provider.selectedMetric, lane: selectedMetricLane(provider) }];
+}
+
+function metricTone(
+  metric: PillMetric,
+  providerId: string,
+  thresholds: QuotaWarningSettings,
+): PillTone {
+  const rateWindow = metric.window;
+  if (rateWindow.isInformational === true) return "ok";
+  // Tone follows this provider's quota warning thresholds for the shown lane;
+  // a window outside the lanes keeps the global thresholds.
+  const warningWindow = metric.lane ? quotaWarningWindowForLane(metric.lane) : null;
+  const warning = warningWindow
+    ? resolveQuotaWarning(thresholds, providerId, warningWindow)
+    : {
+        enabled: true,
+        high: thresholds.highUsageThreshold,
+        critical: thresholds.criticalUsageThreshold,
+      };
+  // A window set to Off keeps only the exhausted tone.
+  const highRemaining = warning.enabled ? 100 - warning.high : -1;
+  const critRemaining = warning.enabled ? 100 - warning.critical : -1;
+  const remaining = Math.max(0, Math.min(100, rateWindow.remainingPercent));
+  if (rateWindow.isExhausted || remaining <= critRemaining) return "crit";
+  if (remaining <= highRemaining) return "warn";
+  return "ok";
+}
+
+/** Percentage, or the informational text, for one window. */
+function metricLabel(
+  rateWindow: RateWindowSnapshot,
+  showAsUsed: boolean,
+  t: ReturnType<typeof useLocale>["t"],
+): string {
+  if (rateWindow.isInformational === true) {
+    return localizeProviderText(rateWindow.resetDescription?.trim(), t) || "—";
+  }
+  const percent = showAsUsed ? rateWindow.usedPercent : rateWindow.remainingPercent;
+  return `${Math.round(Math.max(0, Math.min(100, percent)))}%`;
+}
+
+/** Reset text for a window, or null; informational text is never reset wording. */
+function useWindowResetText(
+  rateWindow: RateWindowSnapshot | null,
+  relative: boolean,
+): string | null {
+  const informational = rateWindow?.isInformational === true;
+  return useFormattedResetTime(
+    rateWindow?.resetsAt ?? null,
+    rateWindow && !informational ? resetDescriptionFallback(rateWindow) : null,
+    relative,
+  );
+}
+
+/** The percentage and optional inline reset for one metric. */
+function MetricSegment({
+  label,
+  rateWindow,
+  resetText,
+  resetRelative,
+  showResetInline,
+  resetIconSize,
+  problemLabel,
+}: {
+  label: string;
+  rateWindow: RateWindowSnapshot;
+  resetText: string | null;
+  resetRelative: boolean;
+  showResetInline: boolean;
+  resetIconSize: number;
+  /** Set while the provider is in an error state; replaces the percentage. */
+  problemLabel: string | null;
+}) {
+  // Only percentages size the warning placeholder; informational text would
+  // widen the pill after an error.
+  const lastPercentageLabel = useRef("0%");
+  if (!problemLabel && rateWindow.isInformational !== true) lastPercentageLabel.current = label;
+  const inlineReset = resetText
+    ? inlineResetTime(resetText, rateWindow.resetsAt, resetRelative)
+    : null;
+
+  return (
+    <span className="floatbar__text" data-tauri-drag-region>
+      <span className="floatbar__pct" aria-label={problemLabel ?? undefined} data-tauri-drag-region>
+        {problemLabel ? (
+          <>
+            <span aria-hidden="true" style={{ visibility: "hidden" }}>{lastPercentageLabel.current}</span>
+            <span className="floatbar__warning" aria-hidden="true">!</span>
+          </>
+        ) : label}
+      </span>
+      {!problemLabel && showResetInline && resetText && inlineReset && (
+        <span
+          className="floatbar__reset"
+          title={resetText}
+          aria-label={resetText}
+          data-tauri-drag-region
+        >
+          <ResetIcon size={resetIconSize} />
+          <span className="floatbar__reset-time" data-tauri-drag-region>
+            {inlineReset}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 /**
  * The capacity pill shown for a single provider.
  *
  * Color follows usage: green default, amber when remaining drops below the
  * high-usage threshold, red when remaining is below the critical threshold
- * or the provider is exhausted.
+ * or the provider is exhausted. With two metrics shown, the worse one wins.
  *
  * An informational metric (no budget set, a balance line, no active session)
  * has no quota percentage. Like the tray card and the tray tooltip, the pill
@@ -231,6 +374,7 @@ function ProviderPill({
   showAsUsed,
   scale,
   showResetInline,
+  showWeekly,
   resetRelative,
   usedSuffix,
   remainingSuffix,
@@ -241,104 +385,74 @@ function ProviderPill({
   showAsUsed: boolean;
   scale: number;
   showResetInline: boolean;
+  showWeekly: boolean;
   resetRelative: boolean;
   usedSuffix: string;
   remainingSuffix: string;
   stateLabel: string;
 }) {
   const { t } = useLocale();
-  const rateWindow = provider.selectedMetric;
-  const informational = rateWindow.isInformational === true;
-  const remaining = Math.max(0, Math.min(100, rateWindow.remainingPercent));
-  const used = Math.max(0, Math.min(100, rateWindow.usedPercent));
-  const displayPercent = showAsUsed ? used : remaining;
-  const displaySuffix = showAsUsed ? usedSuffix : remainingSuffix;
   const state = describeProviderState(provider.errorState);
-  // Tone follows this provider's quota warning thresholds for the shown lane;
-  // a window outside the lanes keeps the global thresholds.
-  const lane = selectedMetricLane(provider);
-  const warningWindow = lane ? quotaWarningWindowForLane(lane) : null;
-  const warning = warningWindow
-    ? resolveQuotaWarning(thresholds, provider.providerId, warningWindow)
-    : {
-        enabled: true,
-        high: thresholds.highUsageThreshold,
-        critical: thresholds.criticalUsageThreshold,
-      };
-  // A window set to Off keeps only the exhausted tone.
-  const highRemaining = warning.enabled ? 100 - warning.high : -1;
-  const critRemaining = warning.enabled ? 100 - warning.critical : -1;
-  let tone: "ok" | "warn" | "crit" = "ok";
+  // An error collapses the pill to its first metric with a warning mark.
+  const metrics = pillMetrics(provider, showWeekly && !state.isProblem);
+  const resetTexts = [
+    useWindowResetText(metrics[0].window, resetRelative),
+    useWindowResetText(metrics[1]?.window ?? null, resetRelative),
+  ];
+
+  let tone: PillTone = "ok";
   if (state.isProblem) tone = "crit";
-  else if (!informational) {
-    if (rateWindow.isExhausted || remaining <= critRemaining) tone = "crit";
-    else if (remaining <= highRemaining) tone = "warn";
+  else {
+    for (const metric of metrics) {
+      const next = metricTone(metric, provider.providerId, thresholds);
+      if (TONE_RANK[next] > TONE_RANK[tone]) tone = next;
+    }
   }
 
+  const displaySuffix = showAsUsed ? usedSuffix : remainingSuffix;
+  const labels = metrics.map((metric) => metricLabel(metric.window, showAsUsed, t));
+  const title = state.isProblem
+    ? `${provider.displayName}: ${stateLabel}`
+    : metrics
+        .map((metric, index) => {
+          const resetText = resetTexts[index];
+          const detailText = localizeProviderText(windowDetailText(metric.window), t) || null;
+          const head =
+            metric.window.isInformational === true
+              ? `${provider.displayName}: ${labels[index]}`
+              : `${provider.displayName}: ${labels[index]} ${displaySuffix}`;
+          return [head, resetText, detailText].filter(Boolean).join("\n");
+        })
+        .join("\n");
+
   const brand = getProviderIcon(provider.providerId).brandColor;
-  const infoText = localizeProviderText(rateWindow.resetDescription?.trim(), t) || "—";
-  const label = state.isProblem
-    ? stateLabel
-    : informational
-      ? infoText
-      : `${Math.round(displayPercent)}%`;
-  // Only percentages size the warning placeholder; informational text would
-  // widen the pill after an error.
-  const lastPercentageLabel = useRef("0%");
-  if (!state.isProblem && !informational) lastPercentageLabel.current = label;
-  const resetText = useFormattedResetTime(
-    rateWindow.resetsAt,
-    informational ? null : resetDescriptionFallback(rateWindow),
-    resetRelative,
-  );
-  const detailText = localizeProviderText(windowDetailText(rateWindow), t) || null;
-  const resetSuffix = resetText ? `\n${resetText}` : "";
-  const detailSuffix = detailText ? `\n${detailText}` : "";
-  const inlineReset = resetText
-    ? inlineResetTime(resetText, rateWindow.resetsAt, resetRelative)
-    : null;
   const iconSize = Math.round(11 * scale);
   const resetIconSize = Math.round(10 * scale);
 
   return (
     <div
       className={`floatbar__pill floatbar__pill--${tone}`}
-      title={
-        state.isProblem
-          ? `${provider.displayName}: ${stateLabel}`
-          : informational
-            ? `${provider.displayName}: ${infoText}${resetSuffix}`
-            : `${provider.displayName}: ${label} ${displaySuffix}${resetSuffix}${detailSuffix}`
-      }
+      title={title}
       data-tauri-drag-region
       style={brandStyle(brand)}
     >
       <span className="floatbar__provider-icon" data-tauri-drag-region>
         <ProviderIcon providerId={provider.providerId} size={iconSize} />
       </span>
-      <span className="floatbar__text" data-tauri-drag-region>
-        <span className="floatbar__pct" aria-label={state.isProblem ? stateLabel : undefined} data-tauri-drag-region>
-          {state.isProblem ? (
-            <>
-              <span aria-hidden="true" style={{ visibility: "hidden" }}>{lastPercentageLabel.current}</span>
-              <span className="floatbar__warning" aria-hidden="true">!</span>
-            </>
-          ) : label}
+      {metrics.map((metric, index) => (
+        <span key={metric.lane ?? index} className="floatbar__segment" data-tauri-drag-region>
+          {index > 0 && <span className="floatbar__divider" aria-hidden="true" data-tauri-drag-region />}
+          <MetricSegment
+            label={labels[index]}
+            rateWindow={metric.window}
+            resetText={resetTexts[index]}
+            resetRelative={resetRelative}
+            showResetInline={showResetInline}
+            resetIconSize={resetIconSize}
+            problemLabel={state.isProblem ? stateLabel : null}
+          />
         </span>
-        {showResetInline && resetText && inlineReset && (
-          <span
-            className="floatbar__reset"
-            title={resetText}
-            aria-label={resetText}
-            data-tauri-drag-region
-          >
-            <ResetIcon size={resetIconSize} />
-            <span className="floatbar__reset-time" data-tauri-drag-region>
-              {inlineReset}
-            </span>
-          </span>
-        )}
-      </span>
+      ))}
     </div>
   );
 }
@@ -407,6 +521,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   const filterIds = settings.floatBarProviderIds;
   const scale = Math.max(0.75, Math.min(2, settings.floatBarScale / 100));
   const showResetInline = settings.floatBarShowResetInline;
+  const showWeekly = settings.floatBarShowWeekly;
   const showCost = settings.floatBarShowCost;
   const visible = useMemo(() => {
     const enabled = new Set(settings.enabledProviders);
@@ -522,6 +637,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     style,
     scale,
     showResetInline,
+    showWeekly,
     settings.resetTimeRelative,
   ]);
 
@@ -580,6 +696,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
               showAsUsed={settings.showAsUsed}
               scale={scale}
               showResetInline={showResetInline}
+              showWeekly={showWeekly}
               resetRelative={settings.resetTimeRelative}
               usedSuffix={t("PanelUsedSuffix")}
               remainingSuffix={t("FloatBarRemainingSuffix")}
