@@ -5,7 +5,6 @@ import {
   beginFlyoutGesture,
   dismissTrayPanel,
   endFlyoutGesture,
-  getAppInfo,
   getProviderDetail,
   getSystemAccentColor,
   openProviderDashboard,
@@ -67,20 +66,6 @@ export function useTrayPanelController(state: BootstrapState) {
   const surfaceTarget = useSurfaceTarget("trayPanel");
 
   const trayScale = clampTrayScalePercent(settings.trayScalePercent) / 100;
-
-  const [appVersion, setAppVersion] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void getAppInfo().then(
-      (info) => {
-        if (!cancelled) setAppVersion(info.version);
-      },
-      () => {},
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const [accentColor, setAccentColor] = useState<string | null>(null);
   useEffect(() => {
@@ -265,9 +250,7 @@ export function useTrayPanelController(state: BootstrapState) {
       { id: "settings", label: t("MenuSettings"), shortcut: "Ctrl+,", onClick: openSettings },
       {
         id: "about",
-        label: appVersion
-          ? t("MenuAboutVersion").replace("{}", appVersion)
-          : t("MenuAbout"),
+        label: t("MenuAbout"),
         onClick: openAbout,
       },
       { id: "quit", label: t("MenuQuit"), shortcut: "Ctrl+Q", onClick: quitApp },

@@ -37,6 +37,9 @@ export interface MetricRowDisplay {
   workdayTickStyle?: WorkdayTickStyle;
 }
 
+/** Bar thickness in px; the tray card passes a thicker bar. */
+const DEFAULT_BAR_HEIGHT = 6;
+
 function useCountdownNow(ticking: boolean): number {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -48,8 +51,8 @@ function useCountdownNow(ticking: boolean): number {
 }
 
 /**
- * One rate window (upstream `MenuCardMetricRow.swift`): the title with the
- * percent and the reset on one line, the bar, then the pace meta line.
+ * One rate window: the title, the bar, the percent and the reset on one line
+ * under the bar, then the pace meta line.
  * Budgets, the pace chart and the session forecast live in Settings.
  */
 export default function CardMetricRow({
@@ -59,6 +62,7 @@ export default function CardMetricRow({
   providerId,
   display,
   resetFormatMode,
+  barHeight = DEFAULT_BAR_HEIGHT,
 }: {
   title: string;
   snap: RateWindowSnapshot;
@@ -66,6 +70,7 @@ export default function CardMetricRow({
   providerId: string;
   display: MetricRowDisplay;
   resetFormatMode?: ResetTimeFormatMode;
+  barHeight?: number;
 }) {
   const { t } = useLocale();
   const {
@@ -145,19 +150,14 @@ export default function CardMetricRow({
   );
   return (
     <div className="menu-metric">
-      <div className="menu-metric__head">
-        <span className="menu-metric__title">
-          {title}
-          {row.percentText && (
-            <>
-              {" "}
-              <span className="menu-metric__percent">{row.percentText}</span>
-            </>
-          )}
-        </span>
-        {row.resetText && <span className="menu-metric__reset">{row.resetText}</span>}
-      </div>
-      <UsageProgressBar bar={row.bar} label={title} />
+      <span className="menu-metric__title">{title}</span>
+      <UsageProgressBar bar={row.bar} label={title} height={barHeight} />
+      {(row.percentText || row.resetText) && (
+        <div className="menu-metric__head">
+          {row.percentText && <span className="menu-metric__percent">{row.percentText}</span>}
+          {row.resetText && <span className="menu-metric__reset">{row.resetText}</span>}
+        </div>
+      )}
       {row.metaText && <div className="menu-metric__meta">{row.metaText}</div>}
       {!compactOverview && detailText && (
         <div className="menu-metric__detail">{detailText}</div>

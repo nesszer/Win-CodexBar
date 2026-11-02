@@ -9,6 +9,7 @@
 
 ## [Windows] Unreleased
 
+- Tray panel: a new look. The panel sits on a soft tinted surface with larger type. Provider tabs show an icon and a name over a quota underline, wrap to extra rows when many providers are on, and keep the dense icon grid beyond 18. Each quota row is a title, a thicker bar, then the percent used on the left and the reset on the right. Sections are set off by hairlines, and the daily-cost dashboard becomes a collapsible **Cost** section that opens from a two-line summary. The menu is text-only: shortcut hints and the Settings, About and Quit icons are gone, and About no longer carries the version.
 - Claude: when Claude Code signs out but keeps its login entry with blank tokens, Settings and the tray still list the saved Claude Code accounts, and Switch and Add account work again. Before, every account action failed with "Claude login is missing accessToken" and "No Claude Code accounts found", even though the accounts were saved.
 - Settings, light theme: usage bar tracks are a light grey instead of solid black, and the pace pills, the expected-pace marker and the cost and credits chart colors use their light values instead of the dark ones.
 - abliteration.ai: the total credits row is labeled "Total credits", so Settings > Visible usage items no longer lists "Credits" twice.
