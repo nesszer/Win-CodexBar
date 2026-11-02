@@ -42,8 +42,9 @@ use crate::cost_reporting_period::cost_bucket_zone;
 /// Codex turn id on source rows so Priority trace evidence can be matched.
 /// Version 7 keys ChatGPT-plan Auto-review requests apart (upstream #4452) so
 /// cached day aggregates from older parsers, which priced them as unpriced,
-/// are rebuilt. Rebuild older artifacts.
-pub(crate) const CODEX_CACHE_SCHEMA_VERSION: u32 = 7;
+/// are rebuilt. Version 8 rebuilds model pricing corrupted by source-row recovery across
+/// different reporting partitions. Rebuild older artifacts.
+pub(crate) const CODEX_CACHE_SCHEMA_VERSION: u32 = 8;
 
 /// Whether a persisted Codex cache artifact matches the current schema.
 /// A mismatched artifact (e.g. a pre-64-bit cache from an older release) is
