@@ -668,6 +668,41 @@ mod tests {
     }
 
     #[test]
+    fn usage_row_pace_follows_weekly_work_days() {
+        use chrono::{Datelike, Duration, Local, TimeZone, Utc};
+
+        use crate::core::{RateWindow, UsageSnapshot};
+
+        // A weekly window ending next local Monday 00:00, so Mon-Fri pace is
+        // ahead of linear pace at any instant inside it.
+        let today = Local::now().date_naive();
+        let next_monday =
+            today + Duration::days(7 - i64::from(today.weekday().num_days_from_monday()));
+        let reset = Local
+            .from_local_datetime(&next_monday.and_hms_opt(0, 0, 0).unwrap())
+            .single()
+            .unwrap()
+            .with_timezone(&Utc);
+        if reset - Utc::now() >= Duration::days(7) {
+            return; // Monday 00:00 exactly or a DST-shortened week.
+        }
+        let usage = UsageSnapshot::new(RateWindow::new(10.0)).with_secondary(
+            RateWindow::with_details(10.0, Some(10080), Some(reset), None),
+        );
+        let expected = |work_days: Option<u8>| {
+            usage_row(
+                ProviderId::Codex,
+                ProviderFetchResult::new(usage.clone(), "oauth"),
+                work_days,
+            )["pace"]["secondary"]["expectedUsedPercent"]
+                .as_f64()
+                .unwrap()
+        };
+
+        assert!(expected(Some(5)) > expected(None));
+    }
+
+    #[test]
     fn usage_rows_omit_pace_when_no_lane_has_one() {
         use crate::core::{RateWindow, UsageSnapshot};
 
