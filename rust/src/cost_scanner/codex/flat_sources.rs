@@ -446,6 +446,8 @@ mod tests {
                 mtime_unix_ms: 0,
                 prefix_hash: 0,
                 rows: Vec::new(),
+                scan_since_key: None,
+                scan_until_key: None,
             },
         );
         cache.codex_fork_rows.insert("from".to_string(), Vec::new());

@@ -26,7 +26,24 @@ afterEach(() => {
   delete (Element.prototype as Partial<Element>).scrollIntoView;
 });
 
+function tabLayoutFor(count: number) {
+  const many = Array.from({ length: count }, (_, i) => providerPlaceholder(`p${i}`, `P${i}`));
+  const { container, unmount } = render(
+    <ProviderGrid providers={many} selectedProviderId={null} showAsUsed={false} onSelect={() => {}} />,
+  );
+  const layout = container.querySelector(".provider-grid")?.getAttribute("data-tab-layout") ?? null;
+  unmount();
+  return layout;
+}
+
 describe("ProviderGrid", () => {
+  it("wraps labelled tabs once a single row would be narrower than a wrapped row", () => {
+    expect(tabLayoutFor(5)).toBe("row");
+    expect(tabLayoutFor(6)).toBe("wrap");
+    expect(tabLayoutFor(17)).toBe("wrap");
+    expect(tabLayoutFor(18)).toBeNull();
+  });
+
   it("scrolls the active item into view when the selection changes", () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
