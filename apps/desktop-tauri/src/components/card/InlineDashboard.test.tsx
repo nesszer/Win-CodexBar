@@ -16,6 +16,7 @@ vi.mock("../../hooks/useLocale", () => ({
 
 import InlineDashboard, { barHeight, barOpacity, summaryKpis } from "./InlineDashboard";
 import type { InlineDashboardModel } from "../../lib/inlineDashboard";
+import { inlineDashboardModel } from "../../lib/inlineDashboard";
 
 const model: InlineDashboardModel = {
   kpis: [
@@ -23,9 +24,9 @@ const model: InlineDashboardModel = {
     { title: "30d cost", value: "$25.42", emphasis: false },
   ],
   points: [
-    { date: "2026-10-09", value: 2, title: "2026-10-09: $2.00 · 10K tokens" },
-    { date: "2026-10-10", value: null, title: "2026-10-10" },
-    { date: "2026-10-11", value: 8, title: "2026-10-11: $8.00 · 40K tokens" },
+    { date: "2026-10-09", value: 2, hasUnpricedUsage: false, title: "2026-10-09: $2.00 · 10K tokens" },
+    { date: "2026-10-10", value: null, hasUnpricedUsage: false, title: "2026-10-10" },
+    { date: "2026-10-11", value: 8, hasUnpricedUsage: false, title: "2026-10-11: $8.00 · 40K tokens" },
   ],
   maxValue: 8,
   scaleLabel: "$8",
@@ -96,6 +97,27 @@ describe("summaryKpis", () => {
 });
 
 describe("InlineDashboard", () => {
+  it("keeps token usage visible when its day has no known price", () => {
+    const unpriced = inlineDashboardModel({
+      providerId: "codex",
+      summary: {
+        todayCost: null, thirtyDayCost: null, thirtyDayTokens: 1000,
+        periodCost: null, periodTokens: 1000, reportingPeriod: "rolling:30",
+        latestTokens: 1000, topModel: null, estimateNote: "", tokenCostUpdatedAtMs: 0,
+      },
+      costHistory: [{ date: "2026-10-21", value: null }],
+      tokensHistory: [{ date: "2026-10-21", tokens: 1000 }],
+      quotaHistory: null,
+      t: (key) => key === "UsageSpendUnpriced" ? "Unpriced" : key,
+    })!;
+    const { container } = renderExpanded(unpriced);
+    const bar = container.querySelector<HTMLElement>(".card-dash__bar")!;
+    expect(Number(bar.style.opacity)).toBeGreaterThan(0);
+    expect(parseFloat(bar.style.height)).toBeGreaterThanOrEqual(3);
+    expect(bar.title).toContain("Unpriced");
+    expect(bar.title).not.toContain("$0");
+  });
+
   it("starts collapsed with the Cost title and a two-line summary", () => {
     const { container } = render(<InlineDashboard model={model} />);
     const toggle = screen.getByRole("button", { name: /Cost/ });

@@ -303,6 +303,14 @@ pub struct CodexSourceRowCache {
     pub mtime_unix_ms: i64,
     pub prefix_hash: u64,
     pub rows: Vec<CodexSourceUsageRow>,
+    /// Reporting partition the rows were read for. Rows are filtered to that
+    /// partition, so they are recovery evidence only for the same range. Kept
+    /// per entry because a partial pass can replace some entries while the
+    /// cache-wide range keys still describe an earlier completed scan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_since_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_until_key: Option<String>,
 }
 
 /// Per-file usage tracking
