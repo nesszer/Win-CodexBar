@@ -28,8 +28,10 @@ use crate::cli::error_kind::{
     ERROR_KIND_TIMEOUT, ERROR_KIND_UNKNOWN, error_row, provider_error_row,
 };
 use crate::cli::fetch_context::populate_api_region_from_settings;
-use crate::cli::usage::ProviderSelection;
-use crate::core::{CostScanOptions, FetchContext, ProviderId, instantiate_provider};
+use crate::cli::usage::{ProviderSelection, usage_pace_json};
+use crate::core::{
+    CostScanOptions, FetchContext, ProviderFetchResult, ProviderId, instantiate_provider,
+};
 use crate::cost_reporting_period::CostReportingPeriod;
 use crate::cost_scanner::{self, CostScanner};
 use crate::settings::Settings;
@@ -142,7 +144,11 @@ pub(super) async fn usage_response(
         |provider_id| {
             let mut provider_ctx = ctx.clone();
             populate_api_region_from_settings(provider_id, &settings, &mut provider_ctx);
-            fetch_usage_row(provider_id, provider_ctx)
+            fetch_usage_row(
+                provider_id,
+                provider_ctx,
+                settings.weekly_progress_work_days,
+            )
         },
     )
     .await;
@@ -150,17 +156,36 @@ pub(super) async fn usage_response(
 }
 
 /// One provider's `/usage` row.
-async fn fetch_usage_row(provider_id: ProviderId, ctx: FetchContext) -> Value {
+async fn fetch_usage_row(
+    provider_id: ProviderId,
+    ctx: FetchContext,
+    pace_work_days: Option<u8>,
+) -> Value {
     let provider = instantiate_provider(provider_id);
     match provider.fetch_usage(&ctx).await {
-        Ok(result) => json!({
-            "provider": provider_id.cli_name(),
-            "source": result.source_label,
-            "usage": result.usage,
-            "cost": result.cost,
-        }),
+        Ok(result) => usage_row(provider_id, result, pace_work_days),
         Err(error) => provider_error_row(provider.as_ref(), &error),
     }
+}
+
+/// A successful `/usage` row. `pace` uses the same rules as `usage --json`
+/// and is omitted when no lane yields one.
+fn usage_row(
+    provider_id: ProviderId,
+    result: ProviderFetchResult,
+    pace_work_days: Option<u8>,
+) -> Value {
+    let pace = usage_pace_json(provider_id, &result.usage, pace_work_days);
+    let mut row = json!({
+        "provider": provider_id.cli_name(),
+        "source": result.source_label,
+        "usage": result.usage,
+        "cost": result.cost,
+    });
+    if let Some(pace) = pace {
+        row["pace"] = pace;
+    }
+    row
 }
 
 /// `/usage` rows in `providers` order (upstream `serveCollectUsageOutputs`).
@@ -615,6 +640,45 @@ mod tests {
                 "errorKind": "unknown",
             })
         );
+    }
+
+    #[test]
+    fn usage_rows_carry_the_usage_json_pace() {
+        use crate::core::{RateWindow, UsageSnapshot};
+
+        // A 7-day window with 3 days left is 4/7 of the way through.
+        let reset = chrono::Utc::now() + chrono::Duration::days(3);
+        let usage = UsageSnapshot::new(RateWindow::new(10.0)).with_secondary(
+            RateWindow::with_details(10.0, Some(10080), Some(reset), None),
+        );
+        let row = usage_row(
+            ProviderId::Codex,
+            ProviderFetchResult::new(usage, "oauth"),
+            None,
+        );
+
+        assert_eq!(row["provider"], "codex");
+        assert_eq!(row["source"], "oauth");
+        let secondary = &row["pace"]["secondary"];
+        let expected = secondary["expectedUsedPercent"].as_f64().expect("pace");
+        assert!((expected - 400.0 / 7.0).abs() < 0.1, "{expected}");
+        assert!(secondary["stage"].is_string());
+        assert!(secondary["willLastToReset"].is_boolean());
+        assert!(row["pace"]["primary"].is_null());
+    }
+
+    #[test]
+    fn usage_rows_omit_pace_when_no_lane_has_one() {
+        use crate::core::{RateWindow, UsageSnapshot};
+
+        let row = usage_row(
+            ProviderId::Codex,
+            ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(10.0)), "oauth"),
+            None,
+        );
+
+        assert!(row.get("pace").is_none(), "{row}");
+        assert!(row.get("usage").is_some());
     }
 
     #[test]
