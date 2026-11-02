@@ -16,6 +16,7 @@ function renderHandle(side: "left" | "right", width = 310, zoom = 1) {
   const onResizeStart = vi.fn();
   const onResize = vi.fn();
   const onResizeEnd = vi.fn();
+  const onResizeGestureEnd = vi.fn();
   render(
     <PanelResizeHandle
       side={side}
@@ -24,12 +25,13 @@ function renderHandle(side: "left" | "right", width = 310, zoom = 1) {
       onResizeStart={onResizeStart}
       onResize={onResize}
       onResizeEnd={onResizeEnd}
+      onResizeGestureEnd={onResizeGestureEnd}
     />,
   );
   const handle = screen.getByRole("separator", { name: "PanelResizeHandle" });
   // jsdom has no pointer capture.
   handle.setPointerCapture = vi.fn();
-  return { handle, onResizeStart, onResize, onResizeEnd };
+  return { handle, onResizeStart, onResize, onResizeEnd, onResizeGestureEnd };
 }
 
 describe("PanelResizeHandle", () => {
@@ -42,15 +44,26 @@ describe("PanelResizeHandle", () => {
   });
 
   it("widens when the left edge is dragged left, from the pointer's screen position", () => {
-    const { handle, onResizeStart, onResize, onResizeEnd } = renderHandle("left");
+    const { handle, onResizeStart, onResize, onResizeEnd, onResizeGestureEnd } = renderHandle("left");
     pointer(handle, "pointerdown", { screenX: 500, button: 0 });
     expect(onResizeStart).toHaveBeenCalledTimes(1);
     pointer(handle, "pointermove", { screenX: 440 });
     expect(onResize).toHaveBeenLastCalledWith(370);
     pointer(handle, "pointermove", { screenX: 400 });
     expect(onResize).toHaveBeenLastCalledWith(410);
+    expect(onResizeGestureEnd).not.toHaveBeenCalled();
     pointer(handle, "pointerup");
     expect(onResizeEnd).toHaveBeenCalledWith(410);
+    expect(onResizeGestureEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends the pointer gesture only from a drag, never from keys or a double-click", () => {
+    const { handle, onResizeEnd, onResizeGestureEnd } = renderHandle("left", 450);
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.doubleClick(handle);
+    pointer(handle, "pointerup");
+    expect(onResizeEnd).toHaveBeenCalledTimes(2);
+    expect(onResizeGestureEnd).not.toHaveBeenCalled();
   });
 
   it("widens when the right edge is dragged right and divides the drag by the Panel scale", () => {

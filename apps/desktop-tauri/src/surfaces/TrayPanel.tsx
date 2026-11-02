@@ -40,6 +40,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     handleResizeStart,
     handleResize,
     handleResizeEnd,
+    handleResizeGestureEnd,
     accentColor,
     sorted,
     gridProviders,
@@ -91,6 +92,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       onResizeStart={handleResizeStart}
       onResize={handleResize}
       onResizeEnd={handleResizeEnd}
+      onResizeGestureEnd={handleResizeGestureEnd}
     />
   ));
 

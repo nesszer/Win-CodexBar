@@ -390,7 +390,6 @@ export function useTrayPanelController(state: BootstrapState) {
   const handleResize = useCallback((width: number) => setDragWidth(width), []);
   const handleResizeEnd = useCallback(
     (width: number) => {
-      void endFlyoutGesture().catch(() => {});
       void update({ trayPanelWidth: width }).catch(() => {});
     },
     [update],
@@ -406,6 +405,7 @@ export function useTrayPanelController(state: BootstrapState) {
     handleResizeStart: handleGestureStart,
     handleResize,
     handleResizeEnd,
+    handleResizeGestureEnd: handleGestureEnd,
     isRefreshing,
     refreshingProviderIds,
     refresh,

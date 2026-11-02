@@ -37,11 +37,17 @@ function tabLayoutFor(count: number) {
 }
 
 describe("ProviderGrid", () => {
+  // Counts are providers; the grid adds the All item, so 5 providers fill the
+  // six-item row and 17 fill the eighteen-item wrap.
   it("wraps labelled tabs once a single row would be narrower than a wrapped row", () => {
+    expect(tabLayoutFor(4)).toBe("row");
     expect(tabLayoutFor(5)).toBe("row");
     expect(tabLayoutFor(6)).toBe("wrap");
+    expect(tabLayoutFor(7)).toBe("wrap");
+    expect(tabLayoutFor(16)).toBe("wrap");
     expect(tabLayoutFor(17)).toBe("wrap");
     expect(tabLayoutFor(18)).toBeNull();
+    expect(tabLayoutFor(19)).toBeNull();
   });
 
   it("scrolls the active item into view when the selection changes", () => {

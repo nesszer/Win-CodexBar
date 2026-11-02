@@ -22,6 +22,8 @@ interface PanelResizeHandleProps {
   onResize: (width: number) => void;
   /** The drag or key press settled on this width. */
   onResizeEnd: (width: number) => void;
+  /** A pointer drag finished; pairs with `onResizeStart`. Keys never call it. */
+  onResizeGestureEnd: () => void;
 }
 
 /**
@@ -37,6 +39,7 @@ export default function PanelResizeHandle({
   onResizeStart,
   onResize,
   onResizeEnd,
+  onResizeGestureEnd,
 }: PanelResizeHandleProps) {
   const { t } = useLocale();
   const drag = useRef<{ x: number; width: number; latest: number } | null>(null);
@@ -47,7 +50,9 @@ export default function PanelResizeHandle({
     const current = drag.current;
     drag.current = null;
     setActive(false);
-    if (current) onResizeEnd(current.latest);
+    if (!current) return;
+    onResizeGestureEnd();
+    onResizeEnd(current.latest);
   };
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {

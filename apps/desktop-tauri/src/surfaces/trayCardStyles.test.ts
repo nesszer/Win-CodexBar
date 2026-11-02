@@ -205,13 +205,14 @@ describe("modern tray stylesheet", () => {
     expect(surface).toContain("--mac-text-body-medium: 600 14px/18px");
   });
 
-  it("restyles the switcher: rounder pill and a tinted hover", () => {
+  it("restyles the switcher: rounder pill and a tinted hover that spares the active tab", () => {
     const item = ruleBlock(modern, `${MODERN} .provider-grid__item`);
     expect(item).toContain("border-radius: 8px");
     expect(item).toContain("transition: none");
-    expect(ruleBlock(modern, `${MODERN} .provider-grid__item:hover`)).toContain(
-      "rgba(40, 40, 110, 0.1)",
-    );
+    expect(
+      ruleBlock(modern, `${MODERN} .provider-grid__item:not(.provider-grid__item--active):hover`),
+    ).toContain("rgba(40, 40, 110, 0.1)");
+    expect(modern).not.toContain(`${MODERN} .provider-grid__item:hover`);
   });
 
   it("draws labelled tabs with a 3px quota underline", () => {

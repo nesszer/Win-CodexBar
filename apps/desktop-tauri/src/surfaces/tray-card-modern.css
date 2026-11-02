@@ -168,7 +168,7 @@
   transition: none;
 }
 
-.menu-surface--tray.menu-surface--modern .provider-grid__item:hover {
+.menu-surface--tray.menu-surface--modern .provider-grid__item:not(.provider-grid__item--active):hover {
   background: rgba(40, 40, 110, 0.1);
 }
 
