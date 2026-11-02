@@ -57,7 +57,7 @@ describe("ProviderGrid", () => {
     );
   });
 
-  it("lays out labelled tabs in one row up to eight items, wrapping up to eighteen", () => {
+  it("lays out labelled tabs in one row up to six items, wrapping up to eighteen", () => {
     const { container, rerender } = render(grid(null));
     const element = () => container.querySelector(".provider-grid");
     expect(element()).toHaveClass("provider-grid--tabs");
