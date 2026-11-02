@@ -194,6 +194,8 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     theme: "dark",
     windowScalePercent: 125,
     trayScalePercent: 100,
+    trayPanelStyle: "modern",
+    trayPanelWidth: 310,
     trayPanelAlwaysOnTop: false,
     powertoysStatusPipeEnabled: false,
     shareUsageWithCli: false,

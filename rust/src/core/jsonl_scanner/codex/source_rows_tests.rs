@@ -148,6 +148,34 @@ fn source_row_cache_rejects_changed_prefix_and_accepts_append() {
 }
 
 #[test]
+fn source_row_cache_is_evidence_only_for_the_range_it_was_read_for() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("session.jsonl");
+    std::fs::write(&path, b"row\n").unwrap();
+    let metadata = std::fs::metadata(&path).unwrap();
+    let range = |since: &str, until: &str| CostUsageDayRange {
+        since_key: since.to_string(),
+        until_key: until.to_string(),
+        scan_since_key: since.to_string(),
+        scan_until_key: until.to_string(),
+    };
+    let thirty_days = range("2026-09-24", "2026-10-23");
+    let one_day = range("2026-10-23", "2026-10-23");
+
+    let mut cached = row_cache(&path, &metadata, Vec::new()).expect("source cache");
+    assert!(
+        !cached.was_read_for(&thirty_days),
+        "legacy entry has no range"
+    );
+
+    cached.record_scan_range(&one_day);
+    assert!(cached.was_read_for(&one_day));
+    // A shorter pass that replaced this entry must not be read back as
+    // evidence for the longer window, whatever the cache-wide keys say.
+    assert!(!cached.was_read_for(&thirty_days));
+}
+
+#[test]
 fn source_row_cache_hashes_the_entire_cached_prefix() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("large-session.jsonl");

@@ -293,11 +293,11 @@ mod tests {
     }
 
     #[test]
-    fn tray_panel_width_matches_the_frontend_layout_base_width() {
-        let layout = include_str!("../../src/hooks/useTrayPanelLayout.ts");
+    fn tray_panel_width_matches_the_frontend_default_width() {
+        let scale = include_str!("../../src/lib/trayScale.ts");
         let width = SurfaceMode::TrayPanel.window_properties().width;
         assert_eq!(
-            f64::from(ts_integer_const(layout, "TRAY_BASE_WIDTH")),
+            f64::from(ts_integer_const(scale, "TRAY_PANEL_WIDTH_DEFAULT")),
             width
         );
     }

@@ -28,6 +28,35 @@ function Assert-NodeMajor {
     return $actualMajor
 }
 
+function Get-NodeSemVersion {
+    param([Parameter(Mandatory)][string]$Version)
+
+    if ($Version -notmatch '^v?(\d+)\.(\d+)\.(\d+)') {
+        throw "Could not parse Node version '$Version'."
+    }
+    return [version]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
+}
+
+function Test-NodeVersionAtLeast {
+    param(
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$Minimum
+    )
+
+    return (Get-NodeSemVersion $Version) -ge (Get-NodeSemVersion $Minimum)
+}
+
+function Assert-NodeVersionAtLeast {
+    param(
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$Minimum
+    )
+
+    if (-not (Test-NodeVersionAtLeast $Version $Minimum)) {
+        throw "Node $Minimum or newer is required; found $Version."
+    }
+}
+
 function Normalize-GitHubRepository {
     param([Parameter(Mandatory)][string]$Url)
 

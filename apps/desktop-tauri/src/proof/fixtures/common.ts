@@ -186,6 +186,8 @@ export function baseSettings(overrides: Partial<SettingsSnapshot> = {}): Setting
     theme: "dark",
     windowScalePercent: 100,
     trayScalePercent: 100,
+    trayPanelStyle: "modern",
+    trayPanelWidth: 310,
     trayPanelAlwaysOnTop: false,
     powertoysStatusPipeEnabled: false,
     shareUsageWithCli: false,

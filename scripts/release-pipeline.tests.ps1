@@ -31,6 +31,11 @@ function Assert-Throws {
 Assert-Equal (Get-NodeMajor 'v24.18.0') 24 'Node 24 major parsing'
 Assert-Equal (Assert-NodeMajor 'v24.18.0' 24) 24 'Node 24 requirement'
 Assert-Throws { Assert-NodeMajor 'v23.11.0' 24 } 'non-24 Node major rejected by release prerequisite'
+Assert-True (-not (Test-NodeVersionAtLeast 'v24.18.0' 'v24.22.1')) 'older Node 24 patch is below the minimum'
+Assert-True (Test-NodeVersionAtLeast 'v24.22.1' 'v24.22.1') 'the minimum Node version itself is accepted'
+Assert-True (Test-NodeVersionAtLeast 'v24.100.0' 'v24.22.1') 'Node minor versions compare numerically'
+Assert-Throws { Assert-NodeVersionAtLeast 'v24.18.0' 'v24.22.1' } 'vulnerable Node 24 patch rejected by release prerequisite'
+Assert-Throws { Get-NodeSemVersion 'node24' } 'unparsable Node version rejected'
 
 $prerequisiteText = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'install-release-prerequisites.ps1')
 Assert-True ($prerequisiteText -match '\$requiredNodeMajor\s*=\s*24') 'release prerequisite pins Node major 24'

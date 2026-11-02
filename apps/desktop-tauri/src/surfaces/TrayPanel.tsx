@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState, type CSSProperties } from "react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { BootstrapState, ProviderUsageSnapshot, UsageSpendSummary } from "../types/bridge";
 import type { LocaleKey } from "../i18n/keys";
 import { costPeriodShortLabel } from "../lib/costPeriod";
@@ -11,6 +12,7 @@ import MenuCard from "../components/MenuCard";
 import MenuSurface, { MenuEmpty } from "../components/MenuSurface";
 import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid from "../components/ProviderGrid";
+import PanelResizeHandle from "../components/PanelResizeHandle";
 import AgentSessions from "../components/AgentSessions";
 import { accentSelectionStyle } from "../lib/menuSelection";
 import { filterUsageSpendSummaryForOverview } from "../lib/usageSpendSharing";
@@ -33,6 +35,12 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     refreshingProviderIds,
     hasCachedData,
     trayScale,
+    panelStyle,
+    panelWidth,
+    handleResizeStart,
+    handleResize,
+    handleResizeEnd,
+    handleResizeGestureEnd,
     accentColor,
     sorted,
     gridProviders,
@@ -74,6 +82,19 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     ...accentSelectionStyle(accentColor),
   } as CSSProperties;
   const hoverHighlight = settings.highlightMenuCardsOnHover ?? true;
+
+  const resizeHandles = (["left", "right"] as const).map((side) => (
+    <PanelResizeHandle
+      key={side}
+      side={side}
+      width={panelWidth}
+      zoom={trayScale}
+      onResizeStart={handleResizeStart}
+      onResize={handleResize}
+      onResizeEnd={handleResizeEnd}
+      onResizeGestureEnd={handleResizeGestureEnd}
+    />
+  ));
 
   const banner = (
     <UpdateBanner
@@ -118,6 +139,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
             costTrackingEnabled: settings.costUsageEnabled ?? true,
             costReportingPeriod: settings.costReportingPeriod,
             accountScoped: entry?.accountId != null,
+            panelStyle,
           }}
           accentColor={settings.providerAccentColors[p.providerId]}
           onLayoutChange={requestLayout}
@@ -158,7 +180,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     return (
       <div className={revealClassName} data-theme="light">
         <MenuSurface banner={banner} footerGroups={footerGroups}
-          statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}>
+          statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}
+          variant={panelStyle}>
           {stayAwakeStatus}
           {settings.agentSessionsEnabled && <AgentSessions key={settings.agentSessionsLocalOnly ? "local-only" : "all-hosts"} />}
           <MenuEmpty
@@ -166,6 +189,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
             onSettings={openSettings}
           />
         </MenuSurface>
+        {resizeHandles}
       </div>
     );
   }
@@ -173,7 +197,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   return (
     <div className={revealClassName} data-theme="light">
       <MenuSurface banner={banner} footerGroups={footerGroups}
-        statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}>
+        statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}
+        variant={panelStyle}>
         {stayAwakeStatus}
         {settings.agentSessionsEnabled && <AgentSessions key={settings.agentSessionsLocalOnly ? "local-only" : "all-hosts"} />}
         <ProviderGrid
@@ -181,6 +206,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           selectedProviderId={selectedProviderId}
           showAsUsed={settings.showAsUsed}
           showProviderIcons={settings.switcherShowsIcons}
+          variant={panelStyle}
           expanded={gridExpanded}
           onExpandedChange={setGridExpanded}
           onSelect={handleGridClick}
@@ -206,6 +232,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           ))}
         </div>
       </MenuSurface>
+      {resizeHandles}
     </div>
   );
 }
@@ -251,11 +278,32 @@ function OverviewSpendSummary({
       setSummary(null);
       return () => { cancelled = true; };
     }
-    // No explicit period: the backend resolves the saved History window.
-    void getUsageSpendSummary()
-      .then((value) => { if (!cancelled) setSummary(value); })
-      .catch(() => { if (!cancelled) setSummary(null); });
-    return () => { cancelled = true; };
+    let request = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let unlisten: UnlistenFn | null = null;
+    const load = () => {
+      const current = ++request;
+      // No explicit period: the backend resolves the saved History window.
+      void getUsageSpendSummary()
+        .then((value) => { if (!cancelled && current === request) setSummary(value); })
+        .catch(() => { if (!cancelled && current === request) setSummary(null); });
+    };
+    // Subscribe before the first read so a publication that lands while the
+    // listener is registering still triggers a fresh read.
+    void listen("provider-updated", () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(load, 200);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    }).catch(() => {}).finally(() => {
+      if (!cancelled) load();
+    });
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      unlisten?.();
+    };
   }, [providerIds.join("|"), period, costTrackingEnabled]);
 
   // Overview consumes the same backend spend catalog as Usage & Spend. Do not

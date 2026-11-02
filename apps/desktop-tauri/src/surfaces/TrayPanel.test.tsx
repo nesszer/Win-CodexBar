@@ -190,6 +190,8 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     theme: "dark",
     windowScalePercent: 125,
     trayScalePercent: 100,
+    trayPanelStyle: "modern",
+    trayPanelWidth: 310,
     trayPanelAlwaysOnTop: false,
     powertoysStatusPipeEnabled: false,
     shareUsageWithCli: false,
@@ -551,6 +553,56 @@ describe("TrayPanel provider grid", () => {
     expect(container.querySelector("#card-claude")).not.toBeNull();
   });
 
+  it("updates Overview spend after provider publications without reopening the panel", async () => {
+    const summary = (amount: number) => ({
+      contract: {},
+      reportingPeriod: "rolling:7",
+      reportingDay: "2026-10-26",
+      dashboardTimezone: "UTC",
+      rows: [{
+        providerId: "codex", displayName: "Codex", periodCost: amount,
+        periodTokens: 100, currency: "USD", source: "local", includedInOverview: true,
+      }],
+    });
+    tauriMocks.getUsageSpendSummary.mockResolvedValue(summary(70.31));
+    renderTrayPanel([provider("codex", "Codex", 35)]);
+    expect(await screen.findByText("$70.31")).toBeInTheDocument();
+    const initialReads = tauriMocks.getUsageSpendSummary.mock.calls.length;
+    tauriMocks.getUsageSpendSummary.mockResolvedValue(summary(71.08));
+    act(() => {
+      emitEvent("provider-updated", provider("codex", "Codex", 36));
+      emitEvent("provider-updated", provider("codex", "Codex", 37));
+    });
+    expect(await screen.findByText("$71.08")).toBeInTheDocument();
+    expect(screen.queryByText("$70.31")).not.toBeInTheDocument();
+    expect(tauriMocks.getUsageSpendSummary).toHaveBeenCalledTimes(initialReads + 1);
+  });
+
+  it("does not let an older Overview scan overwrite newer spend", async () => {
+    const summary = (amount: number) => ({
+      contract: {}, reportingPeriod: "rolling:7", reportingDay: "2026-10-26",
+      dashboardTimezone: "UTC", rows: [{
+        providerId: "codex", displayName: "Codex", periodCost: amount,
+        periodTokens: 100, currency: "USD", source: "local", includedInOverview: true,
+      }],
+    });
+    tauriMocks.getUsageSpendSummary.mockResolvedValue(summary(70.31));
+    renderTrayPanel([provider("codex", "Codex", 35)]);
+    expect(await screen.findByText("$70.31")).toBeInTheDocument();
+    const initialReads = tauriMocks.getUsageSpendSummary.mock.calls.length;
+    let resolveOld!: (value: ReturnType<typeof summary>) => void;
+    tauriMocks.getUsageSpendSummary.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveOld = resolve; }),
+    ).mockResolvedValue(summary(71.08));
+    act(() => emitEvent("provider-updated", provider("codex", "Codex", 36)));
+    await waitFor(() => expect(tauriMocks.getUsageSpendSummary).toHaveBeenCalledTimes(initialReads + 1));
+    act(() => emitEvent("provider-updated", provider("codex", "Codex", 37)));
+    expect(await screen.findByText("$71.08")).toBeInTheDocument();
+    await act(async () => resolveOld(summary(70.50)));
+    expect(screen.getByText("$71.08")).toBeInTheDocument();
+    expect(screen.queryByText("$70.50")).not.toBeInTheDocument();
+  });
+
   it("dismisses the tray panel on unmodified Escape", async () => {
     const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
 
@@ -782,6 +834,7 @@ describe("TrayPanel provider grid", () => {
       buildBundle(
         {
           ActionRefresh: "更新",
+          CostTitle: "コスト",
           MenuAbout: "CodexBar について",
           MenuQuit: "終了",
           MenuSettings: "設定...",
@@ -828,8 +881,9 @@ describe("TrayPanel provider grid", () => {
     expect(container.querySelector(".provider-grid__item")?.textContent).toContain("すべて");
     expect(screen.getByText("更新")).toBeInTheDocument();
     expect(screen.getByText("設定...")).toBeInTheDocument();
-    expect(await screen.findByText("CodexBar について (v0.70.0)")).toBeInTheDocument();
+    expect(await screen.findByText("CodexBar について")).toBeInTheDocument();
     expect(screen.getByText("終了")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "コスト" }));
     expect(await screen.findByText("30日間のコスト")).toBeInTheDocument();
     expect(container.querySelector(".card-header__subtitle")?.textContent).toContain("日前");
     expect(screen.getByText("最新トークン")).toBeInTheDocument();
@@ -1166,7 +1220,7 @@ describe("TrayPanel provider grid", () => {
 
     const menu = await screen.findByRole("navigation", { name: "Menu" });
     expect(
-      await within(menu).findByRole("button", { name: "About CodexBar (v0.70.0)" }),
+      await within(menu).findByRole("button", { name: "About CodexBar" }),
     ).toBeInTheDocument();
 
     const surface = container.querySelector(".menu-surface");
@@ -1182,7 +1236,7 @@ describe("TrayPanel provider grid", () => {
     ).toEqual([
       ["RefreshCtrl+R", "Control+R"],
       ["Settings...Ctrl+,", "Control+,"],
-      ["About CodexBar (v0.70.0)", null],
+      ["About CodexBar", null],
       ["QuitCtrl+Q", "Control+Q"],
     ]);
     expect(tauriMocks.setSurfaceMode).not.toHaveBeenCalled();
@@ -1292,6 +1346,84 @@ describe("TrayPanel provider grid", () => {
       expect(setSize).toHaveBeenCalledWith(
         expect.objectContaining({ width: 310, height: 776 }),
       );
+    });
+  });
+
+  it("classic names the app version on About and tags the surface", async () => {
+    const { container } = renderTrayPanel(
+      [provider("claude", "Claude", 35), provider("codex", "Codex", 20)],
+      { trayPanelStyle: "classic" },
+    );
+
+    const menu = await screen.findByRole("navigation", { name: "Menu" });
+    expect(
+      await within(menu).findByRole("button", { name: "About CodexBar (v0.70.0)" }),
+    ).toBeInTheDocument();
+    expect(container.querySelector(".menu-surface--tray")).toHaveClass("menu-surface--classic");
+    expect(container.querySelector(".provider-grid")).not.toHaveClass("provider-grid--tabs");
+    expect(container.querySelector(".provider-grid__icon-overview")?.textContent).toBe("⊞");
+  });
+
+  it("sizes the native window from the saved panel width and Panel scale", async () => {
+    const setSize = vi.fn().mockResolvedValue(undefined);
+    windowMocks.getCurrentWindow.mockReturnValue({
+      setSize,
+      close: vi.fn().mockResolvedValue(undefined),
+      innerSize: vi.fn().mockResolvedValue({ width: 630, height: 200 }),
+    });
+
+    renderTrayPanel([provider("claude", "Claude", 35)], {
+      trayPanelWidth: 420,
+      trayScalePercent: 150,
+    });
+
+    await waitFor(() => {
+      expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 630 }));
+    });
+  });
+
+  it("previews a dragged width on the window and saves it when the drag ends", async () => {
+    const setSize = vi.fn().mockResolvedValue(undefined);
+    windowMocks.getCurrentWindow.mockReturnValue({
+      setSize,
+      close: vi.fn().mockResolvedValue(undefined),
+      innerSize: vi.fn().mockResolvedValue({ width: 310, height: 200 }),
+    });
+    tauriMocks.updateSettings.mockResolvedValue(settings({ trayPanelWidth: 380 }));
+    tauriMocks.beginFlyoutGesture.mockResolvedValue(undefined);
+    tauriMocks.endFlyoutGesture.mockResolvedValue(undefined);
+
+    const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
+    await waitFor(() => {
+      expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
+    });
+    const pointer = (target: Element, type: string, screenX = 0) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0, screenX });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      fireEvent(target, event);
+    };
+    const handle = container.querySelector<HTMLElement>(".panel-resize-handle--left")!;
+    handle.setPointerCapture = vi.fn();
+
+    pointer(handle, "pointerdown", 500);
+    expect(tauriMocks.beginFlyoutGesture).toHaveBeenCalled();
+    pointer(handle, "pointermove", 430);
+    await waitFor(() => {
+      expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 380 }));
+    });
+    expect(tauriMocks.updateSettings).not.toHaveBeenCalled();
+
+    pointer(handle, "pointerup");
+    await waitFor(() => {
+      expect(tauriMocks.updateSettings).toHaveBeenCalledWith({ trayPanelWidth: 380 });
+    });
+    expect(tauriMocks.endFlyoutGesture).toHaveBeenCalled();
+  });
+
+  it("offers a resize handle on each vertical edge, also in the empty state", async () => {
+    const { container } = renderTrayPanel([]);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".panel-resize-handle")).toHaveLength(2);
     });
   });
 

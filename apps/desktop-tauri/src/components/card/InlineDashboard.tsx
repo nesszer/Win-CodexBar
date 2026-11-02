@@ -1,6 +1,10 @@
-import { useState, type CSSProperties } from "react";
+import { useId, useState, type CSSProperties } from "react";
 import { useLocale } from "../../hooks/useLocale";
-import type { DashboardPoint, InlineDashboardModel } from "../../lib/inlineDashboard";
+import type {
+  DashboardKpi,
+  DashboardPoint,
+  InlineDashboardModel,
+} from "../../lib/inlineDashboard";
 
 /**
  * Upstream frames the chart at 58 px: a 13 px caption2 scale line, a 2 px gap,
@@ -54,12 +58,15 @@ function UsageBars({
           <span
             key={`${point.date}-${index}`}
             className={`card-dash__bar${hovered === index ? " card-dash__bar--selected" : ""}`}
-            data-empty={point.value == null ? "true" : undefined}
+            data-empty={point.value == null && !point.hasUnpricedUsage ? "true" : undefined}
+            data-unpriced={point.hasUnpricedUsage ? "true" : undefined}
             title={point.title}
             onMouseEnter={() => setHovered(index)}
             style={{
-              height: `${barHeight(point.value, maxValue)}px`,
-              opacity: barOpacity(point.value, maxValue),
+              height: `${point.hasUnpricedUsage ? 3 : barHeight(point.value, maxValue)}px`,
+              opacity: point.hasUnpricedUsage ? 0.55 : barOpacity(point.value, maxValue),
+              outline: point.hasUnpricedUsage ? "1px dashed currentColor" : undefined,
+              background: point.hasUnpricedUsage ? "transparent" : undefined,
             }}
           />
         ))}
@@ -68,15 +75,83 @@ function UsageBars({
   );
 }
 
+/** The model's six-KPI layout (a History window longer than the quota window). */
+const SIX_KPI_LAYOUT = 6;
+const SIX_KPI_HISTORY_INDEX = 4;
+
 /**
- * The card's inline usage dashboard (upstream `InlineUsageDashboardContent`):
- * a two-column KPI grid, a 58 px daily cost chart, recent quota windows and
- * short detail lines.
+ * Collapsed summary: today, then the selected History window. In the six-KPI
+ * layout that window follows the quota window's KPIs; elsewhere it is the
+ * second KPI.
  */
-export default function InlineDashboard({ model }: { model: InlineDashboardModel }) {
+export function summaryKpis(kpis: DashboardKpi[]): DashboardKpi[] {
+  const history = kpis.length === SIX_KPI_LAYOUT ? kpis[SIX_KPI_HISTORY_INDEX] : kpis[1];
+  return [kpis[0], history].filter((kpi): kpi is DashboardKpi => kpi != null);
+}
+
+/**
+ * The card's Cost section (upstream `InlineUsageDashboardContent`): a titled,
+ * collapsible block. Collapsed it summarises today and the History window;
+ * expanded it adds the two-column KPI grid, a 58 px daily cost chart, recent
+ * quota windows and short detail lines.
+ */
+export default function InlineDashboard({
+  model,
+  onToggle,
+  collapsible = true,
+}: {
+  model: InlineDashboardModel;
+  onToggle?: () => void;
+  /** The classic look shows the whole dashboard with no Cost toggle. */
+  collapsible?: boolean;
+}) {
   const { t } = useLocale();
+  const [expanded, setExpanded] = useState(false);
+  const bodyId = useId();
+  if (!collapsible) {
+    return (
+      <section className="card-dash">
+        <DashboardBody model={model} />
+      </section>
+    );
+  }
   return (
     <section className="card-dash">
+      <button
+        type="button"
+        className="card-dash__toggle"
+        aria-expanded={expanded}
+        aria-controls={bodyId}
+        onClick={() => {
+          setExpanded((value) => !value);
+          onToggle?.();
+        }}
+      >
+        <span className="card-dash__title">{t("CostTitle")}</span>
+        <svg className="card-dash__chevron" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 3.5L10.5 8L6 12.5" />
+        </svg>
+      </button>
+      {!expanded && (
+        <div className="card-dash__summary">
+          {summaryKpis(model.kpis).map((kpi) => (
+            <span className="card-dash__summary-line" key={kpi.title}>
+              {kpi.title}: {kpi.value}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="card-dash__body" id={bodyId} hidden={!expanded}>
+        {expanded && <DashboardBody model={model} />}
+      </div>
+    </section>
+  );
+}
+
+function DashboardBody({ model }: { model: InlineDashboardModel }) {
+  const { t } = useLocale();
+  return (
+    <>
       <div className="card-dash__kpis">
         {model.kpis.map((kpi) => (
           <div className="card-dash__kpi" key={kpi.title}>
@@ -116,6 +191,6 @@ export default function InlineDashboard({ model }: { model: InlineDashboardModel
           ))}
         </div>
       )}
-    </section>
+    </>
   );
 }

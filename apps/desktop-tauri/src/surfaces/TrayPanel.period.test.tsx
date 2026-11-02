@@ -95,6 +95,8 @@ const settings = {
   theme: "dark",
   windowScalePercent: 125,
   trayScalePercent: 100,
+  trayPanelStyle: "modern",
+  trayPanelWidth: 310,
   trayPanelAlwaysOnTop: false,
   providerMetrics: {},
   costSummaryDisplayStyle: "compact",

@@ -55,7 +55,7 @@ jobs:
             $pinnedRust = (Get-Content -Raw -LiteralPath 'scripts\circleci-pinned-rust.txt').Trim()
             & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path (Get-Location).Path 'scripts\run-circleci-pr-check.ps1') `
               -RustVersion $pinnedRust `
-              -NodeVersion '24.18.0' `
+              -NodeVersion '24.22.1' `
               -NodeMajor 24
             if ($LASTEXITCODE -ne 0) { throw "run-circleci-pr-check.ps1 failed with exit code $LASTEXITCODE" }
       - save_cache:
