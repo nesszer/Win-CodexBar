@@ -10,12 +10,13 @@ const providers = [
   providerPlaceholder("claude", "Claude"),
 ];
 
-function grid(selectedProviderId: string | null) {
+function grid(selectedProviderId: string | null, variant?: "classic" | "modern") {
   return (
     <ProviderGrid
       providers={providers}
       selectedProviderId={selectedProviderId}
       showAsUsed={false}
+      variant={variant}
       onSelect={() => {}}
     />
   );
@@ -36,11 +37,17 @@ function tabLayoutFor(count: number) {
 }
 
 describe("ProviderGrid", () => {
+  // Counts are providers; the grid adds the All item, so 5 providers fill the
+  // six-item row and 17 fill the eighteen-item wrap.
   it("wraps labelled tabs once a single row would be narrower than a wrapped row", () => {
+    expect(tabLayoutFor(4)).toBe("row");
     expect(tabLayoutFor(5)).toBe("row");
     expect(tabLayoutFor(6)).toBe("wrap");
+    expect(tabLayoutFor(7)).toBe("wrap");
+    expect(tabLayoutFor(16)).toBe("wrap");
     expect(tabLayoutFor(17)).toBe("wrap");
     expect(tabLayoutFor(18)).toBeNull();
+    expect(tabLayoutFor(19)).toBeNull();
   });
 
   it("scrolls the active item into view when the selection changes", () => {
@@ -54,5 +61,32 @@ describe("ProviderGrid", () => {
     expect(scrollIntoView.mock.contexts[0]).toBe(
       document.querySelector(".provider-grid__item--active"),
     );
+  });
+
+  it("lays out labelled tabs in one row up to six items, wrapping up to eighteen", () => {
+    const { container, rerender } = render(grid(null));
+    const element = () => container.querySelector(".provider-grid");
+    expect(element()).toHaveClass("provider-grid--tabs");
+    expect(element()).toHaveAttribute("data-tab-layout", "row");
+
+    const nine = Array.from({ length: 8 }, (_, i) => providerPlaceholder(`p${i}`, `P${i}`));
+    rerender(
+      <ProviderGrid providers={nine} selectedProviderId={null} showAsUsed={false} onSelect={() => {}} />,
+    );
+    expect(element()).toHaveAttribute("data-tab-layout", "wrap");
+
+    const many = Array.from({ length: 18 }, (_, i) => providerPlaceholder(`p${i}`, `P${i}`));
+    rerender(
+      <ProviderGrid providers={many} selectedProviderId={null} showAsUsed={false} onSelect={() => {}} />,
+    );
+    expect(element()).not.toHaveClass("provider-grid--tabs");
+  });
+
+  it("classic keeps the compact icon grid and the glyph for All", () => {
+    const { container } = render(grid(null, "classic"));
+    const element = container.querySelector(".provider-grid");
+    expect(element).not.toHaveClass("provider-grid--tabs");
+    expect(element).not.toHaveAttribute("data-tab-layout");
+    expect(container.querySelector(".provider-grid__icon-overview")?.textContent).toBe("⊞");
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { RateWindowSnapshot, WorkdayTickStyle } from "../../types/bridge";
+import type { RateWindowSnapshot, TrayPanelStyle, WorkdayTickStyle } from "../../types/bridge";
 import { useLocale } from "../../hooks/useLocale";
 import {
   useFormattedResetTime,
@@ -35,6 +35,8 @@ export interface MetricRowDisplay {
   quotaWarningMarkersVisible?: boolean;
   weeklyProgressWorkDays?: number | null;
   workdayTickStyle?: WorkdayTickStyle;
+  /** Settings > Menu > Panel look; defaults to modern. */
+  panelStyle?: TrayPanelStyle;
 }
 
 /** Bar thickness in px; the tray card passes a thicker bar. */
@@ -51,8 +53,9 @@ function useCountdownNow(ticking: boolean): number {
 }
 
 /**
- * One rate window: the title, the bar, the percent and the reset on one line
- * under the bar, then the pace meta line.
+ * One rate window. Modern: the title, the bar, the percent and the reset on
+ * one line under the bar, then the pace meta line. Classic: the title with the
+ * percent and the reset on one line, then the bar and the meta line.
  * Budgets, the pace chart and the session forecast live in Settings.
  */
 export default function CardMetricRow({
@@ -84,6 +87,7 @@ export default function CardMetricRow({
     quotaWarningMarkersVisible = true,
     weeklyProgressWorkDays = null,
     workdayTickStyle = "subtle",
+    panelStyle = "modern",
   } = display;
   // Upstream 0.69.0 #4091: a longer exhausted pool (Kimi's monthly membership)
   // blocks this window until the pool resets. Raw percentages stay untouched.
@@ -148,6 +152,33 @@ export default function CardMetricRow({
     },
     t,
   );
+  if (panelStyle === "classic") {
+    // Classic: the percent follows the title and the reset ends the same line.
+    return (
+      <div className="menu-metric">
+        <div className="menu-metric__head">
+          <span className="menu-metric__title">
+            {title}
+            {row.percentText && (
+              <>
+                {" "}
+                <span className="menu-metric__percent">{row.percentText}</span>
+              </>
+            )}
+          </span>
+          {row.resetText && <span className="menu-metric__reset">{row.resetText}</span>}
+        </div>
+        <UsageProgressBar bar={row.bar} label={title} />
+        {row.metaText && <div className="menu-metric__meta">{row.metaText}</div>}
+        {!compactOverview && detailText && (
+          <div className="menu-metric__detail">{detailText}</div>
+        )}
+        {!compactOverview && snap.isExhausted && (
+          <div className="menu-metric__exhausted">{t("DetailWindowExhausted")}</div>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="menu-metric">
       <span className="menu-metric__title">{title}</span>

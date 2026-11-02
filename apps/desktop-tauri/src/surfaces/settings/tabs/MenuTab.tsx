@@ -144,6 +144,18 @@ export default function MenuTab({ settings, set, saving }: TabProps) {
             onChange={(v) => set({ showResetWhenExhausted: v })}
           />
         </Field>
+        <Field label={t("PanelStyleLabel")} description={t("PanelStyleHelper")}>
+          <Select
+            variant="menu"
+            value={settings.trayPanelStyle === "classic" ? "classic" : "modern"}
+            disabled={saving}
+            options={[
+              { value: "modern", label: t("PanelStyleModern") },
+              { value: "classic", label: t("PanelStyleClassic") },
+            ]}
+            onChange={(v) => set({ trayPanelStyle: v === "classic" ? "classic" : "modern" })}
+          />
+        </Field>
         <Field
           label={`${t("PanelScaleLabel")} (${panelScale.draft}%)`}
           description={t("PanelScaleHelper")}

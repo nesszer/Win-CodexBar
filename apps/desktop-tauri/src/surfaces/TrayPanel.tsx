@@ -12,6 +12,7 @@ import MenuCard from "../components/MenuCard";
 import MenuSurface, { MenuEmpty } from "../components/MenuSurface";
 import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid from "../components/ProviderGrid";
+import PanelResizeHandle from "../components/PanelResizeHandle";
 import AgentSessions from "../components/AgentSessions";
 import { accentSelectionStyle } from "../lib/menuSelection";
 import { filterUsageSpendSummaryForOverview } from "../lib/usageSpendSharing";
@@ -34,6 +35,12 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     refreshingProviderIds,
     hasCachedData,
     trayScale,
+    panelStyle,
+    panelWidth,
+    handleResizeStart,
+    handleResize,
+    handleResizeEnd,
+    handleResizeGestureEnd,
     accentColor,
     sorted,
     gridProviders,
@@ -75,6 +82,19 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     ...accentSelectionStyle(accentColor),
   } as CSSProperties;
   const hoverHighlight = settings.highlightMenuCardsOnHover ?? true;
+
+  const resizeHandles = (["left", "right"] as const).map((side) => (
+    <PanelResizeHandle
+      key={side}
+      side={side}
+      width={panelWidth}
+      zoom={trayScale}
+      onResizeStart={handleResizeStart}
+      onResize={handleResize}
+      onResizeEnd={handleResizeEnd}
+      onResizeGestureEnd={handleResizeGestureEnd}
+    />
+  ));
 
   const banner = (
     <UpdateBanner
@@ -119,6 +139,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
             costTrackingEnabled: settings.costUsageEnabled ?? true,
             costReportingPeriod: settings.costReportingPeriod,
             accountScoped: entry?.accountId != null,
+            panelStyle,
           }}
           accentColor={settings.providerAccentColors[p.providerId]}
           onLayoutChange={requestLayout}
@@ -159,7 +180,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     return (
       <div className={revealClassName} data-theme="light">
         <MenuSurface banner={banner} footerGroups={footerGroups}
-          statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}>
+          statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}
+          variant={panelStyle}>
           {stayAwakeStatus}
           {settings.agentSessionsEnabled && <AgentSessions key={settings.agentSessionsLocalOnly ? "local-only" : "all-hosts"} />}
           <MenuEmpty
@@ -167,6 +189,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
             onSettings={openSettings}
           />
         </MenuSurface>
+        {resizeHandles}
       </div>
     );
   }
@@ -174,7 +197,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   return (
     <div className={revealClassName} data-theme="light">
       <MenuSurface banner={banner} footerGroups={footerGroups}
-        statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}>
+        statusLine={statusLine} style={surfaceStyle} hoverHighlight={hoverHighlight}
+        variant={panelStyle}>
         {stayAwakeStatus}
         {settings.agentSessionsEnabled && <AgentSessions key={settings.agentSessionsLocalOnly ? "local-only" : "all-hosts"} />}
         <ProviderGrid
@@ -182,6 +206,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           selectedProviderId={selectedProviderId}
           showAsUsed={settings.showAsUsed}
           showProviderIcons={settings.switcherShowsIcons}
+          variant={panelStyle}
           expanded={gridExpanded}
           onExpandedChange={setGridExpanded}
           onSelect={handleGridClick}
@@ -207,6 +232,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           ))}
         </div>
       </MenuSurface>
+      {resizeHandles}
     </div>
   );
 }

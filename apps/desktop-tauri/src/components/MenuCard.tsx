@@ -3,6 +3,7 @@ import type {
   CostSummaryDisplayStyle,
   ProviderChartData,
   ProviderUsageSnapshot,
+  TrayPanelStyle,
   UsageSpendSummary,
   WorkdayTickStyle,
 } from "../types/bridge";
@@ -59,6 +60,8 @@ export interface MenuCardDisplayOptions {
    * they are not read for such a row.
    */
   accountScoped?: boolean;
+  /** Settings > Menu > Panel look; defaults to modern. */
+  panelStyle?: TrayPanelStyle;
 }
 
 interface MenuCardProps {
@@ -176,6 +179,7 @@ export default function MenuCard({
     costTrackingEnabled = true,
     costReportingPeriod,
     accountScoped = false,
+    panelStyle = "modern",
   } = display;
   const { t, language } = useLocale();
   const provider = projectClaudeSections(reportedProvider.providerId, reportedProvider);
@@ -301,9 +305,13 @@ export default function MenuCard({
     quotaWarningMarkersVisible,
     weeklyProgressWorkDays,
     workdayTickStyle,
+    panelStyle,
   };
 
-  // Card sections in screen order; a hairline separates neighbouring sections.
+  // Card sections in screen order. Modern sets every neighbouring pair off with a
+  // hairline and puts the extra usage block before Cost; classic keeps the extra
+  // usage block last, set off by a single hairline.
+  const modern = panelStyle !== "classic";
   const sections: { key: string; node: ReactNode }[] = [];
   if (presence.hasMetrics || presence.planDateNote) {
     sections.push({
@@ -381,6 +389,7 @@ export default function MenuCard({
         <InlineDashboard
           model={dashboard}
           onToggle={() => requestAnimationFrame(() => onLayoutChange?.())}
+          collapsible={modern}
         />
       ),
     });
@@ -396,6 +405,13 @@ export default function MenuCard({
       ),
     });
   }
+
+  const ordered = modern
+    ? sections
+    : [
+        ...sections.filter((section) => section.key !== "extra-usage"),
+        ...sections.filter((section) => section.key === "extra-usage"),
+      ];
 
   const cardClassName = [
     "menu-card",
@@ -426,9 +442,14 @@ export default function MenuCard({
 
       {presence.hasDetails && (
         <div className="menu-card__content">
-          {sections.map((section, index) => (
+          {ordered.map((section, index) => (
             <Fragment key={section.key}>
-              {index > 0 && <div className="menu-card__separator" />}
+              {(modern
+                ? index > 0
+                : section.key === "extra-usage" &&
+                  ordered.slice(0, index).some((earlier) => earlier.key !== "wayfinder")) && (
+                <div className="menu-card__separator" />
+              )}
               {section.node}
             </Fragment>
           ))}

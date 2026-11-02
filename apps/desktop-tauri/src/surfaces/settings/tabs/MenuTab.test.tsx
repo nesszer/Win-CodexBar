@@ -32,6 +32,8 @@ const baseSettings = {
   stayAwakeEnabled: false,
   agentSessionSshHosts: [],
   trayScalePercent: 100,
+  trayPanelStyle: "modern",
+  trayPanelWidth: 310,
 } as unknown as SettingsSnapshot;
 
 function renderTab(overrides: Partial<SettingsSnapshot> = {}, set = vi.fn()) {
@@ -71,6 +73,14 @@ describe("MenuTab layout", () => {
       "WorkdayTickAppearanceLabel",
       "ResetTimesLabel",
     ]);
+  });
+
+  it("saves the Panel look from its picker", () => {
+    const { set } = renderTab();
+    expect(select("PanelStyleLabel").value).toBe("modern");
+    expect(optionLabels("PanelStyleLabel")).toEqual(["PanelStyleModern", "PanelStyleClassic"]);
+    fireEvent.change(select("PanelStyleLabel"), { target: { value: "classic" } });
+    expect(set).toHaveBeenCalledWith({ trayPanelStyle: "classic" });
   });
 
   it("offers the tray Panel scale as its only slider", () => {
