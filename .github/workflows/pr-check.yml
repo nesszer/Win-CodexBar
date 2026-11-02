@@ -53,7 +53,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24.18.0
+          node-version: 24.22.1
           cache: pnpm
           cache-dependency-path: apps/desktop-tauri/pnpm-lock.yaml
 

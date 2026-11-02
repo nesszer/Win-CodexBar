@@ -12,7 +12,7 @@
       absent it is installed from static.rust-lang.org with the adjacent
       official .sha256 file verified (Get-FileHash) before execution. Never
       `curl | iex`.
-    - Node: exact major pinned by -NodeVersion (and -NodeMajor), installed
+    - Node: exact version pinned by -NodeVersion (in major -NodeMajor), installed
       from the official nodejs.org MSI whose SHA-256 is verified against the
       official SHASUMS256.txt entry for that exact MSI before msiexec runs.
       The MSI installs into a dedicated per-version directory because the
@@ -36,7 +36,7 @@ param(
     # Exact Node version to install if the image does not already provide it.
     [Parameter(Mandatory)][string]$NodeVersion,
 
-    # Major of -NodeVersion; asserted against whatever Node is active.
+    # Major of -NodeVersion; must agree with it.
     [Parameter(Mandatory)][ValidateRange(1, 99)][int]$NodeMajor,
 
     # Repository root; defaults to the checkout this script lives in.
@@ -93,11 +93,11 @@ try {
     # Keep the image version available when the hosted image already provides
     # the required major and no MSI installation is needed.
     $installedNodeVersion = $imageNodeVersion
-    $activeNodeMajor = 0
-    if ($imageNodeVersion -match '^v(\d+)\.') { $activeNodeMajor = [int]$Matches[1] }
-    if ($activeNodeMajor -ne $NodeMajor) {
+    if (-not $NodeVersion.StartsWith("$NodeMajor.")) { throw "-NodeVersion $NodeVersion is not in major $NodeMajor." }
+    # An older patch of the same major can still carry a fixed CVE, so only the exact pin is accepted.
+    if ($imageNodeVersion -ne "v$NodeVersion") {
         $found = if ($imageNodeVersion) { $imageNodeVersion } else { 'none' }
-        Write-Host "Node $NodeMajor.x is required (image has $found); installing Node $NodeVersion via the official MSI (winget is not on the hosted image)."
+        Write-Host "Node $NodeVersion is required (image has $found); installing it via the official MSI (winget is not on the hosted image)."
         $msiName = "node-v$NodeVersion-x64.msi"
         $nodeMsi = Join-Path $env:TEMP $msiName
         & curl.exe -sSfL -o $nodeMsi "https://nodejs.org/dist/v$NodeVersion/$msiName"
@@ -118,8 +118,7 @@ try {
         $nodeExe = Join-Path $nodeDir 'node.exe'
         if (-not (Test-Path $nodeExe)) { throw 'node.exe is still unavailable after MSI provisioning.' }
         $installedNodeVersion = (& $nodeExe --version).Trim()
-        $activeNodeMajor = [int]($installedNodeVersion -replace '^v(\d+)\..*$', '$1')
-        if ($activeNodeMajor -ne $NodeMajor) { throw "Node $installedNodeVersion is installed; required major $NodeMajor." }
+        if ($installedNodeVersion -ne "v$NodeVersion") { throw "Node $installedNodeVersion is installed; required $NodeVersion." }
     }
     $env:Path = "$(if ($nodeDir) { "$nodeDir;" })$env:Path"
     Write-Host "[ok] Node $installedNodeVersion"
