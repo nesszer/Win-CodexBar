@@ -684,7 +684,16 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         if reset - Utc::now() >= Duration::days(7) {
-            return; // Monday 00:00 exactly or a DST-shortened week.
+            return; // Monday 00:00 exactly or a DST-lengthened week.
+        }
+        // A spring-forward week starts the 10080-minute window on Sunday
+        // 23:00 local, which linear pace counts and Mon-Fri pace doesn't.
+        let week_start = (reset - Duration::days(7)).with_timezone(&Local);
+        let local_monday = (next_monday - Duration::days(7))
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        if week_start.naive_local() != local_monday {
+            return;
         }
         let usage = UsageSnapshot::new(RateWindow::new(10.0)).with_secondary(
             RateWindow::with_details(10.0, Some(10080), Some(reset), None),
