@@ -5,7 +5,9 @@ import { getProviderIcon } from "./providers/providerIcons";
 import { useLocale } from "../hooks/useLocale";
 import { prioritizeProviders, switcherWeeklyPercent } from "./providerGridUtils";
 
-const TAB_ROW_MAX = 8;
+// Matches the six-per-row wrap layout, so a single-row tab is never narrower
+// than a wrapped one and labels keep the same room.
+const TAB_ROW_MAX = 6;
 const TAB_WRAP_MAX = 18;
 
 export default function ProviderGrid({
