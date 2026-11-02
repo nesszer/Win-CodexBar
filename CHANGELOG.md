@@ -9,6 +9,7 @@
 
 ## [Windows] Unreleased
 
+- Claude: when Claude Code signs out but keeps its login entry with blank tokens, Settings and the tray still list the saved Claude Code accounts, and Switch and Add account work again. Before, every account action failed with "Claude login is missing accessToken" and "No Claude Code accounts found", even though the accounts were saved.
 - Settings, light theme: usage bar tracks are a light grey instead of solid black, and the pace pills, the expected-pace marker and the cost and credits chart colors use their light values instead of the dark ones.
 - abliteration.ai: the total credits row is labeled "Total credits", so Settings > Visible usage items no longer lists "Credits" twice.
 - Codex: the Free plan's 30-day window gets pace, like a weekly window: the pace marker, "lasts until reset" and the daily target. A Plus account's monthly lane also shows pace now. Pace comes only from the window length Codex reports, never from the calendar month. (upstream #4766, #1043)
