@@ -91,6 +91,7 @@ const settings: SettingsSnapshot = {
   trayPanelStyle: "modern",
   trayPanelWidth: 310,
   trayPanelAlwaysOnTop: false,
+  trayPanelMovable: false,
   powertoysStatusPipeEnabled: false,
   shareUsageWithCli: false,
   hidePersonalInfo: false,

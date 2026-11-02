@@ -70,6 +70,7 @@ export function makeSettings(overrides: Partial<SettingsSnapshot> = {}): Setting
     trayPanelStyle: "modern",
     trayPanelWidth: 310,
     trayPanelAlwaysOnTop: false,
+    trayPanelMovable: false,
     powertoysStatusPipeEnabled: false,
     shareUsageWithCli: false,
     claudeAvoidKeychainPrompts: false,

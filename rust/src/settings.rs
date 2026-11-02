@@ -431,6 +431,13 @@ pub struct Settings {
     #[serde(default)]
     pub tray_panel_always_on_top: bool,
 
+    /// Let the user drag the tray flyout by the strip along its top. Away from
+    /// the tray it stays open like a window and reopens where they left it.
+    /// Disabled by default so the flyout stays anchored to the tray like the
+    /// Mac menu.
+    #[serde(default)]
+    pub tray_panel_movable: bool,
+
     /// Enable the local PowerToys Command Palette status pipe.
     #[serde(default)]
     pub powertoys_status_pipe_enabled: bool,
@@ -900,6 +907,7 @@ impl Default for Settings {
             tray_panel_style: default_tray_panel_style(),
             tray_panel_width: default_tray_panel_width(),
             tray_panel_always_on_top: false,
+            tray_panel_movable: false,
             powertoys_status_pipe_enabled: false,
             share_usage_with_cli: false,
             float_bar_enabled: false,

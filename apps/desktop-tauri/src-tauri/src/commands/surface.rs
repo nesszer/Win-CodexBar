@@ -28,6 +28,13 @@ pub fn dismiss_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
     crate::shell::flyout_window::hide(&app)
 }
 
+/// Forget where the user dragged the tray panel and anchor it to the tray
+/// again (double-click on the panel's move strip; Movable panel setting).
+#[tauri::command]
+pub fn reset_flyout_position(app: tauri::AppHandle) -> Result<(), String> {
+    crate::shell::flyout_window::reset_position(&app)
+}
+
 #[tauri::command]
 pub fn begin_flyout_gesture(app: tauri::AppHandle) -> Result<(), String> {
     let state = app

@@ -197,6 +197,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     trayPanelStyle: "modern",
     trayPanelWidth: 310,
     trayPanelAlwaysOnTop: false,
+    trayPanelMovable: false,
     powertoysStatusPipeEnabled: false,
     shareUsageWithCli: false,
     claudeAvoidKeychainPrompts: false,
