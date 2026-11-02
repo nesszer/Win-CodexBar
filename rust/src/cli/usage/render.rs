@@ -30,44 +30,15 @@ pub fn render_json_result(
     status: Option<&StatusInfo>,
     pace_work_days: Option<u8>,
 ) -> serde_json::Value {
-    let usage = &result.usage;
-    let primary_pace = lane_pace(provider_id, &usage.primary, pace_work_days, || {
-        usage
-            .primary
-            .window_minutes
-            .is_some_and(|m| m == crate::core::SESSION_WINDOW_MINUTES)
-            .then(|| {
-                UsagePace::weekly(
-                    &usage.primary,
-                    None,
-                    crate::core::SESSION_WINDOW_MINUTES,
-                    pace_work_days,
-                )
-            })
-            .flatten()
-    })
-    .map(pace_json);
-    let secondary_pace = usage
-        .secondary
-        .as_ref()
-        .and_then(|w| {
-            lane_pace(provider_id, w, pace_work_days, || {
-                UsagePace::weekly(w, None, w.window_minutes.unwrap_or(10080), pace_work_days)
-            })
-        })
-        .map(pace_json);
-
+    let pace = usage_pace_json(provider_id, &result.usage, pace_work_days);
     let mut json_result = serde_json::json!({
         "provider": provider_id.cli_name(),
         "source": result.source_label,
         "usage": result.usage,
         "cost": result.cost,
     });
-    if primary_pace.is_some() || secondary_pace.is_some() {
-        json_result["pace"] = serde_json::json!({
-            "primary": primary_pace,
-            "secondary": secondary_pace,
-        });
+    if let Some(pace) = pace {
+        json_result["pace"] = pace;
     }
 
     if !result.inventory.is_empty() {
@@ -116,6 +87,47 @@ pub fn render_json_result(
     }
 
     json_result
+}
+
+/// The optional `pace` object shared by `usage --json` rows and `serve`
+/// `/usage` rows. `None` when neither lane yields a pace.
+pub(in crate::cli) fn usage_pace_json(
+    provider_id: ProviderId,
+    usage: &UsageSnapshot,
+    pace_work_days: Option<u8>,
+) -> Option<serde_json::Value> {
+    let primary_pace = lane_pace(provider_id, &usage.primary, pace_work_days, || {
+        usage
+            .primary
+            .window_minutes
+            .is_some_and(|m| m == crate::core::SESSION_WINDOW_MINUTES)
+            .then(|| {
+                UsagePace::weekly(
+                    &usage.primary,
+                    None,
+                    crate::core::SESSION_WINDOW_MINUTES,
+                    pace_work_days,
+                )
+            })
+            .flatten()
+    })
+    .map(pace_json);
+    let secondary_pace = usage
+        .secondary
+        .as_ref()
+        .and_then(|w| {
+            lane_pace(provider_id, w, pace_work_days, || {
+                UsagePace::weekly(w, None, w.window_minutes.unwrap_or(10080), pace_work_days)
+            })
+        })
+        .map(pace_json);
+
+    (primary_pace.is_some() || secondary_pace.is_some()).then(|| {
+        serde_json::json!({
+            "primary": primary_pace,
+            "secondary": secondary_pace,
+        })
+    })
 }
 
 /// `{level, description}` status object shared by every usage JSON row.
