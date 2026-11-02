@@ -310,6 +310,17 @@ function Get-NodeInfoFallback {
     }
 }
 
+function Test-NodeInfoMeetsRequirement {
+    param(
+        $Info,
+        [Parameter(Mandatory)][int]$RequiredMajor,
+        [Parameter(Mandatory)][string]$MinimumVersion
+    )
+
+    if (-not $Info -or $Info.Major -ne $RequiredMajor) { return $false }
+    return Test-NodeVersionAtLeast $Info.Version $MinimumVersion
+}
+
 function Install-NodeMsiFallback {
     param([Parameter(Mandatory)][string]$Version)
 
@@ -365,9 +376,9 @@ function Install-NodeWithFallback {
         try {
             Install-WingetPackage $WingetId -Upgrade | Out-Null
             $info = Get-NodeInfoFallback
-            if ($info -and $info.Major -eq $RequiredMajor) { return }
+            if (Test-NodeInfoMeetsRequirement $info $RequiredMajor $Version) { return }
             $found = if ($info) { $info.Version } else { 'unavailable' }
-            $attempts.Add("winget: installed $found, expected major $RequiredMajor")
+            $attempts.Add("winget: installed $found, expected $Version or newer in major $RequiredMajor")
         } catch {
             $attempts.Add("winget: $($_.Exception.Message)")
         }
@@ -377,9 +388,9 @@ function Install-NodeWithFallback {
     try {
         Install-NodeMsiFallback $Version | Out-Null
         $info = Get-NodeInfoFallback
-        if ($info -and $info.Major -eq $RequiredMajor) { return }
+        if (Test-NodeInfoMeetsRequirement $info $RequiredMajor $Version) { return }
         $found = if ($info) { $info.Version } else { 'unavailable' }
-        $attempts.Add("MSI: installed $found, expected major $RequiredMajor")
+        $attempts.Add("MSI: installed $found, expected $Version or newer in major $RequiredMajor")
     } catch {
         $attempts.Add("MSI: $($_.Exception.Message)")
     }
@@ -387,9 +398,9 @@ function Install-NodeWithFallback {
         try {
             Install-ChocoPackageFallback 'nodejs-lts' | Out-Null
             $info = Get-NodeInfoFallback
-            if ($info -and $info.Major -eq $RequiredMajor) { return }
+            if (Test-NodeInfoMeetsRequirement $info $RequiredMajor $Version) { return }
             $found = if ($info) { $info.Version } else { 'unavailable' }
-            $attempts.Add("choco: installed $found, expected major $RequiredMajor")
+            $attempts.Add("choco: installed $found, expected $Version or newer in major $RequiredMajor")
         } catch {
             $attempts.Add("choco: $($_.Exception.Message)")
         }
@@ -399,13 +410,13 @@ function Install-NodeWithFallback {
     try {
         Install-NodeZipFallback $Version | Out-Null
         $info = Get-NodeInfoFallback
-        if ($info -and $info.Major -eq $RequiredMajor) { return }
+        if (Test-NodeInfoMeetsRequirement $info $RequiredMajor $Version) { return }
         $found = if ($info) { $info.Version } else { 'unavailable' }
-        $attempts.Add("zip: installed $found, expected major $RequiredMajor")
+        $attempts.Add("zip: installed $found, expected $Version or newer in major $RequiredMajor")
     } catch {
         $attempts.Add("zip: $($_.Exception.Message)")
     }
-    throw "Unable to provision Node $RequiredMajor.x. $($attempts -join '; ')"
+    throw "Unable to provision Node $Version or newer (major $RequiredMajor). $($attempts -join '; ')"
 }
 
 function Install-InnoSetupFallback {
@@ -479,11 +490,13 @@ Require-PrerequisiteCommand 'git' 'Git.Git' 'git' | Out-Null
 $requiredNodeMajor = 24
 $nodePackageId = 'OpenJS.NodeJS.LTS'
 $nodeFallbackVersion = 'v24.22.1'
+# Any older Node 24 on PATH still carries the Brotli CVE, so the major alone is not enough.
+$minimumNodeVersion = $nodeFallbackVersion
 $nodeInfo = Get-NodeInfoFallback
-if (-not $nodeInfo -or $nodeInfo.Major -ne $requiredNodeMajor) {
+if (-not (Test-NodeInfoMeetsRequirement $nodeInfo $requiredNodeMajor $minimumNodeVersion)) {
     if ($AssertOnly) {
         $found = if ($nodeInfo) { $nodeInfo.Version } else { 'unavailable' }
-        throw "Node $requiredNodeMajor.x is required; found $found."
+        throw "Node $minimumNodeVersion or newer (major $requiredNodeMajor) is required; found $found."
     }
     Install-NodeWithFallback $nodeFallbackVersion $nodePackageId $requiredNodeMajor
     $nodeInfo = Get-NodeInfoFallback
@@ -492,6 +505,7 @@ if (-not $nodeInfo) {
     throw "Required command 'node' is still unavailable after provisioning '$nodePackageId'."
 }
 Assert-NodeMajor $nodeInfo.Version $requiredNodeMajor | Out-Null
+Assert-NodeVersionAtLeast $nodeInfo.Version $minimumNodeVersion
 $nodeDirectory = Split-Path -Parent $nodeInfo.Path
 Add-PrerequisitePath $nodeDirectory
 Write-Host "[ok] Node $($nodeInfo.Version) (major $requiredNodeMajor)"
