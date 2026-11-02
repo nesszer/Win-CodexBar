@@ -107,6 +107,8 @@ export const SHELL_LOCALE_KEYS = [
   "FloatBarSizeAriaLabel",
   "FloatBarShowResetInline",
   "FloatBarShowResetInlineHelper",
+  "FloatBarShowWeekly",
+  "FloatBarShowWeeklyHelper",
   "FloatBarInvertColors",
   "FloatBarInvertColorsHelper",
   "FloatBarClickThrough",

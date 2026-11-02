@@ -526,6 +526,7 @@ fn float_bar_settings_round_trip_through_raw() {
         float_bar_dark_text: true,
         float_bar_show_reset_inline: true,
         float_bar_show_cost: true,
+        float_bar_show_weekly: true,
         ..Settings::default()
     };
 
@@ -540,6 +541,7 @@ fn float_bar_settings_round_trip_through_raw() {
     assert!(back.float_bar_dark_text);
     assert!(back.float_bar_show_reset_inline);
     assert!(back.float_bar_show_cost);
+    assert!(back.float_bar_show_weekly);
 }
 
 #[test]

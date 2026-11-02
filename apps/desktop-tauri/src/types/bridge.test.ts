@@ -145,6 +145,7 @@ describe("Language type", () => {
       floatBarDarkText: false,
       floatBarShowResetInline: false,
       floatBarShowCost: false,
+      floatBarShowWeekly: false,
       claudeDailyRoutinesUsageVisible: true,
       claudeAllowReadingClaudeCodeCredentials: false,
       alibabaTokenPlanRegion: "cn",

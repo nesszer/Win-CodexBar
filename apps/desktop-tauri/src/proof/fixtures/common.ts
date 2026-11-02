@@ -218,6 +218,7 @@ export function baseSettings(overrides: Partial<SettingsSnapshot> = {}): Setting
     floatBarDarkText: false,
     floatBarShowResetInline: true,
     floatBarShowCost: false,
+    floatBarShowWeekly: false,
     promoteTrayIcon: false,
     claudeDailyRoutinesUsageVisible: true,
     claudeAllowReadingClaudeCodeCredentials: true,
