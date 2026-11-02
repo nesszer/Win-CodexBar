@@ -222,6 +222,16 @@ pub fn reset_position(app: &AppHandle) -> Result<(), String> {
     if app.get_webview_window(FLYOUT_LABEL).is_none() {
         return Ok(());
     }
+    reanchor_to_tray(app)
+}
+
+/// Re-anchor next to the tray icon. A panel opened at the cursor would
+/// otherwise snap back beside that old cursor spot instead of the tray.
+fn reanchor_to_tray(app: &AppHandle) -> Result<(), String> {
+    app.state::<Mutex<AppState>>()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .flyout_cursor_anchor = None;
     reanchor(app)
 }
 
@@ -232,7 +242,7 @@ pub fn apply_movable(app: &AppHandle, settings: &Settings) {
     if settings.tray_panel_movable || !is_open(app) {
         return;
     }
-    if let Err(error) = reanchor(app) {
+    if let Err(error) = reanchor_to_tray(app) {
         tracing::warn!(%error, "failed to re-anchor the tray panel after Movable panel was turned off");
     }
 }
