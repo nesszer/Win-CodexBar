@@ -978,7 +978,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "按节点展示订阅开始和结束时间。结束时间优先采用订阅接口明确提供的到期时间，自动续费账号使用下一次续费时间，接口不可用时采用登录记录中的周期结束时间。登录记录可能滞后，续费时间和周期结束不代表账号届时停用。时间沿用仪表盘时区，默认浏览器本地时区；缺失时显示“未提供”。",
+      "description": "按节点展示订阅结束时间。优先采用订阅接口明确提供的到期时间，自动续费账号使用下一次续费时间，接口不可用时采用登录记录中的周期结束时间。登录记录可能滞后，续费时间和周期结束不代表账号届时停用。时间沿用仪表盘时区，默认浏览器本地时区；缺失时显示“未提供”。",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -990,32 +990,6 @@
           }
         },
         "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "订阅开始时间"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsIso"
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "options": {
-                      "0": {
-                        "color": "orange",
-                        "text": "未提供"
-                      }
-                    },
-                    "type": "value"
-                  }
-                ]
-              }
-            ]
-          },
           {
             "matcher": {
               "id": "byName",
@@ -1066,39 +1040,21 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(max by (instance) (codexbar_subscription_start_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "订阅开始时间",
-          "range": false,
-          "refId": "A"
-        },
-        {
-          "editorMode": "code",
           "expr": "((max by (instance) (codexbar_subscription_expiry_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) or on(instance) max by (instance) (codexbar_subscription_renewal_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) or on(instance) max by (instance) (codexbar_subscription_period_end_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"})) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
           "format": "table",
           "instant": true,
           "legendFormat": "订阅结束时间",
           "range": false,
-          "refId": "B"
+          "refId": "A"
         }
       ],
       "title": "Codex 订阅信息",
       "transformations": [
         {
-          "id": "joinByField",
-          "options": {
-            "byField": "instance",
-            "mode": "outer"
-          }
-        },
-        {
           "id": "organize",
           "options": {
             "excludeByName": {
               "Time": true,
-              "Time #A": true,
-              "Time #B": true,
               "__name__": true,
               "job": true,
               "monitor": true,
@@ -1106,13 +1062,11 @@
             },
             "indexByName": {
               "instance": 0,
-              "Value #A": 1,
-              "Value #B": 2
+              "Value": 1
             },
             "renameByName": {
               "instance": "节点",
-              "Value #A": "订阅开始时间",
-              "Value #B": "订阅结束时间"
+              "Value": "订阅结束时间"
             }
           }
         }

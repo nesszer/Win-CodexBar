@@ -78,19 +78,22 @@ class DashboardQueriesTest(unittest.TestCase):
         with self.assertRaises(json.JSONDecodeError):
             json.loads(expanded[len('up{instance=~'):-1])
 
-    def test_subscription_table_only_shows_start_and_end(self):
-        # 展示保持开始和结束两列，优先采用接口到期、续费日期，登录周期备用。
+    def test_subscription_table_only_shows_node_and_end(self):
+        # 单查询直接整理节点和结束时间，不再连接开始时间或保留其列映射。
         panel = next(panel for panel in self.dashboard["panels"] if panel.get("title") == "Codex 订阅信息")
-        self.assertEqual([target["refId"] for target in panel["targets"]], ["A", "B"])
-        end_query = panel["targets"][1]["expr"]
+        self.assertEqual([target["refId"] for target in panel["targets"]], ["A"])
+        end_query = panel["targets"][0]["expr"]
         self.assertLess(end_query.index("codexbar_subscription_expiry_timestamp_seconds"),
                         end_query.index("codexbar_subscription_renewal_timestamp_seconds"))
         self.assertLess(end_query.index("codexbar_subscription_renewal_timestamp_seconds"),
                         end_query.index("codexbar_subscription_period_end_timestamp_seconds"))
         self.assertIn("or on(instance)", end_query)
         self.assertNotIn("dates_from_id_token", end_query)
-        names = panel["transformations"][1]["options"]["renameByName"]
-        self.assertEqual(names, {"instance": "节点", "Value #A": "订阅开始时间", "Value #B": "订阅结束时间"})
+        self.assertEqual([step["id"] for step in panel["transformations"]], ["organize"])
+        names = panel["transformations"][0]["options"]["renameByName"]
+        self.assertEqual(names, {"instance": "节点", "Value": "订阅结束时间"})
+        self.assertNotIn("订阅开始时间", json.dumps(panel, ensure_ascii=False))
+        self.assertNotIn("codexbar_subscription_start_timestamp_seconds", end_query)
         self.assertIn("登录记录可能滞后", panel["description"])
 
 
