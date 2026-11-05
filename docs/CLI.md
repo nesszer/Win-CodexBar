@@ -323,6 +323,7 @@ What the metrics export:
 - Local Codex cost estimates, when available.
 - Codex OAuth reset credits as `codexbar_reset_credits_available{provider="codex"}` (`0` means used up, `-1` means unavailable or a PAT), and `codexbar_reset_credits_next_expiry_timestamp_seconds{provider="codex"}` when present. Reset-credit results, good or unavailable, are cached for ten minutes.
 - Codex 订阅开始和到期时间：`codexbar_subscription_start_timestamp_seconds{provider="codex"}` 对应 `startsAt`，`codexbar_subscription_expiry_timestamp_seconds{provider="codex"}` 对应 `expiresAt`，均为 Unix 秒时间戳。只导出现有采集结果中明确提供的日期；到期时间即使已过仍保留，未提供则省略样本，不以续费或额度重置时间代替。
+- 自动续费日期独立导出为 `codexbar_subscription_renewal_timestamp_seconds{provider="codex"}`，对应 `renewsAt`，不表示届时停用。Grafana 订阅表只显示节点和结束时间，依次采用接口到期日期、接口续费日期、登录记录中的周期结束日期。
 - 订阅接口不可用时，同账号 `id_token` 中明确记录的周期开始可作为开始时间的备用来源；周期结束独立输出为 `codexbar_subscription_period_end_timestamp_seconds`，不填入 `expiresAt`。`codexbar_subscription_dates_from_id_token` 的 `1` 表示登录记录、`0` 表示订阅接口；`codexbar_subscription_dates_recorded_timestamp_seconds` 标记登录记录时间。登录记录可能滞后，不是当前续费或取消状态；仅在 OAuth 用量成功、身份匹配、网页附加功能开启且使用标准 ChatGPT 后端时使用，不额外请求上游、不改动凭据。
 
 The metrics leave out unknown, informational, non-finite and dynamic additional-limit values. They never guess a value or use a sentinel. They don't expose account identity, display labels, source names, free-form provider errors or version strings. Alert on provider health, snapshot age and quota values together.
