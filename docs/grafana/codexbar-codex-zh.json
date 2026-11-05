@@ -978,7 +978,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "订阅接口成功时显示其明确提供的开始和到期时间。接口不可用时，可显示同账号登录凭据中明确记录的订阅开始和周期结束时间，日期来源标为“登录记录”；登录记录可能滞后，周期结束不表示已取消续费，也不保证届时停用。日期记录时间为该登录声明的签发时间，不是本次采集时间。缺失时显示“未提供”；时间沿用仪表盘时区，默认浏览器本地时区。",
+      "description": "按节点展示订阅开始和结束时间。结束时间优先采用订阅接口明确提供的到期时间，未提供时采用登录记录中的周期结束时间。登录记录可能滞后，周期结束不代表已取消续费或账号届时停用。时间沿用仪表盘时区，默认浏览器本地时区；缺失时显示“未提供”。",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1019,7 +1019,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "订阅到期时间"
+              "options": "订阅结束时间"
             },
             "properties": [
               {
@@ -1037,87 +1037,6 @@
                       }
                     },
                     "type": "value"
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "周期结束时间"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsIso"
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "options": {
-                      "0": {
-                        "color": "orange",
-                        "text": "未提供"
-                      }
-                    },
-                    "type": "value"
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "日期记录时间"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsIso"
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "options": {
-                      "0": {
-                        "color": "orange",
-                        "text": "未提供"
-                      }
-                    },
-                    "type": "value"
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "日期来源"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "订阅接口"
-                      },
-                      "1": {
-                        "text": "登录记录",
-                        "color": "orange"
-                      },
-                      "-1": {
-                        "text": "未提供",
-                        "color": "orange"
-                      }
-                    }
                   }
                 ]
               }
@@ -1156,39 +1075,12 @@
         },
         {
           "editorMode": "code",
-          "expr": "(max by (instance) (codexbar_subscription_expiry_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
+          "expr": "((max by (instance) (codexbar_subscription_expiry_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) or on(instance) max by (instance) (codexbar_subscription_period_end_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"})) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
           "format": "table",
           "instant": true,
-          "legendFormat": "订阅到期时间",
+          "legendFormat": "订阅结束时间",
           "range": false,
           "refId": "B"
-        },
-        {
-          "editorMode": "code",
-          "expr": "(max by (instance) (codexbar_subscription_period_end_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "周期结束时间",
-          "range": false,
-          "refId": "C"
-        },
-        {
-          "editorMode": "code",
-          "expr": "(max by (instance) (codexbar_subscription_dates_from_id_token{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"})) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0 - 1)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "日期来源",
-          "range": false,
-          "refId": "D"
-        },
-        {
-          "editorMode": "code",
-          "expr": "(max by (instance) (codexbar_subscription_dates_recorded_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "日期记录时间",
-          "range": false,
-          "refId": "E"
         }
       ],
       "title": "Codex 订阅信息",
@@ -1210,26 +1102,17 @@
               "__name__": true,
               "job": true,
               "monitor": true,
-              "provider": true,
-              "Time #C": true,
-              "Time #D": true,
-              "Time #E": true
+              "provider": true
             },
             "indexByName": {
               "instance": 0,
               "Value #A": 1,
-              "Value #C": 2,
-              "Value #B": 3,
-              "Value #D": 4,
-              "Value #E": 5
+              "Value #B": 2
             },
             "renameByName": {
-              "Value #A": "订阅开始时间",
-              "Value #B": "订阅到期时间",
               "instance": "节点",
-              "Value #C": "周期结束时间",
-              "Value #D": "日期来源",
-              "Value #E": "日期记录时间"
+              "Value #A": "订阅开始时间",
+              "Value #B": "订阅结束时间"
             }
           }
         }
@@ -1599,7 +1482,7 @@
   "timezone": "browser",
   "title": "CodexBar · Codex 监控",
   "uid": null,
-  "version": 2,
+  "version": 3,
   "weekStart": "",
   "description": "Codex 多节点中文监控：剩余额度、重置倒计时、重置卡与采集状态。适配上游固定窗口 ratio 指标。"
 }
