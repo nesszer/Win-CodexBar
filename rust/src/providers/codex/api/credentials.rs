@@ -1,5 +1,5 @@
 use super::CodexApi;
-use crate::core::ProviderError;
+use crate::core::{CredentialSubscriptionPeriod, ProviderError};
 use base64::Engine;
 use chrono::{DateTime, TimeZone, Utc};
 use std::path::PathBuf;
@@ -112,6 +112,7 @@ impl CodexApi {
                     access_token_expires_at: None,
                     last_refresh: None,
                     account_email: None,
+                    subscription_period: None,
                 });
             }
         }
@@ -153,6 +154,10 @@ impl CodexApi {
             .get("id_token")
             .and_then(|v| v.as_str())
             .and_then(crate::codex_accounts::credentials::email_from_id_token);
+        let subscription_period = tokens
+            .get("id_token")
+            .and_then(|value| value.as_str())
+            .and_then(|token| parse_id_token_subscription_period(token, account_id.as_deref()));
 
         Ok(CodexCredentials {
             access_token,
@@ -161,6 +166,7 @@ impl CodexApi {
             access_token_expires_at,
             last_refresh,
             account_email,
+            subscription_period,
         })
     }
 
@@ -259,6 +265,55 @@ pub(super) struct CodexCredentials {
     /// Account email from the auth.json `id_token` (claim `email`, or the
     /// OpenAI profile claim). Shown in the card header; never logged.
     pub(super) account_email: Option<String>,
+    /// 身份匹配的 id_token 中的显式周期，不包含原始令牌。
+    pub(super) subscription_period: Option<CredentialSubscriptionPeriod>,
+}
+
+fn parse_id_token_subscription_period(
+    token: &str,
+    account_id: Option<&str>,
+) -> Option<CredentialSubscriptionPeriod> {
+    // 只有完整 JWT 与当前凭据的账号一致才接受日期；不将本地解码当作签名验证。
+    // 调用方还必须成功获取同一凭据的用量，才会把这些历史声明用于监控。
+    let mut segments = token.split('.');
+    segments.next()?;
+    let payload = segments.next()?;
+    segments.next()?;
+    if segments.next().is_some() {
+        return None;
+    }
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(payload))
+        .ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    let auth = claims.get("https://api.openai.com/auth")?;
+    let expected = account_id.filter(|id| !id.is_empty())?;
+    if auth.get("chatgpt_account_id")?.as_str()? != expected {
+        return None;
+    }
+    let date = |key| match auth.get(key) {
+        None | Some(serde_json::Value::Null) => Some(None),
+        Some(serde_json::Value::String(raw)) => parse_timestamp(raw).map(Some),
+        _ => None,
+    };
+    let starts_at = date("chatgpt_subscription_active_start")?;
+    let ends_at = date("chatgpt_subscription_active_until")?;
+    if (starts_at.is_none() && ends_at.is_none())
+        || starts_at
+            .zip(ends_at)
+            .is_some_and(|(start, end)| end <= start)
+    {
+        return None;
+    }
+    Some(CredentialSubscriptionPeriod {
+        starts_at,
+        ends_at,
+        recorded_at: claims
+            .get("iat")
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|at| Utc.timestamp_opt(at, 0).single()),
+    })
 }
 
 struct CachedCodexCredentials {

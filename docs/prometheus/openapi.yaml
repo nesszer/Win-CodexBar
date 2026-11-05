@@ -10,6 +10,9 @@ paths:
       description: >-
         沿用服务的 Host 白名单和 Bearer 认证。订阅开始、到期时间为 Unix 秒时间戳；
         未取得日期时省略相应样本。自动续费日期不作为到期时间。
+        订阅接口不可用时可导出同账号登录凭据明确记录的周期；周期结束独立于到期时间。
+        dates_from_id_token 为 1 表示登录记录、0 表示订阅接口；登录记录可能滞后，
+        dates_recorded_timestamp_seconds 标记其签发时间，而非本次监控采集时间。
         服务尚无采集结果时返回 codexbar_up 0，不因抓取同步请求提供方。
       security:
         - bearerAuth: []

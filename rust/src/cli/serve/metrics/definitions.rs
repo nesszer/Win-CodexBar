@@ -104,11 +104,23 @@ pub(in crate::cli::serve::metrics) const METRIC_DEFINITIONS: &[(&str, &str)] = &
     // 订阅日期与重置卡有效期、额度重置时间分别建模，缺失时不输出样本。
     (
         "codexbar_subscription_start_timestamp_seconds",
-        "Codex 订阅开始时间的 Unix 秒时间戳，仅在接口明确提供时输出。",
+        "Codex 明确报告的订阅开始时间；来源由 dates_from_id_token 指标区分。",
     ),
     (
         "codexbar_subscription_expiry_timestamp_seconds",
         "Codex 订阅到期时间的 Unix 秒时间戳，包含已过期的日期。",
+    ),
+    (
+        "codexbar_subscription_period_end_timestamp_seconds",
+        "Codex 登录凭据记录的订阅周期结束时间，不代表已确认取消后的到期时间。",
+    ),
+    (
+        "codexbar_subscription_dates_recorded_timestamp_seconds",
+        "Codex 订阅周期声明记录时间（id_token iat），不是本次监控采集时间。",
+    ),
+    (
+        "codexbar_subscription_dates_from_id_token",
+        "Codex 订阅日期来源：1 为登录凭据记录，0 为订阅接口；无日期时省略。",
     ),
     (
         "codexbar_cost_last_30_days_usd",

@@ -12,6 +12,9 @@ mod credentials;
 mod parse;
 mod reset_credits;
 
+#[cfg(test)]
+mod subscription_period_tests;
+
 use credentials::CodexCredentials;
 use parse::format_plan_type;
 use reset_credits::apply_reset_credits_window;
@@ -97,6 +100,7 @@ impl CodexApi {
             &token,
             account_id.as_deref(),
             usage,
+            None,
         )
         .await;
         Ok((usage, cost, account_identity))
@@ -187,6 +191,7 @@ impl CodexApi {
                             &creds.access_token,
                             creds.account_id.as_deref(),
                             usage,
+                            creds.subscription_period.as_ref(),
                         )
                         .await;
                         let usage = with_credential_email(usage, &creds);
@@ -244,6 +249,7 @@ impl CodexApi {
             &creds.access_token,
             creds.account_id.as_deref(),
             usage,
+            creds.subscription_period.as_ref(),
         )
         .await;
         let usage = apply_reset_credits_window(usage, displayed_credits.as_ref());

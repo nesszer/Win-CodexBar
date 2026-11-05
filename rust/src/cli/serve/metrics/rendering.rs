@@ -133,6 +133,28 @@ pub(in crate::cli::serve::metrics) fn render_at(
                 expiry.timestamp(),
             )?;
         }
+        // 来源与记录时间使使用者能识别登录时的历史声明，数值不携带身份信息。
+        if let Some(end) = provider.subscription_period_end {
+            writer.sample(
+                "codexbar_subscription_period_end_timestamp_seconds",
+                &provider_labels,
+                end.timestamp(),
+            )?;
+        }
+        if let Some(recorded_at) = provider.subscription_recorded_at {
+            writer.sample(
+                "codexbar_subscription_dates_recorded_timestamp_seconds",
+                &provider_labels,
+                recorded_at.timestamp(),
+            )?;
+        }
+        if let Some(from_id_token) = provider.subscription_from_id_token {
+            writer.sample(
+                "codexbar_subscription_dates_from_id_token",
+                &provider_labels,
+                u8::from(from_id_token),
+            )?;
+        }
         if let Some(value) = provider.cost_today_usd {
             writer.sample_f64("codexbar_cost_today_usd", &provider_labels, value)?;
         }

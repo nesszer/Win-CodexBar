@@ -27,10 +27,19 @@ curl.exe -H "Authorization: Bearer %CODEXBAR_DASHBOARD_TOKEN%" http://YOUR_LAN_I
 | --- | --- | --- |
 | `startsAt` | `codexbar_subscription_start_timestamp_seconds{provider="codex"}` | 接口明确提供的订阅开始时间 |
 | `expiresAt` | `codexbar_subscription_expiry_timestamp_seconds{provider="codex"}` | 接口明确提供的订阅到期时间；已过期的日期仍保留 |
+| 登录记录中的周期终点 | `codexbar_subscription_period_end_timestamp_seconds{provider="codex"}` | `id_token` 明确提供的 `chatgpt_subscription_active_until`；不等于确认的取消续费到期时间 |
+| 日期来源 | `codexbar_subscription_dates_from_id_token{provider="codex"}` | `1` 为登录记录，`0` 为订阅接口；无日期时省略 |
+| 日期记录时间 | `codexbar_subscription_dates_recorded_timestamp_seconds{provider="codex"}` | 登录声明的签发时间 `iat`；不是监控采集时间 |
 
 指标值是 Unix 秒时间戳，Grafana 查询乘以 1000 后显示日期，时间沿用仪表盘时区（默认浏览器本地时区）。这些字段来自现有采集结果，抓取 `/metrics` 不会另外请求订阅接口。
 
-需开启设置中的“OpenAI 网页附加功能”（默认开启），并且当前账号能成功访问订阅接口。自动续费开启时，`active_until` 表示下一次续费时间 `renewsAt`，不会冒充到期时间；开始时间也只有接口明确提供时才有值。缺失、查询失败或不支持时，不输出相应时间戳样本，表格显示“未提供”；这不代表账号已过期。不要根据额度重置、重置卡有效期或续费时间推算订阅到期时间。
+需开启设置中的“OpenAI 网页附加功能”（默认开启）。订阅接口成功时始终优先，包括明确返回空订阅的情况。自动续费开启时，`active_until` 表示下一次续费时间 `renewsAt`，不会冒充到期时间。
+
+当订阅接口不可用时，OAuth 用量采集成功后可使用同一 `auth.json` 的 `id_token` 中明确记录的周期：`chatgpt_subscription_active_start` 作为开始时间，`chatgpt_subscription_active_until` 作为单独的“周期结束时间”。只有令牌声明的账号 ID 与当前凭据账号 ID 一致才接受；身份缺失、不匹配、日期格式错误或周期倒置时均忽略。PAT、API Key 和自定义后端不使用此降级来源。
+
+登录记录只反映令牌签发时的订阅周期，可能滞后，不能据此确认自动续费、取消订阅或当前订阅状态。面板显示“登录记录”和可用的日期记录时间；旧周期结束日期仍保留，不能仅凭它告警“账号已到期”。不读取或更改刷新令牌、不触发登录，不增加网络请求。新的周期信息在 Codex 自己更新凭据后随下一次正常采集读取。
+
+登录周期仅通过 `/metrics` 导出，不写入持久化或通用 `subscription.expiresAt` 字段，也不进入桌面订阅到期提示。未取得日期时省略对应样本，表格显示“未提供”；这不代表账号已过期。不要根据额度重置、重置卡有效期、JWT `exp` 或续费时间推算订阅到期时间。
 
 接口说明见 [OpenAPI 文档](openapi.yaml)。
 

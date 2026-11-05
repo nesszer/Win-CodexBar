@@ -26,6 +26,9 @@ pub(in crate::cli::serve::metrics) struct ProviderMetrics {
     pub(in crate::cli::serve::metrics) reset_credits_next_expiry: Option<DateTime<Utc>>,
     pub(in crate::cli::serve::metrics) subscription_start: Option<DateTime<Utc>>,
     pub(in crate::cli::serve::metrics) subscription_expiry: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_period_end: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_recorded_at: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_from_id_token: Option<bool>,
     pub(in crate::cli::serve::metrics) cost_today_usd: Option<f64>,
     pub(in crate::cli::serve::metrics) cost_last_30_days_usd: Option<f64>,
 }
@@ -104,11 +107,37 @@ impl MetricsSnapshot {
                         subscription_start: (id == ProviderId::Codex)
                             .then_some(result.usage.subscription.as_ref())
                             .flatten()
-                            .and_then(|subscription| subscription.starts_at),
+                            .and_then(|subscription| subscription.starts_at)
+                            .or_else(|| {
+                                (id == ProviderId::Codex && result.usage.subscription.is_none())
+                                    .then_some(result.usage.credential_subscription_period)
+                                    .flatten()
+                                    .and_then(|period| period.starts_at)
+                            }),
                         subscription_expiry: (id == ProviderId::Codex)
                             .then_some(result.usage.subscription.as_ref())
                             .flatten()
                             .and_then(|subscription| subscription.expires_at),
+                        // 周期终点独立导出，不能冒充取消续费后的订阅到期时间。
+                        subscription_period_end: (id == ProviderId::Codex
+                            && result.usage.subscription.is_none())
+                        .then_some(result.usage.credential_subscription_period)
+                        .flatten()
+                        .and_then(|period| period.ends_at),
+                        subscription_recorded_at: (id == ProviderId::Codex
+                            && result.usage.subscription.is_none())
+                        .then_some(result.usage.credential_subscription_period)
+                        .flatten()
+                        .and_then(|period| period.recorded_at),
+                        subscription_from_id_token: (id == ProviderId::Codex)
+                            .then(|| {
+                                if result.usage.subscription.is_some() {
+                                    Some(false)
+                                } else {
+                                    result.usage.credential_subscription_period.map(|_| true)
+                                }
+                            })
+                            .flatten(),
                         cost_today_usd,
                         cost_last_30_days_usd,
                     },
@@ -121,6 +150,9 @@ impl MetricsSnapshot {
                         reset_credits_next_expiry: None,
                         subscription_start: None,
                         subscription_expiry: None,
+                        subscription_period_end: None,
+                        subscription_recorded_at: None,
+                        subscription_from_id_token: None,
                         cost_today_usd,
                         cost_last_30_days_usd,
                     },
