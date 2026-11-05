@@ -33,3 +33,9 @@ curl.exe -H "Authorization: Bearer %CODEXBAR_DASHBOARD_TOKEN%" http://YOUR_LAN_I
 需开启设置中的“OpenAI 网页附加功能”（默认开启），并且当前账号能成功访问订阅接口。自动续费开启时，`active_until` 表示下一次续费时间 `renewsAt`，不会冒充到期时间；开始时间也只有接口明确提供时才有值。缺失、查询失败或不支持时，不输出相应时间戳样本，表格显示“未提供”；这不代表账号已过期。不要根据额度重置、重置卡有效期或续费时间推算订阅到期时间。
 
 接口说明见 [OpenAPI 文档](openapi.yaml)。
+
+## 面板查询校验
+
+节点和采集任务筛选使用 Prometheus 数据源默认插值 `${instance}`、`${job}`，由数据源同时处理正则和 PromQL 字符串的转义。不要在引号内改为通用 `${instance:regex}`、`${job:regex}`：Grafana 10.4.3 会为 IP 中的点生成单个反斜杠，导致 `unknown escape sequence`，单节点和“全部”筛选都可能失败。
+
+在仓库根目录运行 `python docs/grafana/test_queries.py`，验证单节点、多节点、全部节点和含点任务名的展开结果。此用例会先复现通用 `:regex` 格式的错误，再验证面板配置；发布前还应在实际 Grafana 中验证筛选和数据展示。

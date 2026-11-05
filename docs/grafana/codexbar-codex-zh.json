@@ -89,7 +89,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "min(up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "expr": "min(up{job=~\"${job}\",instance=~\"${instance}\"})",
           "instant": true,
           "legendFormat": "抓取",
           "range": false,
@@ -166,7 +166,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "min(codexbar_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "expr": "min(codexbar_up{job=~\"${job}\",instance=~\"${instance}\"})",
           "instant": true,
           "legendFormat": "指标生成",
           "range": false,
@@ -233,7 +233,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "max(codexbar_snapshot_age_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "expr": "max(codexbar_snapshot_age_seconds{job=~\"${job}\",instance=~\"${instance}\"})",
           "instant": true,
           "legendFormat": "指标数据年龄",
           "range": false,
@@ -310,7 +310,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "max(codexbar_snapshot_stale{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "expr": "max(codexbar_snapshot_stale{job=~\"${job}\",instance=~\"${instance}\"})",
           "instant": true,
           "legendFormat": "时效状态",
           "range": false,
@@ -380,7 +380,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "100 * sum(codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} * on(job, instance) group_left up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}) / clamp_min(count(up{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}), 1)",
+          "expr": "100 * sum(codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"} * on(job, instance) group_left up{job=~\"${job}\",instance=~\"${instance}\"}) / clamp_min(count(up{job=~\"${job}\",instance=~\"${instance}\"}), 1)",
           "instant": true,
           "legendFormat": "健康率",
           "range": false,
@@ -439,7 +439,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "max(codexbar_refresh_interval_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\"})",
+          "expr": "max(codexbar_refresh_interval_seconds{job=~\"${job}\",instance=~\"${instance}\"})",
           "instant": true,
           "legendFormat": "刷新间隔",
           "range": false,
@@ -512,7 +512,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "codexbar_quota_${window:raw}_remaining_ratio{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} * 100",
+          "expr": "codexbar_quota_${window:raw}_remaining_ratio{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"} * 100",
           "instant": true,
           "legendFormat": "{{instance}}",
           "range": false,
@@ -603,7 +603,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "codexbar_quota_${window:raw}_remaining_ratio{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} * 100",
+          "expr": "codexbar_quota_${window:raw}_remaining_ratio{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"} * 100",
           "hide": false,
           "legendFormat": "{{instance}} 剩余",
           "range": true,
@@ -726,7 +726,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "max by (instance) (codexbar_reset_credits_available{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"})",
+          "expr": "max by (instance) (codexbar_reset_credits_available{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"})",
           "format": "table",
           "instant": true,
           "legendFormat": "可用张数",
@@ -735,7 +735,7 @@
         },
         {
           "editorMode": "code",
-          "expr": "(max by (instance) (codexbar_reset_credits_next_expiry_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_reset_credits_available{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 0)",
+          "expr": "(max by (instance) (codexbar_reset_credits_next_expiry_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_reset_credits_available{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
           "format": "table",
           "instant": true,
           "legendFormat": "最近到期",
@@ -850,7 +850,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
+          "expr": "codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}",
           "format": "table",
           "instant": true,
           "legendFormat": "{{instance}} / {{provider}}",
@@ -964,7 +964,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "clamp_min(codexbar_quota_${window:raw}_reset_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"} - time(), 0) / 86400",
+          "expr": "clamp_min(codexbar_quota_${window:raw}_reset_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"} - time(), 0) / 86400",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -1066,7 +1066,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(max by (instance) (codexbar_subscription_start_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 0)",
+          "expr": "(max by (instance) (codexbar_subscription_start_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
           "format": "table",
           "instant": true,
           "legendFormat": "订阅开始时间",
@@ -1075,7 +1075,7 @@
         },
         {
           "editorMode": "code",
-          "expr": "(max by (instance) (codexbar_subscription_expiry_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 0)",
+          "expr": "(max by (instance) (codexbar_subscription_expiry_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}) * 0)",
           "format": "table",
           "instant": true,
           "legendFormat": "订阅到期时间",
@@ -1179,7 +1179,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "codexbar_cost_today_usd{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
+              "expr": "codexbar_cost_today_usd{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}",
               "instant": true,
               "legendFormat": "{{instance}} 今日",
               "range": false,
@@ -1187,7 +1187,7 @@
             },
             {
               "editorMode": "code",
-              "expr": "codexbar_cost_last_30_days_usd{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}",
+              "expr": "codexbar_cost_last_30_days_usd{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}",
               "instant": true,
               "legendFormat": "{{instance}} 近 30 天",
               "range": false,
@@ -1237,7 +1237,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "label_replace(codexbar_snapshot_schema_version{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}, \"metric\", \"数据结构版本\", \"\", \"\") or label_replace(codexbar_snapshot_generated_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}, \"metric\", \"指标生成时间\", \"\", \"\") or label_replace(codexbar_snapshot_stale_after_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\"}, \"metric\", \"指标过期阈值\", \"\", \"\")",
+              "expr": "label_replace(codexbar_snapshot_schema_version{job=~\"${job}\",instance=~\"${instance}\"}, \"metric\", \"数据结构版本\", \"\", \"\") or label_replace(codexbar_snapshot_generated_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\"}, \"metric\", \"指标生成时间\", \"\", \"\") or label_replace(codexbar_snapshot_stale_after_seconds{job=~\"${job}\",instance=~\"${instance}\"}, \"metric\", \"指标过期阈值\", \"\", \"\")",
               "instant": true,
               "legendFormat": "{{instance}} / {{metric}}",
               "range": false,
@@ -1312,7 +1312,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "label_replace(codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}, \"metric\", \"采集状态\", \"\", \"\") or label_replace(codexbar_provider_data_age_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}, \"metric\", \"数据年龄\", \"\", \"\") or label_replace(codexbar_provider_updated_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}, \"metric\", \"数据更新时间\", \"\", \"\")",
+              "expr": "label_replace(codexbar_provider_up{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}, \"metric\", \"采集状态\", \"\", \"\") or label_replace(codexbar_provider_data_age_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}, \"metric\", \"数据年龄\", \"\", \"\") or label_replace(codexbar_provider_updated_timestamp_seconds{job=~\"${job}\",instance=~\"${instance}\",provider=\"codex\"}, \"metric\", \"数据更新时间\", \"\", \"\")",
               "instant": true,
               "legendFormat": "{{instance}} / {{provider}} / {{metric}}",
               "range": false,
@@ -1415,7 +1415,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(codexbar_provider_up{provider=\"codex\",job=~\"${job:regex}\"},instance)",
+        "definition": "label_values(codexbar_provider_up{provider=\"codex\",job=~\"${job}\"},instance)",
         "hide": 0,
         "includeAll": true,
         "label": "节点",
@@ -1423,7 +1423,7 @@
         "name": "instance",
         "options": [],
         "query": {
-          "query": "label_values(codexbar_provider_up{provider=\"codex\",job=~\"${job:regex}\"},instance)",
+          "query": "label_values(codexbar_provider_up{provider=\"codex\",job=~\"${job}\"},instance)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,
