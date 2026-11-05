@@ -79,11 +79,13 @@ class DashboardQueriesTest(unittest.TestCase):
             json.loads(expanded[len('up{instance=~'):-1])
 
     def test_subscription_table_only_shows_start_and_end(self):
-        # 展示合并为开始和结束两列，保留接口到期优先、登录周期备用的语义。
+        # 展示保持开始和结束两列，优先采用接口到期、续费日期，登录周期备用。
         panel = next(panel for panel in self.dashboard["panels"] if panel.get("title") == "Codex 订阅信息")
         self.assertEqual([target["refId"] for target in panel["targets"]], ["A", "B"])
         end_query = panel["targets"][1]["expr"]
         self.assertLess(end_query.index("codexbar_subscription_expiry_timestamp_seconds"),
+                        end_query.index("codexbar_subscription_renewal_timestamp_seconds"))
+        self.assertLess(end_query.index("codexbar_subscription_renewal_timestamp_seconds"),
                         end_query.index("codexbar_subscription_period_end_timestamp_seconds"))
         self.assertIn("or on(instance)", end_query)
         self.assertNotIn("dates_from_id_token", end_query)

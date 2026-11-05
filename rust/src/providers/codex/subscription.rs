@@ -52,7 +52,7 @@ async fn fetch_subscription_metadata(
     access_token: &str,
     account_id: Option<&str>,
 ) -> OpenAISubscriptionFetchResult {
-    let request = api
+    let mut request = api
         .authed_get(
             &format!("{}{}", base_url.trim_end_matches('/'), SUBSCRIPTION_PATH),
             access_token,
@@ -61,6 +61,10 @@ async fn fetch_subscription_metadata(
         .header("Cache-Control", "no-cache, no-store, max-age=0")
         .header("Pragma", "no-cache")
         .timeout(Duration::from_secs(8));
+    // 订阅接口同时要求账号查询参数；由 reqwest 编码，保持与请求头的账号一致。
+    if let Some(account_id) = account_id.filter(|id| !id.is_empty()) {
+        request = request.query(&[("account_id", account_id)]);
+    }
     let response = match request.send().await {
         Ok(response) => response,
         Err(error) => {
@@ -93,4 +97,57 @@ pub(super) fn is_subscription_authority(base_url: &str) -> bool {
             && url.query().is_none()
             && url.fragment().is_none()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn subscription_account_query_returns_live_renewal_and_replaces_old_period() {
+        // 复现 184 的响应形状：查询参数必填，自动续费日优先于旧登录周期。
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/subscriptions")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "account_id".into(),
+                "account-test+id&x=1/?".into(),
+            ))
+            .match_header("chatgpt-account-id", "account-test+id&x=1/?")
+            .match_header("authorization", "Bearer synthetic-token")
+            .with_status(200)
+            .with_body(r#"{"active_until":"2026-12-01T04:55:35Z","will_renew":true}"#)
+            .create_async()
+            .await;
+        let api = CodexApi {
+            client: reqwest::Client::builder().no_proxy().build().unwrap(),
+            home_dir: std::path::PathBuf::new(),
+            codex_home_override: None,
+        };
+        let result = fetch_subscription_metadata(
+            &api,
+            &server.url(),
+            "synthetic-token",
+            Some("account-test+id&x=1/?"),
+        )
+        .await;
+        let period = CredentialSubscriptionPeriod {
+            starts_at: None,
+            ends_at: Some("2026-10-01T03:17:52Z".parse().unwrap()),
+            recorded_at: None,
+        };
+        let usage = apply_subscription_result(
+            UsageSnapshot::new(crate::core::RateWindow::new(10.0)),
+            result,
+            Some(&period),
+        );
+        let subscription = usage.subscription.expect("实时订阅日期");
+        assert_eq!(
+            subscription.renews_at.unwrap().to_rfc3339(),
+            "2026-12-01T04:55:35+00:00"
+        );
+        assert!(subscription.expires_at.is_none());
+        assert!(usage.credential_subscription_period.is_none());
+        mock.assert_async().await;
+    }
 }

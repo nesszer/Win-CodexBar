@@ -231,6 +231,59 @@ fn subscription_dates_export_explicit_start_and_expiry_even_after_expiration() {
 }
 
 #[test]
+fn subscription_renewal_exports_live_date_without_old_period_or_false_expiry() {
+    use crate::providers::openai::{
+        OpenAISubscriptionFetchResult, parse_subscription_http_response,
+    };
+
+    // 184 的实时 active_until 表示下一次续费，旧 id_token 的 10 月周期不能继续展示。
+    let OpenAISubscriptionFetchResult::Success(metadata) = parse_subscription_http_response(
+        200,
+        r#"{"active_until":"2026-12-01T04:55:35Z","will_renew":true}"#,
+    ) else {
+        panic!("有效的订阅响应");
+    };
+    let mut codex_usage = usage(RateWindow::new(10.0)).with_subscription(metadata);
+    codex_usage.credential_subscription_period = Some(crate::core::CredentialSubscriptionPeriod {
+        starts_at: None,
+        ends_at: Some("2026-10-01T03:17:52Z".parse().unwrap()),
+        recorded_at: None,
+    });
+    let body = render_at(
+        &metrics_snapshot(
+            vec![
+                provider(
+                    "codex",
+                    Ok(ProviderFetchResult::new(codex_usage.clone(), "oauth")),
+                ),
+                provider("claude", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
+            ],
+            HashMap::new(),
+        ),
+        at(2),
+    )
+    .unwrap();
+    let renewal = "codexbar_subscription_renewal_timestamp_seconds";
+    let expected: chrono::DateTime<Utc> = "2026-12-01T04:55:35Z".parse().unwrap();
+    assert_eq!(
+        samples(&body, renewal).collect::<Vec<_>>(),
+        vec![format!(
+            "{renewal}{{provider=\"codex\"}} {}",
+            expected.timestamp()
+        )]
+    );
+    assert!(body.contains(&format!("# TYPE {renewal} gauge\n")));
+    for name in [
+        "codexbar_subscription_expiry_timestamp_seconds",
+        "codexbar_subscription_period_end_timestamp_seconds",
+        "codexbar_subscription_start_timestamp_seconds",
+    ] {
+        assert_eq!(samples(&body, name).count(), 0);
+    }
+    assert!(body.contains("codexbar_subscription_dates_from_id_token{provider=\"codex\"} 0\n"));
+}
+
+#[test]
 fn subscription_dates_do_not_infer_expiry_from_renewal_or_quota_reset() {
     // 自动续费日期和额度重置日期都不能代替订阅到期时间。
     for subscription in [

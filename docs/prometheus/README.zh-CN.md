@@ -21,19 +21,22 @@ curl.exe -H "Authorization: Bearer %CODEXBAR_DASHBOARD_TOKEN%" http://YOUR_LAN_I
 
 ## 订阅开始和到期时间
 
-“Codex 订阅信息”表仅显示“节点、订阅开始时间、订阅结束时间”三列，独立于额度窗口筛选。结束时间优先使用接口明确提供的到期时间，未提供时使用登录记录中的周期结束时间；登录记录可能滞后，具体含义在表格说明中提示。指标仍分别保留以下字段，供需要详细信息的查询使用：
+“Codex 订阅信息”表仅显示“节点、订阅开始时间、订阅结束时间”三列，独立于额度窗口筛选。结束时间按“接口到期时间 → 接口续费时间 → 登录记录中的周期结束时间”取值；自动续费账号显示下一次续费日期，不表示届时停用。登录记录可能滞后，具体含义在表格说明中提示。指标仍分别保留以下字段，供需要详细信息的查询使用：
 
 | 订阅字段 | Prometheus 指标 | 含义 |
 | --- | --- | --- |
 | `startsAt` | `codexbar_subscription_start_timestamp_seconds{provider="codex"}` | 接口明确提供的订阅开始时间 |
 | `expiresAt` | `codexbar_subscription_expiry_timestamp_seconds{provider="codex"}` | 接口明确提供的订阅到期时间；已过期的日期仍保留 |
+| `renewsAt` | `codexbar_subscription_renewal_timestamp_seconds{provider="codex"}` | 自动续费账号下一次续费时间；独立于到期时间 |
 | 登录记录中的周期终点 | `codexbar_subscription_period_end_timestamp_seconds{provider="codex"}` | `id_token` 明确提供的 `chatgpt_subscription_active_until`；不等于确认的取消续费到期时间 |
 | 日期来源 | `codexbar_subscription_dates_from_id_token{provider="codex"}` | `1` 为登录记录，`0` 为订阅接口；无日期时省略 |
 | 日期记录时间 | `codexbar_subscription_dates_recorded_timestamp_seconds{provider="codex"}` | 登录声明的签发时间 `iat`；不是监控采集时间 |
 
 指标值是 Unix 秒时间戳，Grafana 查询乘以 1000 后显示日期，时间沿用仪表盘时区（默认浏览器本地时区）。这些字段来自现有采集结果，抓取 `/metrics` 不会另外请求订阅接口。
 
-需开启设置中的“OpenAI 网页附加功能”（默认开启）。订阅接口成功时始终优先，包括明确返回空订阅的情况。自动续费开启时，`active_until` 表示下一次续费时间 `renewsAt`，不会冒充到期时间。
+需开启设置中的“OpenAI 网页附加功能”（默认开启）。订阅查询使用现有 OAuth 凭据，在 `/backend-api/subscriptions` 同时传入 URL 编码后的 `account_id` 查询参数与相同的 `ChatGPT-Account-Id` 请求头；CLI 和托管账号路径一致。仅传请求头可能返回 HTTP 400。查询保留 8 秒超时及失败降级，不新增抓取请求或凭据刷新。
+
+订阅接口成功时始终优先，包括明确返回空订阅的情况。自动续费开启时，`active_until` 表示下一次续费时间 `renewsAt`，不会冒充 `expiresAt`；面板会使用独立的续费指标，避免继续展示旧登录周期。接口未提供开始时间时，面板显示“未提供”，不从下一次续费日倒推。
 
 当订阅接口不可用时，OAuth 用量采集成功后可使用同一 `auth.json` 的 `id_token` 中明确记录的周期：`chatgpt_subscription_active_start` 作为开始时间，`chatgpt_subscription_active_until` 作为单独的“周期结束时间”。只有令牌声明的账号 ID 与当前凭据账号 ID 一致才接受；身份缺失、不匹配、日期格式错误或周期倒置时均忽略。PAT、API Key 和自定义后端不使用此降级来源。
 

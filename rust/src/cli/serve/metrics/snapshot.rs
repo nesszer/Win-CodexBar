@@ -26,6 +26,7 @@ pub(in crate::cli::serve::metrics) struct ProviderMetrics {
     pub(in crate::cli::serve::metrics) reset_credits_next_expiry: Option<DateTime<Utc>>,
     pub(in crate::cli::serve::metrics) subscription_start: Option<DateTime<Utc>>,
     pub(in crate::cli::serve::metrics) subscription_expiry: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_renewal: Option<DateTime<Utc>>,
     pub(in crate::cli::serve::metrics) subscription_period_end: Option<DateTime<Utc>>,
     pub(in crate::cli::serve::metrics) subscription_recorded_at: Option<DateTime<Utc>>,
     pub(in crate::cli::serve::metrics) subscription_from_id_token: Option<bool>,
@@ -118,6 +119,11 @@ impl MetricsSnapshot {
                             .then_some(result.usage.subscription.as_ref())
                             .flatten()
                             .and_then(|subscription| subscription.expires_at),
+                        // 自动续费日单独投影，保留 expiresAt 的取消续费到期语义。
+                        subscription_renewal: (id == ProviderId::Codex)
+                            .then_some(result.usage.subscription.as_ref())
+                            .flatten()
+                            .and_then(|subscription| subscription.renews_at),
                         // 周期终点独立导出，不能冒充取消续费后的订阅到期时间。
                         subscription_period_end: (id == ProviderId::Codex
                             && result.usage.subscription.is_none())
@@ -150,6 +156,7 @@ impl MetricsSnapshot {
                         reset_credits_next_expiry: None,
                         subscription_start: None,
                         subscription_expiry: None,
+                        subscription_renewal: None,
                         subscription_period_end: None,
                         subscription_recorded_at: None,
                         subscription_from_id_token: None,

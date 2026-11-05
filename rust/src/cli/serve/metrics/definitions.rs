@@ -111,6 +111,10 @@ pub(in crate::cli::serve::metrics) const METRIC_DEFINITIONS: &[(&str, &str)] = &
         "Codex 订阅到期时间的 Unix 秒时间戳，包含已过期的日期。",
     ),
     (
+        "codexbar_subscription_renewal_timestamp_seconds",
+        "Codex 自动续费账号下一次续费时间的 Unix 秒时间戳，不表示届时停用。",
+    ),
+    (
         "codexbar_subscription_period_end_timestamp_seconds",
         "Codex 登录凭据记录的订阅周期结束时间，不代表已确认取消后的到期时间。",
     ),

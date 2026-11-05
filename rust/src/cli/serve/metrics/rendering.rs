@@ -133,6 +133,14 @@ pub(in crate::cli::serve::metrics) fn render_at(
                 expiry.timestamp(),
             )?;
         }
+        // 续费日期独立输出，避免自动续费账号回退显示登录时的旧周期。
+        if let Some(renewal) = provider.subscription_renewal {
+            writer.sample(
+                "codexbar_subscription_renewal_timestamp_seconds",
+                &provider_labels,
+                renewal.timestamp(),
+            )?;
+        }
         // 来源与记录时间使使用者能识别登录时的历史声明，数值不携带身份信息。
         if let Some(end) = provider.subscription_period_end {
             writer.sample(
