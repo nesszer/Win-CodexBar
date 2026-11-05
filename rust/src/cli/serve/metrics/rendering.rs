@@ -118,6 +118,21 @@ pub(in crate::cli::serve::metrics) fn render_at(
                 expiry.timestamp(),
             )?;
         }
+        // 已过期的订阅日期仍需输出，供监控区分“过期”和“未提供”。
+        if let Some(start) = provider.subscription_start {
+            writer.sample(
+                "codexbar_subscription_start_timestamp_seconds",
+                &provider_labels,
+                start.timestamp(),
+            )?;
+        }
+        if let Some(expiry) = provider.subscription_expiry {
+            writer.sample(
+                "codexbar_subscription_expiry_timestamp_seconds",
+                &provider_labels,
+                expiry.timestamp(),
+            )?;
+        }
         if let Some(value) = provider.cost_today_usd {
             writer.sample_f64("codexbar_cost_today_usd", &provider_labels, value)?;
         }

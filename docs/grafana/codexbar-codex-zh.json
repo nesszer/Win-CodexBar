@@ -974,12 +974,158 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "显示订阅接口明确提供的开始和到期时间。自动续费开启时通常只返回续费时间，不作为到期时间显示；接口未提供、查询失败或不支持时显示“未提供”。时间沿用仪表盘时区，默认为浏览器本地时区。",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "订阅开始时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "orange",
+                        "text": "未提供"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "订阅到期时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "orange",
+                        "text": "未提供"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "id": 19,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "(max by (instance) (codexbar_subscription_start_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 0)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "订阅开始时间",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "(max by (instance) (codexbar_subscription_expiry_timestamp_seconds{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 1000) or on(instance) (max by (instance) (codexbar_provider_up{job=~\"${job:regex}\",instance=~\"${instance:regex}\",provider=\"codex\"}) * 0)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "订阅到期时间",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Codex 订阅信息",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "instance",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time #A": true,
+              "Time #B": true,
+              "__name__": true,
+              "job": true,
+              "monitor": true,
+              "provider": true
+            },
+            "indexByName": {
+              "instance": 0,
+              "Value #A": 1,
+              "Value #B": 2
+            },
+            "renameByName": {
+              "Value #A": "订阅开始时间",
+              "Value #B": "订阅到期时间",
+              "instance": "节点"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
       "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 25
       },
       "id": 18,
       "panels": [
@@ -1012,7 +1158,7 @@
             "h": 7,
             "w": 24,
             "x": 0,
-            "y": 20
+            "y": 26
           },
           "id": 12,
           "options": {
@@ -1073,7 +1219,7 @@
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 27
+            "y": 33
           },
           "id": 15,
           "options": {
@@ -1148,7 +1294,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 27
+            "y": 33
           },
           "id": 16,
           "options": {

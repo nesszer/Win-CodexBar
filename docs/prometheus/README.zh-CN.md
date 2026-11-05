@@ -1,10 +1,10 @@
 # Codex Prometheus 监控示例
 
-用同一 Windows 用户运行 Codex CLI 和 `codexbar`，确保能读取该用户的 OAuth 凭据。将 `YOUR_RANDOM_TOKEN` 替换为长随机令牌、`YOUR_LAN_IP` 替换为节点实际局域网 IP 后启动：
+用同一 Windows 用户运行 Codex CLI 和发布包中的 `codexbar-cli.exe`，确保能读取该用户的 OAuth 凭据。将 `YOUR_RANDOM_TOKEN` 替换为长随机令牌、`YOUR_LAN_IP` 替换为节点实际局域网 IP 后启动：
 
 ```cmd
 set CODEXBAR_DASHBOARD_TOKEN=YOUR_RANDOM_TOKEN
-codexbar.exe serve --host YOUR_LAN_IP --port 8081 --metrics --allow-plain-http
+codexbar-cli.exe serve --host YOUR_LAN_IP --port 8081 --metrics --allow-plain-http
 ```
 
 仅允许 Prometheus 主机访问该端口，并在可信局域网中传输令牌。`/metrics` 默认关闭，启用后与 `/usage` 共用 Bearer 认证。`--host` 应设为节点自身的局域网 IP，Prometheus target 应指向该 IP。验证：
@@ -18,3 +18,18 @@ curl.exe -H "Authorization: Bearer %CODEXBAR_DASHBOARD_TOKEN%" http://YOUR_LAN_I
 面板采用多节点中文大屏布局：顶部显示抓取、生成、时效和健康状态；中部显示剩余额度、重置卡数量与有效期、Codex 采集状态，以及“距离额度重置趋势”；底部的成本和采集详情默认折叠。倒计时按每个历史采样时刻计算 `max(重置时间 - 采样时间, 0) / 86400`，可观察剩余天数逐步下降。节点筛选支持单台或全部，额度窗口默认 weekly。上游额度指标按窗口命名（例如 `codexbar_quota_weekly_remaining_ratio`），面板自动将 0 到 1 的比例换算为百分比。
 
 `codexbar_reset_credits_available{provider="codex"}` 中，`0` 为已用完，`-1` 为 PAT 模式或接口不可用。`codexbar_reset_credits_next_expiry_timestamp_seconds` 只在有可用卡且存在未来有效期时输出，不暴露卡 ID。重置卡接口查询成功或失败均缓存 10 分钟；异常的周额度重置确认会获取独立观察。配额指标以 0 到 1 的比例表示，Grafana 面板会按百分比显示。成本来自本地日志估算，不是订阅账单。
+
+## 订阅开始和到期时间
+
+“Codex 订阅信息”表按节点展示以下字段，独立于额度窗口筛选：
+
+| 订阅字段 | Prometheus 指标 | 含义 |
+| --- | --- | --- |
+| `startsAt` | `codexbar_subscription_start_timestamp_seconds{provider="codex"}` | 接口明确提供的订阅开始时间 |
+| `expiresAt` | `codexbar_subscription_expiry_timestamp_seconds{provider="codex"}` | 接口明确提供的订阅到期时间；已过期的日期仍保留 |
+
+指标值是 Unix 秒时间戳，Grafana 查询乘以 1000 后显示日期，时间沿用仪表盘时区（默认浏览器本地时区）。这些字段来自现有采集结果，抓取 `/metrics` 不会另外请求订阅接口。
+
+需开启设置中的“OpenAI 网页附加功能”（默认开启），并且当前账号能成功访问订阅接口。自动续费开启时，`active_until` 表示下一次续费时间 `renewsAt`，不会冒充到期时间；开始时间也只有接口明确提供时才有值。缺失、查询失败或不支持时，不输出相应时间戳样本，表格显示“未提供”；这不代表账号已过期。不要根据额度重置、重置卡有效期或续费时间推算订阅到期时间。
+
+接口说明见 [OpenAPI 文档](openapi.yaml)。

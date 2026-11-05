@@ -101,6 +101,15 @@ pub(in crate::cli::serve::metrics) const METRIC_DEFINITIONS: &[(&str, &str)] = &
         "codexbar_reset_credits_next_expiry_timestamp_seconds",
         "Unix timestamp of the earliest expiry among available Codex reset credits.",
     ),
+    // 订阅日期与重置卡有效期、额度重置时间分别建模，缺失时不输出样本。
+    (
+        "codexbar_subscription_start_timestamp_seconds",
+        "Codex 订阅开始时间的 Unix 秒时间戳，仅在接口明确提供时输出。",
+    ),
+    (
+        "codexbar_subscription_expiry_timestamp_seconds",
+        "Codex 订阅到期时间的 Unix 秒时间戳，包含已过期的日期。",
+    ),
     (
         "codexbar_cost_last_30_days_usd",
         "Available local Codex cost over the last 30 days in US dollars.",

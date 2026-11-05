@@ -322,6 +322,7 @@ What the metrics export:
 - Quota values, for Codex only, in fixed `session`, `weekly`, `monthly` and `code_review` metric families. Used and remaining values are ratios from `0` to `1`, with no dynamic window label.
 - Local Codex cost estimates, when available.
 - Codex OAuth reset credits as `codexbar_reset_credits_available{provider="codex"}` (`0` means used up, `-1` means unavailable or a PAT), and `codexbar_reset_credits_next_expiry_timestamp_seconds{provider="codex"}` when present. Reset-credit results, good or unavailable, are cached for ten minutes.
+- Codex 订阅开始和到期时间：`codexbar_subscription_start_timestamp_seconds{provider="codex"}` 对应 `startsAt`，`codexbar_subscription_expiry_timestamp_seconds{provider="codex"}` 对应 `expiresAt`，均为 Unix 秒时间戳。只导出现有采集结果中明确提供的日期；到期时间即使已过仍保留，未提供则省略样本，不以续费或额度重置时间代替。
 
 The metrics leave out unknown, informational, non-finite and dynamic additional-limit values. They never guess a value or use a sentinel. They don't expose account identity, display labels, source names, free-form provider errors or version strings. Alert on provider health, snapshot age and quota values together.
 

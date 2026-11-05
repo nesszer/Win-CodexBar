@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: CodexBar Prometheus 指标接口
+  version: 1.0.0
+  description: 指标从已有采集结果生成；默认关闭，使用 serve --metrics 启用。
+paths:
+  /metrics:
+    get:
+      summary: 获取 Prometheus 文本指标
+      description: >-
+        沿用服务的 Host 白名单和 Bearer 认证。订阅开始、到期时间为 Unix 秒时间戳；
+        未取得日期时省略相应样本。自动续费日期不作为到期时间。
+        服务尚无采集结果时返回 codexbar_up 0，不因抓取同步请求提供方。
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Prometheus 0.0.4 文本格式
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # TYPE codexbar_subscription_start_timestamp_seconds gauge
+                codexbar_subscription_start_timestamp_seconds{provider="codex"} 1790812800
+                # TYPE codexbar_subscription_expiry_timestamp_seconds gauge
+                codexbar_subscription_expiry_timestamp_seconds{provider="codex"} 1793491200
+        '401':
+          description: 未提供有效的 Bearer 令牌
+        '403':
+          description: 请求的 Host 不在允许范围内
+        '404':
+          description: 未启用指标接口
+        '500':
+          description: 无法生成指标；响应不包含内部错误详情
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

@@ -12,7 +12,7 @@ use crate::cli::serve::dashboard::coordinator::{SnapshotArtifacts, SnapshotArtif
 use crate::cli::serve::dashboard::snapshot::{DashboardIdentity, SnapshotInput, build_snapshot};
 use crate::core::{
     NamedRateWindow, ProviderFetchResult, ProviderInventoryItem, RateWindow,
-    ResetCreditsObservation, UsageSnapshot,
+    ResetCreditsObservation, SubscriptionMetadata, UsageSnapshot,
 };
 use crate::providers::codex::CodexApi;
 
@@ -202,6 +202,117 @@ fn renders_enabled_provider_health_and_codex_metrics_without_private_text() {
     ] {
         assert!(!body.contains(private), "private text leaked: {private}");
     }
+}
+
+#[test]
+fn subscription_dates_export_explicit_start_and_expiry_even_after_expiration() {
+    // 已到期时间仍需保留，监控才能识别过期，而不能把它误判为缺失。
+    let codex_usage = usage(RateWindow::new(10.0)).with_subscription(Some(
+        SubscriptionMetadata::new(Some(at(1)), Some(at(3)), None),
+    ));
+    let snapshot = metrics_snapshot(
+        vec![provider(
+            "codex",
+            Ok(ProviderFetchResult::new(codex_usage, "oauth")),
+        )],
+        HashMap::new(),
+    );
+    let body = render_at(&snapshot, at(5)).unwrap();
+    for (name, date) in [
+        ("codexbar_subscription_start_timestamp_seconds", at(1)),
+        ("codexbar_subscription_expiry_timestamp_seconds", at(3)),
+    ] {
+        assert_eq!(
+            samples(&body, name).collect::<Vec<_>>(),
+            vec![format!("{name}{{provider=\"codex\"}} {}", date.timestamp())]
+        );
+        assert!(body.contains(&format!("# TYPE {name} gauge\n")));
+    }
+}
+
+#[test]
+fn subscription_dates_do_not_infer_expiry_from_renewal_or_quota_reset() {
+    // 自动续费日期和额度重置日期都不能代替订阅到期时间。
+    for subscription in [
+        None,
+        Some(SubscriptionMetadata::new(None, None, Some(at(4)))),
+    ] {
+        let codex_usage = usage(RateWindow::with_details(10.0, Some(300), Some(at(6)), None))
+            .with_subscription(subscription);
+        let body = render_at(
+            &metrics_snapshot(
+                vec![provider(
+                    "codex",
+                    Ok(ProviderFetchResult::new(codex_usage, "oauth")),
+                )],
+                HashMap::new(),
+            ),
+            at(2),
+        )
+        .unwrap();
+        assert_eq!(
+            samples(&body, "codexbar_subscription_start_timestamp_seconds").count(),
+            0
+        );
+        assert_eq!(
+            samples(&body, "codexbar_subscription_expiry_timestamp_seconds").count(),
+            0
+        );
+    }
+}
+
+#[test]
+fn subscription_dates_keep_independent_fields_and_codex_provider_scope() {
+    // 各字段独立导出；其他提供方即使含有订阅日期，也不进入 Codex 指标。
+    for (start, expiry) in [(Some(at(1)), None), (None, Some(at(3)))] {
+        let subscribed = usage(RateWindow::new(10.0))
+            .with_subscription(Some(SubscriptionMetadata::new(start, expiry, None)));
+        let snapshot = metrics_snapshot(
+            vec![
+                provider(
+                    "codex",
+                    Ok(ProviderFetchResult::new(subscribed.clone(), "oauth")),
+                ),
+                provider("claude", Ok(ProviderFetchResult::new(subscribed, "oauth"))),
+            ],
+            HashMap::new(),
+        );
+        let body = render_at(&snapshot, at(2)).unwrap();
+        assert_eq!(
+            samples(&body, "codexbar_subscription_start_timestamp_seconds").count(),
+            usize::from(start.is_some())
+        );
+        assert_eq!(
+            samples(&body, "codexbar_subscription_expiry_timestamp_seconds").count(),
+            usize::from(expiry.is_some())
+        );
+        assert!(
+            !body
+                .lines()
+                .any(|line| line.starts_with("codexbar_subscription_") && line.contains("claude"))
+        );
+    }
+}
+
+#[test]
+fn subscription_dates_are_omitted_when_provider_fetch_fails() {
+    let body = render_at(
+        &metrics_snapshot(
+            vec![provider("codex", Err("private error".into()))],
+            HashMap::new(),
+        ),
+        at(2),
+    )
+    .unwrap();
+    assert_eq!(
+        samples(&body, "codexbar_subscription_start_timestamp_seconds").count(),
+        0
+    );
+    assert_eq!(
+        samples(&body, "codexbar_subscription_expiry_timestamp_seconds").count(),
+        0
+    );
+    assert!(!body.contains("private error"));
 }
 
 #[test]
