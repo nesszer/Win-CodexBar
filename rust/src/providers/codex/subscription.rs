@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use crate::core::UsageSnapshot;
+use crate::core::{
+    CredentialSubscriptionPeriod, SubscriptionDateSource, SubscriptionObservation, UsageSnapshot,
+};
 use crate::providers::openai::{OpenAISubscriptionFetchResult, parse_subscription_http_response};
 
 use super::CodexApi;
@@ -17,13 +19,65 @@ pub(super) async fn enrich_subscription_metadata(
     access_token: &str,
     account_id: Option<&str>,
     usage: UsageSnapshot,
+    credential_period: Option<&CredentialSubscriptionPeriod>,
 ) -> UsageSnapshot {
     if !crate::settings::Settings::load().codex_openai_web_extras() {
         return usage;
     }
-    match fetch_subscription_metadata(api, base_url, access_token, account_id).await {
-        OpenAISubscriptionFetchResult::Success(metadata) => usage.with_subscription(metadata),
-        OpenAISubscriptionFetchResult::Unavailable => usage,
+    // 自定义用量后端不能证明这些凭据属于它返回的账号，因此不附加登录周期。
+    if !is_subscription_authority(base_url) {
+        return usage;
+    }
+    let result = fetch_subscription_metadata(api, base_url, access_token, account_id).await;
+    apply_subscription_result(usage, result, credential_period)
+}
+
+pub(super) fn apply_subscription_result(
+    mut usage: UsageSnapshot,
+    result: OpenAISubscriptionFetchResult,
+    credential_period: Option<&CredentialSubscriptionPeriod>,
+) -> UsageSnapshot {
+    // 成功空结果也禁止回退；日期来源与优先级只在 Codex 层决定。
+    let fallback = match result {
+        OpenAISubscriptionFetchResult::Success(metadata) => {
+            usage = usage.with_subscription(metadata);
+            None
+        }
+        OpenAISubscriptionFetchResult::Unavailable => credential_period,
+    };
+    usage.subscription_observation = usage
+        .subscription
+        .as_ref()
+        .map(|metadata| SubscriptionObservation {
+            starts_at: metadata.starts_at,
+            expires_at: metadata.expires_at,
+            renews_at: metadata.renews_at,
+            period_end: None,
+            recorded_at: None,
+            source: SubscriptionDateSource::ProviderApi,
+        })
+        .or_else(|| {
+            fallback.map(|period| SubscriptionObservation {
+                starts_at: period.starts_at,
+                expires_at: None,
+                renews_at: None,
+                period_end: period.ends_at,
+                recorded_at: period.recorded_at,
+                source: SubscriptionDateSource::CredentialRecord,
+            })
+        });
+    usage
+}
+
+#[cfg(test)]
+impl CodexApi {
+    /// 让指标回归用例经过真实的提供方整理逻辑，不手工伪造投影结果。
+    pub(crate) fn apply_subscription_result_for_test(
+        usage: UsageSnapshot,
+        result: OpenAISubscriptionFetchResult,
+        credential_period: Option<&CredentialSubscriptionPeriod>,
+    ) -> UsageSnapshot {
+        apply_subscription_result(usage, result, credential_period)
     }
 }
 
@@ -33,17 +87,7 @@ async fn fetch_subscription_metadata(
     access_token: &str,
     account_id: Option<&str>,
 ) -> OpenAISubscriptionFetchResult {
-    let Some(host) = reqwest::Url::parse(base_url)
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
-    else {
-        return OpenAISubscriptionFetchResult::Unavailable;
-    };
-    if !matches!(host.as_str(), "chatgpt.com" | "chat.openai.com") {
-        return OpenAISubscriptionFetchResult::Unavailable;
-    }
-
-    let request = api
+    let mut request = api
         .authed_get(
             &format!("{}{}", base_url.trim_end_matches('/'), SUBSCRIPTION_PATH),
             access_token,
@@ -52,10 +96,23 @@ async fn fetch_subscription_metadata(
         .header("Cache-Control", "no-cache, no-store, max-age=0")
         .header("Pragma", "no-cache")
         .timeout(Duration::from_secs(8));
-    let Ok(response) = request.send().await else {
-        return OpenAISubscriptionFetchResult::Unavailable;
+    // 订阅接口同时要求账号查询参数；由 reqwest 编码，保持与请求头的账号一致。
+    if let Some(account_id) = account_id.filter(|id| !id.is_empty()) {
+        request = request.query(&[("account_id", account_id)]);
+    }
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            // 不记录错误原文或响应体，避免泄露凭据和账号；保留可区分的失败类别。
+            tracing::debug!(timeout = error.is_timeout(), "Codex 订阅查询不可用");
+            return OpenAISubscriptionFetchResult::Unavailable;
+        }
     };
     let status = response.status().as_u16();
+    if !(200..300).contains(&status) {
+        tracing::debug!(http_status = status, "Codex 订阅查询返回非成功状态");
+        return OpenAISubscriptionFetchResult::Unavailable;
+    }
     let Ok(body) = response.bytes().await else {
         return OpenAISubscriptionFetchResult::Unavailable;
     };
@@ -63,4 +120,72 @@ async fn fetch_subscription_metadata(
         return OpenAISubscriptionFetchResult::Unavailable;
     };
     parse_subscription_http_response(status, body)
+}
+
+pub(super) fn is_subscription_authority(base_url: &str) -> bool {
+    reqwest::Url::parse(base_url).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.port_or_known_default() == Some(443)
+            && matches!(url.host_str(), Some("chatgpt.com" | "chat.openai.com"))
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn subscription_account_query_returns_live_renewal_and_replaces_old_period() {
+        // 复现 184 的响应形状：查询参数必填，自动续费日优先于旧登录周期。
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/subscriptions")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "account_id".into(),
+                "account-test+id&x=1/?".into(),
+            ))
+            .match_header("chatgpt-account-id", "account-test+id&x=1/?")
+            .match_header("authorization", "Bearer synthetic-token")
+            .with_status(200)
+            .with_body(r#"{"active_until":"2026-12-01T04:55:35Z","will_renew":true}"#)
+            .create_async()
+            .await;
+        let api = CodexApi {
+            client: reqwest::Client::builder().no_proxy().build().unwrap(),
+            home_dir: std::path::PathBuf::new(),
+            codex_home_override: None,
+        };
+        let result = fetch_subscription_metadata(
+            &api,
+            &server.url(),
+            "synthetic-token",
+            Some("account-test+id&x=1/?"),
+        )
+        .await;
+        let period = CredentialSubscriptionPeriod {
+            starts_at: None,
+            ends_at: Some("2026-10-01T03:17:52Z".parse().unwrap()),
+            recorded_at: None,
+        };
+        let usage = apply_subscription_result(
+            UsageSnapshot::new(crate::core::RateWindow::new(10.0)),
+            result,
+            Some(&period),
+        );
+        let subscription = usage.subscription.expect("实时订阅日期");
+        assert_eq!(
+            subscription.renews_at.unwrap().to_rfc3339(),
+            "2026-12-01T04:55:35+00:00"
+        );
+        assert!(subscription.expires_at.is_none());
+        let observation = usage.subscription_observation.unwrap();
+        assert_eq!(observation.renews_at, subscription.renews_at);
+        assert!(observation.period_end.is_none());
+        assert_eq!(observation.source, SubscriptionDateSource::ProviderApi);
+        mock.assert_async().await;
+    }
 }

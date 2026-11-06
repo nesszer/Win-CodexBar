@@ -160,6 +160,7 @@ fn external_creds(access_token: &str, last_refresh: Option<DateTime<Utc>>) -> Co
         access_token_expires_at: None,
         last_refresh,
         account_email: None,
+        subscription_period: None,
     }
 }
 
@@ -1051,6 +1052,7 @@ fn credential_email_fills_the_snapshot_but_never_overrides_one() {
         access_token_expires_at: None,
         last_refresh: None,
         account_email: Some("parity.user@example.com".to_string()),
+        subscription_period: None,
     };
     let usage = with_credential_email(UsageSnapshot::new(RateWindow::new(10.0)), &creds);
     assert_eq!(

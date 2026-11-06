@@ -12,9 +12,10 @@ use crate::cli::serve::dashboard::coordinator::{SnapshotArtifacts, SnapshotArtif
 use crate::cli::serve::dashboard::snapshot::{DashboardIdentity, SnapshotInput, build_snapshot};
 use crate::core::{
     NamedRateWindow, ProviderFetchResult, ProviderInventoryItem, RateWindow,
-    ResetCreditsObservation, UsageSnapshot,
+    ResetCreditsObservation, SubscriptionMetadata, UsageSnapshot,
 };
 use crate::providers::codex::CodexApi;
+use crate::providers::openai::OpenAISubscriptionFetchResult;
 
 fn at(hour: u32) -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 14, hour, 0, 0)
@@ -202,6 +203,303 @@ fn renders_enabled_provider_health_and_codex_metrics_without_private_text() {
     ] {
         assert!(!body.contains(private), "private text leaked: {private}");
     }
+}
+
+#[test]
+fn subscription_dates_require_explicit_provider_observation() {
+    // 共享指标层不能按提供方名称推断导出资格，普通订阅元数据不会自动变成指标。
+    let subscribed = usage(RateWindow::new(10.0)).with_subscription(Some(
+        SubscriptionMetadata::new(Some(at(1)), Some(at(3)), Some(at(4))),
+    ));
+    let snapshot = metrics_snapshot(
+        vec![
+            provider(
+                "codex",
+                Ok(ProviderFetchResult::new(subscribed.clone(), "oauth")),
+            ),
+            provider("claude", Ok(ProviderFetchResult::new(subscribed, "oauth"))),
+        ],
+        HashMap::new(),
+    );
+    let body = render_at(&snapshot, at(5)).unwrap();
+    assert!(
+        !body
+            .lines()
+            .any(|line| line.starts_with("codexbar_subscription_")),
+        "订阅指标必须由提供方显式准备的观测数据驱动"
+    );
+}
+
+#[test]
+fn subscription_dates_export_explicit_start_and_expiry_even_after_expiration() {
+    // 已到期时间仍需保留，监控才能识别过期，而不能把它误判为缺失。
+    let codex_usage = CodexApi::apply_subscription_result_for_test(
+        usage(RateWindow::new(10.0)),
+        OpenAISubscriptionFetchResult::Success(Some(SubscriptionMetadata::new(
+            Some(at(1)),
+            Some(at(3)),
+            None,
+        ))),
+        None,
+    );
+    let snapshot = metrics_snapshot(
+        vec![provider(
+            "codex",
+            Ok(ProviderFetchResult::new(codex_usage, "oauth")),
+        )],
+        HashMap::new(),
+    );
+    let body = render_at(&snapshot, at(5)).unwrap();
+    for (name, date) in [
+        ("codexbar_subscription_start_timestamp_seconds", at(1)),
+        ("codexbar_subscription_expiry_timestamp_seconds", at(3)),
+    ] {
+        assert_eq!(
+            samples(&body, name).collect::<Vec<_>>(),
+            vec![format!("{name}{{provider=\"codex\"}} {}", date.timestamp())]
+        );
+        assert!(body.contains(&format!("# TYPE {name} gauge\n")));
+    }
+}
+
+#[test]
+fn subscription_renewal_exports_live_date_without_old_period_or_false_expiry() {
+    use crate::providers::openai::parse_subscription_http_response;
+
+    // 184 的实时 active_until 表示下一次续费，旧 id_token 的 10 月周期不能继续展示。
+    let OpenAISubscriptionFetchResult::Success(metadata) = parse_subscription_http_response(
+        200,
+        r#"{"active_until":"2026-12-01T04:55:35Z","will_renew":true}"#,
+    ) else {
+        panic!("有效的订阅响应");
+    };
+    let unobserved = usage(RateWindow::new(10.0)).with_subscription(metadata);
+    let period = crate::core::CredentialSubscriptionPeriod {
+        starts_at: None,
+        ends_at: Some("2026-10-01T03:17:52Z".parse().unwrap()),
+        recorded_at: None,
+    };
+    let codex_usage = CodexApi::apply_subscription_result_for_test(
+        unobserved.clone(),
+        OpenAISubscriptionFetchResult::Unavailable,
+        Some(&period),
+    );
+    let body = render_at(
+        &metrics_snapshot(
+            vec![
+                provider("codex", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
+                provider("claude", Ok(ProviderFetchResult::new(unobserved, "oauth"))),
+            ],
+            HashMap::new(),
+        ),
+        at(2),
+    )
+    .unwrap();
+    let renewal = "codexbar_subscription_renewal_timestamp_seconds";
+    let expected: chrono::DateTime<Utc> = "2026-12-01T04:55:35Z".parse().unwrap();
+    assert_eq!(
+        samples(&body, renewal).collect::<Vec<_>>(),
+        vec![format!(
+            "{renewal}{{provider=\"codex\"}} {}",
+            expected.timestamp()
+        )]
+    );
+    assert!(body.contains(&format!("# TYPE {renewal} gauge\n")));
+    for name in [
+        "codexbar_subscription_expiry_timestamp_seconds",
+        "codexbar_subscription_period_end_timestamp_seconds",
+        "codexbar_subscription_start_timestamp_seconds",
+    ] {
+        assert_eq!(samples(&body, name).count(), 0);
+    }
+    assert!(body.contains("codexbar_subscription_dates_from_id_token{provider=\"codex\"} 0\n"));
+}
+
+#[test]
+fn subscription_dates_do_not_infer_expiry_from_renewal_or_quota_reset() {
+    // 自动续费日期和额度重置日期都不能代替订阅到期时间。
+    for subscription in [
+        None,
+        Some(SubscriptionMetadata::new(None, None, Some(at(4)))),
+    ] {
+        let codex_usage = CodexApi::apply_subscription_result_for_test(
+            usage(RateWindow::with_details(10.0, Some(300), Some(at(6)), None)),
+            OpenAISubscriptionFetchResult::Success(subscription),
+            None,
+        );
+        let body = render_at(
+            &metrics_snapshot(
+                vec![provider(
+                    "codex",
+                    Ok(ProviderFetchResult::new(codex_usage, "oauth")),
+                )],
+                HashMap::new(),
+            ),
+            at(2),
+        )
+        .unwrap();
+        assert_eq!(
+            samples(&body, "codexbar_subscription_start_timestamp_seconds").count(),
+            0
+        );
+        assert_eq!(
+            samples(&body, "codexbar_subscription_expiry_timestamp_seconds").count(),
+            0
+        );
+    }
+}
+
+#[test]
+fn subscription_dates_keep_independent_fields_and_codex_provider_scope() {
+    // 各字段独立导出；其他提供方即使含有订阅日期，也不进入 Codex 指标。
+    for (start, expiry) in [(Some(at(1)), None), (None, Some(at(3)))] {
+        let subscribed = usage(RateWindow::new(10.0))
+            .with_subscription(Some(SubscriptionMetadata::new(start, expiry, None)));
+        let codex_usage = CodexApi::apply_subscription_result_for_test(
+            subscribed.clone(),
+            OpenAISubscriptionFetchResult::Unavailable,
+            None,
+        );
+        let snapshot = metrics_snapshot(
+            vec![
+                provider("codex", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
+                provider("claude", Ok(ProviderFetchResult::new(subscribed, "oauth"))),
+            ],
+            HashMap::new(),
+        );
+        let body = render_at(&snapshot, at(2)).unwrap();
+        assert_eq!(
+            samples(&body, "codexbar_subscription_start_timestamp_seconds").count(),
+            usize::from(start.is_some())
+        );
+        assert_eq!(
+            samples(&body, "codexbar_subscription_expiry_timestamp_seconds").count(),
+            usize::from(expiry.is_some())
+        );
+        assert!(
+            !body
+                .lines()
+                .any(|line| line.starts_with("codexbar_subscription_") && line.contains("claude"))
+        );
+    }
+}
+
+#[test]
+fn subscription_dates_are_omitted_when_provider_fetch_fails() {
+    let body = render_at(
+        &metrics_snapshot(
+            vec![provider("codex", Err("private error".into()))],
+            HashMap::new(),
+        ),
+        at(2),
+    )
+    .unwrap();
+    assert_eq!(
+        samples(&body, "codexbar_subscription_start_timestamp_seconds").count(),
+        0
+    );
+    assert_eq!(
+        samples(&body, "codexbar_subscription_expiry_timestamp_seconds").count(),
+        0
+    );
+    assert!(!body.contains("private error"));
+}
+
+#[test]
+fn subscription_period_exports_login_record_without_claiming_subscription_expiry() {
+    // 登录记录是周期信息，不能生成 expiresAt 或输出账号、令牌。
+    let unobserved = usage(RateWindow::new(10.0));
+    let period = crate::core::CredentialSubscriptionPeriod {
+        starts_at: Some(at(1)),
+        ends_at: Some(at(3)),
+        recorded_at: Some(at(0)),
+    };
+    let codex_usage = CodexApi::apply_subscription_result_for_test(
+        unobserved.clone(),
+        OpenAISubscriptionFetchResult::Unavailable,
+        Some(&period),
+    );
+    let body = render_at(
+        &metrics_snapshot(
+            vec![
+                provider("codex", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
+                provider("claude", Ok(ProviderFetchResult::new(unobserved, "oauth"))),
+            ],
+            HashMap::new(),
+        ),
+        at(5),
+    )
+    .unwrap();
+    for (name, value) in [
+        (
+            "codexbar_subscription_start_timestamp_seconds",
+            at(1).timestamp(),
+        ),
+        (
+            "codexbar_subscription_period_end_timestamp_seconds",
+            at(3).timestamp(),
+        ),
+        (
+            "codexbar_subscription_dates_recorded_timestamp_seconds",
+            at(0).timestamp(),
+        ),
+        ("codexbar_subscription_dates_from_id_token", 1),
+    ] {
+        assert_eq!(
+            samples(&body, name).collect::<Vec<_>>(),
+            vec![format!("{name}{{provider=\"codex\"}} {value}")]
+        );
+    }
+    assert_eq!(
+        samples(&body, "codexbar_subscription_expiry_timestamp_seconds").count(),
+        0
+    );
+    assert!(!body.contains("owner@example.test"));
+}
+
+#[test]
+fn subscription_period_api_dates_take_priority_over_login_records() {
+    let subscribed = usage(RateWindow::new(10.0)).with_subscription(Some(
+        SubscriptionMetadata::new(Some(at(2)), Some(at(4)), None),
+    ));
+    let period = crate::core::CredentialSubscriptionPeriod {
+        starts_at: Some(at(1)),
+        ends_at: Some(at(3)),
+        recorded_at: None,
+    };
+    let codex_usage = CodexApi::apply_subscription_result_for_test(
+        subscribed,
+        OpenAISubscriptionFetchResult::Unavailable,
+        Some(&period),
+    );
+    let body = render_at(
+        &metrics_snapshot(
+            vec![provider(
+                "codex",
+                Ok(ProviderFetchResult::new(codex_usage, "oauth")),
+            )],
+            HashMap::new(),
+        ),
+        at(5),
+    )
+    .unwrap();
+    assert!(body.contains(&format!(
+        "codexbar_subscription_start_timestamp_seconds{{provider=\"codex\"}} {}\n",
+        at(2).timestamp()
+    )));
+    assert_eq!(
+        samples(&body, "codexbar_subscription_period_end_timestamp_seconds").count(),
+        0
+    );
+    assert_eq!(
+        samples(
+            &body,
+            "codexbar_subscription_dates_recorded_timestamp_seconds"
+        )
+        .count(),
+        0
+    );
+    assert!(body.contains("codexbar_subscription_dates_from_id_token{provider=\"codex\"} 0\n"));
 }
 
 #[test]

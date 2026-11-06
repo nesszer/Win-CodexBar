@@ -210,6 +210,15 @@ pub struct ResetCreditsObservation {
     pub next_expires_at: Option<DateTime<Utc>>,
 }
 
+/// 登录凭据中明确记录的订阅周期，仅用于监控降级，不代表实时续费或取消状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CredentialSubscriptionPeriod {
+    pub starts_at: Option<DateTime<Utc>>,
+    pub ends_at: Option<DateTime<Utc>>,
+    /// JWT iat 仅用于标记记录时间，绝不作为订阅周期边界。
+    pub recorded_at: Option<DateTime<Utc>>,
+}
+
 fn named_rate_window_usage_known_default() -> bool {
     true
 }
@@ -308,6 +317,10 @@ pub struct UsageSnapshot {
     /// dashboard/API. These are not derived from quota reset windows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscription: Option<SubscriptionMetadata>,
+
+    /// 提供方显式准备的临时观测，不进入持久化或桌面桥接。
+    #[serde(skip)]
+    pub(crate) subscription_observation: Option<super::SubscriptionObservation>,
 }
 
 impl UsageSnapshot {
@@ -328,6 +341,7 @@ impl UsageSnapshot {
             account_organization: None,
             login_method: None,
             subscription: None,
+            subscription_observation: None,
         }
     }
 
