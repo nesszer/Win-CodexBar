@@ -38,16 +38,27 @@ fn subscription_period_reads_explicit_id_token_dates_without_inventing_expiry() 
     );
     assert_eq!(period.recorded_at.unwrap().timestamp(), 1_790_000_000);
 
-    let usage = UsageSnapshot::new(crate::core::RateWindow::new(12.0));
+    // 固定采集时间，避免运行日恰好等于订阅日期时产生序列化误报。
+    let mut usage = UsageSnapshot::new(crate::core::RateWindow::new(12.0));
+    usage.updated_at = "2026-01-01T00:00:00Z".parse().unwrap();
     let usage = subscription::apply_subscription_result(
         usage,
         crate::providers::openai::OpenAISubscriptionFetchResult::Unavailable,
         Some(&period),
     );
     assert!(usage.subscription.is_none());
-    assert!(usage.credential_subscription_period.is_some());
+    let observation = usage.subscription_observation.unwrap();
+    assert_eq!(observation.starts_at, period.starts_at);
+    assert_eq!(observation.period_end, period.ends_at);
+    assert_eq!(observation.recorded_at, period.recorded_at);
+    assert!(observation.expires_at.is_none());
+    assert!(observation.renews_at.is_none());
+    assert_eq!(
+        observation.source,
+        crate::core::SubscriptionDateSource::CredentialRecord
+    );
     let serialized = serde_json::to_string(&usage).unwrap();
-    assert!(!serialized.contains("credential_subscription_period"));
+    assert!(!serialized.contains("subscription_observation"));
     assert!(!serialized.contains("2026-11-06"));
 }
 
@@ -94,12 +105,29 @@ fn subscription_period_successful_api_response_suppresses_credential_fallback() 
     };
     for metadata in [None, Some(SubscriptionMetadata::new(None, None, Some(at)))] {
         // 明确的空订阅结果必须压过旧登录记录，防止已取消订阅被重新填回。
-        let usage = subscription::apply_subscription_result(
+        let stale = subscription::apply_subscription_result(
             UsageSnapshot::new(RateWindow::new(1.0)),
+            OpenAISubscriptionFetchResult::Unavailable,
+            Some(&period),
+        );
+        let usage = subscription::apply_subscription_result(
+            stale,
             OpenAISubscriptionFetchResult::Success(metadata.clone()),
             Some(&period),
         );
         assert_eq!(usage.subscription, metadata);
-        assert!(usage.credential_subscription_period.is_none());
+        match (usage.subscription_observation, metadata) {
+            (Some(observation), Some(metadata)) => {
+                assert_eq!(observation.renews_at, metadata.renews_at);
+                assert!(observation.period_end.is_none());
+                assert!(observation.recorded_at.is_none());
+                assert_eq!(
+                    observation.source,
+                    crate::core::SubscriptionDateSource::ProviderApi
+                );
+            }
+            (None, None) => {}
+            _ => panic!("实时结果必须完整替换历史观测，包括明确的空结果"),
+        }
     }
 }

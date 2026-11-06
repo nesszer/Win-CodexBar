@@ -318,9 +318,9 @@ pub struct UsageSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscription: Option<SubscriptionMetadata>,
 
-    /// 临时监控数据，不进入持久化或桌面桥接；与确认的订阅到期日期分别建模。
+    /// 提供方显式准备的临时观测，不进入持久化或桌面桥接。
     #[serde(skip)]
-    pub credential_subscription_period: Option<CredentialSubscriptionPeriod>,
+    pub(crate) subscription_observation: Option<super::SubscriptionObservation>,
 }
 
 impl UsageSnapshot {
@@ -341,7 +341,7 @@ impl UsageSnapshot {
             account_organization: None,
             login_method: None,
             subscription: None,
-            credential_subscription_period: None,
+            subscription_observation: None,
         }
     }
 

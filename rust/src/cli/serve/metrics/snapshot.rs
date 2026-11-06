@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use chrono::{DateTime, Utc};
 
 use crate::cli::serve::collection::SnapshotCollection;
-use crate::core::{ProviderId, RateWindow, RateWindowCadence};
+use crate::core::{ProviderId, RateWindow, RateWindowCadence, SubscriptionDateSource};
 
 #[derive(Debug, Clone)]
 pub(crate) struct MetricsSnapshot {
@@ -104,46 +104,31 @@ impl MetricsSnapshot {
                             .filter(|credits| credits.available_count > 0)
                             .and_then(|credits| credits.next_expires_at)
                             .filter(|expiry| *expiry > input.generated_at),
-                        // 只使用 Codex 明确提供的订阅日期，不以续费或额度重置时间代替。
-                        subscription_start: (id == ProviderId::Codex)
-                            .then_some(result.usage.subscription.as_ref())
-                            .flatten()
-                            .and_then(|subscription| subscription.starts_at)
-                            .or_else(|| {
-                                (id == ProviderId::Codex && result.usage.subscription.is_none())
-                                    .then_some(result.usage.credential_subscription_period)
-                                    .flatten()
-                                    .and_then(|period| period.starts_at)
-                            }),
-                        subscription_expiry: (id == ProviderId::Codex)
-                            .then_some(result.usage.subscription.as_ref())
-                            .flatten()
-                            .and_then(|subscription| subscription.expires_at),
-                        // 自动续费日单独投影，保留 expiresAt 的取消续费到期语义。
-                        subscription_renewal: (id == ProviderId::Codex)
-                            .then_some(result.usage.subscription.as_ref())
-                            .flatten()
-                            .and_then(|subscription| subscription.renews_at),
-                        // 周期终点独立导出，不能冒充取消续费后的订阅到期时间。
-                        subscription_period_end: (id == ProviderId::Codex
-                            && result.usage.subscription.is_none())
-                        .then_some(result.usage.credential_subscription_period)
-                        .flatten()
-                        .and_then(|period| period.ends_at),
-                        subscription_recorded_at: (id == ProviderId::Codex
-                            && result.usage.subscription.is_none())
-                        .then_some(result.usage.credential_subscription_period)
-                        .flatten()
-                        .and_then(|period| period.recorded_at),
-                        subscription_from_id_token: (id == ProviderId::Codex)
-                            .then(|| {
-                                if result.usage.subscription.is_some() {
-                                    Some(false)
-                                } else {
-                                    result.usage.credential_subscription_period.map(|_| true)
-                                }
-                            })
-                            .flatten(),
+                        // 提供方已决定导出资格和来源；共享层只映射通用观测字段。
+                        subscription_start: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.starts_at),
+                        subscription_expiry: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.expires_at),
+                        subscription_renewal: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.renews_at),
+                        subscription_period_end: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.period_end),
+                        subscription_recorded_at: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.recorded_at),
+                        subscription_from_id_token: result
+                            .usage
+                            .subscription_observation
+                            .map(|dates| dates.source == SubscriptionDateSource::CredentialRecord),
                         cost_today_usd,
                         cost_last_30_days_usd,
                     },

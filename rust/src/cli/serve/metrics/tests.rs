@@ -15,6 +15,7 @@ use crate::core::{
     ResetCreditsObservation, SubscriptionMetadata, UsageSnapshot,
 };
 use crate::providers::codex::CodexApi;
+use crate::providers::openai::OpenAISubscriptionFetchResult;
 
 fn at(hour: u32) -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 14, hour, 0, 0)
@@ -205,11 +206,42 @@ fn renders_enabled_provider_health_and_codex_metrics_without_private_text() {
 }
 
 #[test]
+fn subscription_dates_require_explicit_provider_observation() {
+    // 共享指标层不能按提供方名称推断导出资格，普通订阅元数据不会自动变成指标。
+    let subscribed = usage(RateWindow::new(10.0)).with_subscription(Some(
+        SubscriptionMetadata::new(Some(at(1)), Some(at(3)), Some(at(4))),
+    ));
+    let snapshot = metrics_snapshot(
+        vec![
+            provider(
+                "codex",
+                Ok(ProviderFetchResult::new(subscribed.clone(), "oauth")),
+            ),
+            provider("claude", Ok(ProviderFetchResult::new(subscribed, "oauth"))),
+        ],
+        HashMap::new(),
+    );
+    let body = render_at(&snapshot, at(5)).unwrap();
+    assert!(
+        !body
+            .lines()
+            .any(|line| line.starts_with("codexbar_subscription_")),
+        "订阅指标必须由提供方显式准备的观测数据驱动"
+    );
+}
+
+#[test]
 fn subscription_dates_export_explicit_start_and_expiry_even_after_expiration() {
     // 已到期时间仍需保留，监控才能识别过期，而不能把它误判为缺失。
-    let codex_usage = usage(RateWindow::new(10.0)).with_subscription(Some(
-        SubscriptionMetadata::new(Some(at(1)), Some(at(3)), None),
-    ));
+    let codex_usage = CodexApi::apply_subscription_result_for_test(
+        usage(RateWindow::new(10.0)),
+        OpenAISubscriptionFetchResult::Success(Some(SubscriptionMetadata::new(
+            Some(at(1)),
+            Some(at(3)),
+            None,
+        ))),
+        None,
+    );
     let snapshot = metrics_snapshot(
         vec![provider(
             "codex",
@@ -232,9 +264,7 @@ fn subscription_dates_export_explicit_start_and_expiry_even_after_expiration() {
 
 #[test]
 fn subscription_renewal_exports_live_date_without_old_period_or_false_expiry() {
-    use crate::providers::openai::{
-        OpenAISubscriptionFetchResult, parse_subscription_http_response,
-    };
+    use crate::providers::openai::parse_subscription_http_response;
 
     // 184 的实时 active_until 表示下一次续费，旧 id_token 的 10 月周期不能继续展示。
     let OpenAISubscriptionFetchResult::Success(metadata) = parse_subscription_http_response(
@@ -243,20 +273,22 @@ fn subscription_renewal_exports_live_date_without_old_period_or_false_expiry() {
     ) else {
         panic!("有效的订阅响应");
     };
-    let mut codex_usage = usage(RateWindow::new(10.0)).with_subscription(metadata);
-    codex_usage.credential_subscription_period = Some(crate::core::CredentialSubscriptionPeriod {
+    let unobserved = usage(RateWindow::new(10.0)).with_subscription(metadata);
+    let period = crate::core::CredentialSubscriptionPeriod {
         starts_at: None,
         ends_at: Some("2026-10-01T03:17:52Z".parse().unwrap()),
         recorded_at: None,
-    });
+    };
+    let codex_usage = CodexApi::apply_subscription_result_for_test(
+        unobserved.clone(),
+        OpenAISubscriptionFetchResult::Unavailable,
+        Some(&period),
+    );
     let body = render_at(
         &metrics_snapshot(
             vec![
-                provider(
-                    "codex",
-                    Ok(ProviderFetchResult::new(codex_usage.clone(), "oauth")),
-                ),
-                provider("claude", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
+                provider("codex", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
+                provider("claude", Ok(ProviderFetchResult::new(unobserved, "oauth"))),
             ],
             HashMap::new(),
         ),
@@ -290,8 +322,11 @@ fn subscription_dates_do_not_infer_expiry_from_renewal_or_quota_reset() {
         None,
         Some(SubscriptionMetadata::new(None, None, Some(at(4)))),
     ] {
-        let codex_usage = usage(RateWindow::with_details(10.0, Some(300), Some(at(6)), None))
-            .with_subscription(subscription);
+        let codex_usage = CodexApi::apply_subscription_result_for_test(
+            usage(RateWindow::with_details(10.0, Some(300), Some(at(6)), None)),
+            OpenAISubscriptionFetchResult::Success(subscription),
+            None,
+        );
         let body = render_at(
             &metrics_snapshot(
                 vec![provider(
@@ -320,12 +355,14 @@ fn subscription_dates_keep_independent_fields_and_codex_provider_scope() {
     for (start, expiry) in [(Some(at(1)), None), (None, Some(at(3)))] {
         let subscribed = usage(RateWindow::new(10.0))
             .with_subscription(Some(SubscriptionMetadata::new(start, expiry, None)));
+        let codex_usage = CodexApi::apply_subscription_result_for_test(
+            subscribed.clone(),
+            OpenAISubscriptionFetchResult::Unavailable,
+            None,
+        );
         let snapshot = metrics_snapshot(
             vec![
-                provider(
-                    "codex",
-                    Ok(ProviderFetchResult::new(subscribed.clone(), "oauth")),
-                ),
+                provider("codex", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
                 provider("claude", Ok(ProviderFetchResult::new(subscribed, "oauth"))),
             ],
             HashMap::new(),
@@ -371,20 +408,22 @@ fn subscription_dates_are_omitted_when_provider_fetch_fails() {
 #[test]
 fn subscription_period_exports_login_record_without_claiming_subscription_expiry() {
     // 登录记录是周期信息，不能生成 expiresAt 或输出账号、令牌。
-    let mut codex_usage = usage(RateWindow::new(10.0));
-    codex_usage.credential_subscription_period = Some(crate::core::CredentialSubscriptionPeriod {
+    let unobserved = usage(RateWindow::new(10.0));
+    let period = crate::core::CredentialSubscriptionPeriod {
         starts_at: Some(at(1)),
         ends_at: Some(at(3)),
         recorded_at: Some(at(0)),
-    });
+    };
+    let codex_usage = CodexApi::apply_subscription_result_for_test(
+        unobserved.clone(),
+        OpenAISubscriptionFetchResult::Unavailable,
+        Some(&period),
+    );
     let body = render_at(
         &metrics_snapshot(
             vec![
-                provider(
-                    "codex",
-                    Ok(ProviderFetchResult::new(codex_usage.clone(), "oauth")),
-                ),
-                provider("claude", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
+                provider("codex", Ok(ProviderFetchResult::new(codex_usage, "oauth"))),
+                provider("claude", Ok(ProviderFetchResult::new(unobserved, "oauth"))),
             ],
             HashMap::new(),
         ),
@@ -420,14 +459,19 @@ fn subscription_period_exports_login_record_without_claiming_subscription_expiry
 
 #[test]
 fn subscription_period_api_dates_take_priority_over_login_records() {
-    let mut codex_usage = usage(RateWindow::new(10.0)).with_subscription(Some(
+    let subscribed = usage(RateWindow::new(10.0)).with_subscription(Some(
         SubscriptionMetadata::new(Some(at(2)), Some(at(4)), None),
     ));
-    codex_usage.credential_subscription_period = Some(crate::core::CredentialSubscriptionPeriod {
+    let period = crate::core::CredentialSubscriptionPeriod {
         starts_at: Some(at(1)),
         ends_at: Some(at(3)),
         recorded_at: None,
-    });
+    };
+    let codex_usage = CodexApi::apply_subscription_result_for_test(
+        subscribed,
+        OpenAISubscriptionFetchResult::Unavailable,
+        Some(&period),
+    );
     let body = render_at(
         &metrics_snapshot(
             vec![provider(

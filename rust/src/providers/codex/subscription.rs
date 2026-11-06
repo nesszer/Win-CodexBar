@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use crate::core::{CredentialSubscriptionPeriod, UsageSnapshot};
+use crate::core::{
+    CredentialSubscriptionPeriod, SubscriptionDateSource, SubscriptionObservation, UsageSnapshot,
+};
 use crate::providers::openai::{OpenAISubscriptionFetchResult, parse_subscription_http_response};
 
 use super::CodexApi;
@@ -35,14 +37,47 @@ pub(super) fn apply_subscription_result(
     result: OpenAISubscriptionFetchResult,
     credential_period: Option<&CredentialSubscriptionPeriod>,
 ) -> UsageSnapshot {
-    // 成功响应（包括明确的空结果）始终优先；仅不可用时挂载独立的登录周期记录。
-    usage.credential_subscription_period = None;
-    match result {
-        OpenAISubscriptionFetchResult::Success(metadata) => usage.with_subscription(metadata),
-        OpenAISubscriptionFetchResult::Unavailable => {
-            usage.credential_subscription_period = credential_period.copied();
-            usage
+    // 成功空结果也禁止回退；日期来源与优先级只在 Codex 层决定。
+    let fallback = match result {
+        OpenAISubscriptionFetchResult::Success(metadata) => {
+            usage = usage.with_subscription(metadata);
+            None
         }
+        OpenAISubscriptionFetchResult::Unavailable => credential_period,
+    };
+    usage.subscription_observation = usage
+        .subscription
+        .as_ref()
+        .map(|metadata| SubscriptionObservation {
+            starts_at: metadata.starts_at,
+            expires_at: metadata.expires_at,
+            renews_at: metadata.renews_at,
+            period_end: None,
+            recorded_at: None,
+            source: SubscriptionDateSource::ProviderApi,
+        })
+        .or_else(|| {
+            fallback.map(|period| SubscriptionObservation {
+                starts_at: period.starts_at,
+                expires_at: None,
+                renews_at: None,
+                period_end: period.ends_at,
+                recorded_at: period.recorded_at,
+                source: SubscriptionDateSource::CredentialRecord,
+            })
+        });
+    usage
+}
+
+#[cfg(test)]
+impl CodexApi {
+    /// 让指标回归用例经过真实的提供方整理逻辑，不手工伪造投影结果。
+    pub(crate) fn apply_subscription_result_for_test(
+        usage: UsageSnapshot,
+        result: OpenAISubscriptionFetchResult,
+        credential_period: Option<&CredentialSubscriptionPeriod>,
+    ) -> UsageSnapshot {
+        apply_subscription_result(usage, result, credential_period)
     }
 }
 
@@ -147,7 +182,10 @@ mod tests {
             "2026-12-01T04:55:35+00:00"
         );
         assert!(subscription.expires_at.is_none());
-        assert!(usage.credential_subscription_period.is_none());
+        let observation = usage.subscription_observation.unwrap();
+        assert_eq!(observation.renews_at, subscription.renews_at);
+        assert!(observation.period_end.is_none());
+        assert_eq!(observation.source, SubscriptionDateSource::ProviderApi);
         mock.assert_async().await;
     }
 }
