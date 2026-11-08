@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn prefers_usd_balance_and_formats_paid_and_granted() {
+fn prefers_usd_balance_and_shows_the_short_amount() {
     let snapshot = DeepSeekProvider::snapshot_from_balance(BalanceResponse {
         is_available: true,
         balance_infos: vec![
@@ -21,10 +21,7 @@ fn prefers_usd_balance_and_formats_paid_and_granted() {
     });
 
     assert_eq!(snapshot.primary.used_percent, 0.0);
-    assert_eq!(
-        snapshot.primary.reset_description.as_deref(),
-        Some("$3.50 (Paid: $3.00 / Granted: $0.50)")
-    );
+    assert_eq!(snapshot.primary.reset_description.as_deref(), Some("$3.50"));
 }
 
 #[test]
@@ -48,13 +45,47 @@ fn uses_cny_balance_when_usd_is_empty() {
     });
 
     assert_eq!(snapshot.primary.used_percent, 0.0);
+    let symbol = currency_symbol("CNY");
+    let expected = format!("{symbol}42.25");
     assert_eq!(
         snapshot.primary.reset_description.as_deref(),
-        Some("¥42.25 (Paid: ¥40.00 / Granted: ¥2.25)")
+        Some(expected.as_str())
     );
+    let expected_login = format!("CNY balance: {symbol}42.25");
     assert_eq!(
         snapshot.login_method.as_deref(),
-        Some("CNY balance: ¥42.25")
+        Some(expected_login.as_str())
+    );
+}
+
+#[test]
+fn exposes_paid_and_granted_as_display_details() {
+    let balance = BalanceResponse {
+        is_available: true,
+        balance_infos: vec![BalanceInfo {
+            currency: "CNY".into(),
+            total_balance: "42.25".into(),
+            granted_balance: "2.25".into(),
+            topped_up_balance: "40".into(),
+        }],
+    };
+    let details = DeepSeekProvider::balance_display_details(&balance);
+    let symbol = currency_symbol("CNY");
+    let paid = format!("{symbol}40.00");
+    let granted = format!("{symbol}2.25");
+    assert_eq!(details.len(), 2);
+    assert_eq!(details[0].id(), "deepseek-paid");
+    assert_eq!(details[0].title(), "Paid");
+    assert_eq!(details[0].value(), paid.as_str());
+    assert_eq!(details[1].id(), "deepseek-granted");
+    assert_eq!(details[1].title(), "Granted");
+    assert_eq!(details[1].value(), granted.as_str());
+
+    let snapshot = DeepSeekProvider::snapshot_from_balance(balance);
+    let expected_description = format!("{symbol}42.25");
+    assert_eq!(
+        snapshot.primary.reset_description.as_deref(),
+        Some(expected_description.as_str())
     );
 }
 
@@ -79,9 +110,10 @@ fn keeps_zero_usd_when_no_currency_has_balance() {
     });
 
     assert_eq!(snapshot.primary.used_percent, 100.0);
+    let expected = format!("{}0.00 - add credits", currency_symbol("USD"));
     assert_eq!(
         snapshot.primary.reset_description.as_deref(),
-        Some("$0.00 — add credits at platform.deepseek.com")
+        Some(expected.as_str())
     );
     assert_eq!(snapshot.login_method.as_deref(), Some("USD balance: $0.00"));
 }

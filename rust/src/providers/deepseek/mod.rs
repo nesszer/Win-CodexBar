@@ -17,8 +17,8 @@ pub mod pricing;
 mod session_resolver;
 
 use crate::core::{
-    CostSnapshot, FetchContext, LastGoodFailurePolicy, Provider, ProviderError,
-    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
+    CostSnapshot, FetchContext, LastGoodFailurePolicy, Provider, ProviderDisplayDetail,
+    ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
 const DEEPSEEK_API_BASE: &str = "https://api.deepseek.com";
@@ -233,10 +233,14 @@ impl DeepSeekProvider {
         match resolution {
             // A deadline has no attributable session, so it never retains a balance.
             Err(_) => Err(ProviderError::Timeout.with_failure_owner(None)),
-            Ok(session_resolver::Resolution::Balance { balance, owner }) => Ok(
-                ProviderFetchResult::new(Self::snapshot_from_balance(*balance), "web")
-                    .with_last_good_owner(owner),
-            ),
+            Ok(session_resolver::Resolution::Balance { balance, owner }) => {
+                let details = Self::balance_display_details(&balance);
+                Ok(
+                    ProviderFetchResult::new(Self::snapshot_from_balance(*balance), "web")
+                        .with_last_good_owner(owner)
+                        .with_display_details(details),
+                )
+            }
             Ok(session_resolver::Resolution::SessionRequired) => Err(match missing_key {
                 ProviderError::NotInstalled(message) => ProviderError::NotInstalled(format!(
                     "{message} Or sign in to platform.deepseek.com in Chrome."
@@ -279,6 +283,7 @@ impl DeepSeekProvider {
         let balance: BalanceResponse = resp.json().await.map_err(|e| {
             ProviderError::Parse(format!("Failed to parse DeepSeek balance response: {e}"))
         })?;
+        let details = Self::balance_display_details(&balance);
         let mut usage = Self::snapshot_from_balance(balance);
         let mut result = ProviderFetchResult::new(usage.clone(), "api");
 
@@ -298,7 +303,7 @@ impl DeepSeekProvider {
             }
         }
 
-        Ok(result)
+        Ok(result.with_display_details(details))
     }
 
     async fn fetch_usage_summary(
@@ -351,8 +356,6 @@ impl DeepSeekProvider {
         };
 
         let total = parse_money(&info.total_balance);
-        let granted = parse_money(&info.granted_balance);
-        let topped_up = parse_money(&info.topped_up_balance);
         let symbol = currency_symbol(&info.currency);
 
         let mut window = RateWindow::new(if !balance.is_available || total <= 0.0 {
@@ -361,22 +364,48 @@ impl DeepSeekProvider {
             0.0
         });
 
+        // The short balance text is what the tray status and float bar show;
+        // the paid/granted breakdown travels beside it as display details.
         window.reset_description = if !balance.is_available {
             Some("Balance unavailable for API calls".to_string())
         } else if total <= 0.0 {
-            Some(format!(
-                "{symbol}0.00 — add credits at platform.deepseek.com"
-            ))
+            Some(format!("{symbol}0.00 - add credits"))
         } else {
-            Some(format!(
-                "{symbol}{total:.2} (Paid: {symbol}{topped_up:.2} / Granted: {symbol}{granted:.2})"
-            ))
+            Some(format!("{symbol}{total:.2}"))
         };
 
         UsageSnapshot::new(window).with_login_method(format!(
             "{} balance: {symbol}{total:.2}",
             info.currency.to_uppercase()
         ))
+    }
+
+    /// Paid/granted breakdown rows for the card. The window description keeps
+    /// only the short balance text used by the tray status and float bar.
+    fn balance_display_details(balance: &BalanceResponse) -> Vec<ProviderDisplayDetail> {
+        if !balance.is_available {
+            return Vec::new();
+        }
+        let Some(info) = select_balance_info(&balance.balance_infos) else {
+            return Vec::new();
+        };
+        let symbol = currency_symbol(&info.currency);
+        let paid = parse_money(&info.topped_up_balance);
+        let granted = parse_money(&info.granted_balance);
+        let mut rows = Vec::new();
+        if let Some(row) =
+            ProviderDisplayDetail::new("deepseek-paid", "Paid", format!("{symbol}{paid:.2}"))
+        {
+            rows.push(row);
+        }
+        if let Some(row) = ProviderDisplayDetail::new(
+            "deepseek-granted",
+            "Granted",
+            format!("{symbol}{granted:.2}"),
+        ) {
+            rows.push(row);
+        }
+        rows
     }
 
     fn apply_usage_summary(
