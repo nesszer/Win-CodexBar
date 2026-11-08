@@ -216,6 +216,11 @@ export interface ProviderUsageSnapshot {
   inventory?: ProviderInventoryItem[];
   /** Provider-specific display rows; never used as quota math or persistence. */
   displayDetails?: ProviderDisplayDetail[];
+  /**
+   * Short balance text for a balance-only provider (upstream `balanceOnly`);
+   * tray status and the float bar show it in place of a percentage.
+   */
+  balanceText?: string | null;
   /** Presentation-only hidden metric/extra row IDs. */
   hiddenUsageItemIds?: string[];
   cost: CostSnapshotBridge | null;

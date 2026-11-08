@@ -311,6 +311,7 @@ function MetricSegment({
   showResetInline,
   resetIconSize,
   problemLabel,
+  textLabel = false,
 }: {
   label: string;
   rateWindow: RateWindowSnapshot;
@@ -320,11 +321,15 @@ function MetricSegment({
   resetIconSize: number;
   /** Set while the provider is in an error state; replaces the percentage. */
   problemLabel: string | null;
+  /** The label is provider text (a balance), so it sizes like informational text. */
+  textLabel?: boolean;
 }) {
-  // Only percentages size the warning placeholder; informational text would
-  // widen the pill after an error.
+  // Only percentages size the warning placeholder; text labels would widen the
+  // pill after an error.
   const lastPercentageLabel = useRef("0%");
-  if (!problemLabel && rateWindow.isInformational !== true) lastPercentageLabel.current = label;
+  if (!problemLabel && rateWindow.isInformational !== true && textLabel !== true) {
+    lastPercentageLabel.current = label;
+  }
   const inlineReset = resetText
     ? inlineResetTime(resetText, rateWindow.resetsAt, resetRelative)
     : null;
@@ -395,30 +400,40 @@ function ProviderPill({
   const state = describeProviderState(provider.errorState);
   // An error collapses the pill to its first metric with a warning mark.
   const metrics = pillMetrics(provider, showWeekly && !state.isProblem);
+  // A balance-only provider (upstream `balanceOnly`) reports no quota
+  // percentage, so its single metric shows the balance text instead.
+  const balanceText = localizeProviderText(provider.balanceText?.trim(), t) || null;
+  const showBalance = metrics.length === 1 ? balanceText : null;
   const resetTexts = [
-    useWindowResetText(metrics[0].window, resetRelative),
+    useWindowResetText(showBalance ? null : metrics[0].window, resetRelative),
     useWindowResetText(metrics[1]?.window ?? null, resetRelative),
   ];
 
   let tone: PillTone = "ok";
   if (state.isProblem) tone = "crit";
   else {
-    for (const metric of metrics) {
-      const next = metricTone(metric, provider.providerId, thresholds);
+    metrics.forEach((metric, index) => {
+      const next =
+        index === 0 && showBalance
+          ? "ok"
+          : metricTone(metric, provider.providerId, thresholds);
       if (TONE_RANK[next] > TONE_RANK[tone]) tone = next;
-    }
+    });
   }
 
   const displaySuffix = showAsUsed ? usedSuffix : remainingSuffix;
-  const labels = metrics.map((metric) => metricLabel(metric.window, showAsUsed, t));
+  const labels = metrics.map((metric, index) =>
+    index === 0 && showBalance ? showBalance : metricLabel(metric.window, showAsUsed, t),
+  );
   const title = state.isProblem
     ? `${provider.displayName}: ${stateLabel}`
     : metrics
         .map((metric, index) => {
           const resetText = resetTexts[index];
           const detailText = localizeProviderText(windowDetailText(metric.window), t) || null;
+          const textOnly = index === 0 && showBalance !== null;
           const head =
-            metric.window.isInformational === true
+            textOnly || metric.window.isInformational === true
               ? `${provider.displayName}: ${labels[index]}`
               : `${provider.displayName}: ${labels[index]} ${displaySuffix}`;
           return [head, resetText, detailText].filter(Boolean).join("\n");
@@ -450,6 +465,7 @@ function ProviderPill({
             showResetInline={showResetInline}
             resetIconSize={resetIconSize}
             problemLabel={state.isProblem ? stateLabel : null}
+            textLabel={index === 0 && showBalance !== null}
           />
         </span>
       ))}

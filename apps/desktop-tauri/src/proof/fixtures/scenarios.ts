@@ -18,6 +18,7 @@ import type {
   ProviderCatalogEntry,
   ProviderUsageSnapshot,
   QuotaWindowHistoryBridge,
+  RateWindowSnapshot,
   SettingsSnapshot,
   SpendModelRow,
   TokenAccountBridge,
@@ -63,6 +64,7 @@ export const PROOF_SCENARIO_NAMES = [
   "vercel",
   "vercel-team-id-invalid",
   "kimi-bonus-credits",
+  "deepseek-balance",
   "agent-sessions-hosts",
   "copilot-daily-target",
 ] as const;
@@ -1268,6 +1270,33 @@ function kimiBonusCreditsScenario(now: Date): ProofScenario {
   };
 }
 
+/** A balance-only DeepSeek account: surfaces show the balance text, not a percent. */
+function deepseekBalanceScenario(now: Date): ProofScenario {
+  const primary: RateWindowSnapshot = {
+    ...rateWindow(now, 0, null, null),
+    resetDescription: "¥231.01",
+  };
+  const snapshot = providerSnapshot(
+    {
+      providerId: "deepseek",
+      displayName: "DeepSeek",
+      primary,
+      primaryLabel: "Balance",
+      updatedAt: isoBefore(now, 1),
+    },
+    { balanceText: "¥231.01" },
+  );
+  return {
+    name: "deepseek-balance",
+    settings: baseSettings({ enabledProviders: ["deepseek"], floatBarProviderIds: ["deepseek"] }),
+    catalog: PROOF_PROVIDER_CATALOG,
+    providers: [snapshot],
+    codexAccounts: emptyCodexAccounts(),
+    claudeAccounts: [],
+    localSpend: [],
+  };
+}
+
 /** A monthly allowance with a daily target and no pace: 52% left over 18 days. */
 function copilotDailyTargetScenario(now: Date): ProofScenario {
   const snapshot = copilotSnapshot(now);
@@ -1364,6 +1393,7 @@ const BUILDERS: Record<ProofScenarioName, (now: Date) => ProofScenario> = {
   vercel: vercelScenario,
   "vercel-team-id-invalid": vercelTeamIdInvalidScenario,
   "kimi-bonus-credits": kimiBonusCreditsScenario,
+  "deepseek-balance": deepseekBalanceScenario,
   "agent-sessions-hosts": agentSessionsHostsScenario,
   "copilot-daily-target": copilotDailyTargetScenario,
 };

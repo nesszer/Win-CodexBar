@@ -504,6 +504,7 @@ pub(crate) fn metric_status_label(
         .unwrap_or_default();
     named_extra_status(snapshot, &preference, settings.show_as_used, language)
         .or_else(|| tokens_per_minute_status(snapshot, settings, language))
+        .or_else(|| balance_only_status_text(snapshot))
         .or_else(|| balance_status_label(snapshot))
         .unwrap_or_else(|| headline_status_label(snapshot, settings.show_as_used, language))
 }
@@ -587,6 +588,29 @@ pub(crate) fn tokens_per_minute_status(
             ),
         },
     )
+}
+
+/// Balance text for a balance-only provider (upstream
+/// `ProviderMetadata.balanceOnly`), such as DeepSeek's account balance. The
+/// headline window carries no quota length or reset, so its description is the
+/// balance itself. `None` for metered providers and when no text was reported.
+pub(crate) fn balance_only_status_text(snapshot: &ProviderUsageSnapshot) -> Option<String> {
+    let provider = ProviderId::from_cli_name(&snapshot.provider_id)?;
+    if !provider.is_balance_only() {
+        return None;
+    }
+    let headline = headline_window(snapshot);
+    if !headline.is_informational
+        && (headline.window_minutes.is_some() || headline.resets_at.is_some())
+    {
+        return None;
+    }
+    headline
+        .reset_description
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
 }
 
 /// Balance text for a balance-carrying provider whose headline window is

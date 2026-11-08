@@ -42,6 +42,7 @@ export function snapshot(
     resetDescription?: string | null;
     descriptionIsDetail?: boolean;
     informational?: boolean;
+    balanceText?: string | null;
     secondary?: {
       used: number;
       exhausted?: boolean;
@@ -76,6 +77,7 @@ export function snapshot(
     updatedAt: "2026-05-15T00:00:00Z",
     error: opts.error ?? null,
     errorState: opts.errorState ?? "ready",
+    balanceText: opts.balanceText ?? null,
   });
 }
 

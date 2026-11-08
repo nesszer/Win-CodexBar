@@ -223,6 +223,14 @@ impl ProviderId {
         self.spec().balance_detail_ids
     }
 
+    /// Whether the provider reports a balance instead of a quota meter
+    /// (upstream `ProviderMetadata.balanceOnly`). The tray status and the
+    /// float bar show the headline description as balance text where a
+    /// percentage would otherwise appear.
+    pub fn is_balance_only(self) -> bool {
+        self.spec().balance_only
+    }
+
     /// Parse from CLI name string
     pub fn from_cli_name(name: &str) -> Option<Self> {
         let name = name.to_lowercase();
@@ -963,6 +971,16 @@ mod tests {
         for &id in ProviderId::all() {
             if id != ProviderId::Nous {
                 assert!(id.balance_display_detail_ids().is_empty(), "{id:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn only_deepseek_is_balance_only() {
+        assert!(ProviderId::DeepSeek.is_balance_only());
+        for &id in ProviderId::all() {
+            if id != ProviderId::DeepSeek {
+                assert!(!id.is_balance_only(), "{id:?}");
             }
         }
     }
