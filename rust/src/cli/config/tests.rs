@@ -110,11 +110,39 @@ fn provider_status_json_matches_the_upstream_shape() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        ["defaultEnabled", "displayName", "enabled", "provider"]
+        [
+            "authentication",
+            "defaultEnabled",
+            "displayName",
+            "enabled",
+            "provider"
+        ]
     );
     assert_eq!(value["displayName"], ProviderId::Codex.display_name());
     assert_eq!(value["enabled"], false);
     assert_eq!(value["defaultEnabled"], codex.default_enabled);
+    assert_eq!(value["authentication"]["supportsConfigAPIKey"], false);
+}
+
+#[test]
+fn provider_status_reports_whether_set_api_key_accepts_the_provider() {
+    let statuses = provider_statuses(&Settings::default());
+    let flag = |name: &str| {
+        statuses
+            .iter()
+            .find(|status| status.provider == name)
+            .unwrap_or_else(|| panic!("{name} row"))
+            .authentication
+            .supports_config_api_key
+    };
+    assert!(flag("openrouter"));
+    assert!(!flag("codex"));
+    let openrouter = statuses
+        .iter()
+        .find(|s| s.provider == "openrouter")
+        .unwrap();
+    let value = serde_json::to_value(openrouter).unwrap();
+    assert_eq!(value["authentication"]["supportsConfigAPIKey"], true);
 }
 
 #[test]
