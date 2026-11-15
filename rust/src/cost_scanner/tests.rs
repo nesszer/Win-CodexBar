@@ -72,6 +72,9 @@ mod codex_usage;
 #[path = "tests/claude_records.rs"]
 mod claude_records;
 
+#[path = "tests/claude_file_cache.rs"]
+mod claude_file_cache_tests;
+
 #[path = "tests/claude_daily.rs"]
 mod claude_daily;
 
