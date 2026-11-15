@@ -34,6 +34,7 @@ use crate::providers::claude::quota_history::ClaudeQuotaHistoryRecord;
 use crate::providers::opencodego::local as opencodego_local;
 use crate::settings::Settings;
 mod claude_events;
+mod claude_file_cache;
 mod claude_incomplete;
 mod claude_pricing;
 mod claude_roots;
@@ -257,7 +258,7 @@ fn file_len_i64(metadata: &fs::Metadata) -> i64 {
     i64::try_from(metadata.len()).unwrap_or(i64::MAX)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ClaudeUsageRecord {
     model: String,
     pricing_known: bool,
