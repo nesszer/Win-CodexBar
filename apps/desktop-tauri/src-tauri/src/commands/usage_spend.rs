@@ -17,7 +17,8 @@ use tauri::State;
 use super::ProviderUsageSnapshot;
 use crate::state::AppState;
 use std::collections::{BTreeSet, HashMap};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 mod build;
 #[cfg(test)]
@@ -155,6 +156,43 @@ struct UsageSpendCoordinator {
     next_generation: u64,
     current: Option<(UsageSpendRefreshOwner, UsageSpendRefreshPhase)>,
     cache: Option<CachedUsageSpendSummary>,
+    /// A summary build (a full local-log scan) is running. Only one runs at a
+    /// time: the tray Overview asks again on every `provider-updated` event and
+    /// the cache key moves with every provider refresh, so without this guard
+    /// slow builds stacked up until the blocking pool and memory ran out.
+    building: bool,
+}
+
+/// What a request does about the shared summary build.
+#[derive(Debug)]
+enum UsageSpendBuildClaim {
+    /// Serve this summary without scanning.
+    Reuse(Box<BuiltUsageSpendSummary>),
+    /// This request now owns the build slot and must release it.
+    Build,
+    /// Another build is running and there is nothing to serve yet (or the
+    /// caller forced a rebuild); wait for it to finish, then claim again.
+    Wait,
+}
+
+/// Longest a request waits for another build before giving up.
+const USAGE_SPEND_BUILD_WAIT: Duration = Duration::from_secs(10 * 60);
+
+/// Signalled whenever the build slot is released.
+static USAGE_SPEND_BUILD_FINISHED: Condvar = Condvar::new();
+
+/// Releases the build slot when the build ends, including by panic.
+struct UsageSpendBuildSlot;
+
+impl Drop for UsageSpendBuildSlot {
+    fn drop(&mut self) {
+        let mut coordinator = usage_spend_coordinator()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        coordinator.release_build();
+        drop(coordinator);
+        USAGE_SPEND_BUILD_FINISHED.notify_all();
+    }
 }
 
 impl UsageSpendCoordinator {
@@ -199,6 +237,38 @@ impl UsageSpendCoordinator {
         self.cache
             .as_ref()
             .filter(|existing| !force_refresh && existing.key == key)
+    }
+
+    /// Decide whether this request reuses a summary, builds one, or waits.
+    ///
+    /// While a build runs, a request that is not forced gets the last summary
+    /// even when its key is out of date (stale while revalidate) instead of
+    /// starting a second full scan. It carries no refresh owner, so it can
+    /// never clear the indexing state of the build that produced it.
+    fn claim_build(&mut self, key: &str, force_refresh: bool) -> UsageSpendBuildClaim {
+        if let Some(existing) = self.reusable(key, force_refresh) {
+            return UsageSpendBuildClaim::Reuse(Box::new(BuiltUsageSpendSummary {
+                key: existing.key.clone(),
+                summary: existing.summary.clone(),
+                refresh_owner: existing.refresh_owner.clone(),
+            }));
+        }
+        if self.building {
+            if !force_refresh && let Some(existing) = self.cache.as_ref() {
+                return UsageSpendBuildClaim::Reuse(Box::new(BuiltUsageSpendSummary {
+                    key: existing.key.clone(),
+                    summary: existing.summary.clone(),
+                    refresh_owner: None,
+                }));
+            }
+            return UsageSpendBuildClaim::Wait;
+        }
+        self.building = true;
+        UsageSpendBuildClaim::Build
+    }
+
+    fn release_build(&mut self) {
+        self.building = false;
     }
 }
 
@@ -246,6 +316,7 @@ fn clear_usage_spend_refresh_if_owned(owner: &UsageSpendRefreshOwner) {
     }
 }
 
+#[derive(Debug)]
 struct BuiltUsageSpendSummary {
     key: String,
     summary: UsageSpendSummary,
@@ -340,24 +411,32 @@ fn build_usage_spend_summary_cached(
 ) -> Result<BuiltUsageSpendSummary, String> {
     let settings = codexbar::settings::Settings::load();
     let key = usage_spend_cache_key(cached, period, &settings);
-    {
-        let guard = usage_spend_coordinator()
-            .lock()
-            .map_err(|error| error.to_string())?;
-        if let Some(existing) = guard.reusable(&key, force_refresh) {
-            return Ok(BuiltUsageSpendSummary {
-                key: existing.key.clone(),
-                summary: existing.summary.clone(),
-                refresh_owner: existing.refresh_owner.clone(),
-            });
-        }
-    }
     let owner = {
         let mut coordinator = usage_spend_coordinator()
             .lock()
             .map_err(|error| error.to_string())?;
-        coordinator.begin(key.clone())
+        let deadline = Instant::now() + USAGE_SPEND_BUILD_WAIT;
+        loop {
+            match coordinator.claim_build(&key, force_refresh) {
+                UsageSpendBuildClaim::Reuse(built) => return Ok(*built),
+                UsageSpendBuildClaim::Build => break coordinator.begin(key.clone()),
+                UsageSpendBuildClaim::Wait => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return Err(
+                            "Usage & Spend is still being built; try again shortly.".to_string()
+                        );
+                    }
+                    coordinator = USAGE_SPEND_BUILD_FINISHED
+                        .wait_timeout(coordinator, remaining)
+                        .map_err(|error| error.to_string())?
+                        .0;
+                }
+            }
+        }
     };
+    // Declared before the coordinator guard below, so it is dropped after it.
+    let _build_slot = UsageSpendBuildSlot;
     let summary = build_usage_spend_summary(cached, period, &settings, force_refresh);
     let refreshing = summary_is_refreshing(&summary);
     let codex_scan_pause_reason =

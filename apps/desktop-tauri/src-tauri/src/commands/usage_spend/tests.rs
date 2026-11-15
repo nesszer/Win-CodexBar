@@ -40,6 +40,90 @@ fn trend_row(provider_id: &str, currency: &str, daily: &[(&str, f64)]) -> UsageS
     }
 }
 
+fn cached_summary(key: &str, owner: Option<UsageSpendRefreshOwner>) -> CachedUsageSpendSummary {
+    CachedUsageSpendSummary {
+        key: key.to_string(),
+        summary: empty_summary(),
+        refresh_owner: owner,
+    }
+}
+
+#[test]
+fn only_one_summary_build_runs_at_a_time() {
+    let mut coordinator = UsageSpendCoordinator::default();
+
+    assert!(matches!(
+        coordinator.claim_build("key:a", false),
+        UsageSpendBuildClaim::Build
+    ));
+    // Nothing to serve yet: a second request waits instead of scanning again.
+    assert!(matches!(
+        coordinator.claim_build("key:b", false),
+        UsageSpendBuildClaim::Wait
+    ));
+
+    coordinator.release_build();
+    assert!(matches!(
+        coordinator.claim_build("key:b", false),
+        UsageSpendBuildClaim::Build
+    ));
+}
+
+#[test]
+fn request_during_a_build_reuses_the_last_summary_without_its_owner() {
+    let mut coordinator = UsageSpendCoordinator::default();
+    let owner = coordinator.begin("key:old".to_string());
+    coordinator.cache = Some(cached_summary("key:old", Some(owner)));
+    assert!(matches!(
+        coordinator.claim_build("key:new", false),
+        UsageSpendBuildClaim::Build
+    ));
+
+    // The provider snapshots moved on (new key) while the build runs.
+    match coordinator.claim_build("key:newer", false) {
+        UsageSpendBuildClaim::Reuse(built) => {
+            assert_eq!(built.key, "key:old");
+            assert!(built.refresh_owner.is_none());
+        }
+        other => panic!("expected the stale summary, got {other:?}"),
+    }
+    assert!(coordinator.building);
+}
+
+#[test]
+fn forced_request_waits_for_the_running_build() {
+    let mut coordinator = UsageSpendCoordinator {
+        cache: Some(cached_summary("key:a", None)),
+        ..UsageSpendCoordinator::default()
+    };
+    assert!(matches!(
+        coordinator.claim_build("key:b", false),
+        UsageSpendBuildClaim::Build
+    ));
+
+    assert!(matches!(
+        coordinator.claim_build("key:a", true),
+        UsageSpendBuildClaim::Wait
+    ));
+}
+
+#[test]
+fn matching_cache_is_reused_even_while_building() {
+    let mut coordinator = UsageSpendCoordinator {
+        cache: Some(cached_summary("key:a", None)),
+        ..UsageSpendCoordinator::default()
+    };
+    assert!(matches!(
+        coordinator.claim_build("key:b", false),
+        UsageSpendBuildClaim::Build
+    ));
+
+    match coordinator.claim_build("key:a", false) {
+        UsageSpendBuildClaim::Reuse(built) => assert_eq!(built.key, "key:a"),
+        other => panic!("expected the cached summary, got {other:?}"),
+    }
+}
+
 #[test]
 fn invalidated_owner_clears_orphaned_indexing_activity() {
     let mut coordinator = UsageSpendCoordinator::default();
