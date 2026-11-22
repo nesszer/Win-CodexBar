@@ -403,8 +403,7 @@ fn usage_respects_cookie_off_and_explicit_or_selected_credentials() {
     );
     assert!(cli.manual_cookie_header.is_none());
 
-    let mut selected = FetchContext {
-        manual_cookie_header: Some("synthetic-selected-cookie".to_string()),
+    let mut isolated = FetchContext {
         token_account_isolated: true,
         ..FetchContext::default()
     };
@@ -412,10 +411,22 @@ fn usage_respects_cookie_off_and_explicit_or_selected_credentials() {
         ProviderId::Cursor,
         &settings,
         || panic!("selected account"),
-        &mut selected,
+        &mut isolated,
+    );
+    assert!(isolated.manual_cookie_header.is_none());
+
+    let mut existing = FetchContext {
+        manual_cookie_header: Some("synthetic-selected-cookie".to_string()),
+        ..FetchContext::default()
+    };
+    super::fetch_helpers::populate_saved_cookie(
+        ProviderId::Cursor,
+        &settings,
+        || panic!("existing credential"),
+        &mut existing,
     );
     assert_eq!(
-        selected.manual_cookie_header.as_deref(),
+        existing.manual_cookie_header.as_deref(),
         Some("synthetic-selected-cookie")
     );
 }
