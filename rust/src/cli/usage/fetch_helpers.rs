@@ -10,7 +10,7 @@ use crate::core::{
     ProviderFetchResult, ProviderId, TokenAccountKind, TokenAccountOverride, TokenAccountStore,
     TokenAccountSupport, instantiate_provider,
 };
-use crate::settings::{ApiKeys, Settings};
+use crate::settings::{ApiKeys, ManualCookies, Settings};
 use crate::status::{ProviderStatus as StatusInfo, fetch_provider_status};
 
 /// `source_label_suffix` is appended to the source label of the usage that
@@ -163,7 +163,11 @@ pub async fn fetch_provider_result(
         .then(|| fetch_provider_status(provider_id));
     let mut ctx = command.ctx.clone();
     let account_projected = project_cli_account(provider_id, command.account.as_deref(), &mut ctx)?;
-    populate_api_region_from_settings(provider_id, &Settings::load(), &mut ctx);
+    let settings = Settings::load();
+    populate_api_region_from_settings(provider_id, &settings, &mut ctx);
+    if !account_projected && command.account.is_none() && !command.all_accounts {
+        populate_saved_cookie(provider_id, &settings, ManualCookies::load, &mut ctx);
+    }
     if !account_projected && ctx.api_key.is_none() {
         ctx.api_key = resolve_cli_api_key(provider_id, command.account.as_deref())?;
     }
@@ -175,6 +179,29 @@ pub async fn fetch_provider_result(
         None
     };
     Ok((result, status))
+}
+
+pub(super) fn populate_saved_cookie(
+    provider: ProviderId,
+    settings: &Settings,
+    load_cookies: impl FnOnce() -> ManualCookies,
+    ctx: &mut crate::core::FetchContext,
+) {
+    if settings.cookie_source(provider) != "manual"
+        || !matches!(
+            ctx.source_mode,
+            crate::core::SourceMode::Auto | crate::core::SourceMode::Web
+        )
+        || ctx.manual_cookie_header.is_some()
+        || ctx.manual_cookie_missing
+        || ctx.token_account_isolated
+    {
+        return;
+    }
+    ctx.manual_cookie_header = load_cookies()
+        .get(provider.cli_name())
+        .filter(|cookie| !cookie.trim().is_empty())
+        .map(str::to_owned);
 }
 
 /// Apply the selected labeled account to the same route used by the desktop

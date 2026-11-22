@@ -358,6 +358,69 @@ fn usage_output_format_accepts_toon() {
 }
 
 #[test]
+fn usage_projects_only_the_configured_provider_cookie() {
+    let mut settings = Settings::default();
+    settings.set_cookie_source(ProviderId::Cursor, "manual");
+    let mut cookies = crate::settings::ManualCookies::default();
+    cookies.set("cursor", "synthetic-cursor-cookie");
+    cookies.set("claude", "synthetic-claude-cookie");
+    let mut ctx = FetchContext::default();
+    super::fetch_helpers::populate_saved_cookie(
+        ProviderId::Cursor,
+        &settings,
+        || cookies.clone(),
+        &mut ctx,
+    );
+    assert_eq!(
+        ctx.manual_cookie_header.as_deref(),
+        Some("synthetic-cursor-cookie")
+    );
+}
+
+#[test]
+fn usage_respects_cookie_off_and_explicit_or_selected_credentials() {
+    let mut settings = Settings::default();
+    settings.set_cookie_source(ProviderId::Cursor, "off");
+    let mut off = FetchContext::default();
+    super::fetch_helpers::populate_saved_cookie(
+        ProviderId::Cursor,
+        &settings,
+        || panic!("cookie source off"),
+        &mut off,
+    );
+    assert!(off.manual_cookie_header.is_none());
+
+    settings.set_cookie_source(ProviderId::Cursor, "manual");
+    let mut cli = FetchContext {
+        source_mode: SourceMode::Cli,
+        ..FetchContext::default()
+    };
+    super::fetch_helpers::populate_saved_cookie(
+        ProviderId::Cursor,
+        &settings,
+        || panic!("CLI source"),
+        &mut cli,
+    );
+    assert!(cli.manual_cookie_header.is_none());
+
+    let mut selected = FetchContext {
+        manual_cookie_header: Some("synthetic-selected-cookie".to_string()),
+        token_account_isolated: true,
+        ..FetchContext::default()
+    };
+    super::fetch_helpers::populate_saved_cookie(
+        ProviderId::Cursor,
+        &settings,
+        || panic!("selected account"),
+        &mut selected,
+    );
+    assert_eq!(
+        selected.manual_cookie_header.as_deref(),
+        Some("synthetic-selected-cookie")
+    );
+}
+
+#[test]
 fn openrouter_account_ref_resolves_labeled_key() {
     let mut data = ProviderAccountData::new();
     data.add_account(TokenAccount::new("Personal", "sk-or-v1-personal"));
