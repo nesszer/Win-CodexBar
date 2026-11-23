@@ -155,7 +155,7 @@ fn describe(result: Result<String, ProviderError>) -> String {
 }
 
 #[tokio::test]
-async fn organization_lookup_maps_statuses_after_the_account_fallback() {
+async fn organization_lookup_maps_the_organization_list_statuses() {
     let cloudflare = format!("other {CLOUDFLARE_MESSAGE}");
     let rows: [(usize, &str, &str); 6] = [
         (200, r#"[{"uuid": "org-9", "name": "Team"}]"#, "ok org-9"),
@@ -171,7 +171,7 @@ async fn organization_lookup_maps_statuses_after_the_account_fallback() {
     ];
     for (status, body, expected) in rows {
         let mut server = Server::new_async().await;
-        let account = mock_response(&mut server, "GET", "/account", 500, "{}").await;
+        let account = mock_response_expect(&mut server, "GET", "/account", 500, "{}", 0).await;
         let orgs = mock_response(&mut server, "GET", "/organizations", status, body).await;
         let fetcher = ClaudeWebApiFetcher::new().with_base_url(server.url());
         let headers = ClaudeWebApiFetcher::build_headers("sessionKey=sk-ant-fixture-token");
@@ -189,17 +189,9 @@ async fn organization_lookup_maps_statuses_after_the_account_fallback() {
 }
 
 #[tokio::test]
-async fn organization_lookup_prefers_the_cookie_then_the_account() {
+async fn organization_lookup_takes_the_cookie_and_asks_nothing() {
     let mut server = Server::new_async().await;
-    let account = mock_response_expect(
-        &mut server,
-        "GET",
-        "/account",
-        200,
-        r#"{"memberships": [{"organization": {"uuid": " org-acct "}}]}"#,
-        1,
-    )
-    .await;
+    let account = mock_response_expect(&mut server, "GET", "/account", 200, "{}", 0).await;
     let orgs = mock_response_expect(&mut server, "GET", "/organizations", 200, "[]", 0).await;
     let fetcher = ClaudeWebApiFetcher::new().with_base_url(server.url());
     let headers = ClaudeWebApiFetcher::build_headers("sessionKey=sk-ant-fixture-token");
@@ -210,12 +202,8 @@ async fn organization_lookup_prefers_the_cookie_then_the_account() {
             &headers,
         )
         .await;
-    let from_account = fetcher
-        .get_organization_id("sessionKey=sk-ant-fixture-token", &headers)
-        .await;
 
     assert_eq!(describe(from_cookie), "ok org-cookie");
-    assert_eq!(describe(from_account), "ok org-acct");
     account.assert_async().await;
     orgs.assert_async().await;
 }
