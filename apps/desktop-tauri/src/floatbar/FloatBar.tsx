@@ -425,6 +425,22 @@ function ProviderPill({
         })
         .join("\n");
 
+  // Screen readers get the provider, the same value text and the reset text
+  // the pill shows. A problem keeps its state label in the name.
+  const accessibleName = state.isProblem
+    ? `${provider.displayName}, ${stateLabel}`
+    : [
+        provider.displayName,
+        ...metrics.flatMap((metric, index) => [
+          metric.window.isInformational === true
+            ? labels[index]
+            : `${labels[index]} ${displaySuffix}`,
+          resetTexts[index],
+        ]),
+      ]
+        .filter(Boolean)
+        .join(", ");
+
   const brand = getProviderIcon(provider.providerId).brandColor;
   const iconSize = Math.round(11 * scale);
   const resetIconSize = Math.round(10 * scale);
@@ -432,6 +448,8 @@ function ProviderPill({
   return (
     <div
       className={`floatbar__pill floatbar__pill--${tone}`}
+      role="group"
+      aria-label={accessibleName}
       title={title}
       data-tauri-drag-region
       style={brandStyle(brand)}
