@@ -14,6 +14,13 @@ jobs:
       # Stable relative target dir so the target cache below is portable and
       # every cargo invocation in local-check.ps1 shares one cache.
       CARGO_TARGET_DIR: target
+      # Lean CI builds: line tables keep panic backtraces readable while making
+      # test binaries faster to link and the target cache far smaller to save
+      # and restore. Incremental output is useless on a fresh VM and only
+      # bloats the cache. Changing these changes every fingerprint, so the
+      # target cache key below carries its own version.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: "0"
       # Compile-time pipeline values are exported as environment variables,
       # never passed as command-line arguments: an empty-string argument does
       # not survive the Windows argv handoff to a child powershell.exe -File
@@ -44,8 +51,8 @@ jobs:
       - restore_cache:
           name: Restore Cargo target cache (exact or older same-Rust fallback)
           keys:
-            - pr-check-target-v1-{{ checksum "scripts/circleci-pinned-rust.txt" }}-{{ checksum "Cargo.lock" }}-{{ checksum "Cargo.toml" }}-{{ checksum "rust/Cargo.toml" }}-{{ checksum "apps/desktop-tauri/src-tauri/Cargo.toml" }}
-            - pr-check-target-v1-{{ checksum "scripts/circleci-pinned-rust.txt" }}-{{ checksum "Cargo.lock" }}-
+            - pr-check-target-v2-{{ checksum "scripts/circleci-pinned-rust.txt" }}-{{ checksum "Cargo.lock" }}-{{ checksum "Cargo.toml" }}-{{ checksum "rust/Cargo.toml" }}-{{ checksum "apps/desktop-tauri/src-tauri/Cargo.toml" }}
+            - pr-check-target-v2-{{ checksum "scripts/circleci-pinned-rust.txt" }}-{{ checksum "Cargo.lock" }}-
       - run:
           name: Provision pinned toolchain and run local-check ci slice
           shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
@@ -71,7 +78,7 @@ jobs:
             - ~/AppData/Local/pnpm/store
       - save_cache:
           name: Save Cargo target cache
-          key: pr-check-target-v1-{{ checksum "scripts/circleci-pinned-rust.txt" }}-{{ checksum "Cargo.lock" }}-{{ checksum "Cargo.toml" }}-{{ checksum "rust/Cargo.toml" }}-{{ checksum "apps/desktop-tauri/src-tauri/Cargo.toml" }}
+          key: pr-check-target-v2-{{ checksum "scripts/circleci-pinned-rust.txt" }}-{{ checksum "Cargo.lock" }}-{{ checksum "Cargo.toml" }}-{{ checksum "rust/Cargo.toml" }}-{{ checksum "apps/desktop-tauri/src-tauri/Cargo.toml" }}
           paths:
             - target
 

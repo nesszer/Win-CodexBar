@@ -23,16 +23,24 @@ The hosted PR check delegates to scripts/local-check.ps1 -Slice ci:
 ~~~powershell
 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts\circleci-pr.tests.ps1
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+node --test .github/scripts/interaction-guard.test.mjs
 pnpm --dir apps/desktop-tauri install --frozen-lockfile
+pnpm --dir apps/desktop-tauri run notices:check
 pnpm --dir apps/desktop-tauri run lint
 pnpm --dir apps/desktop-tauri run check:anti-slop
 pnpm --dir apps/desktop-tauri run test:anti-slop
-pnpm --dir apps/desktop-tauri test
 pnpm --dir apps/desktop-tauri run build
-node --test .github/scripts/interaction-guard.test.mjs
+pnpm --dir apps/desktop-tauri test
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ~~~
+
+Fast checks run first, so a frontend or format mistake fails in about a
+minute instead of after the full Rust compile. CI builds use
+`CARGO_PROFILE_DEV_DEBUG=line-tables-only` and `CARGO_INCREMENTAL=0` to keep
+linking fast and the target cache small. Caches save only after a green run:
+keys are immutable, so a run that fails before the Rust compile must not
+claim the key with an empty `target`.
 
 CircleCI's GitHub App trigger and auto-cancel settings live outside the
 repository. Keep PR, default-branch, and budget rules there; do not add a
