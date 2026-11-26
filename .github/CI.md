@@ -70,8 +70,10 @@ token). Validate a fork PR locally instead:
 
 ## Code review
 
-CodeRabbit reviews every non-draft PR with the settings in
-.coderabbit.yaml. It uses AGENTS.md as its guidelines and runs blocking
+CodeRabbit automatically reviews every non-draft PR into `main` with the
+settings in .coderabbit.yaml. PRs into other bases, such as micro PRs into
+`port/upstream-*`, get no automatic review; comment `@coderabbitai review`
+once the PR is ready if it needs one. It uses AGENTS.md as its guidelines and runs blocking
 pre-merge checks for provider data siloing, secret handling and new
 dependencies. It approves a PR once its comments are resolved; maintainers
 still merge. It does not build or test anything, and it does not replace UI
@@ -83,17 +85,25 @@ ready-for-review and `@coderabbitai review` spends one; a push during a
 running review spends one and discards the earlier result. So drafts are
 skipped, a title containing WIP is skipped, and incremental reviews pause
 after 2 reviewed commits (one push can hold both); after that, comment
-`@coderabbitai review` for the final pass. Keep a PR in draft until the local check is green,
-push each round of fixes once, and don't push while the `CodeRabbit` check
-is pending. Comment `@coderabbitai rate limit` to see when the next review
+`@coderabbitai review` for the final pass. Keep a PR in draft until the
+local check is green, push each round of fixes once, and don't push while
+the `CodeRabbit` check is pending. Comment `@coderabbitai rate limit` to see when the next review
 is free; it spends a chat message, not a review.
 
 A green `CodeRabbit` check doesn't mean the PR was reviewed: skipped and
 rate-limited reviews also end green or neutral. Before merging, confirm a
 review by `coderabbitai[bot]` exists on the head commit, it was submitted
 after the latest "Review limit reached" comment was last updated (that
-comment is edited in place), and no review thread is unresolved. New issues get an automatic CodeRabbit context comment;
-comment `@coderabbitai plan` on an issue for an implementation plan.
+comment is edited in place), and no review thread is unresolved.
+
+Some PRs get no review even when asked: a PR that only changes files
+CodeRabbit excludes by default, such as `pnpm-lock.yaml`, ends with "No
+files to review". For those, and for non-`main` PRs nobody asked to review,
+the merge gate is a green `ci/circleci: pr-check` (or the posted local-check
+result) plus an explicit merge approval from a maintainer in that PR.
+
+New issues get an automatic CodeRabbit context comment; comment
+`@coderabbitai plan` on an issue for an implementation plan.
 
 ## GitHub Actions release path
 
