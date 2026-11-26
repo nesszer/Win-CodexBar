@@ -25,11 +25,14 @@ Move the hosted PR and push check to CircleCI, as a new `pr-check` job in
 - The job uses the `win/default` executor with `size: medium`.
 - The config doesn't repeat the check steps. It calls scripts, and the check
   itself is `scripts/local-check.ps1 -Slice ci`. This opt-in slice runs the
-  same steps as `.github/workflows/pr-check.yml`: `cargo fmt --all --check`,
+  same steps as `.github/workflows/pr-check.yml`, in this order: the CircleCI
+  helper tests (`scripts/circleci-pr.tests.ps1`), `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`,
-  `cargo test --workspace`, `pnpm install --frozen-lockfile`, `pnpm test`,
-  `pnpm run build`, and the interaction-guard script tests. Running the script
-  with no parameters still does what it did before.
+  `cargo test --workspace`, `pnpm install --frozen-lockfile`,
+  `pnpm run notices:check`, `pnpm run lint`, `pnpm run check:anti-slop`,
+  `pnpm run test:anti-slop`, `pnpm test`, `pnpm run build`, and the
+  interaction-guard script tests. Running the script with no parameters still
+  does what it did before.
 - `scripts/circleci-pr-gates.ps1` owns the three skip decisions that used to
   be inline in the config:
   1. the budget mode is `off`;
@@ -42,7 +45,7 @@ Move the hosted PR and push check to CircleCI, as a new `pr-check` job in
   download against its official checksum:
   - It downloads `rustup-init.exe` from static.rust-lang.org and checks it
     against the official `.sha256` file next to it.
-  - It checks the Node 24.18.0 x64 MSI against the official `SHASUMS256.txt`
+  - It checks the Node 24.22.1 x64 MSI against the official `SHASUMS256.txt`
     entry before `msiexec` runs. The MSI installs into its own per-version
     `INSTALLDIR`, because an upgrade of the same product silently does nothing.
   - corepack activates pnpm from the exact `packageManager` pin in
