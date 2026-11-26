@@ -54,16 +54,19 @@ It runs these steps in order:
 
 1. `scripts/circleci-pr.tests.ps1` (CI gate tests)
 2. `cargo fmt --all --check`
-3. `cargo clippy --workspace --all-targets -- -D warnings`
-4. `cargo test --workspace`
-5. `pnpm --dir apps/desktop-tauri install --frozen-lockfile`
-6. `pnpm --dir apps/desktop-tauri run notices:check` (third-party notices are current)
-7. `pnpm --dir apps/desktop-tauri run lint` (oxlint)
-8. `pnpm --dir apps/desktop-tauri run check:anti-slop`
-9. `pnpm --dir apps/desktop-tauri run test:anti-slop`
+3. `node --test .github/scripts/interaction-guard.test.mjs`
+4. `pnpm --dir apps/desktop-tauri install --frozen-lockfile`
+5. `pnpm --dir apps/desktop-tauri run notices:check` (third-party notices are current)
+6. `pnpm --dir apps/desktop-tauri run lint` (oxlint)
+7. `pnpm --dir apps/desktop-tauri run check:anti-slop`
+8. `pnpm --dir apps/desktop-tauri run test:anti-slop`
+9. `pnpm --dir apps/desktop-tauri run build`
 10. `pnpm --dir apps/desktop-tauri test`
-11. `pnpm --dir apps/desktop-tauri run build`
-12. `node --test .github/scripts/interaction-guard.test.mjs`
+11. `cargo clippy --workspace --all-targets -- -D warnings`
+12. `cargo test --workspace`
+
+The fast checks run first, so a format or frontend mistake fails in about a
+minute; the Rust clippy and tests compile the whole workspace and run last.
 
 The slice doesn't build the installer or release assets, and it doesn't prove UI behavior.
 

@@ -25,8 +25,11 @@
 //! synthetic Codex [`ProviderUsageSnapshot`] object or, in valid proof mode,
 //! a nonempty array of unique supported provider snapshots. The validated set
 //! is installed before the first event/WebView read and pinned against refresh
-//! eviction. Malformed files log a warning and the shell continues without
-//! seeding — proof runs must never crash on the seed.
+//! eviction. A seed object without `errorState` is Ready when it has no `error`
+//! and Unknown otherwise; an explicit `errorState` is always kept. In proof
+//! mode (`CODEXBAR_PROOF_MODE` set), an unreadable or malformed seed logs an
+//! error and exits with code 2 so a broken fixture never runs as live data.
+//! Outside proof mode, a malformed seed logs a warning and is skipped.
 //!
 //! `CODEXBAR_PROOF_WINDOW_ORIGIN=<x>,<y>` (physical pixels, proof mode only)
 //! opens the flyout, Settings and float bar windows at that point instead of
@@ -501,11 +504,19 @@ pub fn seed_claude_accounts_from_env() -> Option<Vec<crate::commands::ClaudeAcco
 /// bridge-shaped Codex snapshot or a proof-only array of provider snapshots.
 pub const SEED_USAGE_ENV_VAR: &str = "CODEXBAR_SEED_USAGE_JSON";
 
+/// Whether proof mode is requested, from the raw `CODEXBAR_PROOF_MODE` value.
+/// A set but invalid value still counts, so a broken proof run cannot quietly
+/// fall back to live data.
+fn proof_mode_requested() -> bool {
+    std::env::var("CODEXBAR_PROOF_MODE").is_ok_and(|raw| !raw.trim().is_empty())
+}
+
 /// Read and validate the seed file referenced by `CODEXBAR_SEED_USAGE_JSON`.
 ///
-/// Returns `None` (with a warn, never a crash) when the variable is unset,
-/// the file is unreadable, or the seed does not satisfy the selected legacy
-/// object or proof-only array contract.
+/// Outside proof mode, an unreadable or malformed seed logs a warning and
+/// returns `None`. In proof mode (`CODEXBAR_PROOF_MODE` set) it logs an error
+/// and exits the process with code 2, so a broken fixture never runs as live
+/// data.
 ///
 /// Seed lanes that carry `resetsAt` but no `pace` get the pace the bridge
 /// would compute at launch, using `pace_work_days`
@@ -517,27 +528,54 @@ pub fn seed_usage_snapshots_from_env(
 ) -> Option<Vec<ProviderUsageSnapshot>> {
     let path = std::env::var_os(SEED_USAGE_ENV_VAR)?;
     let path = std::path::PathBuf::from(path);
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(raw) => raw,
-        Err(err) => {
-            tracing::warn!(
-                "{SEED_USAGE_ENV_VAR}: cannot read {}: {err}",
-                path.display()
-            );
-            return None;
+    let source = std::fs::read_to_string(&path)
+        .map_err(|err| format!("cannot read {}: {err}", path.display()));
+    match seed_usage_from_source(
+        source,
+        &path.display().to_string(),
+        proof_config,
+        proof_mode_requested(),
+        pace_work_days,
+        chrono::Utc::now(),
+    ) {
+        Ok(snapshots) => snapshots,
+        Err(msg) => {
+            let line =
+                format!("{SEED_USAGE_ENV_VAR}: {msg}; proof mode cannot run without a valid seed");
+            tracing::error!("{line}");
+            eprintln!("{line}");
+            std::process::exit(2);
         }
-    };
-    match parse_seed_usage_snapshots(&raw, proof_config) {
+    }
+}
+
+/// Validate a seed source and return its snapshots, or the failure reason.
+///
+/// `Ok(None)` means a malformed seed was skipped with a warning (outside proof
+/// mode). `Err` means proof mode is active, so the seed must stop the run.
+/// The caller supplies the source text, the clock and the proof state.
+fn seed_usage_from_source(
+    source: Result<String, String>,
+    label: &str,
+    proof_config: Option<&ProofConfig>,
+    proof_active: bool,
+    pace_work_days: Option<u8>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<Vec<ProviderUsageSnapshot>>, String> {
+    let parsed = source.and_then(|raw| {
+        parse_seed_usage_snapshots(&raw, proof_config).map_err(|msg| format!("{msg} in {label}"))
+    });
+    match parsed {
         Ok(mut snapshots) => {
-            let now = chrono::Utc::now();
             for snapshot in &mut snapshots {
                 fill_seed_pace(snapshot, now, pace_work_days);
             }
-            Some(snapshots)
+            Ok(Some(snapshots))
         }
+        Err(msg) if proof_active => Err(msg),
         Err(msg) => {
-            tracing::warn!("{SEED_USAGE_ENV_VAR}: {msg} in {}", path.display());
-            None
+            tracing::warn!("{SEED_USAGE_ENV_VAR}: {msg}");
+            Ok(None)
         }
     }
 }
@@ -556,6 +594,8 @@ pub fn seed_usage_snapshots_from_env(
 pub fn parse_seed_usage_snapshot(json: &str) -> Result<ProviderUsageSnapshot, String> {
     let mut snapshot: ProviderUsageSnapshot =
         serde_json::from_str(json).map_err(|e| format!("malformed JSON: {e}"))?;
+    let raw: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("malformed JSON: {e}"))?;
 
     if snapshot.provider_id != "codex" {
         return Err(format!(
@@ -564,7 +604,7 @@ pub fn parse_seed_usage_snapshot(json: &str) -> Result<ProviderUsageSnapshot, St
         ));
     }
 
-    normalize_seed_snapshot(&mut snapshot);
+    normalize_seed_snapshot(&mut snapshot, error_state_omitted(&raw));
 
     Ok(snapshot)
 }
@@ -583,6 +623,8 @@ pub fn parse_seed_usage_snapshots(
         return Err("provider snapshot arrays require valid proof mode".into());
     }
 
+    let raw_values: Vec<serde_json::Value> =
+        serde_json::from_str(json).map_err(|e| format!("malformed JSON: {e}"))?;
     let mut snapshots: Vec<ProviderUsageSnapshot> =
         serde_json::from_str(json).map_err(|e| format!("malformed JSON: {e}"))?;
     if snapshots.is_empty() {
@@ -590,7 +632,7 @@ pub fn parse_seed_usage_snapshots(
     }
 
     let mut providers = HashSet::with_capacity(snapshots.len());
-    for snapshot in &mut snapshots {
+    for (snapshot, raw) in snapshots.iter_mut().zip(&raw_values) {
         if !is_seedable_provider_id(&snapshot.provider_id) {
             return Err(format!(
                 "unsupported snapshot providerId '{}', ignoring",
@@ -603,12 +645,25 @@ pub fn parse_seed_usage_snapshots(
                 snapshot.provider_id
             ));
         }
-        normalize_seed_snapshot(snapshot);
+        normalize_seed_snapshot(snapshot, error_state_omitted(raw));
     }
     Ok(snapshots)
 }
 
-fn normalize_seed_snapshot(snapshot: &mut ProviderUsageSnapshot) {
+/// True when the raw seed object omits `errorState`. The bridge default
+/// (`Unknown`) would then mark every pill as an error, so the seed infers it.
+fn error_state_omitted(raw: &serde_json::Value) -> bool {
+    raw.get("errorState").is_none()
+}
+
+fn normalize_seed_snapshot(snapshot: &mut ProviderUsageSnapshot, error_state_omitted: bool) {
+    if error_state_omitted {
+        snapshot.error_state = if snapshot.error.is_some() {
+            codexbar::core::ProviderStateKind::Unknown
+        } else {
+            codexbar::core::ProviderStateKind::Ready
+        };
+    }
     normalize_rate_window(&mut snapshot.primary);
     snapshot.secondary.as_mut().map(normalize_rate_window);
     snapshot.model_specific.as_mut().map(normalize_rate_window);
@@ -1022,7 +1077,7 @@ mod tests {
                 "window":{"usedPercent":60.0,"resetsAt":"2026-03-01T00:00:00Z"}}]}"#;
         // Non-Codex seeds arrive in a proof-mode array; parse the element directly.
         let mut snapshot: ProviderUsageSnapshot = serde_json::from_str(json).unwrap();
-        normalize_seed_snapshot(&mut snapshot);
+        normalize_seed_snapshot(&mut snapshot, false);
         fill_seed_pace(&mut snapshot, now, None);
         let pace = snapshot.primary.pace.expect("copilot primary pace");
         assert_eq!(pace.expected_used_percent, 50.0);
@@ -1044,7 +1099,7 @@ mod tests {
                             "resetRegenerates":{regenerates}}}}}"#
             );
             let mut snapshot: ProviderUsageSnapshot = serde_json::from_str(&json).unwrap();
-            normalize_seed_snapshot(&mut snapshot);
+            normalize_seed_snapshot(&mut snapshot, false);
             fill_seed_pace(&mut snapshot, now, None);
             snapshot.primary.daily_target
         };
@@ -1261,6 +1316,81 @@ mod tests {
         )
         .unwrap();
         assert!(y + PROOF_MAX_SETTLE_HEIGHT_LOGICAL as i32 <= work.bottom() - 8);
+    }
+
+    fn seed_error_state(json: &str) -> codexbar::core::ProviderStateKind {
+        parse_seed_usage_snapshot(json).unwrap().error_state
+    }
+
+    #[test]
+    fn omitted_seed_error_state_defaults_to_ready() {
+        let json = r#"{"providerId":"codex","primary":{"usedPercent":10.0,"windowMinutes":300}}"#;
+        assert_eq!(
+            seed_error_state(json),
+            codexbar::core::ProviderStateKind::Ready
+        );
+    }
+
+    #[test]
+    fn omitted_seed_error_state_with_error_is_unknown() {
+        let json = r#"{"providerId":"codex","primary":{"usedPercent":10.0,"windowMinutes":300},"error":"boom"}"#;
+        assert_eq!(
+            seed_error_state(json),
+            codexbar::core::ProviderStateKind::Unknown
+        );
+    }
+
+    #[test]
+    fn explicit_seed_error_state_is_kept() {
+        let expired = r#"{"providerId":"codex","primary":{"usedPercent":10.0,"windowMinutes":300},"errorState":"expiredSession"}"#;
+        assert_eq!(
+            seed_error_state(expired),
+            codexbar::core::ProviderStateKind::ExpiredSession
+        );
+        let unknown = r#"{"providerId":"codex","primary":{"usedPercent":10.0,"windowMinutes":300},"errorState":"unknown"}"#;
+        assert_eq!(
+            seed_error_state(unknown),
+            codexbar::core::ProviderStateKind::Unknown
+        );
+    }
+
+    #[test]
+    fn omitted_seed_error_state_defaults_to_ready_in_arrays() {
+        let json = serde_json::json!([seed_snapshot("codex", 10.0)]).to_string();
+        let snapshots = parse_seed_usage_snapshots(&json, Some(&valid_proof_config())).unwrap();
+        assert_eq!(
+            snapshots[0].error_state,
+            codexbar::core::ProviderStateKind::Ready
+        );
+    }
+
+    #[test]
+    fn malformed_seed_fails_only_in_proof_mode() {
+        let now = chrono::Utc::now();
+        let config = valid_proof_config();
+        let strict = seed_usage_from_source(
+            Ok("{not json".into()),
+            "seed.json",
+            Some(&config),
+            true,
+            None,
+            now,
+        );
+        assert!(strict.is_err());
+        let lenient =
+            seed_usage_from_source(Ok("{not json".into()), "seed.json", None, false, None, now);
+        assert!(matches!(lenient, Ok(None)));
+    }
+
+    #[test]
+    fn unreadable_seed_fails_only_in_proof_mode() {
+        let now = chrono::Utc::now();
+        let missing = || Err("cannot read seed.json: not found".to_string());
+        assert!(seed_usage_from_source(missing(), "seed.json", None, true, None, now).is_err());
+        assert!(matches!(
+            seed_usage_from_source(missing(), "seed.json", None, false, None, now),
+            Ok(None)
+        ));
     }
 
     #[test]

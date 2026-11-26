@@ -37,6 +37,16 @@ fn token_count(timestamp: &str, input: i64, cached: i64, output: i64) -> Value {
 }
 
 /// Write one rollout under `sessions/2026/10/05` and scan a 30-day window.
+/// The fixtures sit on fixed dates around the real 2026-10-06 cutoff, but the
+/// scanner window rolls back from today. Reach back past the fixture day so
+/// the tests keep passing as the calendar moves on (a fixed 30 stopped
+/// covering it on 2026-11-04).
+fn days_back_to_fixtures() -> u32 {
+    let fixture_day = chrono::NaiveDate::from_ymd_opt(2026, 10, 5).unwrap();
+    let today = chrono::Utc::now().date_naive();
+    u32::try_from((today - fixture_day).num_days().max(0)).unwrap() + 30
+}
+
 fn scan_rollout(root: &Path, lines: &[Value]) -> (CostSummary, CostUsageCache) {
     let day_dir = root.join("sessions").join("2026").join("10").join("05");
     std::fs::create_dir_all(&day_dir).unwrap();
@@ -46,7 +56,7 @@ fn scan_rollout(root: &Path, lines: &[Value]) -> (CostSummary, CostUsageCache) {
         body,
     )
     .unwrap();
-    let (summary, _stats, cache) = CostScanner::new(30)
+    let (summary, _stats, cache) = CostScanner::new(days_back_to_fixtures())
         .with_cache_root(root.join("cache"))
         .with_sessions_dirs(vec![root.join("sessions")])
         .scan_codex_detailed_with_cache(None);
