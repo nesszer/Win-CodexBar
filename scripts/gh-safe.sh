@@ -15,6 +15,11 @@ Usage:
 Examples:
   bash scripts/gh-safe.sh --repo nesszer/Win-CodexBar --verify-kind pr --target 361 --what-if -- pr comment 361 --body-file .review/comment.md
   bash scripts/gh-safe.sh --repo nesszer/Win-CodexBar --verify-kind repo --what-if -- pr create --title "..." --body-file body.md
+  bash scripts/gh-safe.sh --repo nesszer/Win-CodexBar --verify-kind pr --target 361 --what-if -- pr enqueue 361
+
+`pr enqueue <n>` is handled by this wrapper, not gh: it adds the verified PR to the
+base branch's merge queue (GraphQL enqueuePullRequest) and checks that the queue entry
+belongs to the same PR. gh pr merge can't do this while repository auto-merge is off.
   bash scripts/gh-safe.sh --repo microsoft/winget-pkgs --verify-kind repo --what-if -- pr create --head Finesssee:branch --title "..." --body-file body.md
 EOF
 }
@@ -58,6 +63,11 @@ if [[ "$verify_kind" != repo ]]; then
   ((${#gh_args[@]} >= 3)) || { echo "Forwarded command must carry its object as the third token (gh <object> <verb> <number>)." >&2; exit 3; }
   [[ "${gh_args[2]}" == "$target" ]] || { echo "Forwarded command object '${gh_args[2]:-}' is not the verified target '$target'." >&2; exit 3; }
 fi
+enqueue=0
+if [[ "$verify_kind" == pr && "${gh_args[0]}" == pr && "${gh_args[1]}" == enqueue ]]; then
+  ((${#gh_args[@]} == 3)) || { echo 'pr enqueue takes only the PR number.' >&2; exit 3; }
+  enqueue=1
+fi
 api_passthrough=0
 if [[ "$verify_kind" == repo && "${gh_args[0]}" == api ]]; then
   ((${#gh_args[@]} >= 2)) || { echo 'gh api requires a repository-scoped REST path.' >&2; exit 3; }
@@ -97,6 +107,21 @@ esac
 shopt -u nocasematch
 
 echo "Verified GitHub write target: $verified_url"
+if ((enqueue == 1)); then
+  pr_id="$(gh pr view "$target" --repo "$repo" --json id --jq .id)"
+  [[ "$pr_id" =~ ^PR_[A-Za-z0-9_-]+$ ]] || { echo "Unexpected pull request node id '$pr_id'." >&2; exit 4; }
+  if ((what_if == 1)); then
+    echo "WhatIf: enqueue $verified_url ($pr_id) in its merge queue"
+    exit 0
+  fi
+  entry="$(gh api graphql \
+    -f query='mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { mergeQueueEntry { state position pullRequest { url } } } }' \
+    -f id="$pr_id" \
+    --jq'.data.enqueuePullRequest.mergeQueueEntry | "\(.pullRequest.url)|\(.state)|\(.position)"')"
+  [[ "${entry%%|*}" == "$verified_url" ]] || { echo "Merge queue entry '$entry' does not belong to $verified_url." >&2; exit 4; }
+  echo "Enqueued: $entry"
+  exit 0
+fi
 if ((what_if == 1)); then
   printf 'WhatIf: gh'
   printf ' %q' "${gh_args[@]}"
