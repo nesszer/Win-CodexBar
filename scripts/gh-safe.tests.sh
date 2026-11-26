@@ -154,7 +154,7 @@ fi
 bash "$repo_root/scripts/gh-safe.sh" \
   --repo nesszer/Win-CodexBar --verify-kind pr --target 361 -- \
   pr enqueue 361 >/dev/null
-grep -Fq 'enqueuePullRequest' "$log" && grep -Fq 'id=PR_kwTEST361' "$log" || {
+grep -Fq 'enqueuePullRequest' "$log" && grep -Fq 'id=PR_kwTEST361' "$log" && grep 'enqueuePullRequest' "$log" | grep -Fq ' --jq .data.enqueuePullRequest' || {
   echo 'pr enqueue did not send the mutation for the verified PR node id.' >&2
   cat "$log" >&2
   exit 1

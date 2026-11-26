@@ -117,7 +117,7 @@ if ((enqueue == 1)); then
   entry="$(gh api graphql \
     -f query='mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { mergeQueueEntry { state position pullRequest { url } } } }' \
     -f id="$pr_id" \
-    --jq'.data.enqueuePullRequest.mergeQueueEntry | "\(.pullRequest.url)|\(.state)|\(.position)"')"
+    --jq '.data.enqueuePullRequest.mergeQueueEntry | "\(.pullRequest.url)|\(.state)|\(.position)"')"
   [[ "${entry%%|*}" == "$verified_url" ]] || { echo "Merge queue entry '$entry' does not belong to $verified_url." >&2; exit 4; }
   echo "Enqueued: $entry"
   exit 0
