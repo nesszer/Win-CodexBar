@@ -42,25 +42,25 @@ function Invoke-WorktreeStorageAudit {
     }
 }
 
-# Hosted pr-check slice (-Slice ci): mirrors .github/workflows/pr-check.yml
-# step for step (workspace-wide fmt/clippy/test, frozen frontend install,
-# frontend lint/rule tests/build, interaction-guard script tests). The guard's
-# script tests are pure Node, so the mirror stays honest locally too.
+# Hosted pr-check slice (-Slice ci): CircleCI and .github/workflows/pr-check.yml
+# both run exactly this. The fast checks (fmt, guard script tests, frontend
+# lint/type check/tests) run first so a mistake there fails in about a minute;
+# the workspace-wide Rust clippy and tests, which compile everything, run last.
 if ($Slice -eq 'ci') {
     Push-Location $RepoRoot
     try {
         Invoke-Step "CircleCI helper tests" "powershell.exe" @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts\circleci-pr.tests.ps1")
         Invoke-Step "Rust format check" "cargo" @("fmt", "--all", "--check")
-        Invoke-Step "Rust clippy (workspace)" "cargo" @("clippy", "--workspace", "--all-targets", "--", "-D", "warnings")
-        Invoke-Step "Rust tests (workspace)" "cargo" @("test", "--workspace")
+        Invoke-Step "Interaction guard script tests" "node" @("--test", ".github/scripts/interaction-guard.test.mjs")
         Invoke-Step "Frontend install" "pnpm" @("--dir", "apps\desktop-tauri", "install", "--frozen-lockfile")
         Invoke-Step "Third-party notices freshness" "pnpm" @("--dir", "apps\desktop-tauri", "run", "notices:check")
         Invoke-Step "Frontend Oxlint" "pnpm" @("--dir", "apps\desktop-tauri", "run", "lint")
         Invoke-Step "Anti-slop tooling type check" "pnpm" @("--dir", "apps\desktop-tauri", "run", "check:anti-slop")
         Invoke-Step "Anti-slop rule tests" "pnpm" @("--dir", "apps\desktop-tauri", "run", "test:anti-slop")
-        Invoke-Step "Frontend tests" "pnpm" @("--dir", "apps\desktop-tauri", "test")
         Invoke-Step "Frontend type check / build" "pnpm" @("--dir", "apps\desktop-tauri", "run", "build")
-        Invoke-Step "Interaction guard script tests" "node" @("--test", ".github/scripts/interaction-guard.test.mjs")
+        Invoke-Step "Frontend tests" "pnpm" @("--dir", "apps\desktop-tauri", "test")
+        Invoke-Step "Rust clippy (workspace)" "cargo" @("clippy", "--workspace", "--all-targets", "--", "-D", "warnings")
+        Invoke-Step "Rust tests (workspace)" "cargo" @("test", "--workspace")
     } finally {
         Pop-Location
     }
