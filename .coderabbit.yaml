@@ -2,8 +2,8 @@
 # CodeRabbit is the first-pass reviewer for every non-draft PR, including
 # fork PRs. OSS reviews are rate limited per author per repository (about 4
 # per rolling hour here), and every PR open and every push spends one, so
-# drafts are skipped and incremental reviews pause after 2 reviewed pushes
-# (comment `@coderabbitai review` for a deliberate final pass). CircleCI
+# drafts are skipped and incremental reviews pause after 2 reviewed commits
+# (one push can hold both; comment `@coderabbitai review` for a deliberate final pass). CircleCI
 # pr-check runs the builds and tests. Fork PRs are checked
 # with main's -Slice ci steps in an isolated, credential-free Windows
 # environment (.github/CI.md). UI proof on a real
@@ -107,6 +107,9 @@ issue_enrichment:
   # stays on demand: comment `@coderabbitai plan` on an issue.
   auto_enrich:
     enabled: true
+  planning:
+    auto_planning:
+      enabled: false
 knowledge_base:
   code_guidelines:
     enabled: true

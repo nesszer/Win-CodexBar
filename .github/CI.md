@@ -74,16 +74,17 @@ rolling hour for this project's main author. Every PR open, push,
 ready-for-review and `@coderabbitai review` spends one; a push during a
 running review spends one and discards the earlier result. So drafts are
 skipped, a title containing WIP is skipped, and incremental reviews pause
-after 2 reviewed pushes. Keep a PR in draft until the local check is green,
+after 2 reviewed commits (one push can hold both); after that, comment
+`@coderabbitai review` for the final pass. Keep a PR in draft until the local check is green,
 push each round of fixes once, and don't push while the `CodeRabbit` check
 is pending. Comment `@coderabbitai rate limit` to see when the next review
 is free; it spends a chat message, not a review.
 
 A green `CodeRabbit` check doesn't mean the PR was reviewed: skipped and
 rate-limited reviews also end green or neutral. Before merging, confirm a
-review by `coderabbitai[bot]` exists on the head commit, no "Review limit
-reached" comment is newer than the last push, and no review thread is
-unresolved. New issues get an automatic CodeRabbit context comment;
+review by `coderabbitai[bot]` exists on the head commit, it was submitted
+after the latest "Review limit reached" comment was last updated (that
+comment is edited in place), and no review thread is unresolved. New issues get an automatic CodeRabbit context comment;
 comment `@coderabbitai plan` on an issue for an implementation plan.
 
 ## GitHub Actions release path
