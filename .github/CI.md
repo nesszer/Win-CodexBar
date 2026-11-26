@@ -99,8 +99,9 @@ comment is edited in place), and no review thread is unresolved.
 Some PRs get no review even when asked: a PR that only changes files
 CodeRabbit excludes by default, such as `pnpm-lock.yaml`, ends with "No
 files to review". For those, and for non-`main` PRs nobody asked to review,
-the merge gate is a green `ci/circleci: pr-check` (or the posted local-check
-result) plus an explicit merge approval from a maintainer in that PR.
+the merge gate is a green `ci/circleci: pr-check` plus an explicit merge
+approval from a maintainer in that PR. A posted local-check result replaces
+the hosted check only where it doesn't run, as for fork PRs below.
 
 New issues get an automatic CodeRabbit context comment; comment
 `@coderabbitai plan` on an issue for an implementation plan.
