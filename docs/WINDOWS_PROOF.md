@@ -52,16 +52,17 @@ $env:CODEXBAR_SEED_USAGE_JSON = 'C:\proof\seed.json'
 The file holds one of two shapes:
 
 - **One Codex snapshot.** A single JSON object in the bridge `ProviderUsageSnapshot` shape. Its `providerId` must be `codex`. This works with or without proof mode.
-- **A list of snapshots.** A non-empty JSON array of snapshots. This works only when `CODEXBAR_PROOF_MODE` holds a valid value. Each `providerId` must be an exact bridge id (the `cli_name`), and each provider may appear once. The array is all or nothing: one bad entry skips the whole file.
+- **A list of snapshots.** A non-empty JSON array of snapshots. This works only when `CODEXBAR_PROOF_MODE` holds a valid value. Each `providerId` must be an exact bridge id (the `cli_name`), and each provider may appear once. The array is all or nothing: one bad entry rejects the whole file.
 
 The app fills fields that the file leaves out:
 
+- `errorState` as `ready`, or `unknown` when the snapshot has an `error`;
 - `remainingPercent` from `usedPercent`;
 - `formattedUsed` from `used`;
 - `updatedAt` from the current time;
 - the pace for any window that has `resetsAt` but no `pace`, with the same math and work-days setting as a live refresh.
 
-A file the app can't read or parse logs a warning, and the app starts without the seed.
+In proof mode, a file the app can't read or parse stops the app with exit code 2 and an error naming the file. Without proof mode, the app logs a warning and starts without the seed.
 
 Seeded data is pinned per provider. A normal refresh skips every seeded provider and fetches only the enabled providers that have no seed, so seeding `codex` alone with `codex` and `claude` enabled keeps the Codex seed and refreshes Claude. A forced refresh, such as **Refresh All**, fetches live data for every provider and drops their pins.
 

@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tauriMocks = vi.hoisted(() => ({
@@ -1046,6 +1046,37 @@ describe("FloatBar", () => {
       expect(title).toContain("Claude: 20% used");
       expect(title).toMatch(/Resets in 3h 4[12]m/);
       expect(title).not.toContain("Resets in due now");
+    });
+  });
+
+  it("names a normal pill for screen readers with its provider, value and reset", async () => {
+    const resetsAt = new Date(Date.now() + 3 * 60 * 60_000 + 42 * 60_000).toISOString();
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("claude", "Claude", 20, { resetsAt }),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
+
+    renderFloatBar(bootstrap());
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("group", { name: /^Claude, 20% used, Resets in 3h 4[12]m$/ }),
+      ).toHaveClass("floatbar__pill");
+    });
+  });
+
+  it("keeps the problem label in the accessible name of a problem pill", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("gemini", "Gemini", 12, { error: "boom", errorState: "unknown" }),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ enabledProviders: ["gemini"] }));
+
+    renderFloatBar(bootstrap({ enabledProviders: ["gemini"] }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("group", { name: "Gemini, Usage unavailable" }),
+      ).toHaveClass("floatbar__pill--crit");
     });
   });
 
