@@ -54,6 +54,9 @@ fn main() {
             watched.extend(git_path("packed-refs"));
         }
         watched.push(head_path);
+        // Every commit and checkout appends here, which also covers branch refs that
+        // live only in packed-refs (a commit then creates a loose ref nobody watched).
+        watched.extend(git_path("logs/HEAD"));
     }
 
     let mut emitted = false;
