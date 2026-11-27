@@ -97,8 +97,10 @@ after the latest "Review limit reached" comment was last updated (that
 comment is edited in place), and no review thread is unresolved. A
 re-review that finds nothing new posts only a "Review finished" comment, not
 a review; that comment counts as the head-commit review when it is newer
-than the last push and the latest limit comment. Outdated threads CodeRabbit
-left open close with `@coderabbitai resolve`.
+than the last push and the latest limit comment. To close an outdated
+thread CodeRabbit left open, reply `@coderabbitai resolve` in that thread; a
+top-level `@coderabbitai resolve` closes every CodeRabbit thread, so use it
+only once each finding is fixed or answered.
 
 Some PRs get no review even when asked: a PR that only changes files
 CodeRabbit excludes by default, such as `pnpm-lock.yaml`, ends with "No
