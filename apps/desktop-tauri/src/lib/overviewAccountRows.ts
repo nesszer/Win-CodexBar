@@ -299,20 +299,5 @@ function rateWindow(
 }
 
 function emptyRateWindow(): RateWindowSnapshot {
-  return {
-    usedPercent: 0,
-    remainingPercent: 100,
-    windowMinutes: null,
-    resetsAt: null,
-    resetDescription: null,
-    isExhausted: false,
-    reservePercent: null,
-    reserveDescription: null,
-    isInformational: false,
-    descriptionIsDetail: false,
-    reserveWillLastToReset: false,
-    reserveEtaSeconds: null,
-    pace: null,
-    monthlyLimitBlock: null,
-  };
+  return rateWindow(0, null, null);
 }

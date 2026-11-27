@@ -33,8 +33,10 @@ export type { WayfinderUsageSnapshot } from "../generated/WayfinderUsageSnapshot
 export type { WindowPaceSnapshot } from "../generated/WindowPaceSnapshot";
 
 /**
- * The webview only receives the presentation wrapper (`get_cached_providers`,
- * `provider-updated`); the raw generated `ProviderUsageSnapshot` stays in the shell.
+ * `get_cached_providers` and refresh `provider-updated` events carry the
+ * presentation wrapper; the raw generated `ProviderUsageSnapshot` stays in the shell.
+ * Exception: after Copilot device login, `provider-updated` carries only
+ * `{ providerId: "copilot" }` (`commands/system.rs`), not a snapshot.
  */
 export type ProviderUsageSnapshot = ProviderUsagePresentationSnapshot;
 
