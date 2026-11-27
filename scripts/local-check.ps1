@@ -32,6 +32,22 @@ function Invoke-Step {
     }
 }
 
+# `cargo test --workspace` re-exports the ts-rs bridge types; any change or new
+# file under the generated dir means the committed TS has drifted from Rust.
+function Assert-GeneratedBindingsClean {
+    $generatedDir = "apps/desktop-tauri/src/types/generated"
+    Write-Host ""
+    Write-Host "==> Generated bridge types are committed" -ForegroundColor Cyan
+    $drift = & git status --porcelain -- $generatedDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "git status failed with exit code $LASTEXITCODE"
+    }
+    if ($drift) {
+        $drift | ForEach-Object { Write-Host $_ }
+        throw "Generated bridge types in $generatedDir are stale: run cargo test -p codexbar-desktop-tauri export_bindings and commit the result"
+    }
+}
+
 function Invoke-WorktreeStorageAudit {
     $auditScript = Join-Path $PSScriptRoot "worktree-storage.ps1"
     Write-Host ""
@@ -61,6 +77,7 @@ if ($Slice -eq 'ci') {
         Invoke-Step "Frontend tests" "pnpm" @("--dir", "apps\desktop-tauri", "test")
         Invoke-Step "Rust clippy (workspace)" "cargo" @("clippy", "--workspace", "--all-targets", "--", "-D", "warnings")
         Invoke-Step "Rust tests (workspace)" "cargo" @("test", "--workspace")
+        Assert-GeneratedBindingsClean
     } finally {
         Pop-Location
     }
