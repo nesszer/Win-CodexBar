@@ -1,6 +1,6 @@
 import type {
   CostSnapshotBridge,
-  ProviderInventoryItem,
+  ProviderInventoryItemSnapshot,
   SubscriptionMetadataSnapshot,
 } from "../types/bridge";
 
@@ -39,7 +39,7 @@ export function isDetailSectionVisible(
 }
 
 interface ClaudeSections {
-  inventory?: ProviderInventoryItem[];
+  inventory?: ProviderInventoryItemSnapshot[];
   cost: CostSnapshotBridge | null;
   subscription?: SubscriptionMetadataSnapshot | null;
   sourceLabel: string | null;

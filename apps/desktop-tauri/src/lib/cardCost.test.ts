@@ -32,6 +32,12 @@ function cost(overrides: Partial<CostSnapshotBridge>): CostSnapshotBridge {
     resetsAt: null,
     formattedUsed: "",
     formattedLimit: null,
+    balance: null,
+    balanceUpdatedAt: null,
+    accountId: null,
+    formattedBalance: null,
+    daily: [],
+    alwaysVisible: false,
     ...overrides,
   };
 }

@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import type { ProviderDisplayDetail, ProviderInventoryItem } from "../../types/bridge";
+import type { ProviderDisplayDetailSnapshot, ProviderInventoryItemSnapshot } from "../../types/bridge";
 import { useLocale } from "../../hooks/useLocale";
 import { useFormattedResetTime } from "../../hooks/useFormattedResetTime";
 import { groupProviderDisplayDetails } from "../ProviderDisplayRow";
@@ -7,7 +7,7 @@ import { localizeProviderText } from "../../lib/providerText";
 import { localizeProviderLabel } from "../../lib/windowLabels";
 import { isDetailSectionVisible } from "../../lib/usageItemVisibility";
 
-function progressPercent(detail: ProviderDisplayDetail): number | null {
+function progressPercent(detail: ProviderDisplayDetailSnapshot): number | null {
   const progress = detail.progress;
   if (
     !progress ||
@@ -60,7 +60,7 @@ function InventoryRow({
   item,
   resetTimeRelative,
 }: {
-  item: ProviderInventoryItem;
+  item: ProviderInventoryItemSnapshot;
   resetTimeRelative: boolean;
 }) {
   const { t } = useLocale();
@@ -86,8 +86,8 @@ export default function DetailSections({
   hiddenUsageItemIds,
   resetTimeRelative,
 }: {
-  details: ProviderDisplayDetail[];
-  inventory: ProviderInventoryItem[];
+  details: ProviderDisplayDetailSnapshot[];
+  inventory: ProviderInventoryItemSnapshot[];
   hiddenUsageItemIds: string[] | null | undefined;
   resetTimeRelative: boolean;
 }) {

@@ -94,7 +94,7 @@ describe("switcherWeeklyPercent", () => {
       primary: lane(10, 300),
       secondary: lane(30, 10080),
       tertiary: lane(95, 10080),
-      extraRateWindows: [{ id: "scoped", title: "Scoped", window: lane(99, 10080) }],
+      extraRateWindows: [{ id: "scoped", title: "Scoped", window: lane(99, 10080), fallbackLane: false }],
     };
     expect(switcherWeeklyPercent(scoped, true)).toBe(30);
   });

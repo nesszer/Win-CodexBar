@@ -18,7 +18,7 @@ describe("headerAccount", () => {
   });
 
   it("shows no email and no label under Hide Personal Info", () => {
-    expect(headerAccount({ accountEmail: "parity.user@example.com" }, true)).toBeNull();
+    expect(headerAccount({ accountEmail: "parity.user@example.com", accountLabel: null }, true)).toBeNull();
     expect(
       headerAccount({ accountEmail: null, accountLabel: "parity-github" }, true),
     ).toBeNull();
@@ -28,7 +28,7 @@ describe("headerAccount", () => {
   });
 
   it("shows nothing without an email or label", () => {
-    expect(headerAccount({ accountEmail: null }, false)).toBeNull();
+    expect(headerAccount({ accountEmail: null, accountLabel: null }, false)).toBeNull();
     expect(headerAccount({ accountEmail: null, accountLabel: "" }, true)).toBeNull();
   });
 });

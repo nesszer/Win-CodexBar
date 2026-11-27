@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { MonthlyLimitBlock } from "../types/bridge";
+import type { MonthlyLimitBlockSnapshot } from "../types/bridge";
 import { monthlyLimitBlockResetMs } from "../lib/monthlyLimitBlock";
 
 // Browsers clamp timers above 2^31-1 ms (about 24.8 days); re-arm before that.
@@ -11,7 +11,7 @@ const MAX_WAIT_MS = 6 * 60 * 60 * 1000;
  * instead of waiting for the next refresh.
  */
 export function useMonthlyLimitBlockNow(
-  blocks: readonly (MonthlyLimitBlock | null | undefined)[],
+  blocks: readonly (MonthlyLimitBlockSnapshot | null | undefined)[],
 ): number {
   const [tick, setTick] = useState(0);
   const now = Date.now();

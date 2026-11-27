@@ -5,8 +5,8 @@ import type {
   CostSnapshotBridge,
   OpenAiApiUsageSnapshot,
   PaceSnapshot,
-  ProviderDisplayDetail,
-  ProviderInventoryItem,
+  ProviderDisplayDetailSnapshot,
+  ProviderInventoryItemSnapshot,
   ProviderStateKind,
   ProviderUsageItem,
   RateWindowSnapshot,
@@ -311,9 +311,9 @@ export interface ProviderDetail {
   /** Persisted presentation-only hidden metric/extra row IDs. */
   hiddenUsageItemIds?: string[];
   /** Display-only discrete provider inventory; never used as quota math. */
-  inventory?: ProviderInventoryItem[];
+  inventory?: ProviderInventoryItemSnapshot[];
   /** Provider-specific display rows; never used as quota math or persistence. */
-  displayDetails?: ProviderDisplayDetail[];
+  displayDetails?: ProviderDisplayDetailSnapshot[];
   /** Plan renewal / expiry dates for the usage preview. */
   subscription?: SubscriptionMetadataSnapshot | null;
 

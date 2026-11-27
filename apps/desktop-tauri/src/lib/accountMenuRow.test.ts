@@ -3,6 +3,11 @@ import type { ProviderUsageSnapshot, RateWindowSnapshot } from "../types/bridge"
 import { accountMenuAction } from "./accountMenuRow";
 
 const window: RateWindowSnapshot = {
+  descriptionIsDetail: false,
+  reserveWillLastToReset: false,
+  reserveEtaSeconds: null,
+  pace: null,
+  monthlyLimitBlock: null,
   usedPercent: 25,
   remainingPercent: 75,
   windowMinutes: 300,
@@ -20,6 +25,14 @@ function snapshot(overrides: Partial<ProviderUsageSnapshot>): ProviderUsageSnaps
     displayName: "Codex",
     primary: window,
     selectedMetric: window,
+    primaryLabel: null,
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    subscription: null,
+    hasSuccessfulClaudeCliQuota: false,
+    fetchDurationMs: null,
+    wayfinderUsage: null,
     secondary: null,
     modelSpecific: null,
     tertiary: null,

@@ -38,6 +38,12 @@ export function rateWindow(
     isExhausted: usedPercent >= 100,
     reservePercent: null,
     reserveDescription: null,
+    isInformational: false,
+    descriptionIsDetail: false,
+    reserveWillLastToReset: false,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
   };
 }
 
@@ -74,6 +80,12 @@ export function providerSnapshot(
     accountOrganization: null,
     trayStatusLabel: null,
     fetchDurationMs: 420,
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    subscription: null,
+    hasSuccessfulClaudeCliQuota: false,
+    wayfinderUsage: null,
     ...overrides,
   };
 }

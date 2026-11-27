@@ -4,7 +4,7 @@ import {
   getProviderWorkspaceId,
   setProviderWorkspaceId,
 } from "../../../../lib/tauri";
-import type { ProviderDisplayDetail } from "../../../../types/bridge";
+import type { ProviderDisplayDetailSnapshot } from "../../../../types/bridge";
 import { MuseBrowserTeamSection } from "./MuseBrowserTeamSection";
 
 vi.mock("../../../../lib/tauri", () => ({
@@ -12,7 +12,7 @@ vi.mock("../../../../lib/tauri", () => ({
   setProviderWorkspaceId: vi.fn(),
 }));
 
-function row(id: string, title: string, value: string): ProviderDisplayDetail {
+function row(id: string, title: string, value: string): ProviderDisplayDetailSnapshot {
   return { id, sectionTitle: null, title, value, secondaryValue: null, progress: null };
 }
 
@@ -22,7 +22,7 @@ const DETAILS = [
   row("browser-team-22", "Beta", "22"),
 ];
 
-function renderSection(details: ProviderDisplayDetail[] | undefined = DETAILS) {
+function renderSection(details: ProviderDisplayDetailSnapshot[] | undefined = DETAILS) {
   const onChanged = vi.fn();
   render(
     <MuseBrowserTeamSection

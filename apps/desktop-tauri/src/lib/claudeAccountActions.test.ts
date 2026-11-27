@@ -19,6 +19,11 @@ function provider(
     hasSuccessfulClaudeCliQuota: true,
     error: null,
     primary: {
+      descriptionIsDetail: false,
+      reserveWillLastToReset: false,
+      reserveEtaSeconds: null,
+      pace: null,
+      monthlyLimitBlock: null,
       usedPercent: 25,
       remainingPercent: 75,
       windowMinutes: null,
@@ -48,6 +53,11 @@ describe("hasSuccessfulClaudeCliQuota", () => {
       hasSuccessfulClaudeCliQuota(
         provider({
           primary: {
+            descriptionIsDetail: false,
+            reserveWillLastToReset: false,
+            reserveEtaSeconds: null,
+            pace: null,
+            monthlyLimitBlock: null,
             usedPercent: 25,
             remainingPercent: 75,
             windowMinutes: null,

@@ -1,8 +1,8 @@
-import type { MonthlyLimitBlock } from "../types/bridge";
+import type { MonthlyLimitBlockSnapshot } from "../types/bridge";
 
 /** Reset of a block in epoch ms; `null` when unknown or unparseable. */
 export function monthlyLimitBlockResetMs(
-  block: MonthlyLimitBlock | null | undefined,
+  block: MonthlyLimitBlockSnapshot | null | undefined,
 ): number | null {
   if (!block?.resetsAt) return null;
   const reset = Date.parse(block.resetsAt);
@@ -15,7 +15,7 @@ export function monthlyLimitBlockResetMs(
  * exhausted pool with no reset; a known reset lifts it once reached.
  */
 export function isMonthlyLimitBlockActive(
-  block: MonthlyLimitBlock | null | undefined,
+  block: MonthlyLimitBlockSnapshot | null | undefined,
   now: number,
 ): boolean {
   if (!block) return false;

@@ -26,13 +26,18 @@ function sections(hidden: string[]) {
       formattedUsed: "$0.00",
       formattedLimit: null,
       balance: 5,
+      balanceUpdatedAt: null,
+      accountId: null,
       formattedBalance: null,
+      daily: [],
+      alwaysVisible: false,
     },
     subscription: {
       startsAt: null,
       expiresAt: null,
       renewsAt: "2026-12-01T00:00:00+00:00",
       renewsAtIsDateOnly: true,
+      expiresAtIsDateOnly: false,
     },
     sourceLabel: "web",
     hiddenUsageItemIds: hidden,
@@ -78,6 +83,7 @@ describe("claudePlanDateNote", () => {
           startsAt: null,
           expiresAt: "2026-11-20T00:00:00+00:00",
           renewsAt: null,
+          renewsAtIsDateOnly: false,
           expiresAtIsDateOnly: true,
         },
         en,
@@ -88,7 +94,13 @@ describe("claudePlanDateNote", () => {
   it("never invents a date", () => {
     expect(claudePlanDateNote("claude", null, en)).toBeNull();
     expect(
-      claudePlanDateNote("claude", { startsAt: null, expiresAt: null, renewsAt: null }, en),
+      claudePlanDateNote("claude", {
+          startsAt: null,
+          expiresAt: null,
+          renewsAt: null,
+          renewsAtIsDateOnly: false,
+          expiresAtIsDateOnly: false,
+        }, en),
     ).toBeNull();
     expect(claudePlanDateNote("zed", sections([]).subscription, en)).toBeNull();
   });

@@ -1,12 +1,12 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MonthlyLimitBlock } from "../types/bridge";
+import type { MonthlyLimitBlockSnapshot } from "../types/bridge";
 import { isMonthlyLimitBlockActive } from "../lib/monthlyLimitBlock";
 import { useMonthlyLimitBlockNow } from "./useMonthlyLimitBlockNow";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function Probe({ block }: { block: MonthlyLimitBlock | null }) {
+function Probe({ block }: { block: MonthlyLimitBlockSnapshot | null }) {
   const now = useMonthlyLimitBlockNow([block]);
   return (
     <span data-testid="state">{isMonthlyLimitBlockActive(block, now) ? "blocked" : "open"}</span>

@@ -14,6 +14,12 @@ function snapshot(
     isExhausted: false,
     reservePercent: 20,
     reserveDescription: "Lasts until reset",
+    isInformational: false,
+    descriptionIsDetail: false,
+    reserveWillLastToReset: true,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
     ...overrides,
   };
 }

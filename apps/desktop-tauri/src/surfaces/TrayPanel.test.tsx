@@ -93,6 +93,12 @@ function rateWindow(used: number) {
     isExhausted: false,
     reservePercent: null,
     reserveDescription: null,
+    isInformational: false,
+    descriptionIsDetail: false,
+    reserveWillLastToReset: false,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
   };
 }
 
@@ -103,6 +109,12 @@ function provider(id: string, displayName: string, used = 20): ProviderUsageSnap
     primary: rateWindow(used),
     selectedMetric: rateWindow(used),
     primaryLabel: "Monthly",
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    subscription: null,
+    hasSuccessfulClaudeCliQuota: false,
+    wayfinderUsage: null,
     secondary: null,
     modelSpecific: null,
     tertiary: null,

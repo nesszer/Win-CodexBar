@@ -18,6 +18,12 @@ const EMPTY_RATE_WINDOW: RateWindowSnapshot = {
   isExhausted: false,
   reservePercent: null,
   reserveDescription: null,
+  isInformational: false,
+  descriptionIsDetail: false,
+  reserveWillLastToReset: false,
+  reserveEtaSeconds: null,
+  pace: null,
+  monthlyLimitBlock: null,
 };
 
 export function orderedEnabledProviderSlots(
@@ -69,13 +75,18 @@ export function providerPlaceholder(
     selectedMetric: { ...EMPTY_RATE_WINDOW },
     primaryLabel: "Usage",
     secondary: null,
+    secondaryLabel: null,
     modelSpecific: null,
     tertiary: null,
+    tertiaryLabel: null,
     extraRateWindows: [],
     cost: null,
     planName: null,
     accountEmail: null,
+    accountLabel: null,
+    subscription: null,
     sourceLabel: "pending",
+    hasSuccessfulClaudeCliQuota: false,
     updatedAt: new Date(0).toISOString(),
     error: "Loading provider data...",
     errorState: "unknown",
@@ -83,6 +94,7 @@ export function providerPlaceholder(
     accountOrganization: null,
     trayStatusLabel: null,
     fetchDurationMs: null,
+    wayfinderUsage: null,
   };
 }
 

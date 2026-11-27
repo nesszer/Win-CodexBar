@@ -201,6 +201,13 @@ function codexAccountOverviewSnapshot(
     pace: null,
     accountOrganization: null,
     trayStatusLabel: null,
+    primaryLabel: null,
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    hasSuccessfulClaudeCliQuota: false,
+    fetchDurationMs: null,
+    wayfinderUsage: null,
   };
 }
 
@@ -241,6 +248,13 @@ function claudeAccountOverviewSnapshot(
     pace: null,
     accountOrganization: null,
     trayStatusLabel: null,
+    primaryLabel: null,
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    hasSuccessfulClaudeCliQuota: false,
+    fetchDurationMs: null,
+    wayfinderUsage: null,
   };
 }
 
@@ -275,6 +289,12 @@ function rateWindow(
     isExhausted: usedPercent >= 100,
     reservePercent: null,
     reserveDescription: null,
+    isInformational: false,
+    descriptionIsDetail: false,
+    reserveWillLastToReset: false,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
   };
 }
 
@@ -288,5 +308,11 @@ function emptyRateWindow(): RateWindowSnapshot {
     isExhausted: false,
     reservePercent: null,
     reserveDescription: null,
+    isInformational: false,
+    descriptionIsDetail: false,
+    reserveWillLastToReset: false,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
   };
 }
