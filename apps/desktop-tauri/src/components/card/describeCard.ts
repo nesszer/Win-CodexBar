@@ -43,7 +43,7 @@ function balanceRepeatsDetail(provider: ProviderUsageSnapshot): boolean {
   // A provider that styles its cost block (upstream `ProviderCostMenuCardStyle`,
   // such as LithosAI's "Credits") keeps it beside the matching detail row.
   if (cost?.titleKey) return false;
-  if (!cost || cost.balance == null || (cost.limit ?? 0) > 0 || cost.alwaysVisible === true) {
+  if (!cost || cost.balance == null || (cost.limit ?? 0) > 0 || cost.alwaysVisible) {
     return false;
   }
   const balance = cost.formattedBalance || formatCostAmount(cost.balance, cost.currencyCode);
@@ -68,7 +68,7 @@ export function describeCard(
   const hasCost =
     !hasError &&
     !!provider.cost &&
-    (costSummaryDisplayStyle !== "hidden" || provider.cost.alwaysVisible === true) &&
+    (costSummaryDisplayStyle !== "hidden" || provider.cost.alwaysVisible) &&
     !balanceRepeatsDetail(provider);
   const hasDetailSections =
     !hasError &&
@@ -76,7 +76,7 @@ export function describeCard(
   const showsDetailSections = hasDetailSections && (!compactOverview || !hasMetrics);
   const localUsage = hasError ? null : chartData?.localUsage ?? null;
   const wayfinderUsage =
-    !hasError && provider.providerId === "wayfinder" ? provider.wayfinderUsage ?? null : null;
+    !hasError && provider.providerId === "wayfinder" ? provider.wayfinderUsage : null;
   const planDateNote = !hasError && planNote && (!compactOverview || !hasMetrics) ? planNote : null;
   // The Tokens/min grid is a full-card section; the compact Overview leaves it out.
   const openAiThroughput =

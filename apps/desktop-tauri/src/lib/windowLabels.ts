@@ -2,7 +2,7 @@ import type { LocaleKey } from "../i18n/keys";
 
 /** Localize raw provider window labels using the active locale. */
 export function localizeWindowLabel(
-  raw: string | undefined,
+  raw: string | null | undefined,
   t: (key: LocaleKey) => string,
   language?: string,
   windowMinutes?: number | null,

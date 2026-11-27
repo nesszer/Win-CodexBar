@@ -1,6 +1,6 @@
 import type {
   CostSnapshotBridge,
-  ProviderInventoryItem,
+  ProviderInventoryItemSnapshot,
   SubscriptionMetadataSnapshot,
 } from "../types/bridge";
 
@@ -39,7 +39,7 @@ export function isDetailSectionVisible(
 }
 
 interface ClaudeSections {
-  inventory?: ProviderInventoryItem[];
+  inventory?: ProviderInventoryItemSnapshot[];
   cost: CostSnapshotBridge | null;
   subscription?: SubscriptionMetadataSnapshot | null;
   sourceLabel: string | null;
@@ -51,7 +51,7 @@ interface ClaudeSections {
  * separate cost that this choice never hides (mirrors the backend rule).
  */
 function isClaudeExtraUsageCost(value: ClaudeSections): boolean {
-  return !!value.cost && value.cost.alwaysVisible !== true && value.sourceLabel !== "admin-api";
+  return !!value.cost && !value.cost.alwaysVisible && value.sourceLabel !== "admin-api";
 }
 
 /**
@@ -109,11 +109,11 @@ export function claudePlanDateNote(
   if (providerId !== "claude" || !subscription) return null;
   const locale = t("IntlLocale");
   if (subscription.renewsAt) {
-    const date = formatPlanDate(subscription.renewsAt, subscription.renewsAtIsDateOnly === true, locale);
+    const date = formatPlanDate(subscription.renewsAt, subscription.renewsAtIsDateOnly, locale);
     if (date) return t("PlanRenewsOn").replace("{}", date);
   }
   if (subscription.expiresAt) {
-    const date = formatPlanDate(subscription.expiresAt, subscription.expiresAtIsDateOnly === true, locale);
+    const date = formatPlanDate(subscription.expiresAt, subscription.expiresAtIsDateOnly, locale);
     if (date) return t("PlanExpiresOn").replace("{}", date);
   }
   return null;

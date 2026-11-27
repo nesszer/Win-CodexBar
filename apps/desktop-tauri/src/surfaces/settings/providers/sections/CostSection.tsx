@@ -21,7 +21,7 @@ export function CostSection({ cost, t }: Props) {
     cost.balance != null &&
     cost.limit == null &&
     cost.used === 0 &&
-    (cost.daily?.length ?? 0) === 0;
+    cost.daily.length === 0;
   if (balanceOnly) return null;
 
   const rows: { label: string; value: string | null }[] = [

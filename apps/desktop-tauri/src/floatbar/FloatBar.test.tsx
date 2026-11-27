@@ -65,10 +65,14 @@ function rateWindow(
     resetsAt: opts.resetsAt ?? null,
     resetDescription: opts.resetDescription ?? null,
     isExhausted: opts.exhausted ?? false,
-    isInformational: opts.informational,
-    descriptionIsDetail: opts.descriptionIsDetail,
+    isInformational: opts.informational ?? false,
+    descriptionIsDetail: opts.descriptionIsDetail ?? false,
     reservePercent: null,
     reserveDescription: null,
+    reserveWillLastToReset: false,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
   };
 }
 
@@ -131,6 +135,14 @@ function snapshot(
     pace: null,
     accountOrganization: null,
     trayStatusLabel: null,
+    primaryLabel: null,
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    subscription: null,
+    hasSuccessfulClaudeCliQuota: false,
+    fetchDurationMs: null,
+    wayfinderUsage: null,
   };
 }
 

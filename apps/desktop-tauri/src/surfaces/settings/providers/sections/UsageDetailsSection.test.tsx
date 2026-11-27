@@ -151,6 +151,7 @@ describe("UsageDetailsSection", () => {
             estimatedWindowsToExhaustWeekly: 2.5,
           } as ProviderUsageSnapshot["sessionEquivalentForecast"],
           pace: {
+            monthlyLimitBlock: null,
             stage: "ahead",
             deltaPercent: 12.5,
             willLastToReset: false,
@@ -172,6 +173,7 @@ describe("UsageDetailsSection", () => {
     const pacedSnapshot = (deltaPercent: number) =>
       snapshot({
         pace: {
+          monthlyLimitBlock: null,
           stage: deltaPercent < 0 ? "behind" : "ahead",
           deltaPercent,
           willLastToReset: deltaPercent < 0,

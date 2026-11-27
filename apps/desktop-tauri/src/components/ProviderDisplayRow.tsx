@@ -1,19 +1,19 @@
 import { useLocale } from "../hooks/useLocale";
 import { localizeProviderText } from "../lib/providerText";
 import { localizeProviderLabel } from "../lib/windowLabels";
-import type { ProviderDisplayDetail } from "../types/bridge";
+import type { ProviderDisplayDetailSnapshot } from "../types/bridge";
 
 const MAX_ROWS_PER_SECTION = 24;
 
 export interface ProviderDisplayDetailGroup {
   id: number;
   title: string | null;
-  rows: ProviderDisplayDetail[];
+  rows: ProviderDisplayDetailSnapshot[];
 }
 
 /** Group consecutive provider details and cap each rendered section. */
 export function groupProviderDisplayDetails(
-  details: ProviderDisplayDetail[],
+  details: ProviderDisplayDetailSnapshot[],
 ): ProviderDisplayDetailGroup[] {
   const groups: ProviderDisplayDetailGroup[] = [];
   for (const detail of details) {
@@ -46,7 +46,7 @@ export function ProviderDisplayRow({
   trackClassName,
   fillClassName,
 }: {
-  detail: ProviderDisplayDetail;
+  detail: ProviderDisplayDetailSnapshot;
   secondaryClassName?: string;
   trackClassName: string;
   fillClassName: string;

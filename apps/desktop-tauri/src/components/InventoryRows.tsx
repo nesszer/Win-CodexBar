@@ -1,4 +1,4 @@
-import type { ProviderInventoryItem } from "../types/bridge";
+import type { ProviderInventoryItemSnapshot } from "../types/bridge";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
 import { useLocale } from "../hooks/useLocale";
 import { localizeProviderLabel } from "../lib/windowLabels";
@@ -15,7 +15,7 @@ export function InventoryItemRow({
   lineClassName,
   expiryClassName,
 }: {
-  item: ProviderInventoryItem;
+  item: ProviderInventoryItemSnapshot;
   resetTimeRelative: boolean;
   lineClassName: string;
   expiryClassName?: string;

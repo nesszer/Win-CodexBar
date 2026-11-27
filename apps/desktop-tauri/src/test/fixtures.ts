@@ -112,6 +112,12 @@ export function makeRateWindow(
     isExhausted: false,
     reservePercent: null,
     reserveDescription: null,
+    isInformational: false,
+    descriptionIsDetail: false,
+    reserveWillLastToReset: false,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
     ...overrides,
   };
 }
@@ -140,6 +146,14 @@ export function makeUsageSnapshot(
     pace: null,
     accountOrganization: null,
     trayStatusLabel: null,
+    primaryLabel: null,
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    subscription: null,
+    hasSuccessfulClaudeCliQuota: false,
+    fetchDurationMs: null,
+    wayfinderUsage: null,
     ...overrides,
   };
 }

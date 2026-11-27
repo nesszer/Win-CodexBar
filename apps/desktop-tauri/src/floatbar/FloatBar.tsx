@@ -256,7 +256,7 @@ function metricTone(
   thresholds: QuotaWarningSettings,
 ): PillTone {
   const rateWindow = metric.window;
-  if (rateWindow.isInformational === true) return "ok";
+  if (rateWindow.isInformational) return "ok";
   // Tone follows this provider's quota warning thresholds for the shown lane;
   // a window outside the lanes keeps the global thresholds.
   const warningWindow = metric.lane ? quotaWarningWindowForLane(metric.lane) : null;
@@ -282,7 +282,7 @@ function metricLabel(
   showAsUsed: boolean,
   t: ReturnType<typeof useLocale>["t"],
 ): string {
-  if (rateWindow.isInformational === true) {
+  if (rateWindow.isInformational) {
     return localizeProviderText(rateWindow.resetDescription?.trim(), t) || "—";
   }
   const percent = showAsUsed ? rateWindow.usedPercent : rateWindow.remainingPercent;
@@ -324,7 +324,7 @@ function MetricSegment({
   // Only percentages size the warning placeholder; informational text would
   // widen the pill after an error.
   const lastPercentageLabel = useRef("0%");
-  if (!problemLabel && rateWindow.isInformational !== true) lastPercentageLabel.current = label;
+  if (!problemLabel && !rateWindow.isInformational) lastPercentageLabel.current = label;
   const inlineReset = resetText
     ? inlineResetTime(resetText, rateWindow.resetsAt, resetRelative)
     : null;
@@ -418,7 +418,7 @@ function ProviderPill({
           const resetText = resetTexts[index];
           const detailText = localizeProviderText(windowDetailText(metric.window), t) || null;
           const head =
-            metric.window.isInformational === true
+            metric.window.isInformational
               ? `${provider.displayName}: ${labels[index]}`
               : `${provider.displayName}: ${labels[index]} ${displaySuffix}`;
           return [head, resetText, detailText].filter(Boolean).join("\n");
@@ -432,7 +432,7 @@ function ProviderPill({
     : [
         provider.displayName,
         ...metrics.flatMap((metric, index) => [
-          metric.window.isInformational === true
+          metric.window.isInformational
             ? labels[index]
             : `${labels[index]} ${displaySuffix}`,
           resetTexts[index],

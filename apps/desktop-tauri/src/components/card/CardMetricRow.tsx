@@ -95,7 +95,7 @@ export default function CardMetricRow({
     snap.monthlyLimitBlock,
     monthlyLimitBlockNow ?? Date.now(),
   );
-  const isInformational = snap.isInformational === true;
+  const isInformational = snap.isInformational;
   const informationalReset = useFormattedResetTime(
     isInformational && !blocked ? snap.resetsAt : null,
     null,

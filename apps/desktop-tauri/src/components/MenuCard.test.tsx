@@ -51,6 +51,10 @@ function rateWindow(
     reserveDescription: opts.reserveDescription ?? null,
     reserveWillLastToReset: opts.reserveWillLastToReset ?? false,
     reserveEtaSeconds: opts.reserveEtaSeconds ?? null,
+    isInformational: false,
+    descriptionIsDetail: false,
+    pace: null,
+    monthlyLimitBlock: null,
   };
 }
 
@@ -80,6 +84,12 @@ function provider(
     accountOrganization: null,
     trayStatusLabel: null,
     fetchDurationMs: null,
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    subscription: null,
+    hasSuccessfulClaudeCliQuota: false,
+    wayfinderUsage: null,
   };
 }
 
@@ -259,6 +269,8 @@ describe("MenuCard", () => {
     snapshot.providerId = "fireworks";
     snapshot.displayName = "Fireworks";
     snapshot.cost = {
+      balanceUpdatedAt: null,
+      accountId: null,
       used: 12.34,
       limit: null,
       remaining: null,
@@ -285,7 +297,7 @@ describe("MenuCard", () => {
     snapshot.secondary = rateWindow(60);
     snapshot.secondaryLabel = "Weekly";
     snapshot.extraRateWindows = [
-      { id: "credits", title: "Credits", window: rateWindow(10) },
+      { id: "credits", title: "Credits", window: rateWindow(10), fallbackLane: false },
     ];
     snapshot.hiddenUsageItemIds = ["metric:primary", "metric:extra-credits"];
 
@@ -411,6 +423,7 @@ describe("MenuCard", () => {
     snapshot.displayName = "GitHub Copilot";
     snapshot.extraRateWindows = [
       {
+        fallbackLane: false,
         id: "additional_budget",
         title: "Additional Budget",
         window: rateWindow(42),
@@ -466,8 +479,8 @@ describe("MenuCard", () => {
     const snapshot = provider(null, 0);
     snapshot.primary = { ...rateWindow(0), isInformational: true, resetDescription: "No active 5h session" };
     snapshot.extraRateWindows = [
-      { id: "doubao-agent-session", title: "5-hour", window: rateWindow(42, { windowMinutes: 300 }) },
-      { id: "doubao-agent-weekly", title: "Weekly", window: rateWindow(67, { windowMinutes: 10080 }) },
+      { id: "doubao-agent-session", title: "5-hour", window: rateWindow(42, { windowMinutes: 300 }), fallbackLane: false },
+      { id: "doubao-agent-weekly", title: "Weekly", window: rateWindow(67, { windowMinutes: 10080 }), fallbackLane: false },
     ];
 
     renderCard(snapshot, { compactOverview: true });
@@ -485,11 +498,13 @@ describe("MenuCard", () => {
     const snapshot = provider(null, 20);
     snapshot.extraRateWindows = [
       {
+        fallbackLane: false,
         id: "claude-weekly-scoped-fable",
         title: "Fable only",
         window: rateWindow(42, { windowMinutes: 7 * 24 * 60 }),
       },
       {
+        fallbackLane: false,
         id: "custom",
         title: "Custom only",
         window: rateWindow(10),
@@ -524,6 +539,7 @@ describe("MenuCard", () => {
       snapshot.selectedMetric.descriptionIsDetail = true;
       snapshot.extraRateWindows = [
         {
+          fallbackLane: false,
           id: "mistral-monthly-plan",
           title: "Monthly Plan",
           window: {
@@ -553,6 +569,7 @@ describe("MenuCard", () => {
     const snapshot = provider(null, 20);
     snapshot.extraRateWindows = [
       {
+        fallbackLane: false,
         id: "requests",
         title: "Requests",
         window: {
@@ -576,6 +593,7 @@ describe("MenuCard", () => {
     const snapshot = provider(null, 20);
     snapshot.extraRateWindows = [
       {
+        fallbackLane: false,
         id: "reset-credits",
         title: "Reset credits",
         window: {
@@ -601,6 +619,7 @@ describe("MenuCard", () => {
     const snapshot = provider(null, 20);
     snapshot.extraRateWindows = [
       {
+        fallbackLane: false,
         id: "reset-credits",
         title: "Reset credits",
         window: {
@@ -792,6 +811,7 @@ describe("MenuCard", () => {
   it("leaves the provider-level exhaustion ETA to Settings > Providers", async () => {
     const snapshot = provider(null, 40);
     snapshot.pace = {
+      monthlyLimitBlock: null,
       stage: "far_ahead",
       deltaPercent: 20,
       expectedUsedPercent: 20,
@@ -811,6 +831,7 @@ describe("MenuCard", () => {
     const resetAt = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000);
     const snapshot = provider(null, 31);
     snapshot.pace = {
+      monthlyLimitBlock: null,
       stage: "far_ahead",
       deltaPercent: 20,
       expectedUsedPercent: 20,
@@ -868,6 +889,7 @@ describe("MenuCard", () => {
       },
     };
     snapshot.pace = {
+      monthlyLimitBlock: null,
       stage: "far_ahead",
       deltaPercent: 20,
       expectedUsedPercent: 20,
@@ -928,6 +950,7 @@ describe("MenuCard", () => {
     };
     snapshot.extraRateWindows = [
       {
+        fallbackLane: false,
         id: "kimi-monthly",
         title: "Total usage",
         window: rateWindow(100, {
@@ -1353,6 +1376,10 @@ describe("MenuCard", () => {
     );
     const snapshot = provider(null, 20);
     snapshot.cost = {
+      balanceUpdatedAt: null,
+      accountId: null,
+      daily: [],
+      alwaysVisible: false,
       used: 12.5,
       limit: 100,
       remaining: 87.5,
@@ -1385,6 +1412,10 @@ describe("MenuCard", () => {
     );
     const snapshot = provider(null, 20);
     snapshot.cost = {
+      balanceUpdatedAt: null,
+      accountId: null,
+      daily: [],
+      alwaysVisible: false,
       used: 0,
       limit: null,
       remaining: null,
@@ -1412,6 +1443,10 @@ describe("MenuCard", () => {
     );
     const snapshot = provider(null, 20);
     snapshot.cost = {
+      balanceUpdatedAt: null,
+      accountId: null,
+      daily: [],
+      alwaysVisible: false,
       used: 17.25,
       limit: null,
       remaining: null,
@@ -1451,6 +1486,10 @@ describe("MenuCard", () => {
         { id: "reset-credits", title: "Limit Reset Credits", availableCount: 2, nextExpiresAt: null },
       ];
       snapshot.cost = {
+        balanceUpdatedAt: null,
+        accountId: null,
+        daily: [],
+        alwaysVisible: false,
         used: 0,
         limit: null,
         remaining: null,
@@ -1463,6 +1502,7 @@ describe("MenuCard", () => {
         formattedBalance: "$5.00",
       };
       snapshot.subscription = {
+        expiresAtIsDateOnly: false,
         startsAt: null,
         expiresAt: null,
         renewsAt: "2026-12-01T00:00:00+00:00",
@@ -1548,7 +1588,11 @@ describe("MenuCard", () => {
               formattedUsed: "$0.00",
               formattedLimit: null,
               balance,
+              balanceUpdatedAt: null,
+              accountId: null,
               formattedBalance: shown,
+              daily: [],
+              alwaysVisible: false,
               titleKey: "CreditsTitle",
             };
       snapshot.displayDetails = [
@@ -1630,6 +1674,12 @@ describe("MenuCard", () => {
     snapshot.providerId = "clawrouter";
     snapshot.displayName = "ClawRouter";
     snapshot.cost = {
+      balance: null,
+      balanceUpdatedAt: null,
+      accountId: null,
+      formattedBalance: null,
+      daily: [],
+      alwaysVisible: false,
       used: 18.42,
       limit: 50,
       remaining: 31.58,

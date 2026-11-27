@@ -76,6 +76,12 @@ function rateWindow(usedPercent: number) {
     isExhausted: false,
     reservePercent: null,
     reserveDescription: null,
+    isInformational: false,
+    descriptionIsDetail: false,
+    reserveWillLastToReset: false,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
   };
 }
 

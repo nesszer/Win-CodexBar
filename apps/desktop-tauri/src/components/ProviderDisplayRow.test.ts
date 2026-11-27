@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ProviderDisplayDetail } from "../types/bridge";
+import type { ProviderDisplayDetailSnapshot } from "../types/bridge";
 import { groupProviderDisplayDetails } from "./ProviderDisplayRow";
 
-function row(id: string, sectionTitle: string | null = null): ProviderDisplayDetail {
+function row(id: string, sectionTitle: string | null = null): ProviderDisplayDetailSnapshot {
   return { id, sectionTitle, title: id, value: "1", secondaryValue: null, progress: null };
 }
 

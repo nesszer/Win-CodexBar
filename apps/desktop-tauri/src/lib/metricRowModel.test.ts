@@ -23,6 +23,12 @@ function rateWindow(overrides: Partial<RateWindowSnapshot> = {}): RateWindowSnap
     isExhausted: false,
     reservePercent: null,
     reserveDescription: null,
+    isInformational: false,
+    descriptionIsDetail: false,
+    reserveWillLastToReset: false,
+    reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
     ...overrides,
   };
 }
@@ -569,7 +575,7 @@ describe("monthly daily target", () => {
   });
 
   it("shows nothing when the window carries no target", () => {
-    const row = metricRowPresentation(input({ lane: "secondary", snap: monthly(null) }), en);
+    const row = metricRowPresentation(input({ lane: "secondary", snap: monthly(undefined) }), en);
     expect(row.metaText ?? "").not.toContain("/ day");
   });
 });

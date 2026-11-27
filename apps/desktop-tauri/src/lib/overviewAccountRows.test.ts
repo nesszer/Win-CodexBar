@@ -67,6 +67,12 @@ const activeCodex = makeUsageSnapshot("codex", {
   primary: { ...makeUsageSnapshot("codex").primary, usedPercent: 80, remainingPercent: 20 },
   secondary: { ...makeUsageSnapshot("codex").primary, usedPercent: 90, remainingPercent: 10 },
   cost: {
+    balance: null,
+    balanceUpdatedAt: null,
+    accountId: null,
+    formattedBalance: null,
+    daily: [],
+    alwaysVisible: false,
     used: 9,
     limit: 10,
     remaining: 1,

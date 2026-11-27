@@ -1,5 +1,5 @@
 import type { CostSnapshotBridge, CostSummaryDisplayStyle } from "../types/bridge";
-import type { LocaleKey } from "../i18n/keys";
+import { isLocaleKey, type LocaleKey } from "../i18n/keys";
 import { localizeProviderText } from "./providerText";
 
 type Translate = (key: LocaleKey) => string;
@@ -80,7 +80,7 @@ export function cardCostSection(
   if (!cost) return null;
   // Pay-as-you-go spend is the provider's own usage, not an optional summary.
   const payAsYouGo = cost.payAsYouGo === true;
-  if (style === "hidden" && cost.alwaysVisible !== true && !payAsYouGo) return null;
+  if (style === "hidden" && !cost.alwaysVisible && !payAsYouGo) return null;
 
   const isQuota = cost.currencyCode === "Quota";
   const isCredits = providerId !== undefined && CREDIT_COST_PROVIDERS.has(providerId);
@@ -94,7 +94,7 @@ export function cardCostSection(
     `${t("DetailCostBalance")}: ${money(value, cost.formattedBalance)}`;
   const limit = cost.limit ?? 0;
   // A provider-declared title (upstream `ProviderCostMenuCardStyle`) wins.
-  const title = (fallback: LocaleKey) => t(cost.titleKey ?? fallback);
+  const title = (fallback: LocaleKey) => t(isLocaleKey(cost.titleKey) ? cost.titleKey : fallback);
 
   if (payAsYouGo) {
     return {
@@ -122,7 +122,7 @@ export function cardCostSection(
     };
   }
 
-  if (cost.alwaysVisible === true) {
+  if (cost.alwaysVisible) {
     return {
       title: title("ApiSpendTitle"),
       spendLine: `${periodLabel(cost.period, t("CostPeriodLastDays").replace("{}", "30"), t)}: ${money(cost.used, cost.formattedUsed)}`,

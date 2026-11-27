@@ -147,6 +147,7 @@ function codexSnapshot(now: Date, email: string): ProviderUsageSnapshot {
       accountEmail: email,
       sourceLabel: "oauth",
       pace: {
+        monthlyLimitBlock: null,
         stage: "slightly_behind",
         deltaPercent: 4,
         willLastToReset: true,
@@ -176,6 +177,7 @@ function claudeSnapshot(now: Date): ProviderUsageSnapshot {
       sourceLabel: "oauth",
       // Synthetic renewal date; calendar-only, so it renders as "Plan renews: Dec 1, 2026".
       subscription: {
+        expiresAtIsDateOnly: false,
         startsAt: null,
         expiresAt: null,
         renewsAt: "2026-12-01T00:00:00Z",
@@ -221,6 +223,12 @@ function cursorWeeklySnapshot(now: Date): ProviderUsageSnapshot {
       accountEmail: "cursor.user@example.com",
       sourceLabel: "web",
       cost: {
+        balance: null,
+        balanceUpdatedAt: null,
+        accountId: null,
+        formattedBalance: null,
+        daily: [],
+        alwaysVisible: false,
         used: 4.47,
         limit: null,
         remaining: null,
@@ -352,6 +360,7 @@ function kimiSnapshot(now: Date): ProviderUsageSnapshot {
     {
       extraRateWindows: [
         {
+          fallbackLane: false,
           id: "kimi-monthly",
           title: "Total usage",
           window: rateWindow(now, 36, MONTH_MINUTES, 14 * DAY_MINUTES),

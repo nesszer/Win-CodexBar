@@ -1,4 +1,4 @@
-import type { QuotaBurndownSnapshot, QuotaBurndownPoint } from "../types/bridge";
+import type { QuotaBurndownSnapshot, QuotaBurndownPointSnapshot } from "../types/bridge";
 import type { LocaleKey } from "../i18n/keys";
 import { formatRelativeUpdated } from "../lib/relativeTime";
 import { useNow } from "../hooks/useNow";
@@ -22,7 +22,7 @@ function yFor(remainingPercent: number): number {
   );
 }
 
-function polyline(points: QuotaBurndownPoint[], startMs: number, endMs: number): string {
+function polyline(points: QuotaBurndownPointSnapshot[], startMs: number, endMs: number): string {
   return points
     .map((point) => {
       const timeMs = Date.parse(point.capturedAt);

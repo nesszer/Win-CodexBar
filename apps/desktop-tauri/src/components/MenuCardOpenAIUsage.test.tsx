@@ -57,14 +57,18 @@ function rateWindow() {
     isExhausted: false,
     reservePercent: null,
     reserveDescription: null,
+    isInformational: false,
+    descriptionIsDetail: false,
     reserveWillLastToReset: false,
     reserveEtaSeconds: null,
+    pace: null,
+    monthlyLimitBlock: null,
   };
 }
 
 function snapshot(
   providerId: string,
-  openAiApiUsage: OpenAiApiUsageSnapshot | null,
+  openAiApiUsage: OpenAiApiUsageSnapshot | undefined,
   error: string | null = null,
 ): ProviderUsageSnapshot {
   return {
@@ -73,6 +77,12 @@ function snapshot(
     primary: rateWindow(),
     selectedMetric: rateWindow(),
     primaryLabel: "Session",
+    secondaryLabel: null,
+    tertiaryLabel: null,
+    accountLabel: null,
+    subscription: null,
+    hasSuccessfulClaudeCliQuota: false,
+    wayfinderUsage: null,
     secondary: null,
     modelSpecific: null,
     tertiary: null,
@@ -134,14 +144,14 @@ describe("MenuCard OpenAI daily usage", () => {
   });
 
   it("renders the Tokens/min grid in the full card", async () => {
-    const { container } = renderCard(withThroughput(snapshot("openaiapi", null)));
+    const { container } = renderCard(withThroughput(snapshot("openaiapi", undefined)));
     await waitFor(() => expect(container.querySelector(".card-header__name")).not.toBeNull());
     expect(container.querySelector(".openai-tpm")).not.toBeNull();
   });
 
   it("offers the Live · Spend switch only when both charts have points", async () => {
     window.localStorage.removeItem(PROVIDER_CHART_MODES_STORAGE_KEY);
-    const onlyLive = renderCard(withThroughput(snapshot("openaiapi", null)));
+    const onlyLive = renderCard(withThroughput(snapshot("openaiapi", undefined)));
     await waitFor(() => expect(onlyLive.container.querySelector(".openai-tpm")).not.toBeNull());
     expect(onlyLive.container.querySelector(".openai-live-spend__switch")).toBeNull();
     onlyLive.unmount();
@@ -211,20 +221,20 @@ function withThroughput(snap: ProviderUsageSnapshot): ProviderUsageSnapshot {
 
 describe("describeCard OpenAI Tokens/min grid", () => {
   it("surfaces the grid as full-card content for the OpenAI API", () => {
-    const presence = describeCard(withThroughput(snapshot("openaiapi", null)), null, []);
+    const presence = describeCard(withThroughput(snapshot("openaiapi", undefined)), null, []);
     expect(presence.openAiThroughput).not.toBeNull();
     expect(presence.hasDetails).toBe(true);
   });
 
   it("keeps the grid out of the compact Overview", () => {
-    const presence = describeCard(withThroughput(snapshot("openaiapi", null)), null, [], "detailed", true);
+    const presence = describeCard(withThroughput(snapshot("openaiapi", undefined)), null, [], "detailed", true);
     expect(presence.openAiThroughput).toBeNull();
   });
 
   it("keeps the grid out of other providers and errored cards", () => {
-    expect(describeCard(withThroughput(snapshot("codex", null)), null, []).openAiThroughput).toBeNull();
+    expect(describeCard(withThroughput(snapshot("codex", undefined)), null, []).openAiThroughput).toBeNull();
     expect(
-      describeCard(withThroughput(snapshot("openaiapi", null, "boom")), null, []).openAiThroughput,
+      describeCard(withThroughput(snapshot("openaiapi", undefined, "boom")), null, []).openAiThroughput,
     ).toBeNull();
   });
 });
@@ -238,6 +248,8 @@ describe("describeCard", () => {
   it("drops every section on error", () => {
     const errored = snapshot("openaiapi", usage(), "boom");
     errored.cost = {
+      balanceUpdatedAt: null,
+      accountId: null,
       used: 1,
       limit: null,
       remaining: null,

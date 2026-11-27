@@ -7,6 +7,10 @@ import { CostSection } from "./CostSection";
 describe("CostSection", () => {
   it("does not present the zero usage carrier as spend for balance-only providers", () => {
     const cost: CostSnapshotBridge = {
+      balanceUpdatedAt: null,
+      accountId: null,
+      daily: [],
+      alwaysVisible: false,
       used: 0,
       limit: null,
       remaining: null,

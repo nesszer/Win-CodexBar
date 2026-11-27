@@ -4,14 +4,14 @@ import {
   getProviderWorkspaceId,
   setProviderWorkspaceId,
 } from "../../../../lib/tauri";
-import type { ProviderDisplayDetail } from "../../../../types/bridge";
+import type { ProviderDisplayDetailSnapshot } from "../../../../types/bridge";
 
 /** Detail-row id prefix the Muse provider uses for each listed browser team. */
 export const MUSE_BROWSER_TEAM_ROW_PREFIX = "browser-team-";
 
 interface Props {
   providerId: string;
-  details: ProviderDisplayDetail[] | undefined;
+  details: ProviderDisplayDetailSnapshot[] | undefined;
   disabled: boolean;
   t: (key: LocaleKey) => string;
   onChanged: () => void;
@@ -22,7 +22,7 @@ interface TeamOption {
   label: string;
 }
 
-function listedTeams(details: ProviderDisplayDetail[] | undefined): TeamOption[] {
+function listedTeams(details: ProviderDisplayDetailSnapshot[] | undefined): TeamOption[] {
   return (details ?? [])
     .filter((row) => row.id.startsWith(MUSE_BROWSER_TEAM_ROW_PREFIX))
     .map((row) => ({ id: row.value, label: `${row.title} (${row.value})` }));

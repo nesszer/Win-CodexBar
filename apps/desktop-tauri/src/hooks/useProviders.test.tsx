@@ -121,6 +121,7 @@ describe("useProviders", () => {
     const visible = provider("codex");
     visible.extraRateWindows = [
       {
+        fallbackLane: false,
         id: "codex-spark",
         title: "Spark",
         window: visible.primary,
@@ -163,7 +164,7 @@ describe("useProviders", () => {
 
       const visible = provider("codex", 30);
       visible.extraRateWindows = [
-        { id: "codex-spark", title: "Spark", window: visible.primary },
+        { id: "codex-spark", title: "Spark", window: visible.primary, fallbackLane: false },
       ];
       tauriMocks.getCachedProviders.mockResolvedValueOnce([provider("codex", 40)]);
 

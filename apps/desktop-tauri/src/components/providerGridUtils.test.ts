@@ -9,8 +9,8 @@ function provider(id: string): ProviderUsageSnapshot {
   return makeUsageSnapshot(id, {
     primary: makeRateWindow(0, { reserveWillLastToReset: false, reserveEtaSeconds: null }),
     selectedMetric: makeRateWindow(0, { reserveWillLastToReset: false, reserveEtaSeconds: null }),
-    primaryLabel: undefined,
-    secondaryLabel: undefined,
+    primaryLabel: null,
+    secondaryLabel: null,
     sourceLabel: "oauth",
     updatedAt: "2026-07-31T00:00:00Z",
     fetchDurationMs: null,
@@ -94,7 +94,7 @@ describe("switcherWeeklyPercent", () => {
       primary: lane(10, 300),
       secondary: lane(30, 10080),
       tertiary: lane(95, 10080),
-      extraRateWindows: [{ id: "scoped", title: "Scoped", window: lane(99, 10080) }],
+      extraRateWindows: [{ id: "scoped", title: "Scoped", window: lane(99, 10080), fallbackLane: false }],
     };
     expect(switcherWeeklyPercent(scoped, true)).toBe(30);
   });
