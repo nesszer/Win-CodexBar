@@ -25,7 +25,8 @@ use codexbar::core::BlockedWindows;
 
 // ── Bridge snapshot types ────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct RateWindowSnapshot {
     pub used_percent: f64,
@@ -60,16 +61,19 @@ pub struct RateWindowSnapshot {
     #[serde(default)]
     pub reserve_eta_seconds: Option<f64>,
     #[serde(default)]
+    #[ts(type = "unknown | null")]
     pub pace: Option<pace::WindowPaceSnapshot>,
     /// Per-day share of a monthly allowance (upstream `monthlyTargetMetrics`).
     /// Set under the same pace gate as `pace`, but also when the lane has no
     /// pace (an exhausted allowance). Absent outside monthly windows and when
     /// usage or the reset is unknown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "unknown | null")]
     pub daily_target: Option<pace::DailyTargetSnapshot>,
     /// Set while a longer exhausted pool (Kimi's monthly membership) blocks
     /// this window; presentation only, the raw percentages above stay as is.
     #[serde(default)]
+    #[ts(type = "unknown | null")]
     pub monthly_limit_block: Option<MonthlyLimitBlockSnapshot>,
 }
 
@@ -143,14 +147,16 @@ impl RateWindowSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct CostDailyPointBridge {
     pub day: String,
     pub amount: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct CostSnapshotBridge {
     pub used: f64,
@@ -226,7 +232,8 @@ pub(crate) fn format_cost_amount(
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct NamedRateWindowSnapshot {
     pub id: String,
@@ -239,11 +246,13 @@ pub struct NamedRateWindowSnapshot {
     /// Provider-declared tray-icon lane this window stands in for when the
     /// snapshot has no real core window in that lane.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "unknown | null")]
     pub icon_fallback: Option<codexbar::core::IconLane>,
 }
 
 /// Pace prediction snapshot for tray/bridge display.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct PaceSnapshot {
     pub stage: String,
@@ -258,11 +267,13 @@ pub struct PaceSnapshot {
     pub actual_used_percent: f64,
     /// Block of the window this pace comes from (upstream hides its pace).
     #[serde(default)]
+    #[ts(type = "unknown | null")]
     pub monthly_limit_block: Option<MonthlyLimitBlockSnapshot>,
 }
 
 /// One burndown chart point (RFC 3339 capture time + remaining percent).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct QuotaBurndownPointSnapshot {
     pub captured_at: String,
@@ -272,7 +283,8 @@ pub struct QuotaBurndownPointSnapshot {
 /// Recorded remaining-quota burndown for one series (session / weekly),
 /// upstream 0.70.0 #4085. `captured_at` of the last sample drives the
 /// capture-age caption; the chart is empty when there is no current window.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct QuotaBurndownSnapshot {
     /// `session` or `weekly`.
@@ -285,7 +297,8 @@ pub struct QuotaBurndownSnapshot {
 }
 
 /// Session-equivalent weekly forecast for Claude/Codex menu secondary line.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct SessionEquivalentForecastSnapshot {
     pub estimated_windows_to_exhaust_weekly: f64,
@@ -297,7 +310,8 @@ pub struct SessionEquivalentForecastSnapshot {
 }
 
 /// Subscription dates from an authenticated OpenAI dashboard/API response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionMetadataSnapshot {
     pub starts_at: Option<String>,
@@ -312,7 +326,8 @@ pub struct SubscriptionMetadataSnapshot {
 
 /// Display-only provider inventory. Redemption identifiers never cross the
 /// bridge.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderInventoryItemSnapshot {
     pub id: String,
@@ -321,7 +336,8 @@ pub struct ProviderInventoryItemSnapshot {
     pub next_expires_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderDisplayProgressSnapshot {
     pub used: f64,
@@ -330,7 +346,8 @@ pub struct ProviderDisplayProgressSnapshot {
 
 /// Display-only provider detail row. It never participates in quota math or
 /// core persistence and contains values validated by the provider carrier.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderDisplayDetailSnapshot {
     pub id: String,
@@ -343,7 +360,8 @@ pub struct ProviderDisplayDetailSnapshot {
 }
 
 /// A frontend-friendly snapshot of one provider's usage data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderUsageSnapshot {
     #[serde(default)]
@@ -394,6 +412,7 @@ pub struct ProviderUsageSnapshot {
     #[serde(default)]
     pub error: Option<String>,
     #[serde(default = "default_error_state")]
+    #[ts(type = "unknown")]
     pub error_state: codexbar::core::ProviderStateKind,
     #[serde(default)]
     pub pace: Option<PaceSnapshot>,
@@ -417,12 +436,15 @@ pub struct ProviderUsageSnapshot {
     #[serde(default)]
     pub fetch_duration_ms: Option<u128>,
     #[serde(default)]
+    #[ts(type = "unknown | null")]
     pub wayfinder_usage: Option<codexbar::core::WayfinderUsageSnapshot>,
     /// Per-day OpenAI Admin API history for the daily usage chart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "unknown | null")]
     pub open_ai_api_usage: Option<OpenAiApiUsageSnapshot>,
     /// Last-hour Tokens/min grid (OpenAI Admin API 1-minute buckets).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "unknown | null")]
     pub throughput: Option<ProviderThroughputSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_equivalent_forecast: Option<SessionEquivalentForecastSnapshot>,
