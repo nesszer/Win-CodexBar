@@ -7,45 +7,61 @@
 use codexbar::core::{ProviderThroughput, ThroughputMinute, ThroughputModel};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderThroughputSnapshot {
     #[serde(default)]
     pub minutes: Vec<ThroughputMinuteSnapshot>,
     #[serde(default)]
+    #[ts(type = "number | null")]
     pub frontier: Option<i64>,
     #[serde(default)]
+    #[ts(type = "number | null")]
     pub latest_tokens_per_minute: Option<u64>,
+    #[ts(type = "number")]
     pub peak_tokens_per_minute: u64,
     #[serde(default)]
+    #[ts(type = "number | null")]
     pub peak_at: Option<i64>,
     pub five_minute_average_tokens_per_minute: f64,
     #[serde(default)]
     pub models: Vec<ThroughputModelSnapshot>,
     pub window_minutes: u32,
+    #[ts(type = "number")]
     pub fetched_at: i64,
     #[serde(default)]
     pub project_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct ThroughputMinuteSnapshot {
+    #[ts(type = "number")]
     pub start: i64,
+    #[ts(type = "number")]
     pub total_tokens: u64,
+    #[ts(type = "number")]
     pub requests: u64,
     pub is_pending: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct ThroughputModelSnapshot {
     pub name: String,
+    #[ts(type = "number")]
     pub latest_tpm: u64,
+    #[ts(type = "number")]
     pub peak_tpm: u64,
+    #[ts(type = "number")]
     pub total_tokens: u64,
+    #[ts(type = "number")]
     pub peak_limit_counted_tokens: u64,
     #[serde(default)]
+    #[ts(type = "Array<number>")]
     pub limit_counted_tokens_by_minute: Vec<u64>,
 }
 

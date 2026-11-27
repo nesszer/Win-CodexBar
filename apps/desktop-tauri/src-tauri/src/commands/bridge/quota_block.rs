@@ -11,7 +11,8 @@ use super::*;
 
 /// Set on a window while a longer exhausted pool blocks it. Presentation only:
 /// the window's raw percentages stay the provider's data.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct MonthlyLimitBlockSnapshot {
     /// RFC 3339 reset of the exhausted pool; the block lifts then. `None` when

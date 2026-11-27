@@ -64,6 +64,11 @@ impl SubscriptionMetadata {
 /// Serialized as camelCase because the frontend bridge (`WayfinderUsageSnapshot`
 /// in `bridge.ts`) reads it that way.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export_to = "../../src/types/generated/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct WayfinderUsageSnapshot {
     pub gateway_status: String,
@@ -72,8 +77,11 @@ pub struct WayfinderUsageSnapshot {
     pub missing_keys: Vec<String>,
     pub model_count: usize,
     pub models: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub requests: u64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub estimated_requests: u64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub tokens: u64,
     pub realized: f64,
     pub baseline: f64,
@@ -86,15 +94,23 @@ pub struct WayfinderUsageSnapshot {
     /// Mean router decision latency from `/metrics`, in milliseconds. `None`
     /// when the gateway exposes no latency histogram or has routed nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub avg_decision_ms: Option<f64>,
 }
 
 /// Per-route savings data reported by Wayfinder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export_to = "../../src/types/generated/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct WayfinderRouteSummary {
     pub name: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub requests: u64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub tokens: u64,
     pub realized: f64,
     pub baseline: f64,
@@ -176,6 +192,11 @@ pub struct NamedRateWindow {
 
 /// Core lane of the tray icon that a provider-declared extra window may fill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export_to = "../../src/types/generated/")
+)]
 #[serde(rename_all = "camelCase")]
 pub enum IconLane {
     Primary,

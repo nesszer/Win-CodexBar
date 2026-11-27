@@ -1,0 +1,414 @@
+{
+  "tertiaryLabel": "monthly",
+  "providerId": "codex",
+  "displayName": "Codex",
+  "primary": {
+    "usedPercent": 25.0,
+    "remainingPercent": 75.0,
+    "windowMinutes": 10080,
+    "resetsAt": "2026-11-30T12:00:00+00:00",
+    "resetDescription": "Resets Sunday",
+    "isExhausted": true,
+    "isInformational": true,
+    "descriptionIsDetail": true,
+    "resetRegenerates": true,
+    "hiddenOnCard": true,
+    "reservePercent": 12.0,
+    "reserveDescription": "12% in reserve",
+    "reserveWillLastToReset": true,
+    "reserveEtaSeconds": 3600.5,
+    "pace": {
+      "stage": "slightly_behind",
+      "deltaPercent": 4.5,
+      "expectedUsedPercent": 40.0,
+      "actualUsedPercent": 44.5,
+      "etaSeconds": 7200.0,
+      "willLastToReset": true,
+      "resetWindow": true
+    },
+    "dailyTarget": {
+      "amount": 3.25,
+      "unit": "credits"
+    },
+    "monthlyLimitBlock": {
+      "resetsAt": "2026-12-01T00:00:00+00:00"
+    }
+  },
+  "primaryLabel": "Session",
+  "secondary": {
+    "usedPercent": 50.0,
+    "remainingPercent": 50.0,
+    "windowMinutes": 10080,
+    "resetsAt": "2026-11-30T12:00:00+00:00",
+    "resetDescription": "Resets Sunday",
+    "isExhausted": true,
+    "isInformational": true,
+    "descriptionIsDetail": true,
+    "resetRegenerates": true,
+    "hiddenOnCard": true,
+    "reservePercent": 12.0,
+    "reserveDescription": "12% in reserve",
+    "reserveWillLastToReset": true,
+    "reserveEtaSeconds": 3600.5,
+    "pace": {
+      "stage": "slightly_behind",
+      "deltaPercent": 4.5,
+      "expectedUsedPercent": 40.0,
+      "actualUsedPercent": 44.5,
+      "etaSeconds": 7200.0,
+      "willLastToReset": true,
+      "resetWindow": true
+    },
+    "dailyTarget": {
+      "amount": 3.25,
+      "unit": "credits"
+    },
+    "monthlyLimitBlock": {
+      "resetsAt": "2026-12-01T00:00:00+00:00"
+    }
+  },
+  "secondaryLabel": "Weekly",
+  "secondaryLabelKey": "weeklyLabel",
+  "modelSpecific": {
+    "usedPercent": 10.0,
+    "remainingPercent": 90.0,
+    "windowMinutes": 10080,
+    "resetsAt": "2026-11-30T12:00:00+00:00",
+    "resetDescription": "Resets Sunday",
+    "isExhausted": true,
+    "isInformational": true,
+    "descriptionIsDetail": true,
+    "resetRegenerates": true,
+    "hiddenOnCard": true,
+    "reservePercent": 12.0,
+    "reserveDescription": "12% in reserve",
+    "reserveWillLastToReset": true,
+    "reserveEtaSeconds": 3600.5,
+    "pace": {
+      "stage": "slightly_behind",
+      "deltaPercent": 4.5,
+      "expectedUsedPercent": 40.0,
+      "actualUsedPercent": 44.5,
+      "etaSeconds": 7200.0,
+      "willLastToReset": true,
+      "resetWindow": true
+    },
+    "dailyTarget": {
+      "amount": 3.25,
+      "unit": "credits"
+    },
+    "monthlyLimitBlock": {
+      "resetsAt": "2026-12-01T00:00:00+00:00"
+    }
+  },
+  "tertiary": {
+    "usedPercent": 75.0,
+    "remainingPercent": 25.0,
+    "windowMinutes": 10080,
+    "resetsAt": "2026-11-30T12:00:00+00:00",
+    "resetDescription": "Resets Sunday",
+    "isExhausted": true,
+    "isInformational": true,
+    "descriptionIsDetail": true,
+    "resetRegenerates": true,
+    "hiddenOnCard": true,
+    "reservePercent": 12.0,
+    "reserveDescription": "12% in reserve",
+    "reserveWillLastToReset": true,
+    "reserveEtaSeconds": 3600.5,
+    "pace": {
+      "stage": "slightly_behind",
+      "deltaPercent": 4.5,
+      "expectedUsedPercent": 40.0,
+      "actualUsedPercent": 44.5,
+      "etaSeconds": 7200.0,
+      "willLastToReset": true,
+      "resetWindow": true
+    },
+    "dailyTarget": {
+      "amount": 3.25,
+      "unit": "credits"
+    },
+    "monthlyLimitBlock": {
+      "resetsAt": "2026-12-01T00:00:00+00:00"
+    }
+  },
+  "extraRateWindows": [
+    {
+      "id": "extra-1",
+      "title": "Extra",
+      "window": {
+        "usedPercent": 5.0,
+        "remainingPercent": 95.0,
+        "windowMinutes": 10080,
+        "resetsAt": "2026-11-30T12:00:00+00:00",
+        "resetDescription": "Resets Sunday",
+        "isExhausted": true,
+        "isInformational": true,
+        "descriptionIsDetail": true,
+        "resetRegenerates": true,
+        "hiddenOnCard": true,
+        "reservePercent": 12.0,
+        "reserveDescription": "12% in reserve",
+        "reserveWillLastToReset": true,
+        "reserveEtaSeconds": 3600.5,
+        "pace": {
+          "stage": "slightly_behind",
+          "deltaPercent": 4.5,
+          "expectedUsedPercent": 40.0,
+          "actualUsedPercent": 44.5,
+          "etaSeconds": 7200.0,
+          "willLastToReset": true,
+          "resetWindow": true
+        },
+        "dailyTarget": {
+          "amount": 3.25,
+          "unit": "credits"
+        },
+        "monthlyLimitBlock": {
+          "resetsAt": "2026-12-01T00:00:00+00:00"
+        }
+      },
+      "fallbackLane": true,
+      "iconFallback": "secondary"
+    }
+  ],
+  "inventory": [
+    {
+      "id": "reset-credit",
+      "title": "Reset credits",
+      "availableCount": 2,
+      "nextExpiresAt": "2026-12-15T00:00:00+00:00"
+    }
+  ],
+  "displayDetails": [
+    {
+      "id": "detail-1",
+      "sectionTitle": "Details",
+      "title": "Requests",
+      "value": "120",
+      "secondaryValue": "of 500",
+      "progress": {
+        "used": 120.0,
+        "total": 500.0
+      }
+    }
+  ],
+  "cost": {
+    "used": 12.5,
+    "limit": 100.0,
+    "remaining": 87.5,
+    "currencyCode": "EUR",
+    "currencySymbol": "€",
+    "period": "month",
+    "resetsAt": "2026-12-01T00:00:00+00:00",
+    "formattedUsed": "€12.50",
+    "formattedLimit": "€100.00",
+    "balance": 42.0,
+    "balanceUpdatedAt": "2026-11-27T08:00:00+00:00",
+    "accountId": "acct_1",
+    "formattedBalance": "€42.00",
+    "daily": [
+      {
+        "day": "2026-11-26",
+        "amount": 1.5
+      }
+    ],
+    "alwaysVisible": true,
+    "foldedIntoPrimary": true,
+    "payAsYouGo": true,
+    "titleKey": "costTitle"
+  },
+  "planName": "Pro",
+  "accountEmail": "user@example.com",
+  "accountLabel": "Work",
+  "subscription": {
+    "startsAt": "2026-01-01T00:00:00+00:00",
+    "expiresAt": "2027-01-01T00:00:00+00:00",
+    "renewsAt": "2027-01-01T00:00:00+00:00",
+    "renewsAtIsDateOnly": true,
+    "expiresAtIsDateOnly": true
+  },
+  "sourceLabel": "oauth",
+  "hasSuccessfulClaudeCliQuota": true,
+  "updatedAt": "2026-11-27T08:30:00+00:00",
+  "error": "Rate limited",
+  "errorState": "expiredSession",
+  "pace": {
+    "stage": "far_ahead",
+    "deltaPercent": -20.0,
+    "willLastToReset": true,
+    "etaSeconds": 5400.0,
+    "expectedUsedPercent": 60.0,
+    "actualUsedPercent": 40.0,
+    "monthlyLimitBlock": {
+      "resetsAt": "2026-12-01T00:00:00+00:00"
+    }
+  },
+  "paceAuthoritative": false,
+  "quotaEstimated": true,
+  "accountOrganization": "Acme",
+  "trayStatusLabel": "25% used",
+  "fetchDurationMs": 1234,
+  "wayfinderUsage": {
+    "gatewayStatus": "online",
+    "offline": true,
+    "dryRun": true,
+    "missingKeys": [
+      "OPENAI_API_KEY"
+    ],
+    "modelCount": 3,
+    "models": [
+      "gpt-5"
+    ],
+    "requests": 100,
+    "estimatedRequests": 120,
+    "tokens": 50000,
+    "realized": 1.5,
+    "baseline": 3.0,
+    "saved": 1.5,
+    "savedPercent": 50.0,
+    "periodDays": 30,
+    "unit": "usd",
+    "priced": true,
+    "routes": [
+      {
+        "name": "fast",
+        "requests": 60,
+        "tokens": 30000,
+        "realized": 0.5,
+        "baseline": 1.0,
+        "saved": 0.5
+      }
+    ],
+    "avgDecisionMs": 2.5
+  },
+  "openAiApiUsage": {
+    "historyDays": 30,
+    "projectId": "proj_abc",
+    "daily": [
+      {
+        "startTime": 1700000000,
+        "endTime": 1700086400,
+        "costUsd": 14.75,
+        "requests": 10,
+        "inputTokens": 1300,
+        "cachedInputTokens": 250,
+        "outputTokens": 700,
+        "totalTokens": 2000,
+        "lineItems": [
+          {
+            "name": "Text tokens",
+            "costUsd": 12.5
+          }
+        ],
+        "models": [
+          {
+            "name": "gpt-5.2",
+            "requests": 7,
+            "inputTokens": 1000,
+            "cachedInputTokens": 250,
+            "outputTokens": 500,
+            "totalTokens": 1500
+          }
+        ]
+      }
+    ]
+  },
+  "throughput": {
+    "minutes": [
+      {
+        "start": 1700000000,
+        "totalTokens": 900,
+        "requests": 3,
+        "isPending": true
+      }
+    ],
+    "frontier": 1700000060,
+    "latestTokensPerMinute": 800,
+    "peakTokensPerMinute": 1200,
+    "peakAt": 1700000120,
+    "fiveMinuteAverageTokensPerMinute": 650.5,
+    "models": [
+      {
+        "name": "gpt-5.2",
+        "latestTpm": 700,
+        "peakTpm": 1100,
+        "totalTokens": 4000,
+        "peakLimitCountedTokens": 1000,
+        "limitCountedTokensByMinute": [
+          100,
+          200
+        ]
+      }
+    ],
+    "windowMinutes": 60,
+    "fetchedAt": 1700003600,
+    "projectId": "proj_abc"
+  },
+  "sessionEquivalentForecast": {
+    "estimatedWindowsToExhaustWeekly": 6.5,
+    "windowsUntilReset": 4,
+    "availableWindowsUntilReset": 3.5,
+    "sampleCount": 12,
+    "weeklyResetsAt": "2026-11-30T12:00:00+00:00",
+    "weeklyUsedPercent": 50.0
+  },
+  "quotaBurndown": {
+    "series": "weekly",
+    "windowMinutes": 10080,
+    "start": "2026-11-23T12:00:00+00:00",
+    "reset": "2026-11-30T12:00:00+00:00",
+    "samples": [
+      {
+        "capturedAt": "2026-11-25T12:00:00+00:00",
+        "remainingPercent": 70.0
+      }
+    ],
+    "ideal": [
+      {
+        "capturedAt": "2026-11-23T12:00:00+00:00",
+        "remainingPercent": 100.0
+      },
+      {
+        "capturedAt": "2026-11-30T12:00:00+00:00",
+        "remainingPercent": 0.0
+      }
+    ]
+  },
+  "selectedMetric": {
+    "usedPercent": 60.0,
+    "remainingPercent": 40.0,
+    "windowMinutes": 10080,
+    "resetsAt": "2026-11-30T12:00:00+00:00",
+    "resetDescription": "Resets Sunday",
+    "isExhausted": true,
+    "isInformational": true,
+    "descriptionIsDetail": true,
+    "resetRegenerates": true,
+    "hiddenOnCard": true,
+    "reservePercent": 12.0,
+    "reserveDescription": "12% in reserve",
+    "reserveWillLastToReset": true,
+    "reserveEtaSeconds": 3600.5,
+    "pace": {
+      "stage": "slightly_behind",
+      "deltaPercent": 4.5,
+      "expectedUsedPercent": 40.0,
+      "actualUsedPercent": 44.5,
+      "etaSeconds": 7200.0,
+      "willLastToReset": true,
+      "resetWindow": true
+    },
+    "dailyTarget": {
+      "amount": 3.25,
+      "unit": "credits"
+    },
+    "monthlyLimitBlock": {
+      "resetsAt": "2026-12-01T00:00:00+00:00"
+    }
+  },
+  "hiddenUsageItemIds": [
+    "extra-1"
+  ]
+}
