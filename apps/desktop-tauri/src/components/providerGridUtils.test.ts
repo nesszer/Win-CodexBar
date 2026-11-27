@@ -9,8 +9,8 @@ function provider(id: string): ProviderUsageSnapshot {
   return makeUsageSnapshot(id, {
     primary: makeRateWindow(0, { reserveWillLastToReset: false, reserveEtaSeconds: null }),
     selectedMetric: makeRateWindow(0, { reserveWillLastToReset: false, reserveEtaSeconds: null }),
-    primaryLabel: undefined,
-    secondaryLabel: undefined,
+    primaryLabel: null,
+    secondaryLabel: null,
     sourceLabel: "oauth",
     updatedAt: "2026-07-31T00:00:00Z",
     fetchDurationMs: null,
