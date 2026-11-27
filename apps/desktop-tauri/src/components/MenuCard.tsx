@@ -9,6 +9,7 @@ import type {
 } from "../types/bridge";
 import { getProviderChartData, getUsageSpendSummary } from "../lib/tauri";
 import { useLocale } from "../hooks/useLocale";
+import { isLocaleKey } from "../i18n/keys";
 import { providerListsConversations, providerSupportsChartData } from "../lib/providerCharts";
 import { cardConversationsModel } from "../lib/cardConversations";
 import { providerAllowsPace } from "../lib/providerPace";
@@ -106,7 +107,7 @@ function cardMetrics(
   if (provider.secondary) {
     metrics.push({
       id: "secondary",
-      label: provider.secondaryLabelKey
+      label: isLocaleKey(provider.secondaryLabelKey)
         ? t(provider.secondaryLabelKey)
         : localizeWindowLabel(provider.secondaryLabel, t) || t("DetailWindowSecondary"),
       snap: provider.secondary,

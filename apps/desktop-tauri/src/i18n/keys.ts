@@ -16,3 +16,10 @@ export const ALL_LOCALE_KEYS = [
 ] as const;
 
 export type LocaleKey = (typeof ALL_LOCALE_KEYS)[number];
+
+const LOCALE_KEY_SET: ReadonlySet<string> = new Set<string>(ALL_LOCALE_KEYS);
+
+/** Narrows a key name the bridge sends as a plain string to a known `LocaleKey`. */
+export function isLocaleKey(value: string | undefined): value is LocaleKey {
+  return value !== undefined && LOCALE_KEY_SET.has(value);
+}

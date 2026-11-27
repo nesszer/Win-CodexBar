@@ -1,5 +1,5 @@
 import type { CostSnapshotBridge, CostSummaryDisplayStyle } from "../types/bridge";
-import type { LocaleKey } from "../i18n/keys";
+import { isLocaleKey, type LocaleKey } from "../i18n/keys";
 import { localizeProviderText } from "./providerText";
 
 type Translate = (key: LocaleKey) => string;
@@ -94,7 +94,7 @@ export function cardCostSection(
     `${t("DetailCostBalance")}: ${money(value, cost.formattedBalance)}`;
   const limit = cost.limit ?? 0;
   // A provider-declared title (upstream `ProviderCostMenuCardStyle`) wins.
-  const title = (fallback: LocaleKey) => t(cost.titleKey ?? fallback);
+  const title = (fallback: LocaleKey) => t(isLocaleKey(cost.titleKey) ? cost.titleKey : fallback);
 
   if (payAsYouGo) {
     return {
