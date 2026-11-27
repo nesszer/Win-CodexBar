@@ -8,7 +8,8 @@ use codexbar::core::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAiApiUsageSnapshot {
     pub history_days: u32,
@@ -18,16 +19,24 @@ pub struct OpenAiApiUsageSnapshot {
     pub daily: Vec<OpenAiApiDailyUsageSnapshot>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAiApiDailyUsageSnapshot {
+    #[ts(type = "number")]
     pub start_time: i64,
+    #[ts(type = "number")]
     pub end_time: i64,
     pub cost_usd: f64,
+    #[ts(type = "number")]
     pub requests: u64,
+    #[ts(type = "number")]
     pub input_tokens: u64,
+    #[ts(type = "number")]
     pub cached_input_tokens: u64,
+    #[ts(type = "number")]
     pub output_tokens: u64,
+    #[ts(type = "number")]
     pub total_tokens: u64,
     #[serde(default)]
     pub line_items: Vec<OpenAiApiLineItemSnapshot>,
@@ -35,21 +44,28 @@ pub struct OpenAiApiDailyUsageSnapshot {
     pub models: Vec<OpenAiApiModelUsageSnapshot>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAiApiLineItemSnapshot {
     pub name: String,
     pub cost_usd: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAiApiModelUsageSnapshot {
     pub name: String,
+    #[ts(type = "number")]
     pub requests: u64,
+    #[ts(type = "number")]
     pub input_tokens: u64,
+    #[ts(type = "number")]
     pub cached_input_tokens: u64,
+    #[ts(type = "number")]
     pub output_tokens: u64,
+    #[ts(type = "number")]
     pub total_tokens: u64,
 }
 

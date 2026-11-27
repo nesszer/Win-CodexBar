@@ -23,6 +23,11 @@ use super::ProviderError;
 /// User-facing provider availability state, derived from typed errors at the
 /// backend boundary. Serialized (camelCase) to the frontend bridge.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export_to = "../../src/types/generated/")
+)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderStateKind {
     /// Latest refresh succeeded; usage data is current.

@@ -10,4 +10,4 @@ export type QuotaBurndownSnapshot = {
 /**
  * `session` or `weekly`.
  */
-series: string, windowMinutes: number, start: string, reset: string, samples: Array<QuotaBurndownPointSnapshot>, ideal: [QuotaBurndownPointSnapshot, QuotaBurndownPointSnapshot], };
+series: "session" | "weekly", windowMinutes: number, start: string, reset: string, samples: Array<QuotaBurndownPointSnapshot>, ideal: [QuotaBurndownPointSnapshot, QuotaBurndownPointSnapshot], };

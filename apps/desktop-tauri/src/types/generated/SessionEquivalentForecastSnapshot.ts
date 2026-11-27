@@ -3,4 +3,4 @@
 /**
  * Session-equivalent weekly forecast for Claude/Codex menu secondary line.
  */
-export type SessionEquivalentForecastSnapshot = { estimatedWindowsToExhaustWeekly: number, windowsUntilReset: bigint, availableWindowsUntilReset: number, sampleCount: number, weeklyResetsAt: string, weeklyUsedPercent: number, };
+export type SessionEquivalentForecastSnapshot = { estimatedWindowsToExhaustWeekly: number, windowsUntilReset: number, availableWindowsUntilReset: number, sampleCount: number, weeklyResetsAt: string, weeklyUsedPercent: number, };

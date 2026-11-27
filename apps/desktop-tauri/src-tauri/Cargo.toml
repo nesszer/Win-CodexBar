@@ -8,7 +8,7 @@ publish = false
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-codexbar = { path = "../../../rust" }
+codexbar = { path = "../../../rust", features = ["ts"] }
 chrono = { version = "0.4", features = ["serde"] }
 raw-window-handle = "0.6"
 serde = { version = "1", features = ["derive"] }

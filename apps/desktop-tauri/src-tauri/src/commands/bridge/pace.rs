@@ -20,9 +20,13 @@ pub(crate) fn stage_str(stage: codexbar::core::PaceStage) -> &'static str {
 /// Pace of one rate window against the time elapsed in it.
 /// `delta_percent` is actual minus expected used percent, so a positive delta
 /// is a deficit and a negative one a reserve.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct WindowPaceSnapshot {
+    #[ts(
+        type = "\"on_track\" | \"slightly_ahead\" | \"ahead\" | \"far_ahead\" | \"slightly_behind\" | \"behind\" | \"far_behind\""
+    )]
     pub stage: String,
     pub delta_percent: f64,
     pub expected_used_percent: f64,
@@ -40,7 +44,8 @@ pub struct WindowPaceSnapshot {
 
 /// Remaining allowance divided by the local calendar days left, in the
 /// allowance's own unit (`%`, `credits` or `requests`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/types/generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct DailyTargetSnapshot {
     pub amount: f64,
