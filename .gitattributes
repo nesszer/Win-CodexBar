@@ -12,6 +12,9 @@ rust/src/agent_sessions/fixtures/** -text
 apps/desktop-tauri/src/generated/third-party-notices.json text eol=lf
 apps/desktop-tauri/scripts/license-templates/*.txt text eol=lf
 
+# Usage bridge wire-shape fixtures are compared byte-for-byte.
+apps/desktop-tauri/src-tauri/src/commands/bridge/fixtures/*.json text eol=lf
+
 # Bash scripts must remain LF for Linux and WSL execution.
 *.sh text eol=lf
 
