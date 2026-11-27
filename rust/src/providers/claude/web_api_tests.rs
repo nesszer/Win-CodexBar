@@ -1,6 +1,6 @@
 use super::{
-    AccountResponse, ClaudeWebApiFetcher, UsageWindow, classify_web_http_error, cookie_value,
-    describe_json_body_shape, is_cookie_authentication_failure,
+    ClaudeWebApiFetcher, Organization, UsageWindow, classify_web_http_error, cookie_value,
+    describe_json_body_shape, is_cookie_authentication_failure, select_organization,
 };
 use crate::core::{CostSnapshot, ProviderError, UsageSnapshot};
 use reqwest::StatusCode;
@@ -182,24 +182,6 @@ fn extracts_last_active_org_from_cookie_header() {
     );
 
     assert_eq!(org.as_deref(), Some("org-123"));
-}
-
-#[test]
-fn account_membership_prefers_nested_organization_uuid() {
-    let account: AccountResponse = serde_json::from_str(
-        r#"{
-                "email_address": "user@example.com",
-                "memberships": [
-                    {
-                        "uuid": "membership-id",
-                        "organization": { "uuid": "org-id" }
-                    }
-                ]
-            }"#,
-    )
-    .unwrap();
-
-    assert_eq!(account.first_membership_org_id().as_deref(), Some("org-id"));
 }
 
 #[test]
@@ -721,4 +703,68 @@ fn prepaid_balance_alone_keeps_the_no_session_placeholder() {
         snapshot.primary.reset_description.as_deref(),
         Some("No active 5h session")
     );
+}
+
+fn orgs(json: &str) -> Vec<Organization> {
+    serde_json::from_str(json).unwrap()
+}
+
+#[test]
+fn organization_choice_follows_codexbar_chat_then_not_api_only_then_first() {
+    // A Console (API) organization listed before the claude.ai one answers 403 on /usage.
+    let api_first = orgs(
+        r#"[{"uuid": "api", "capabilities": ["api", "api_individual"]},
+            {"uuid": "chat", "capabilities": ["chat", "claude_max"]}]"#,
+    );
+    assert_eq!(select_organization(api_first).as_deref(), Some("chat"));
+
+    let api_only_first = orgs(
+        r#"[{"uuid": "api", "capabilities": ["API"]},
+            {"uuid": "other", "capabilities": ["raven"]}]"#,
+    );
+    assert_eq!(
+        select_organization(api_only_first).as_deref(),
+        Some("other")
+    );
+
+    let only_api = orgs(r#"[{"uuid": "api", "capabilities": ["api"]}]"#);
+    assert_eq!(select_organization(only_api).as_deref(), Some("api"));
+
+    let no_capabilities = orgs(r#"[{"uuid": "one"}, {"uuid": "two", "capabilities": []}]"#);
+    assert_eq!(select_organization(no_capabilities).as_deref(), Some("one"));
+
+    assert_eq!(select_organization(orgs("[]")), None);
+}
+
+#[tokio::test]
+async fn session_without_last_active_org_reads_the_chat_organization_from_the_organization_list() {
+    let mut server = mockito::Server::new_async().await;
+    let list = crate::providers::test_support::mock_response(
+        &mut server,
+        "GET",
+        "/organizations",
+        200,
+        r#"[{"uuid": "chat-org", "capabilities": ["chat"]},
+            {"uuid": "api-org", "capabilities": ["api"]}]"#,
+    )
+    .await;
+    // The account's own membership order (API organization first) is not consulted.
+    let account = crate::providers::test_support::mock_response_expect(
+        &mut server,
+        "GET",
+        "/account",
+        200,
+        r#"{"memberships": [{"organization": {"uuid": "api-org"}}]}"#,
+        0,
+    )
+    .await;
+    let fetcher = ClaudeWebApiFetcher::new().with_base_url(server.url());
+    let cookie = "sessionKey=sk-ant-fixture-token";
+    let headers = ClaudeWebApiFetcher::build_headers(cookie);
+
+    let org = fetcher.get_organization_id(cookie, &headers).await.unwrap();
+
+    assert_eq!(org, "chat-org");
+    list.assert_async().await;
+    account.assert_async().await;
 }

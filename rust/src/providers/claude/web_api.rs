@@ -151,6 +151,34 @@ struct Organization {
         reason = "field mirrors the Claude API org payload; deserialized for round-trip fidelity but not read yet"
     )]
     name: Option<String>,
+    #[serde(default)]
+    capabilities: Vec<String>,
+}
+
+impl Organization {
+    fn has_capability(&self, capability: &str) -> bool {
+        self.capabilities
+            .iter()
+            .any(|c| c.eq_ignore_ascii_case(capability))
+    }
+
+    /// Exactly `["api"]`, as in CodexBar's `ClaudeWebOrganizationResponse.isApiOnly`.
+    fn is_api_only(&self) -> bool {
+        matches!(self.capabilities.as_slice(), [only] if only.eq_ignore_ascii_case("api"))
+    }
+}
+
+/// The organization CodexBar 0.84.0 reads usage from
+/// (`ClaudeWebAPIFetcher.parseOrganizationResponse`): the first one with the
+/// `chat` capability, else the first that is not API-only, else the first.
+/// An API (Console) organization has no claude.ai usage and answers 403.
+fn select_organization(orgs: Vec<Organization>) -> Option<String> {
+    let index = orgs
+        .iter()
+        .position(|o| o.has_capability("chat"))
+        .or_else(|| orgs.iter().position(|o| !o.is_api_only()))
+        .unwrap_or(0);
+    orgs.into_iter().nth(index).map(|o| o.uuid)
 }
 
 /// Usage response from Claude API.
@@ -301,7 +329,6 @@ struct AccountResponse {
 
 #[derive(Debug, Deserialize)]
 struct AccountMembership {
-    uuid: Option<String>,
     organization: Option<AccountOrganization>,
 }
 
@@ -318,19 +345,6 @@ impl AccountResponse {
                 .as_ref()
                 .and_then(|organization| organization.uuid.as_deref())
                 .is_some_and(|uuid| uuid.trim() == org_id)
-        })
-    }
-
-    fn first_membership_org_id(&self) -> Option<String> {
-        self.memberships.iter().find_map(|membership| {
-            membership
-                .organization
-                .as_ref()
-                .and_then(|organization| organization.uuid.as_deref())
-                .or(membership.uuid.as_deref())
-                .map(str::trim)
-                .filter(|uuid| !uuid.is_empty())
-                .map(ToString::to_string)
         })
     }
 }
@@ -554,19 +568,11 @@ impl ClaudeWebApiFetcher {
             return Ok(org_id);
         }
 
-        if let Ok(account) = self.get_account_info(headers).await
-            && let Some(org_id) = account.first_membership_org_id()
-        {
-            return Ok(org_id);
-        }
-
         let url = format!("{}/organizations", self.base_url);
         let response = ensure_success(self.get(&url, headers).await?, "organizations").await?;
         let orgs: Vec<Organization> = parse_json_with_body(response, "organizations").await?;
 
-        orgs.into_iter()
-            .next()
-            .map(|o| o.uuid)
+        select_organization(orgs)
             .ok_or_else(|| ProviderError::Parse("No organizations found".to_string()))
     }
 
