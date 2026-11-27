@@ -1,6 +1,10 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# CodeRabbit is the first-pass reviewer for every PR, including drafts and
-# fork PRs. CircleCI pr-check runs the builds and tests. Fork PRs are checked
+# CodeRabbit is the first-pass reviewer for every non-draft PR, including
+# fork PRs. OSS reviews are rate limited per author per repository (about 4
+# per rolling hour here), and every PR open and every push spends one, so
+# drafts are skipped and incremental reviews pause after 2 reviewed commits
+# (one push can hold both; comment `@coderabbitai review` for a deliberate final pass). CircleCI
+# pr-check runs the builds and tests. Fork PRs are checked
 # with main's -Slice ci steps in an isolated, credential-free Windows
 # environment (.github/CI.md). UI proof on a real
 # Windows build stays a human or agent responsibility (AGENTS.md).
@@ -13,8 +17,11 @@ reviews:
   high_level_summary: true
   auto_review:
     enabled: true
-    drafts: true
+    drafts: false
     auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 2
+    ignore_title_keywords:
+      - "WIP"
   path_instructions:
     - path: "rust/src/providers/**"
       instructions: >-
@@ -95,6 +102,14 @@ reviews:
           description must include screenshots or a proof note from a fresh
           Windows build. Fail if it does not. Pass for changes with no
           visible effect.
+issue_enrichment:
+  # Add related code, likely fixes and complexity to new issues. Planning
+  # stays on demand: comment `@coderabbitai plan` on an issue.
+  auto_enrich:
+    enabled: true
+  planning:
+    auto_planning:
+      enabled: false
 knowledge_base:
   code_guidelines:
     enabled: true
