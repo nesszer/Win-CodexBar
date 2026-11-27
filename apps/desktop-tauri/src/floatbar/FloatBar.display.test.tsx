@@ -104,6 +104,23 @@ describe("FloatBar", () => {
     });
   });
 
+  it("shows a declared balance text in place of the percentage", async () => {
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("deepseek", "DeepSeek", 0, {
+        balanceText: "¥231.01",
+        resetDescription: "¥231.01",
+      }),
+    ]);
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ enabledProviders: ["deepseek"] }));
+    const { container } = renderFloatBar(bootstrap({ enabledProviders: ["deepseek"] }));
+    await waitFor(() => {
+      expect(container.querySelector(".floatbar__pct")?.textContent).toBe("¥231.01");
+      expect(container.querySelector(".floatbar__pill")?.getAttribute("title")).toBe(
+        "DeepSeek: ¥231.01",
+      );
+    });
+  });
+
   it("applies warning tone when remaining drops below the high threshold", async () => {
     // highUsageThreshold = 70 → high-remaining cutoff = 30%.
     // claude at 80% used → 20% remaining → critical (also below crit cutoff 10).

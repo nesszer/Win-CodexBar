@@ -883,6 +883,17 @@
       ]
     },
     {
+      "name": "floatbar-deepseek-balance",
+      "query": "window=floatbar&fixture=deepseek-balance",
+      "size": [520, 120],
+      "steps": [
+        { "expectSelector": ".floatbar__pill" },
+        { "expectText": "¥231.01" },
+        { "expectNoText": "0%" },
+        { "screenshot": "floatbar-deepseek-balance" }
+      ]
+    },
+    {
       "name": "tray-agent-sessions-hosts",
       "query": "window=main&fixture=agent-sessions-hosts",
       "size": [310, 1032],

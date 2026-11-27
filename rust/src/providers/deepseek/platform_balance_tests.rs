@@ -20,10 +20,7 @@ fn sums_wallets_per_currency_and_prefers_funded_usd() {
     assert!(response.is_available);
 
     let snapshot = crate::providers::deepseek::DeepSeekProvider::snapshot_from_balance(response);
-    assert_eq!(
-        snapshot.primary.reset_description.as_deref(),
-        Some("$3.75 (Paid: $2.50 / Granted: $1.25)")
-    );
+    assert_eq!(snapshot.primary.reset_description.as_deref(), Some("$3.75"));
 }
 
 #[test]

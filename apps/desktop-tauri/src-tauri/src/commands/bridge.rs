@@ -395,6 +395,11 @@ pub struct ProviderUsageSnapshot {
     pub inventory: Vec<ProviderInventoryItemSnapshot>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub display_details: Vec<ProviderDisplayDetailSnapshot>,
+    /// Short balance text for a balance-only provider (upstream
+    /// `balanceOnly`); the tray status and float bar show it in place of a
+    /// percentage. Absent for metered providers and when no balance is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub balance_text: Option<String>,
     #[serde(default)]
     pub cost: Option<CostSnapshotBridge>,
     #[serde(default)]
@@ -491,6 +496,7 @@ impl Default for ProviderUsageSnapshot {
             quota_estimated: false,
             account_organization: None,
             tray_status_label: None,
+            balance_text: None,
             fetch_duration_ms: None,
             wayfinder_usage: None,
             open_ai_api_usage: None,
@@ -691,7 +697,7 @@ impl ProviderUsageSnapshot {
             usage.secondary.as_ref(),
         );
 
-        Self {
+        let mut snapshot = Self {
             provider_id: id.cli_name().to_string(),
             display_name: id.display_name().to_string(),
             primary: primary_snap,
@@ -833,13 +839,16 @@ impl ProviderUsageSnapshot {
             quota_estimated: result.quota_estimated,
             account_organization: usage.account_organization.clone(),
             tray_status_label: None,
+            balance_text: None,
             fetch_duration_ms: None,
             wayfinder_usage: result.wayfinder_usage.clone(),
             open_ai_api_usage: result.open_ai_api_usage.as_ref().map(Into::into),
             throughput: result.throughput.as_ref().map(Into::into),
             session_equivalent_forecast,
             quota_burndown,
-        }
+        };
+        snapshot.balance_text = crate::tray_presentation::balance_only_status_text(&snapshot);
+        snapshot
     }
 
     pub(super) fn from_error(

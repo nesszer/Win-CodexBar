@@ -1456,6 +1456,37 @@ fn balance_only_nous_status_row_reads_its_balance() {
 }
 
 #[test]
+fn balance_only_deepseek_status_row_reads_its_balance() {
+    let settings = Settings {
+        tray_icon_mode: TrayIconMode::PerProvider,
+        show_as_used: true,
+        ..Settings::default()
+    };
+    // A balance-only provider reports no quota length or reset; the headline
+    // description is the balance itself.
+    let mut deepseek = fake_snapshot("deepseek", "DeepSeek", 0.0);
+    deepseek.primary.reset_description = Some("¥231.01".to_string());
+    // A window with a real length keeps its percentage.
+    let mut metered = fake_snapshot("deepseek", "DeepSeek", 25.0);
+    metered.primary.window_minutes = Some(300);
+    metered.primary.reset_description = Some("¥231.01".to_string());
+
+    let balance_only = vec![deepseek];
+    let plan = TrayPresentationPlan::resolve(&settings, &balance_only, None);
+    assert_eq!(
+        plan.status_labels(Language::English),
+        vec![("deepseek".to_string(), "DeepSeek ¥231.01".to_string())]
+    );
+
+    let metered = vec![metered];
+    let plan = TrayPresentationPlan::resolve(&settings, &metered, None);
+    assert_eq!(
+        plan.status_labels(Language::English),
+        vec![("deepseek".to_string(), "DeepSeek 25% used".to_string())]
+    );
+}
+
+#[test]
 fn tokens_per_minute_metric_without_reported_minutes_is_unavailable() {
     let mut settings = Settings::default();
     settings.set_provider_metric(ProviderId::OpenAIApi, MetricPreference::TokensPerMinute);

@@ -41,6 +41,10 @@ pub(crate) struct ProviderSpec {
     /// when the headline window is informational, so a balance-only account
     /// never reads as a generic label. Empty for providers without a balance.
     pub(crate) balance_detail_ids: &'static [&'static str],
+    /// The provider reports an account balance, not a quota meter (upstream
+    /// `ProviderMetadata.balanceOnly`). Surfaces show the headline description
+    /// as the balance text where a percentage would otherwise appear.
+    pub(crate) balance_only: bool,
 }
 
 impl ProviderSpec {
@@ -115,6 +119,11 @@ impl ProviderSpec {
         self.balance_detail_ids = ids;
         self
     }
+
+    const fn balance_only(mut self) -> Self {
+        self.balance_only = true;
+        self
+    }
 }
 
 const fn spec(
@@ -145,6 +154,7 @@ const fn spec(
         aliases: &[],
         parse_aliases: &[],
         balance_detail_ids: &[],
+        balance_only: false,
     }
 }
 
@@ -383,6 +393,7 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .parse_aliases(&["code-rabbit", "code rabbit"]),
     spec(P::DeepSeek, "deepseek", "DeepSeek", "#4D6BFE")
         .labels("Balance", "Balance")
+        .balance_only()
         .credits()
         .dashboard("https://platform.deepseek.com/usage")
         .status("https://status.deepseek.com")
