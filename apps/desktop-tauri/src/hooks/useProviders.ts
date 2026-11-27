@@ -271,7 +271,7 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
         provider.secondary?.resetsAt,
         provider.modelSpecific?.resetsAt,
         provider.tertiary?.resetsAt,
-        ...(provider.extraRateWindows ?? []).map((extra) => extra.window.resetsAt),
+        ...provider.extraRateWindows.map((extra) => extra.window.resetsAt),
         provider.cost?.resetsAt,
       ];
       for (const value of candidates) {

@@ -77,7 +77,7 @@ export function weeklyBudgets(
       label: localizeWindowLabel(provider.tertiaryLabel, t) || t("DetailWindowTertiary"),
       snap: provider.tertiary,
     },
-    ...(provider.extraRateWindows ?? []).map((extra) => ({
+    ...provider.extraRateWindows.map((extra) => ({
       id: `extra-${extra.id}`,
       label:
         localizeWindowLabel(extra.title, t, language, extra.window.windowMinutes, extra.id) ||
@@ -88,7 +88,7 @@ export function weeklyBudgets(
   const result: WeeklyBudget[] = [];
   for (const window of windows) {
     const snap = window.snap;
-    if (!snap || snap.isExhausted || snap.isInformational === true) continue;
+    if (!snap || snap.isExhausted || snap.isInformational) continue;
     if (snap.windowMinutes == null || snap.windowMinutes < WEEKLY_WINDOW_MINUTES) continue;
     if (isMonthlyLimitBlockActive(snap.monthlyLimitBlock, monthlyLimitBlockNow)) continue;
     const budget = getPaceBudget(snap);

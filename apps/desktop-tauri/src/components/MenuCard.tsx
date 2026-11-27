@@ -131,7 +131,7 @@ function cardMetrics(
       lane: "tertiary",
     });
   }
-  for (const extra of provider.extraRateWindows ?? []) {
+  for (const extra of provider.extraRateWindows) {
     metrics.push({
       id: `extra-${extra.id}`,
       label:
