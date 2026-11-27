@@ -38,7 +38,7 @@ function Assert-GeneratedBindingsClean {
     $generatedDir = "apps/desktop-tauri/src/types/generated"
     Write-Host ""
     Write-Host "==> Generated bridge types are committed" -ForegroundColor Cyan
-    $drift = & git status --porcelain -- $generatedDir
+    $drift = & git status --porcelain --untracked-files=all -- $generatedDir
     if ($LASTEXITCODE -ne 0) {
         throw "git status failed with exit code $LASTEXITCODE"
     }
