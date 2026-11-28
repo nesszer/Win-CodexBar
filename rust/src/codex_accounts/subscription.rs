@@ -54,6 +54,29 @@ pub(super) async fn fetch_subscription_metadata(
     let Some(url) = resolve_subscription_url(codex_home_path) else {
         return OpenAISubscriptionFetchResult::Unavailable;
     };
+    let Ok(response) = subscription_request(api, &url, credentials, account_id)
+        .send()
+        .await
+    else {
+        return OpenAISubscriptionFetchResult::Unavailable;
+    };
+    let status = response.status().as_u16();
+    let Ok(body) = response.bytes().await else {
+        return OpenAISubscriptionFetchResult::Unavailable;
+    };
+    let Ok(body) = std::str::from_utf8(&body) else {
+        return OpenAISubscriptionFetchResult::Unavailable;
+    };
+    parse_subscription_http_response(status, body)
+}
+
+// 将请求构造与发送分开，便于在不读取凭据、不访问账号接口时验证请求契约。
+fn subscription_request(
+    api: &CodexAccountApi,
+    url: &str,
+    credentials: &AuthCredentials,
+    account_id: Option<&str>,
+) -> reqwest::RequestBuilder {
     let mut request = api
         .client
         .get(url)
@@ -67,19 +90,12 @@ pub(super) async fn fetch_subscription_metadata(
         .header("Pragma", "no-cache")
         .timeout(std::time::Duration::from_secs(8));
     if let Some(account_id) = account_id.filter(|id| !id.is_empty()) {
-        request = request.header("ChatGPT-Account-Id", account_id);
+        // 托管账号与 CLI 使用相同契约；查询参数必须指向当前选中的工作区账号。
+        request = request
+            .header("ChatGPT-Account-Id", account_id)
+            .query(&[("account_id", account_id)]);
     }
-    let Ok(response) = request.send().await else {
-        return OpenAISubscriptionFetchResult::Unavailable;
-    };
-    let status = response.status().as_u16();
-    let Ok(body) = response.bytes().await else {
-        return OpenAISubscriptionFetchResult::Unavailable;
-    };
-    let Ok(body) = std::str::from_utf8(&body) else {
-        return OpenAISubscriptionFetchResult::Unavailable;
-    };
-    parse_subscription_http_response(status, body)
+    request
 }
 
 pub(super) fn resolve_subscription_url(codex_home_path: &Path) -> Option<String> {
@@ -101,7 +117,47 @@ pub(super) fn resolve_subscription_url(codex_home_path: &Path) -> Option<String>
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_subscription_url;
+    use super::*;
+
+    #[test]
+    fn subscription_account_query_matches_header_and_encodes_account_id() {
+        // 复现 184：仅有账号请求头会返回 400，接口还要求同账号的查询参数。
+        let api = CodexAccountApi {
+            client: reqwest::Client::builder().no_proxy().build().unwrap(),
+        };
+        let credentials = AuthCredentials {
+            access_token: "synthetic-token".into(),
+            refresh_token: String::new(),
+            id_token: None,
+            account_id: None,
+            last_refresh: None,
+        };
+        for account_id in [Some("workspace-test+id&x=1/?"), None, Some("")] {
+            let request = subscription_request(
+                &api,
+                "https://chatgpt.com/backend-api/subscriptions",
+                &credentials,
+                account_id,
+            )
+            .build()
+            .unwrap();
+            let account_id = account_id.filter(|id| !id.is_empty());
+            assert_eq!(
+                request
+                    .headers()
+                    .get("ChatGPT-Account-Id")
+                    .map(|id| id.to_str().unwrap()),
+                account_id
+            );
+            assert_eq!(
+                request.url().query_pairs().collect::<Vec<_>>(),
+                account_id
+                    .map(|id| ("account_id".into(), id.into()))
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
 
     #[test]
     fn resolve_subscription_url_default() {

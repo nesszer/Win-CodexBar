@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use chrono::{DateTime, Utc};
 
 use crate::cli::serve::collection::SnapshotCollection;
-use crate::core::{ProviderId, RateWindow, RateWindowCadence};
+use crate::core::{ProviderId, RateWindow, RateWindowCadence, SubscriptionDateSource};
 
 #[derive(Debug, Clone)]
 pub(crate) struct MetricsSnapshot {
@@ -24,6 +24,12 @@ pub(in crate::cli::serve::metrics) struct ProviderMetrics {
     pub(in crate::cli::serve::metrics) codex_quota: Option<CodexQuotaMetrics>,
     pub(in crate::cli::serve::metrics) reset_credits_available: Option<i64>,
     pub(in crate::cli::serve::metrics) reset_credits_next_expiry: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_start: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_expiry: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_renewal: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_period_end: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_recorded_at: Option<DateTime<Utc>>,
+    pub(in crate::cli::serve::metrics) subscription_from_id_token: Option<bool>,
     pub(in crate::cli::serve::metrics) cost_today_usd: Option<f64>,
     pub(in crate::cli::serve::metrics) cost_last_30_days_usd: Option<f64>,
 }
@@ -98,6 +104,31 @@ impl MetricsSnapshot {
                             .filter(|credits| credits.available_count > 0)
                             .and_then(|credits| credits.next_expires_at)
                             .filter(|expiry| *expiry > input.generated_at),
+                        // 提供方已决定导出资格和来源；共享层只映射通用观测字段。
+                        subscription_start: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.starts_at),
+                        subscription_expiry: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.expires_at),
+                        subscription_renewal: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.renews_at),
+                        subscription_period_end: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.period_end),
+                        subscription_recorded_at: result
+                            .usage
+                            .subscription_observation
+                            .and_then(|dates| dates.recorded_at),
+                        subscription_from_id_token: result
+                            .usage
+                            .subscription_observation
+                            .map(|dates| dates.source == SubscriptionDateSource::CredentialRecord),
                         cost_today_usd,
                         cost_last_30_days_usd,
                     },
@@ -108,6 +139,12 @@ impl MetricsSnapshot {
                         codex_quota: None,
                         reset_credits_available: None,
                         reset_credits_next_expiry: None,
+                        subscription_start: None,
+                        subscription_expiry: None,
+                        subscription_renewal: None,
+                        subscription_period_end: None,
+                        subscription_recorded_at: None,
+                        subscription_from_id_token: None,
                         cost_today_usd,
                         cost_last_30_days_usd,
                     },
