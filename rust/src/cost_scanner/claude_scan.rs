@@ -1,14 +1,15 @@
 //! Reading one Claude transcript file into usage records, and folding those
 //! records into summaries, daily buckets and quota history.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use chrono::{DateTime, Utc};
 
+use super::claude_file_cache::{ClaudeParsedLine, claude_file_lines};
 use super::claude_incomplete::ClaudeIncompleteTracker;
 use super::claude_pricing::ClaudeScanPricingResolver;
 use super::claude_usage::{
@@ -42,92 +43,147 @@ where
         };
     };
 
-    let mut result = ClaudeFileScanResult::default();
-    // Use read_until so a final incomplete line (no trailing newline) is still
-    // processed when it is valid UTF-8 JSON, and so a single bad line does not
-    // stop the walk the way `lines().map_while(Result::ok)` would.
-    let line_result = for_each_jsonl_text_line(BufReader::new(file), |line| {
+    // Parsing is cached per file (only appended bytes are read again); the
+    // cutoff, de-duplication, incomplete tracking and pricing below run on
+    // every scan, so the result matches a cold read of the file.
+    let snapshot = claude_file_lines(path, file, cancel, pricing);
+    let mut result = ClaudeFileScanResult {
+        read_failures: snapshot.read_failures,
+        ..ClaudeFileScanResult::default()
+    };
+    for line in snapshot.lines.lines() {
         if is_cancelled(cancel) {
-            return false;
-        }
-        if line.trim().is_empty() {
-            return true;
-        }
-        let Ok(event) = serde_json::from_str::<ClaudeEvent>(line) else {
-            result.malformed_lines = result.malformed_lines.saturating_add(1);
-            return true;
-        };
-        if event.is_vertex_ai_usage_entry() {
-            return true;
-        }
-        if is_preliminary_claude_usage(&event) {
-            result.incomplete_requests = result.incomplete_requests.saturating_add(1);
-            if let Some(message) = event.message.as_ref() {
-                incomplete.record(
-                    claude_usage_dedup_key(
-                        message.id.as_deref(),
-                        event.request_id.as_deref(),
-                        event.session_id(),
-                    ),
-                    message.model.as_deref().unwrap_or("claude-3-5-sonnet"),
-                    event.parsed_timestamp(),
-                    cutoff,
-                );
-            }
-            return true;
-        }
-        if let Some(record) = claude_usage_record_from_event_with_pricing(&event, pricing)
-            && should_count_claude_record(&record, cutoff, seen)
-        {
-            result.counted += 1;
-            on_record(&record);
-        }
-        true
-    });
-    result.malformed_lines = result
-        .malformed_lines
-        .saturating_add(line_result.malformed_lines);
-    result.read_failures = line_result.read_failures;
-    result
-}
-
-/// Walk JSONL text lines from `reader`, including a final incomplete line at EOF.
-/// Continues past invalid UTF-8 segments. `on_line` returns `false` to stop early.
-pub(super) fn for_each_jsonl_text_line<R, F>(mut reader: R, mut on_line: F) -> ClaudeJsonlLineResult
-where
-    R: BufRead,
-    F: FnMut(&str) -> bool,
-{
-    let mut result = ClaudeJsonlLineResult::default();
-    let mut buf = Vec::new();
-    loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(_) => {
-                result.read_failures = result.read_failures.saturating_add(1);
-                break;
-            }
-        }
-        while matches!(buf.last(), Some(b'\n' | b'\r')) {
-            buf.pop();
-        }
-        let Ok(line) = std::str::from_utf8(&buf) else {
-            result.malformed_lines = result.malformed_lines.saturating_add(1);
-            continue;
-        };
-        if !on_line(line) {
             break;
+        }
+        match line {
+            ClaudeParsedLine::Malformed => {
+                result.malformed_lines = result.malformed_lines.saturating_add(1);
+            }
+            ClaudeParsedLine::Preliminary { row } => {
+                result.incomplete_requests = result.incomplete_requests.saturating_add(1);
+                if let Some((key, model, timestamp)) = row {
+                    incomplete.record(key.clone(), model, *timestamp, cutoff);
+                }
+            }
+            ClaudeParsedLine::Usage {
+                record,
+                cache_create_1h,
+            } => {
+                let record = repriced_claude_record(record, *cache_create_1h, pricing);
+                if should_count_claude_record(&record, cutoff, seen) {
+                    result.counted += 1;
+                    on_record(&record);
+                }
+            }
+            ClaudeParsedLine::Repeat { of, timestamp } => {
+                let Some(ClaudeParsedLine::Usage {
+                    record: anchor,
+                    cache_create_1h,
+                }) = snapshot.lines.get(*of)
+                else {
+                    continue;
+                };
+                // Same checks as `should_count_claude_record`, made before the
+                // record is materialized: almost always the anchor was counted
+                // and this repeat is a duplicate.
+                if timestamp.is_some_and(|timestamp| timestamp < *cutoff)
+                    || anchor
+                        .dedup_key
+                        .as_ref()
+                        .is_some_and(|key| seen.contains(key))
+                {
+                    continue;
+                }
+                let repeat = ClaudeUsageRecord {
+                    timestamp: *timestamp,
+                    ..anchor.clone()
+                };
+                let record = repriced_claude_record(&repeat, *cache_create_1h, pricing);
+                if should_count_claude_record(&record, cutoff, seen) {
+                    result.counted += 1;
+                    on_record(&record);
+                }
+            }
         }
     }
     result
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(super) struct ClaudeJsonlLineResult {
-    pub(super) malformed_lines: u32,
-    pub(super) read_failures: u32,
+/// Classify one transcript line for cost scanning. Lines that never affect a
+/// scan (blank lines, Vertex AI rows, non-usage events) yield `None`.
+pub(super) fn claude_parsed_line(
+    line: &str,
+    pricing: &mut ClaudeScanPricingResolver,
+) -> Option<ClaudeParsedLine> {
+    if line.trim().is_empty() {
+        return None;
+    }
+    let Ok(event) = serde_json::from_str::<ClaudeEvent>(line) else {
+        return Some(ClaudeParsedLine::Malformed);
+    };
+    if event.is_vertex_ai_usage_entry() {
+        return None;
+    }
+    if is_preliminary_claude_usage(&event) {
+        let row = event.message.as_ref().map(|message| {
+            (
+                claude_usage_dedup_key(
+                    message.id.as_deref(),
+                    event.request_id.as_deref(),
+                    event.session_id(),
+                ),
+                message
+                    .model
+                    .as_deref()
+                    .unwrap_or("claude-3-5-sonnet")
+                    .to_string(),
+                event.parsed_timestamp(),
+            )
+        });
+        return Some(ClaudeParsedLine::Preliminary { row });
+    }
+    let cache_create_1h = event
+        .message
+        .as_ref()
+        .and_then(|message| message.usage.as_ref())
+        .map(|usage| {
+            usage.one_hour_cache_creation_tokens(usage.cache_creation_input_tokens.unwrap_or(0))
+        })
+        .unwrap_or(0);
+    claude_usage_record_from_event_with_pricing(&event, pricing).map(|record| {
+        ClaudeParsedLine::Usage {
+            record,
+            cache_create_1h,
+        }
+    })
+}
+
+/// `record` with pricing recomputed by `pricing`, borrowed when unchanged.
+fn repriced_claude_record<'a>(
+    record: &'a ClaudeUsageRecord,
+    cache_create_1h: u64,
+    pricing: &mut ClaudeScanPricingResolver,
+) -> Cow<'a, ClaudeUsageRecord> {
+    let pricing_known = pricing.is_known(&record.model);
+    let computed = pricing.cost_usd_with_cache_ttl(
+        &record.model,
+        record.timestamp,
+        record.input,
+        record.cache_create,
+        cache_create_1h,
+        record.cache_read,
+        record.output,
+    );
+    let cost = computed.is_finite().then_some(computed);
+    let same_cost = cost.map(f64::to_bits) == record.cost.map(f64::to_bits);
+    if pricing_known == record.pricing_known && same_cost {
+        return Cow::Borrowed(record);
+    }
+    Cow::Owned(ClaudeUsageRecord {
+        pricing_known,
+        cost,
+        ..record.clone()
+    })
 }
 
 pub(super) fn finalize_claude_summary(
