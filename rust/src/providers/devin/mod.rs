@@ -257,10 +257,17 @@ fn snapshot_from_quota(value: &Value, org: &str) -> Result<UsageSnapshot, Provid
         .ok_or_else(|| {
             ProviderError::Parse("Devin quota response missing daily usage".to_string())
         })?;
+    let window = |used, reset_key: &str| {
+        let reset = value
+            .get(reset_key)
+            .and_then(Value::as_str)
+            .and_then(|raw| raw.parse().ok());
+        RateWindow::with_details(used, None, reset, None)
+    };
     let mut snapshot =
-        UsageSnapshot::new(RateWindow::new(daily)).with_organization(org.to_string());
+        UsageSnapshot::new(window(daily, "daily_reset_at")).with_organization(org.to_string());
     if let Some(weekly) = percent(value, &["weekly_percentage", "weeklyPercentage"]) {
-        snapshot = snapshot.with_secondary(RateWindow::new(weekly));
+        snapshot = snapshot.with_secondary(window(weekly, "weekly_reset_at"));
     }
     Ok(snapshot)
 }
@@ -268,7 +275,11 @@ fn snapshot_from_quota(value: &Value, org: &str) -> Result<UsageSnapshot, Provid
 fn fetch_result_from_quota(value: &Value, org: &str) -> Result<ProviderFetchResult, ProviderError> {
     let mut result = ProviderFetchResult::new(snapshot_from_quota(value, org)?, "api");
     if let Some(balance) = extra_usage_balance(value) {
-        result = result.with_cost(CostSnapshot::new(balance, "USD", "Extra usage balance"));
+        // Devin reports an account balance, not spend; an overdrawn account is negative.
+        let mut cost = CostSnapshot::new(0.0, "USD", "Extra usage balance");
+        cost.balance = Some(balance);
+        cost.balance_updated_at = Some(cost.updated_at);
+        result = result.with_cost(cost);
     }
     Ok(result)
 }
@@ -300,12 +311,12 @@ fn extra_usage_balance(value: &Value) -> Option<f64> {
     ]
     .iter()
     .find_map(|key| value.get(*key).and_then(Value::as_f64))
-    .filter(|value| value.is_finite() && *value >= 0.0);
+    .filter(|value| value.is_finite());
     dollars.or_else(|| {
         ["overage_balance_cents", "overageBalanceCents"]
             .iter()
             .find_map(|key| value.get(*key).and_then(Value::as_f64))
-            .filter(|value| value.is_finite() && *value >= 0.0)
+            .filter(|value| value.is_finite())
             .map(|cents| cents / 100.0)
     })
 }
@@ -331,6 +342,47 @@ mod tests {
     }
 
     #[test]
+    fn keeps_independent_optional_quota_resets() {
+        let mut quota = serde_json::json!({
+            "daily_percentage": 12, "weekly_percentage": 23,
+            "daily_reset_at": "2026-06-01T08:00:00+08:00",
+            "weekly_reset_at": "2026-06-07T00:00:00Z"
+        });
+        let snapshot = snapshot_from_quota(&quota, "demo").unwrap();
+        assert_eq!(
+            snapshot.primary.resets_at,
+            "2026-06-01T00:00:00Z".parse().ok()
+        );
+        assert_eq!(
+            snapshot.secondary.unwrap().resets_at,
+            "2026-06-07T00:00:00Z".parse().ok()
+        );
+
+        quota["daily_reset_at"] = Value::from("invalid");
+        let snapshot = snapshot_from_quota(&quota, "demo").unwrap();
+        assert!(snapshot.primary.resets_at.is_none());
+        assert!(snapshot.secondary.unwrap().resets_at.is_some());
+    }
+
+    #[test]
+    fn keeps_signed_extra_balances_in_both_units() {
+        for field in ["extra_usage_balance", "overage_balance_cents"] {
+            let amount = if field.ends_with("_cents") {
+                -250.0
+            } else {
+                -2.5
+            };
+            let quota = serde_json::json!({"daily_percentage": 12, (field): amount});
+            let cost = fetch_result_from_quota(&quota, "demo")
+                .unwrap()
+                .cost
+                .unwrap();
+            assert_eq!(cost.balance, Some(-2.5));
+            assert_eq!(cost.used, 0.0);
+        }
+    }
+
+    #[test]
     fn parses_extra_usage_balance() {
         let result = fetch_result_from_quota(
             &serde_json::json!({"daily_percentage": 0.2, "overage_balance": 12.34}),
@@ -339,7 +391,7 @@ mod tests {
         .expect("daily usage");
 
         let cost = result.cost.unwrap();
-        assert_eq!(cost.used, 12.34);
+        assert_eq!(cost.balance, Some(12.34));
         assert_eq!(cost.period, "Extra usage balance");
     }
 
@@ -351,7 +403,7 @@ mod tests {
         )
         .expect("daily usage");
 
-        assert_eq!(result.cost.unwrap().used, 70.87);
+        assert_eq!(result.cost.unwrap().balance, Some(70.87));
     }
 
     #[test]

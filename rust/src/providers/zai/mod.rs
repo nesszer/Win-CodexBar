@@ -524,7 +524,12 @@ impl ZaiProvider {
         if (token_limit.is_some() || session_token_limit.is_some())
             && let Some(mcp) = time_limit
         {
-            usage = usage.with_extra_rate_window("zai-mcp", "MCP", make_window(mcp));
+            let (id, title) = if is_weekly_time_quota(mcp) {
+                ("zai-weekly", "Weekly quota")
+            } else {
+                ("zai-mcp", "MCP")
+            };
+            usage = usage.with_extra_rate_window(id, title, make_window(mcp));
         }
 
         let unavailable_detail = (limits.is_empty() || skipped_limits > 0)
@@ -550,6 +555,10 @@ fn is_monthly_mcp_marker(l: &ZaiLimit) -> bool {
     is_time_limit_type(l.limit_type.as_deref()) && l.unit == Some(5) && l.number == Some(1)
 }
 
+fn is_weekly_time_quota(l: &ZaiLimit) -> bool {
+    l.limit_type.as_deref() == Some("TIME_LIMIT") && ZaiProvider::window_minutes(l) == Some(10_080)
+}
+
 /// Upstream `ZaiProviderDescriptor.isMonthlyMCPWindow`: the MCP window with
 /// the 30-day sentinel duration. Both its reset-window pace and its inferred
 /// monthly length follow this rule.
@@ -565,6 +574,9 @@ pub(crate) fn reset_window_pace_matches(window: &RateWindow, _now: DateTime<Utc>
 /// Upstream 0.48.0 `resetDescription`: MCP (TIME_LIMIT) → "MCP"; 5-hour
 /// token window → "5-hour"; else the explicit window label, if any.
 fn rate_window_reset_description(l: &ZaiLimit, window_mins: Option<u32>) -> Option<String> {
+    if is_weekly_time_quota(l) {
+        return Some("Weekly quota".to_string());
+    }
     if is_time_limit_type(l.limit_type.as_deref()) {
         return Some("MCP".to_string());
     }
