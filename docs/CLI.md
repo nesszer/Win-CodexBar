@@ -256,7 +256,7 @@ The desktop app can run the same server for you from Settings > Advanced > HTTP 
 | `/metrics` | Prometheus text, only with `--metrics`. Otherwise `404`. |
 | `/icons/<name>.svg` | Embedded provider icons. No auth. |
 
-`/usage` fetches the selected providers at the same time. Its error rows carry the same `errorKind` and `signInUrl` as `usage --json`.
+`/usage` fetches the selected providers at the same time. A successful row carries the same optional `pace` object as `usage --json` (`primary` and `secondary`, each with `stage`, `deltaPercent`, `expectedUsedPercent` and `willLastToReset`, following the weekly work-days setting). It is left out when neither window has a pace. Error rows carry the same `errorKind` and `signInUrl` as `usage --json`.
 
 `--refresh-interval` sets how many seconds the dashboard snapshot is cached. Default 60.
 
