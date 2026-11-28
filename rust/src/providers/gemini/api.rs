@@ -50,7 +50,7 @@ impl GeminiApi {
         let code_assist = self.load_code_assist_status(&access_token).await;
         if is_consumer_client_unsupported(&code_assist, hosted_domain.as_deref()) {
             return Err(ProviderError::Other(
-                "Gemini consumer-tier access has been retired by Google. Enable the Antigravity provider or switch to a supported Gemini Code Assist account."
+                "Google no longer supports Gemini CLI OAuth for individual, AI Pro, or Ultra accounts. Enable CodexBar's Antigravity provider, sign in to Antigravity or run `agy`, then refresh."
                     .to_string(),
             ));
         }
