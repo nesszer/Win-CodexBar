@@ -18,8 +18,16 @@ if [[ "${FAKE_GH_MODE:-ok}" == cross ]]; then
 fi
 if [[ "${1:-}" == repo && "${2:-}" == view ]]; then
   printf '%s\n' "${3:?}|https://github.com/${3:?}"
+elif [[ "${1:-}" == pr && "${2:-}" == view && " $* " == *' --json id '* ]]; then
+  printf '%s\n' 'PR_kwTEST361'
 elif [[ "${1:-}" == pr && "${2:-}" == view ]]; then
   printf '%s\n' 'https://github.com/nesszer/Win-CodexBar/pull/361'
+elif [[ "${1:-}" == api && "${2:-}" == graphql ]]; then
+  if [[ "${FAKE_GH_MODE:-ok}" == wrong-entry ]]; then
+    printf '%s\n' 'https://github.com/nesszer/Win-CodexBar/pull/362|QUEUED|1'
+  else
+    printf '%s\n' 'https://github.com/nesszer/Win-CodexBar/pull/361|QUEUED|1'
+  fi
 elif [[ "${1:-}" == issue && "${2:-}" == view ]]; then
   printf '%s\n' 'https://github.com/nesszer/Win-CodexBar/issues/123'
 elif [[ "${1:-}" == api ]]; then
@@ -130,5 +138,38 @@ bash "$repo_root/scripts/gh-safe.sh" \
 bash "$repo_root/scripts/gh-safe.sh" \
   --repo nesszer/Win-CodexBar --verify-kind release --target v1.2.3 --what-if -- \
   release upload v1.2.3 dist/app.zip >/dev/null
+
+# pr enqueue: wrapper-handled merge-queue entry, bound to the verified PR.
+: > "$log"
+bash "$repo_root/scripts/gh-safe.sh" \
+  --repo nesszer/Win-CodexBar --verify-kind pr --target 361 --what-if -- \
+  pr enqueue 361 >/dev/null
+if grep -Fq 'graphql' "$log"; then
+  echo 'pr enqueue --what-if must not call the enqueue mutation.' >&2
+  cat "$log" >&2
+  exit 1
+fi
+
+: > "$log"
+bash "$repo_root/scripts/gh-safe.sh" \
+  --repo nesszer/Win-CodexBar --verify-kind pr --target 361 -- \
+  pr enqueue 361 >/dev/null
+grep -Fq 'enqueuePullRequest' "$log" && grep -Fq 'id=PR_kwTEST361' "$log" && grep 'enqueuePullRequest' "$log" | grep -Fq ' --jq .data.enqueuePullRequest' || {
+  echo 'pr enqueue did not send the mutation for the verified PR node id.' >&2
+  cat "$log" >&2
+  exit 1
+}
+
+FAKE_GH_MODE=wrong-entry expect_fail bash "$repo_root/scripts/gh-safe.sh" \
+  --repo nesszer/Win-CodexBar --verify-kind pr --target 361 -- \
+  pr enqueue 361
+
+expect_fail bash "$repo_root/scripts/gh-safe.sh" \
+  --repo nesszer/Win-CodexBar --verify-kind pr --target 361 --what-if -- \
+  pr enqueue 362
+
+expect_fail bash "$repo_root/scripts/gh-safe.sh" \
+  --repo nesszer/Win-CodexBar --verify-kind pr --target 361 --what-if -- \
+  pr enqueue 361 --admin
 
 echo 'GitHub write-safety shell tests passed.'
