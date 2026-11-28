@@ -257,10 +257,17 @@ fn snapshot_from_quota(value: &Value, org: &str) -> Result<UsageSnapshot, Provid
         .ok_or_else(|| {
             ProviderError::Parse("Devin quota response missing daily usage".to_string())
         })?;
+    let window = |used, reset_key: &str| {
+        let reset = value
+            .get(reset_key)
+            .and_then(Value::as_str)
+            .and_then(|raw| raw.parse().ok());
+        RateWindow::with_details(used, None, reset, None)
+    };
     let mut snapshot =
-        UsageSnapshot::new(RateWindow::new(daily)).with_organization(org.to_string());
+        UsageSnapshot::new(window(daily, "daily_reset_at")).with_organization(org.to_string());
     if let Some(weekly) = percent(value, &["weekly_percentage", "weeklyPercentage"]) {
-        snapshot = snapshot.with_secondary(RateWindow::new(weekly));
+        snapshot = snapshot.with_secondary(window(weekly, "weekly_reset_at"));
     }
     Ok(snapshot)
 }
@@ -328,6 +335,29 @@ mod tests {
             snapshot_from_quota(&serde_json::json!({"daily_percentage":1.0}), "org/demo")
                 .expect("daily usage");
         assert_eq!(snapshot.primary.used_percent, 1.0);
+    }
+
+    #[test]
+    fn keeps_independent_optional_quota_resets() {
+        let mut quota = serde_json::json!({
+            "daily_percentage": 12, "weekly_percentage": 23,
+            "daily_reset_at": "2026-06-01T08:00:00+08:00",
+            "weekly_reset_at": "2026-06-07T00:00:00Z"
+        });
+        let snapshot = snapshot_from_quota(&quota, "demo").unwrap();
+        assert_eq!(
+            snapshot.primary.resets_at,
+            "2026-06-01T00:00:00Z".parse().ok()
+        );
+        assert_eq!(
+            snapshot.secondary.unwrap().resets_at,
+            "2026-06-07T00:00:00Z".parse().ok()
+        );
+
+        quota["daily_reset_at"] = Value::from("invalid");
+        let snapshot = snapshot_from_quota(&quota, "demo").unwrap();
+        assert!(snapshot.primary.resets_at.is_none());
+        assert!(snapshot.secondary.unwrap().resets_at.is_some());
     }
 
     #[test]
