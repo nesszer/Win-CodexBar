@@ -375,7 +375,7 @@ codexbar config validate
 
 `config providers`, `enable`, `disable`, `set-source`, `set-cookie`, `clear-credential` and `claude-code-credentials` accept `--format text|json`, `--json` and `--pretty`. Their JSON matches upstream:
 
-- `config providers` prints one `{provider, displayName, enabled, defaultEnabled}` object per provider. Retired providers (`kimik2`, `crossmodel`) are listed only while enabled, like in Settings. They still resolve by name, for example `--provider kimik2`.
+- `config providers` prints one `{provider, displayName, enabled, defaultEnabled, authentication}` object per provider. `authentication.supportsConfigAPIKey` is true for the providers `config set-api-key` accepts. Retired providers (`kimik2`, `crossmodel`) are listed only while enabled, like in Settings. They still resolve by name, for example `--provider kimik2`.
 - `config enable` and `config disable` print `{provider, displayName, enabled, configPath}`.
 - `config set-source` prints `{provider, displayName, enabled, source, configPath}`.
 - `config set-cookie` prints `{provider, enabled, configPath}`.

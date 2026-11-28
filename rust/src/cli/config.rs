@@ -557,6 +557,16 @@ struct ConfigProviderStatus {
     display_name: String,
     enabled: bool,
     default_enabled: bool,
+    authentication: ConfigProviderAuthentication,
+}
+
+/// The part of upstream's `authentication` object this CLI reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigProviderAuthentication {
+    /// True when `config set-api-key` accepts the provider.
+    #[serde(rename = "supportsConfigAPIKey")]
+    supports_config_api_key: bool,
 }
 
 impl ConfigProviderStatus {
@@ -571,6 +581,7 @@ impl ConfigProviderStatus {
 }
 
 fn provider_statuses(settings: &Settings) -> Vec<ConfigProviderStatus> {
+    let api_key_providers = crate::settings::get_api_key_providers();
     ProviderId::all()
         .iter()
         .filter(|id| settings.is_provider_listed(**id))
@@ -579,6 +590,9 @@ fn provider_statuses(settings: &Settings) -> Vec<ConfigProviderStatus> {
             display_name: id.display_name().to_string(),
             enabled: settings.is_provider_enabled(*id),
             default_enabled: instantiate_provider(*id).metadata().default_enabled,
+            authentication: ConfigProviderAuthentication {
+                supports_config_api_key: api_key_providers.iter().any(|info| info.id == *id),
+            },
         })
         .collect()
 }
