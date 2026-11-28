@@ -275,7 +275,23 @@ fn weekly_time_limit_primary_is_seven_days() {
     .unwrap();
     let usage = provider.parse_quota_response(&quota).unwrap().usage;
     assert_eq!(usage.primary.window_minutes, Some(10_080));
-    assert_eq!(usage.primary.reset_description.as_deref(), Some("MCP"));
+    assert_eq!(
+        usage.primary.reset_description.as_deref(),
+        Some("Weekly quota")
+    );
+}
+
+#[test]
+fn weekly_time_quota_has_its_own_extra_window_title() {
+    let parsed = parse_data(serde_json::json!({"limits": [
+        {"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 20},
+        {"type": "TIME_LIMIT", "unit": 6, "number": 1, "percentage": 40}
+    ]}))
+    .unwrap();
+    let weekly = &parsed.usage.extra_rate_windows[0];
+    assert_eq!(weekly.id, "zai-weekly");
+    assert_eq!(weekly.title, "Weekly quota");
+    assert_eq!(weekly.window.used_percent, 40.0);
 }
 
 #[test]
